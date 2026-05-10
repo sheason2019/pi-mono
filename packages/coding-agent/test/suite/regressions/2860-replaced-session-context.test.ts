@@ -18,9 +18,13 @@ function getText(message: AgentSession["messages"][number]): string {
 	if (!("content" in message)) {
 		return "";
 	}
-	return typeof message.content === "string"
-		? message.content
-		: message.content
+	const content = message.content;
+	if (content === undefined) {
+		return "";
+	}
+	return typeof content === "string"
+		? content
+		: content
 				.filter((part): part is { type: "text"; text: string } => part.type === "text")
 				.map((part) => part.text)
 				.join("");

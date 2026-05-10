@@ -181,6 +181,16 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 						],
 						timestamp: m.timestamp,
 					};
+				case "user-with-attachments": {
+					const content = typeof m.content === "string" ? [{ type: "text" as const, text: m.content }] : m.content;
+					return {
+						role: "user",
+						content,
+						timestamp: m.timestamp,
+					};
+				}
+				case "artifact":
+					return undefined;
 				case "user":
 				case "assistant":
 				case "toolResult":

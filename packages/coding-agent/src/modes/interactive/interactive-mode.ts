@@ -16,6 +16,7 @@ import {
 	type Model,
 	type OAuthProviderId,
 	type OAuthSelectPrompt,
+	type TextContent,
 } from "@earendil-works/pi-ai";
 import type {
 	AutocompleteItem,
@@ -2962,11 +2963,15 @@ export class InteractiveMode {
 	/** Extract text content from a user message */
 	private getUserMessageText(message: Message): string {
 		if (message.role !== "user") return "";
+		return this.getTextContent(message.content);
+	}
+
+	private getTextContent(content: string | (TextContent | ImageContent)[]): string {
 		const textBlocks =
-			typeof message.content === "string"
-				? [{ type: "text", text: message.content }]
-				: message.content.filter((c: { type: string }) => c.type === "text");
-		return textBlocks.map((c) => (c as { text: string }).text).join("");
+			typeof content === "string"
+				? [{ type: "text" as const, text: content }]
+				: content.filter((c) => c.type === "text");
+		return textBlocks.map((c) => c.text).join("");
 	}
 
 	/**
@@ -3065,6 +3070,23 @@ export class InteractiveMode {
 						this.editor.addToHistory?.(textContent);
 					}
 				}
+				break;
+			}
+			case "user-with-attachments": {
+				const textContent = this.getTextContent(message.content);
+				if (textContent) {
+					if (this.chatContainer.children.length > 0) {
+						this.chatContainer.addChild(new Spacer(1));
+					}
+					const userComponent = new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings());
+					this.chatContainer.addChild(userComponent);
+					if (options?.populateHistory) {
+						this.editor.addToHistory?.(textContent);
+					}
+				}
+				break;
+			}
+			case "artifact": {
 				break;
 			}
 			case "assistant": {
