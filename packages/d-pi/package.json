@@ -1,0 +1,59 @@
+{
+	"name": "@sheason/d-pi",
+	"version": "0.4.8",
+	"private": true,
+	"description": "Unified CLI entry point for D-Pi hub and peer",
+	"type": "module",
+	"bin": {
+		"d-pi": "dist/cli.cjs"
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"clean": "shx rm -rf dist",
+		"build": "npm run build:web-ui && rspack build --config rspack.config.mjs && shx chmod +x dist/cli.cjs && node scripts/write-publish-package.mjs",
+		"build:web-ui": "cd ../d-pi-web-ui && npm run build",
+		"dev": "rspack build --watch --config rspack.config.mjs",
+		"prepare:publish": "npm run clean && npm run build",
+		"pack:publish": "npm run prepare:publish && cd dist && npm pack",
+		"publish:dry": "npm run prepare:publish && cd dist && npm pack --dry-run",
+		"publish:dist": "npm run prepare:publish && cd dist && npm publish --access public",
+		"prepublishOnly": "npm run clean && npm run build",
+		"verify:e2e": "npx tsx scripts/full-e2e-verify.ts"
+	},
+	"dependencies": {
+		"socket.io-client": "^4.8.3"
+	},
+	"devDependencies": {
+		"@automerge/automerge": "^3.2.6",
+		"@earendil-works/pi-agent-core": "^0.74.0",
+		"@earendil-works/pi-ai": "^0.74.0",
+		"@earendil-works/pi-coding-agent": "^0.74.0",
+		"@earendil-works/pi-tui": "^0.74.0",
+		"@modelcontextprotocol/sdk": "^1.29.0",
+		"@rspack/cli": "^2.0.2",
+		"@rspack/core": "^2.0.2",
+		"@types/node": "^24.3.0",
+		"shx": "^0.4.0",
+		"socket.io": "^4.8.3",
+		"typebox": "^1.1.32",
+		"typescript": "^5.7.3"
+	},
+	"keywords": [
+		"pi",
+		"hub",
+		"peer",
+		"cli"
+	],
+	"author": "Mario Zechner",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/badlogic/pi-mono.git",
+		"directory": "packages/d-pi"
+	},
+	"engines": {
+		"node": ">=20.0.0"
+	}
+}

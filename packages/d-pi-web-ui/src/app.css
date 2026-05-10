@@ -1,0 +1,25 @@
+@import "../../web-ui/src/app.css";
+
+/* biome-ignore lint/suspicious/noUnknownAtRules: DaisyUI Tailwind 4 plugin */
+@plugin "daisyui" {
+	themes: light --default, dark --prefersdark;
+	logs: false;
+}
+
+html,
+body {
+	margin: 0;
+	min-height: 100%;
+	background: var(--color-background);
+	color: var(--color-foreground);
+}
+
+body {
+	height: 100vh;
+	overflow: hidden;
+}
+
+d-pi-web-app {
+	display: block;
+	height: 100vh;
+}

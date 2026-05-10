@@ -1,0 +1,571 @@
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai";
+import { AuthStorage, createAgentSessionServices, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { HubAgentAdapter } from "../../src/hub/agent/hub-agent-adapter.js";
+import { AgentRegistry } from "../../src/hub/agents/agent-registry.js";
+import { getChildAgentDir, getChildAgentSessionFile } from "../../src/hub/agents/child-agent-layout.js";
+import { type AgentRecord, MAIN_AGENT_ID } from "../../src/hub/agents/types.js";
+import { getAgentsConfigPath, getSessionFile } from "../../src/hub/config.js";
+import { HubRuntime } from "../../src/hub/runtime/hub-runtime.js";
+import { getSourcesConfigPath } from "../../src/hub/sources/source-config.js";
+import { getAgentSessionFile, initializeWorkspace } from "../../src/hub/workspace.js";
+
+const tempDirs: string[] = [];
+
+function writeJson(path: string, value: unknown): void {
+	writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function headerLine(id: string, cwd: string): string {
+	return JSON.stringify({
+		type: "session" as const,
+		version: 3,
+		id,
+		timestamp: "2025-01-01T00:00:00.000Z",
+		cwd,
+	});
+}
+
+type TestAgentRecord = Omit<AgentRecord, "parentId" | "lifecycle"> &
+	Partial<Pick<AgentRecord, "parentId" | "lifecycle">>;
+
+function seedRegistryWithChild(cwd: string, child: TestAgentRecord): void {
+	seedRegistryMainAndChildren(cwd, [child]);
+}
+
+function seedRegistryMainAndChildren(cwd: string, children: TestAgentRecord[]): void {
+	const mainSession = getSessionFile(cwd);
+	const main: AgentRecord = {
+		id: MAIN_AGENT_ID,
+		kind: "root",
+		sessionFile: mainSession,
+		createdAt: new Date(0).toISOString(),
+		lifecycle: "persistent",
+	};
+	mkdirSync(join(cwd, ".pi"), { recursive: true });
+	writeJson(getAgentsConfigPath(cwd), {
+		version: 2 as const,
+		agents: [
+			main,
+			...children.map((child) => ({
+				...child,
+				parentId: child.parentId ?? MAIN_AGENT_ID,
+				lifecycle: child.lifecycle ?? "persistent",
+			})),
+		],
+	});
+}
+
+afterEach(() => {
+	for (const d of tempDirs.splice(0)) {
+		rmSync(d, { recursive: true, force: true });
+	}
+	vi.restoreAllMocks();
+});
+
+describe("HubRuntime multi-agent orchestration", () => {
+	it("HubRuntime.open() loads an AgentRegistry (and creates one when missing)", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-orchestrator-reg-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		expect(existsSync(getAgentsConfigPath(cwd))).toBe(false);
+
+		const runtime = HubRuntime.open(cwd);
+		expect(existsSync(getAgentsConfigPath(cwd))).toBe(true);
+		expect(runtime.agentRegistry).toBeInstanceOf(AgentRegistry);
+		expect(runtime.getAgentRecords().some((r) => r.id === MAIN_AGENT_ID)).toBe(true);
+	});
+
+	it("createAgentTokenText requires explicit user and purpose metadata", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-token-identity-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		const runtime = HubRuntime.open(cwd);
+
+		await expect(
+			runtime.createAgentTokenText(MAIN_AGENT_ID, {
+				name: "guest",
+				description: "Guest access",
+				user: "",
+				purpose: "code review",
+			}),
+		).rejects.toThrow(/user/i);
+
+		const text = await runtime.createAgentTokenText(MAIN_AGENT_ID, {
+			name: "guest",
+			description: "Guest access",
+			user: "Li Xujie",
+			purpose: "code review",
+		});
+		const parsed = JSON.parse(text) as { user?: string; purpose?: string; token?: string };
+		expect(parsed.user).toBe("Li Xujie");
+		expect(parsed.purpose).toBe("code review");
+		expect(parsed.token).toMatch(/^dpi_/);
+	});
+
+	it("revokeAgentTokenText revokes tokens within the caller subtree only", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-token-revoke-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		mkdirSync(join(cwd, ".pi-hub", "agents"), { recursive: true });
+		seedRegistryMainAndChildren(cwd, [
+			{
+				id: "child-a",
+				kind: "child",
+				sessionFile: getAgentSessionFile(cwd, "child-a"),
+				createdAt: new Date(0).toISOString(),
+			},
+			{
+				id: "child-b",
+				kind: "child",
+				sessionFile: getAgentSessionFile(cwd, "child-b"),
+				createdAt: new Date(0).toISOString(),
+			},
+		]);
+		const runtime = HubRuntime.open(cwd);
+		const childAText = await runtime.createAgentTokenText("child-a", {
+			name: "child a guest",
+			description: "Child A access",
+			user: "Guest A",
+			purpose: "review child a",
+		});
+		const childA = JSON.parse(childAText) as { token: string; tokenId: string };
+		const childBText = await runtime.createAgentTokenText("child-b", {
+			name: "child b guest",
+			description: "Child B access",
+			user: "Guest B",
+			purpose: "review child b",
+		});
+		const childB = JSON.parse(childBText) as { tokenId: string };
+
+		await expect(runtime.revokeAgentTokenText("child-a", { tokenId: childB.tokenId })).rejects.toThrow(
+			/outside caller subtree/i,
+		);
+		const revokedText = await runtime.revokeAgentTokenText("child-a", { tokenId: childA.tokenId });
+
+		expect(JSON.parse(revokedText)).toEqual(
+			expect.objectContaining({ ok: true, tokenId: childA.tokenId, revokedConnections: 0 }),
+		);
+		expect(runtime.authTokenStore.authenticate(childA.token)).toBeUndefined();
+		await expect(runtime.revokeAgentTokenText(MAIN_AGENT_ID, { tokenId: "root" })).rejects.toThrow(/root token/i);
+	});
+
+	it("after open, the main agent runtime exists; children appear after initializeAgentAdapter", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-orchestrator-main-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		mkdirSync(join(cwd, ".pi-hub", "agents"), { recursive: true });
+		const childPath = getAgentSessionFile(cwd, "helper");
+		writeFileSync(childPath, `${headerLine("child-sess", cwd)}\n`, "utf8");
+		seedRegistryWithChild(cwd, {
+			id: "helper",
+			kind: "child",
+			sessionFile: childPath,
+			createdAt: new Date(0).toISOString(),
+		});
+
+		const runtime = HubRuntime.open(cwd);
+		expect(() => runtime.getAgentRuntime(MAIN_AGENT_ID)).not.toThrow();
+		expect(() => runtime.getAgentRuntime("helper")).toThrow();
+
+		const stub = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
+		await runtime.initializeAgentAdapter();
+
+		expect(() => runtime.getAgentRuntime(MAIN_AGENT_ID)).not.toThrow();
+		const helper = runtime.getAgentRuntime("helper");
+		expect(helper).toBeDefined();
+		expect(helper.sessionService).not.toBe(runtime.getRootAgentRuntime().sessionService);
+	});
+
+	it("defers peer config restarts while the agent is running and coalesces pending changes", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-peer-config-defer-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		const firstAdapter = {
+			subscribeLiveEvents: () => () => {},
+			requestInputQueuePump: vi.fn(),
+			abort: vi.fn(async () => {}),
+			dispose: vi.fn(),
+		} as unknown as HubAgentAdapter;
+		const secondAdapter = {
+			subscribeLiveEvents: () => () => {},
+			requestInputQueuePump: vi.fn(),
+			abort: vi.fn(async () => {}),
+			dispose: vi.fn(),
+		} as unknown as HubAgentAdapter;
+		const create = vi
+			.spyOn(HubAgentAdapter, "create")
+			.mockResolvedValueOnce(firstAdapter)
+			.mockResolvedValue(secondAdapter);
+		const runtime = HubRuntime.open(cwd);
+		await runtime.initializeAgentAdapter();
+		runtime.sessionService.setRunState(true);
+
+		const hub = runtime as unknown as {
+			setPeerConfigSnapshot(agentId: string, peerId: string, snapshot: unknown): void;
+			applyPendingPeerConfigForAgent(agentId: string): Promise<boolean>;
+		};
+		hub.setPeerConfigSnapshot(MAIN_AGENT_ID, "peer-a", { mcp: { first: true } });
+		hub.setPeerConfigSnapshot(MAIN_AGENT_ID, "peer-a", { mcp: { second: true } });
+		hub.setPeerConfigSnapshot(MAIN_AGENT_ID, "peer-b", { sources: [{ name: "src-b" }] });
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(firstAdapter.abort).not.toHaveBeenCalled();
+		expect(create).toHaveBeenCalledTimes(1);
+
+		runtime.sessionService.setRunState(false);
+		await hub.applyPendingPeerConfigForAgent(MAIN_AGENT_ID);
+
+		expect(create).toHaveBeenCalledTimes(2);
+		expect(firstAdapter.abort).toHaveBeenCalledOnce();
+		expect(runtime.getRootAgentRuntime().agentAdapter).toBe(secondAdapter);
+		expect(
+			(runtime as unknown as { configLayers: { listPeerIds(agentId: string): string[] } }).configLayers.listPeerIds(
+				MAIN_AGENT_ID,
+			),
+		).toEqual(["peer-a", "peer-b"]);
+
+		await runtime.stop();
+	});
+
+	it("creates child adapters with the child-specific agentDir", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-child-agent-dir-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		const childId = "helper";
+		const childDir = getChildAgentDir(cwd, childId);
+		mkdirSync(childDir, { recursive: true });
+		const childPath = getChildAgentSessionFile(cwd, childId);
+		writeFileSync(childPath, `${headerLine("child-agent-dir", cwd)}\n`, "utf8");
+		seedRegistryWithChild(cwd, {
+			id: childId,
+			kind: "child",
+			sessionFile: childPath,
+			createdAt: new Date(0).toISOString(),
+		});
+		const createArgs: unknown[] = [];
+		vi.spyOn(HubAgentAdapter, "create").mockImplementation(async (opts) => {
+			createArgs.push(opts);
+			return {
+				subscribeLiveEvents: () => () => {},
+				dispose: () => {},
+			} as unknown as HubAgentAdapter;
+		});
+
+		const runtime = HubRuntime.open(cwd);
+		await runtime.initializeAgentAdapter();
+
+		expect(createArgs).toHaveLength(2);
+		expect((createArgs[0] as { agentDir?: string }).agentDir).toBeUndefined();
+		expect((createArgs[1] as { agentDir?: string }).agentDir).toBe(childDir);
+	});
+
+	it("child-bound source that writes JSON-RPC immediately routes to the child adapter (no init race)", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-src-child-eager-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		mkdirSync(join(cwd, ".pi-hub", "agents"), { recursive: true });
+		const childPath = getAgentSessionFile(cwd, "src-child");
+		writeFileSync(childPath, `${headerLine("child-sess-eager", cwd)}\n`, "utf8");
+		seedRegistryWithChild(cwd, {
+			id: "src-child",
+			kind: "child",
+			sessionFile: childPath,
+			createdAt: new Date(0).toISOString(),
+		});
+
+		const rpcLine = JSON.stringify({
+			jsonrpc: "2.0",
+			method: "queue/write",
+			params: { content: "immediate" },
+		});
+		const nodeArg = `process.stdout.write(${JSON.stringify(rpcLine)}+String.fromCharCode(10))`;
+		writeFileSync(
+			getSourcesConfigPath(cwd),
+			`${JSON.stringify(
+				{
+					sources: [
+						{
+							name: "eager-source",
+							transport: "stdio",
+							command: process.execPath,
+							args: ["-e", nodeArg],
+							agentId: "src-child",
+						},
+					],
+				},
+				null,
+				2,
+			)}\n`,
+			"utf8",
+		);
+
+		const childSubmit = vi.fn().mockResolvedValue(undefined);
+		const mainStub = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+			enqueueFromSource: vi.fn().mockResolvedValue(undefined),
+		} as unknown as HubAgentAdapter;
+		const childStub = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+			enqueueFromSource: childSubmit,
+		} as unknown as HubAgentAdapter;
+		let createN = 0;
+		vi.spyOn(HubAgentAdapter, "create").mockImplementation(async () => {
+			createN += 1;
+			return createN === 1 ? mainStub : childStub;
+		});
+
+		const runtime = HubRuntime.open(cwd);
+		await runtime.initializeAgentAdapter();
+
+		await vi.waitFor(() => expect(childSubmit).toHaveBeenCalled(), { timeout: 5000 });
+		expect(childSubmit).toHaveBeenCalledWith("eager-source", "immediate");
+		const srcStatus = runtime.sourceHost.getStatuses().find((s) => s.name === "eager-source");
+		expect(srcStatus?.error).toBeUndefined();
+		expect(srcStatus?.status).not.toBe("error");
+	});
+
+	it("getAgentRuntime and getRootAgentRuntime return the root agent shell", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-orchestrator-get-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		const runtime = HubRuntime.open(cwd);
+		const a = runtime.getRootAgentRuntime();
+		const b = runtime.getAgentRuntime(MAIN_AGENT_ID);
+		const c = runtime.getAgentRuntime();
+		expect(a).toBe(b);
+		expect(b).toBe(c);
+	});
+
+	it("getAgentRuntime fails clearly for an unknown id", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-orchestrator-unknown-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		const runtime = HubRuntime.open(cwd);
+		expect(() => runtime.getAgentRuntime("no-such")).toThrow(/Unknown agent id: no-such/);
+	});
+
+	it("compatibility fields match the main agent runtime", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-orchestrator-alias-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		const runtime = HubRuntime.open(cwd);
+		const main = runtime.getRootAgentRuntime();
+		expect(runtime.sessionService).toBe(main.sessionService);
+		expect(runtime.peerRegistry).toBe(main.peerRegistry);
+		expect(runtime.tools).toBe(main.tools);
+		expect(runtime.peerToolBridge).toBe(main.peerToolBridge);
+
+		const stub = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
+		await runtime.initializeAgentAdapter();
+		expect(runtime.agentAdapter).toBe(main.agentAdapter);
+	});
+
+	it("stop() disposes all agent runtimes and live forwarding", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-orchestrator-stop-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		mkdirSync(join(cwd, ".pi-hub", "agents"), { recursive: true });
+		const childPath = getAgentSessionFile(cwd, "w2");
+		writeFileSync(childPath, `${headerLine("w2", cwd)}\n`, "utf8");
+		seedRegistryWithChild(cwd, {
+			id: "w2",
+			kind: "child",
+			sessionFile: childPath,
+			createdAt: new Date(0).toISOString(),
+		});
+
+		const mainDispose = vi.fn();
+		const childDispose = vi.fn();
+		const mockAdapter = (dispose: () => void): HubAgentAdapter =>
+			({
+				subscribeLiveEvents: () => () => {},
+				dispose,
+			}) as unknown as HubAgentAdapter;
+
+		let call = 0;
+		vi.spyOn(HubAgentAdapter, "create").mockImplementation(async () => {
+			call += 1;
+			if (call === 1) {
+				return mockAdapter(mainDispose);
+			}
+			return mockAdapter(childDispose);
+		});
+
+		const runtime = HubRuntime.open(cwd);
+		await runtime.initializeAgentAdapter();
+		const rtMain = runtime.getRootAgentRuntime();
+		const rtChild = runtime.getAgentRuntime("w2");
+		expect(rtMain.agentAdapter).toBeDefined();
+		expect(rtChild.agentAdapter).toBeDefined();
+		await runtime.stop();
+		expect(mainDispose).toHaveBeenCalled();
+		expect(childDispose).toHaveBeenCalled();
+	});
+
+	it("rolls back when a child agent adapter fails after main and an earlier child started (disposes started runtimes, clears children from map)", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-orchestrator-rollback-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		mkdirSync(join(cwd, ".pi-hub", "agents"), { recursive: true });
+		const alphaPath = getAgentSessionFile(cwd, "alpha");
+		const betaPath = getAgentSessionFile(cwd, "beta");
+		writeFileSync(alphaPath, `${headerLine("sess-alpha", cwd)}\n`, "utf8");
+		writeFileSync(betaPath, `${headerLine("sess-beta", cwd)}\n`, "utf8");
+		seedRegistryMainAndChildren(cwd, [
+			{
+				id: "alpha",
+				kind: "child",
+				sessionFile: alphaPath,
+				createdAt: new Date(0).toISOString(),
+			},
+			{
+				id: "beta",
+				kind: "child",
+				sessionFile: betaPath,
+				createdAt: new Date(0).toISOString(),
+			},
+		]);
+
+		const mainDispose = vi.fn();
+		const alphaDispose = vi.fn();
+		const mockAdapter = (dispose: () => void): HubAgentAdapter =>
+			({
+				subscribeLiveEvents: () => () => {},
+				dispose,
+			}) as unknown as HubAgentAdapter;
+
+		let createN = 0;
+		vi.spyOn(HubAgentAdapter, "create").mockImplementation(async () => {
+			createN += 1;
+			if (createN === 1) {
+				return mockAdapter(mainDispose);
+			}
+			if (createN === 2) {
+				return mockAdapter(alphaDispose);
+			}
+			throw new Error("beta-adapter-fail");
+		});
+
+		const runtime = HubRuntime.open(cwd);
+		await expect(runtime.initializeAgentAdapter()).rejects.toThrow(/beta-adapter-fail/);
+
+		expect(createN).toBe(3);
+		expect(mainDispose).toHaveBeenCalled();
+		expect(alphaDispose).toHaveBeenCalled();
+		expect(runtime.getRootAgentRuntime().agentAdapter).toBeUndefined();
+		expect(() => runtime.getAgentRuntime("alpha")).toThrow(/Unknown agent id: alpha/);
+		expect(() => runtime.getAgentRuntime("beta")).toThrow(/Unknown agent id: beta/);
+
+		await expect(runtime.stop()).resolves.toBeUndefined();
+		await expect(runtime.stop()).resolves.toBeUndefined();
+	});
+
+	it("initializeAgentAdapter passes services and model through to HubAgentAdapter.create for main (not overridden by undefined base fields)", async () => {
+		const workspaceDir = mkdtempSync(join(tmpdir(), "hub-rt-merge-order-"));
+		const agentDir = mkdtempSync(join(tmpdir(), "hub-rt-merge-order-agent-"));
+		tempDirs.push(workspaceDir, agentDir);
+		initializeWorkspace(workspaceDir);
+
+		const faux = registerFauxProvider({
+			models: [{ id: "faux-merge", name: "Faux merge", reasoning: false }],
+		});
+		faux.setResponses([fauxAssistantMessage("ok")]);
+
+		const authStorage = AuthStorage.inMemory();
+		authStorage.setRuntimeApiKey(faux.getModel().provider, "faux-key");
+		const modelRegistry = ModelRegistry.inMemory(authStorage);
+		modelRegistry.registerProvider(faux.getModel().provider, {
+			baseUrl: faux.getModel().baseUrl,
+			apiKey: "faux-key",
+			api: faux.api,
+			models: faux.models.map((model) => ({
+				id: model.id,
+				name: model.name,
+				api: model.api,
+				reasoning: model.reasoning,
+				input: model.input,
+				cost: model.cost,
+				contextWindow: model.contextWindow,
+				maxTokens: model.maxTokens,
+				baseUrl: model.baseUrl,
+			})),
+		});
+
+		const services = await createAgentSessionServices({
+			cwd: workspaceDir,
+			agentDir,
+			authStorage,
+			modelRegistry,
+		});
+
+		const stub = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+		const createSpy = vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
+
+		const runtime = HubRuntime.open(workspaceDir);
+		await runtime.initializeAgentAdapter({
+			services,
+			model: faux.getModel(),
+		});
+
+		expect(createSpy).toHaveBeenCalled();
+		const opts = createSpy.mock.calls[0]![0]!;
+		expect(opts.tools).toBe(runtime.getRootAgentRuntime().tools);
+		expect(opts.model).toBe(faux.getModel());
+		expect(opts.services).toBe(services);
+	});
+
+	it("stop() clears the agent runtime map (one-shot teardown; getRootAgentRuntime throws afterwards)", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-orchestrator-oneshot-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		const stub = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
+		const runtime = HubRuntime.open(cwd);
+		await runtime.initializeAgentAdapter();
+		await runtime.stop();
+		expect(() => runtime.getRootAgentRuntime()).toThrow(/Unknown agent id: root/);
+	});
+
+	it("stop() clears subscribeAllSessionServiceEvents fanout state (no stale listener arrays)", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-fanout-stop-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		const stub = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
+		const runtime = HubRuntime.open(cwd);
+		await runtime.initializeAgentAdapter();
+		expect(runtime.getSessionFanoutEntryCountForTest()).toBe(0);
+		const u = runtime.subscribeAllSessionServiceEvents(() => {});
+		expect(runtime.getSessionFanoutEntryCountForTest()).toBe(1);
+		u();
+		expect(runtime.getSessionFanoutEntryCountForTest()).toBe(0);
+		runtime.subscribeAllSessionServiceEvents(() => {});
+		expect(runtime.getSessionFanoutEntryCountForTest()).toBe(1);
+		await runtime.stop();
+		expect(runtime.getSessionFanoutEntryCountForTest()).toBe(0);
+	});
+});
