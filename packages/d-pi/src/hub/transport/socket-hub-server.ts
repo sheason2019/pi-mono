@@ -99,7 +99,7 @@ interface SocketFanoutStats {
 }
 
 type PendingCrdtFanout = {
-	timer: ReturnType<typeof setTimeout>;
+	timer?: ReturnType<typeof setTimeout>;
 	eventCount: number;
 	reason: "session" | "live";
 	startedAt: number;
@@ -438,7 +438,9 @@ export class SocketHubServer {
 		this.socketHostIds.clear();
 		this.crdtSyncStatesBySocketId.clear();
 		for (const pending of this.pendingCrdtFanoutsByAgentId.values()) {
-			clearTimeout(pending.timer);
+			if (pending.timer) {
+				clearTimeout(pending.timer);
+			}
 		}
 		this.pendingCrdtFanoutsByAgentId.clear();
 		for (const timer of this.compactCheckTimersByAgentId.values()) {
@@ -1158,7 +1160,9 @@ export class SocketHubServer {
 				view.compactHistory();
 				const pending = this.pendingCrdtFanoutsByAgentId.get(agentId);
 				if (pending) {
-					clearTimeout(pending.timer);
+					if (pending.timer) {
+						clearTimeout(pending.timer);
+					}
 					this.pendingCrdtFanoutsByAgentId.delete(agentId);
 				}
 			}
@@ -1253,10 +1257,24 @@ export class SocketHubServer {
 
 	private scheduleCrdtFanoutForAgent(agentId: string, reason: "session" | "live", delayMs: number): void {
 		const existing = this.pendingCrdtFanoutsByAgentId.get(agentId);
+		if (delayMs <= 0) {
+			if (existing?.timer) {
+				clearTimeout(existing.timer);
+			}
+			this.pendingCrdtFanoutsByAgentId.set(agentId, {
+				eventCount: (existing?.eventCount ?? 0) + 1,
+				reason,
+				startedAt: existing?.startedAt ?? Date.now(),
+			});
+			this.flushCrdtFanoutForAgent(agentId);
+			return;
+		}
 		if (existing) {
 			existing.eventCount += 1;
 			if (reason === "session" && existing.reason === "live") {
-				clearTimeout(existing.timer);
+				if (existing.timer) {
+					clearTimeout(existing.timer);
+				}
 				existing.timer = setTimeout(() => {
 					this.flushCrdtFanoutForAgent(agentId);
 				}, SESSION_CRDT_FANOUT_DEBOUNCE_MS);
@@ -1317,7 +1335,7 @@ export class SocketHubServer {
 		}
 		this.scheduleCompactCheckForAgent(agentId);
 		if (this.hasConnectedCrdtPeerForAgent(agentId)) {
-			this.scheduleCrdtFanoutForAgent(agentId, "session", SESSION_CRDT_FANOUT_DEBOUNCE_MS);
+			this.scheduleCrdtFanoutForAgent(agentId, "session", 0);
 		}
 	}
 
