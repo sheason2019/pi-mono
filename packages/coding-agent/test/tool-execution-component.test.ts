@@ -2,7 +2,7 @@ import { join, resolve } from "node:path";
 import { Text, type TUI } from "@earendil-works/pi-tui";
 import stripAnsi from "strip-ansi";
 import { Type } from "typebox";
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { getReadmePath } from "../src/config.js";
 import type { ToolDefinition } from "../src/core/extensions/types.js";
 import { type BashOperations, createBashToolDefinition } from "../src/core/tools/bash.js";
@@ -33,6 +33,11 @@ function createFakeTui(): TUI {
 describe("ToolExecutionComponent parity", () => {
 	beforeAll(() => {
 		initTheme("dark");
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.restoreAllMocks();
 	});
 
 	test("stacks custom call and result renderers like the old implementation", () => {
@@ -121,6 +126,26 @@ describe("ToolExecutionComponent parity", () => {
 		);
 		expect(updates).toEqual([{ content: [], details: undefined }]);
 		await promise;
+	});
+
+	test("bash elapsed timer refreshes running renders at a sub-second cadence", () => {
+		vi.useFakeTimers();
+		const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+		const component = new ToolExecutionComponent(
+			"bash",
+			"tool-bash-elapsed",
+			{ command: "sleep 10" },
+			{},
+			createBashToolDefinition(process.cwd()),
+			createFakeTui(),
+			process.cwd(),
+		);
+
+		component.markExecutionStarted();
+		component.updateResult({ content: [], details: undefined, isError: false }, true);
+
+		expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 100);
+		component.updateResult({ content: [], details: undefined, isError: false }, false);
 	});
 
 	test("does not duplicate built-in headers when passed the active built-in definition", () => {

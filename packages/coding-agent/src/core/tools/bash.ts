@@ -152,6 +152,7 @@ export interface BashToolOptions {
 
 const BASH_PREVIEW_LINES = 5;
 const BASH_UPDATE_THROTTLE_MS = 100;
+const BASH_ELAPSED_REFRESH_MS = 100;
 
 type BashRenderState = {
 	startedAt: number | undefined;
@@ -410,7 +411,7 @@ export function createBashToolDefinition(
 		renderResult(result, options, _theme, context) {
 			const state = context.state;
 			if (state.startedAt !== undefined && options.isPartial && !state.interval) {
-				state.interval = setInterval(() => context.invalidate(), 1000);
+				state.interval = setInterval(() => context.invalidate(), BASH_ELAPSED_REFRESH_MS);
 			}
 			if (!options.isPartial || context.isError) {
 				state.endedAt ??= Date.now();
