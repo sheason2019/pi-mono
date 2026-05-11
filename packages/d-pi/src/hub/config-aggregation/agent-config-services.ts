@@ -12,8 +12,17 @@ import {
 	type Skill,
 } from "@earendil-works/pi-coding-agent";
 import { getWorkspaceDir } from "../config.js";
+import { remoteMcpResourceToken } from "../mcp/remote-mcp-tools.js";
+import type { McpRuntimeStatus } from "../mcp/types.js";
 import { mergeConfigLayers } from "./merge-config.js";
-import type { ConfigLayerSource, PeerConfigJsonLayers, PeerSkillSnapshot } from "./types.js";
+import type { PeerConfigJsonLayers } from "./types.js";
+
+export const D_PI_PEER_RESOURCES_SKILL_NAME = "d-pi-peer-resources";
+
+export interface PeerMcpIndexSnapshot {
+	peerId: string;
+	servers: McpRuntimeStatus[];
+}
 
 export interface CreateAggregatedAgentSessionServicesOptions {
 	cwd: string;
@@ -21,6 +30,7 @@ export interface CreateAggregatedAgentSessionServicesOptions {
 	layers: PeerConfigJsonLayers[];
 	mergedModelsFile?: string;
 	resourceLoaderOptions?: CreateAgentSessionServicesOptions["resourceLoaderOptions"];
+	peerMcpSnapshots?: PeerMcpIndexSnapshot[];
 }
 
 export interface AggregatedAgentSessionServices {
@@ -49,45 +59,118 @@ function createReadOnlySettingsManager(settings: unknown): SettingsManager {
 	});
 }
 
-function peerSkillSourceLabel(source: ConfigLayerSource): string {
-	return source.kind === "peer" ? source.peerId : "hub";
+function safePathToken(value: string): string {
+	const safe = value.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
+	const hash = createHash("sha256").update(value).digest("hex").slice(0, 8);
+	if (safe.length === 0) {
+		return `x_${hash}`;
+	}
+	return safe.length <= 40 ? safe : `${safe.slice(0, 40)}_${hash}`;
 }
 
-function materializePeerSkills(cwd: string, layers: PeerConfigJsonLayers[]): Skill[] {
-	const skills: Skill[] = [];
+interface MaterializedPeerResources {
+	metaSkill: Skill;
+}
+
+function materializePeerResources(
+	cwd: string,
+	layers: PeerConfigJsonLayers[],
+	peerMcpSnapshots: PeerMcpIndexSnapshot[] = [],
+): MaterializedPeerResources {
 	const root = join(getWorkspaceDir(cwd), "peer-resources");
+	const metaDir = join(root, D_PI_PEER_RESOURCES_SKILL_NAME);
+	const metaFilePath = join(metaDir, "SKILL.md");
+	mkdirSync(metaDir, { recursive: true });
+	const lines = [
+		"---",
+		`name: ${D_PI_PEER_RESOURCES_SKILL_NAME}`,
+		"description: Discover peer-provided D-Pi skills, context, and MCP capabilities.",
+		"---",
+		"",
+		"# D-Pi Peer Resources",
+		"",
+		"Use this meta skill when hub-local skills and MCP tools do not cover the task.",
+		"Peer resources change dynamically; this file is regenerated from the current peer configuration.",
+		"",
+	];
+	let hasPeerResources = false;
 	for (let layerIndex = 0; layerIndex < layers.length; layerIndex += 1) {
 		const layer = layers[layerIndex]!;
-		if (layer.source?.kind !== "peer" || !layer.skills) {
+		if (layer.source?.kind !== "peer") {
 			continue;
 		}
-		for (let skillIndex = 0; skillIndex < layer.skills.length; skillIndex += 1) {
-			const skill = layer.skills[skillIndex]!;
-			const sourceKey = [layer.source.peerId, layer.source.scope, layerIndex, skillIndex, skill.filePath].join("\0");
+		const peerId = layer.source.peerId;
+		const peerToken = safePathToken(peerId);
+		if ((layer.contextFiles?.length ?? 0) > 0 || (layer.skills?.length ?? 0) > 0) {
+			hasPeerResources = true;
+			lines.push(`## Peer ${peerId} (${layer.source.scope})`, "");
+		}
+		for (const contextFile of layer.contextFiles ?? []) {
+			lines.push(`### Context file: ${contextFile.path}`, "", "```text", contextFile.content, "```", "");
+		}
+		const skills = layer.skills ?? [];
+		for (let skillIndex = 0; skillIndex < skills.length; skillIndex += 1) {
+			const skill = skills[skillIndex]!;
+			const sourceKey = [peerId, layer.source.scope, skill.filePath, skill.name].join("\0");
 			const sourceToken = createHash("sha256").update(sourceKey).digest("hex").slice(0, 12);
-			const dir = join(root, layer.source.peerId, "skills", sourceToken, skill.name);
+			const dir = join(root, "peers", peerToken, layer.source.scope, "skills", sourceToken, skill.name);
 			mkdirSync(dir, { recursive: true });
 			const filePath = join(dir, "SKILL.md");
 			writeFileSync(filePath, skill.content, "utf8");
-			skills.push(createPeerSkill(skill, layer.source, filePath));
+			lines.push(`### Skill: ${skill.name}`, "", `Description: ${skill.description}`, `Location: ${filePath}`, "");
+			if (skill.disableModelInvocation === true) {
+				lines.push("This skill is explicit-invocation only.", "");
+			}
 		}
 	}
-	return skills;
-}
-
-function createPeerSkill(skill: PeerSkillSnapshot, source: ConfigLayerSource, filePath: string): Skill {
-	const baseDir = dirname(filePath);
+	if (!hasPeerResources) {
+		lines.push("No peer-provided skills or context files are currently available.", "");
+	}
+	lines.push("## Peer MCP capabilities", "");
+	lines.push(
+		"Call `peer_mcp` with `peer-id`, exact `tool-name`, and `args` when a listed peer MCP tool is needed.",
+		"",
+	);
+	let hasPeerMcpTools = false;
+	for (const peer of [...peerMcpSnapshots].sort((a, b) => a.peerId.localeCompare(b.peerId))) {
+		const runningServers = peer.servers.filter((server) => server.status === "running");
+		if (runningServers.length === 0) {
+			continue;
+		}
+		lines.push(`### Peer MCP: ${peer.peerId}`, "");
+		for (const server of [...runningServers].sort((a, b) => a.name.localeCompare(b.name))) {
+			const resourceId = server.resourceId ?? server.name;
+			lines.push(`- Server: ${server.name}`);
+			lines.push(`  Resource ID: ${resourceId}`);
+			for (const tool of [...server.capabilities.tools].sort((a, b) => a.name.localeCompare(b.name))) {
+				hasPeerMcpTools = true;
+				const remoteToolName = `mcp__${remoteMcpResourceToken(peer.peerId, resourceId)}__${tool.name}`;
+				lines.push(`  - Tool: ${remoteToolName}`);
+				if (tool.description) {
+					lines.push(`    Description: ${tool.description}`);
+				}
+			}
+			lines.push("");
+		}
+	}
+	if (!hasPeerMcpTools) {
+		lines.push("No peer-provided MCP tools are currently available.", "");
+	}
+	writeFileSync(metaFilePath, `${lines.join("\n").trimEnd()}\n`, "utf8");
+	const baseDir = dirname(metaFilePath);
 	return {
-		name: skill.name,
-		description: skill.description,
-		filePath,
-		baseDir,
-		sourceInfo: createSyntheticSourceInfo(filePath, {
-			source: peerSkillSourceLabel(source),
-			scope: "temporary",
+		metaSkill: {
+			name: D_PI_PEER_RESOURCES_SKILL_NAME,
+			description: "Discover peer-provided D-Pi skills, context, and MCP capabilities.",
+			filePath: metaFilePath,
 			baseDir,
-		}),
-		disableModelInvocation: skill.disableModelInvocation === true,
+			sourceInfo: createSyntheticSourceInfo(metaFilePath, {
+				source: "d-pi",
+				scope: "temporary",
+				baseDir,
+			}),
+			disableModelInvocation: false,
+		},
 	};
 }
 
@@ -95,7 +178,12 @@ export async function createAggregatedAgentSessionServices(
 	options: CreateAggregatedAgentSessionServicesOptions,
 ): Promise<AggregatedAgentSessionServices> {
 	const merged = mergeConfigLayers(options.layers);
-	const peerSkills = materializePeerSkills(options.cwd, options.layers);
+	const promptStableMerged = mergeConfigLayers(
+		options.layers.map((layer) =>
+			layer.source?.kind === "peer" ? { ...layer, skills: undefined, contextFiles: undefined } : layer,
+		),
+	);
+	const peerResources = materializePeerResources(options.cwd, options.layers, options.peerMcpSnapshots);
 	const mergedModelsFile = materializeAggregatedModelsConfig({
 		cwd: options.cwd,
 		layers: options.layers,
@@ -117,18 +205,18 @@ export async function createAggregatedAgentSessionServices(
 			skillsOverride: (base) => {
 				const upstream = upstreamSkillsOverride ? upstreamSkillsOverride(base) : base;
 				return {
-					skills: [...upstream.skills, ...peerSkills],
+					skills: [...upstream.skills, peerResources.metaSkill],
 					diagnostics: upstream.diagnostics,
 				};
 			},
-			...(merged.contextFiles.length > 0
+			...(promptStableMerged.contextFiles.length > 0
 				? {
 						agentsFilesOverride: (base: { agentsFiles: Array<{ path: string; content: string }> }) => ({
 							agentsFiles: [
 								...(upstreamAgentsFilesOverride
 									? upstreamAgentsFilesOverride(base).agentsFiles
 									: base.agentsFiles),
-								...merged.contextFiles,
+								...promptStableMerged.contextFiles,
 							],
 						}),
 					}

@@ -253,7 +253,34 @@ describe("HubAgentAdapter.reload refreshes models", () => {
 
 		await adapter.reload();
 
-		expect(setModel).toHaveBeenCalledWith(refreshedModel);
+		expect(setModel).toHaveBeenCalledWith(refreshedModel, { persistDefault: false });
+	});
+
+	it("sets the active model without updating shared default settings", async () => {
+		const selectedModel = { id: "selected", provider: "test" } as Model<Api>;
+		const setModel = vi.fn(async (_model: Model<Api>, _options?: unknown) => {});
+		const services = {
+			modelRegistry: {
+				getAvailable: () => [selectedModel],
+			},
+		} as unknown as AgentSessionServices;
+		const session = {
+			...makeMinimalAgentSession(),
+			setModel,
+		} as unknown as AgentSession;
+		const adapter = new HubAgentAdapterForTest({
+			sessionService: service,
+			session,
+			services,
+			extensionsResult: minimalExtensions,
+			resourceLoader: minimalResourceLoader,
+			diagnostics: [],
+			tools: hubAdapterReloadTestTools,
+		});
+
+		await adapter.setModel(selectedModel);
+
+		expect(setModel).toHaveBeenCalledWith(selectedModel, { persistDefault: false });
 	});
 
 	it("reload re-materializes aggregated model layers before refreshing the registry", async () => {
@@ -287,6 +314,11 @@ describe("HubAgentAdapter.reload refreshes models", () => {
 			(await adapter.getAvailableModels()).some(
 				(model) => model.provider === "reload-test" && model.id === "after-reload",
 			),
+		).toBe(true);
+		expect(
+			service
+				.getSnapshot()
+				.availableModels.some((model) => model.provider === "reload-test" && model.modelId === "after-reload"),
 		).toBe(true);
 	});
 });

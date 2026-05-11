@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { PeerRegistry } from "../peers/peer-registry.js";
+import { createPeerMcpRouterToolDefinition } from "./peer-mcp-router.js";
 import type { PeerToolBridge } from "./peer-tool-bridge.js";
 import { createPeerToolDefinitions } from "./peer-tools.js";
 
@@ -20,6 +21,7 @@ export function createHubTools(options: CreateHubToolsOptions): ToolDefinition[]
 	const { cwd, peerToolBridge, sharedTools, agentTools, allowHostExecutor } = options;
 	return [
 		...createPeerToolDefinitions(cwd, peerToolBridge, { allowHostExecutor }),
+		createPeerMcpRouterToolDefinition(peerToolBridge),
 		...(sharedTools ?? []),
 		...(agentTools ?? []),
 	];

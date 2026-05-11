@@ -7,7 +7,6 @@ import { type AgentTokenToolHost, createAgentTokenToolDefinitions } from "../aut
 import type { PeerConfigJsonLayers } from "../config-aggregation/types.js";
 import type { McpClientHandle } from "../mcp/mcp-client.js";
 import { McpHost } from "../mcp/mcp-host.js";
-import { createRemoteMcpToolDefinitions } from "../mcp/remote-mcp-tools.js";
 import type { McpServerConfig } from "../mcp/types.js";
 import { PeerRegistry } from "../peers/peer-registry.js";
 import type { RegisteredPeer } from "../peers/peer-types.js";
@@ -214,6 +213,11 @@ export class HubAgentRuntime {
 			agentDir: this.agentDir,
 			configLayers: this.getConfigLayers?.(),
 			getConfigLayers: this.getConfigLayers,
+			getPeerMcpSnapshots: () =>
+				this.peerRegistry.list().map((peer) => ({
+					peerId: peer.peerId,
+					servers: peer.mcpSnapshot?.servers ?? [],
+				})),
 			sessionService: this.sessionService,
 			tools: this.tools,
 			services: this.services,
@@ -249,22 +253,6 @@ export class HubAgentRuntime {
 		}
 		this.tools.length = writeIndex;
 		this.remoteMcpToolNames.clear();
-		for (const peer of this.peerRegistry.list()) {
-			const snapshot = peer.mcpSnapshot;
-			if (!snapshot) {
-				continue;
-			}
-			this.tools.push(
-				...createRemoteMcpToolDefinitions({
-					peerId: peer.peerId,
-					servers: snapshot.servers,
-					bridge: this.peerToolBridge,
-				}).map((tool) => {
-					this.remoteMcpToolNames.add(tool.name);
-					return tool;
-				}),
-			);
-		}
 	}
 
 	async restartAdapter(): Promise<void> {

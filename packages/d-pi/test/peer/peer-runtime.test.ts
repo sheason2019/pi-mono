@@ -1,6 +1,13 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { HUB_PROTOCOL_VERSION, type McpRuntimeStatus, type SourceRuntimeStatus } from "../../src/hub/index.js";
 import { PeerRuntime } from "../../src/peer/runtime/peer-runtime.js";
+
+function writeJson(path: string, value: unknown): void {
+	writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
 
 describe("PeerRuntime hub binding", () => {
 	it("includes agentId in hello when set (e.g. child-a)", () => {
@@ -136,6 +143,43 @@ describe("PeerRuntime hub binding", () => {
 
 		expect(calls).toEqual(["mcp", "connect", "config", "sync", "source"]);
 		expect(peer.hello).not.toHaveProperty("configHash");
+	});
+
+	it("uploads a fresh peer config snapshot before hub reload commands", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "peer-runtime-reload-config-"));
+		try {
+			mkdirSync(join(cwd, ".pi"), { recursive: true });
+			writeJson(join(cwd, ".pi", "models.json"), {
+				providers: { local: { models: [{ id: "before-reload", api: "openai-responses" }] } },
+			});
+			const peer = new PeerRuntime({ hubUrl: "http://127.0.0.1:1", version: "t", cwd });
+			writeJson(join(cwd, ".pi", "models.json"), {
+				providers: { local: { models: [{ id: "after-reload", api: "openai-responses" }] } },
+			});
+			const uploadConfig = vi.spyOn(peer.client, "uploadConfig").mockResolvedValue(undefined);
+			const invokeCommand = vi.spyOn(peer.client, "invokeCommand").mockResolvedValue(undefined);
+
+			await peer.invokeCommand("reload");
+
+			expect(uploadConfig.mock.invocationCallOrder[0]).toBeLessThan(invokeCommand.mock.invocationCallOrder[0] ?? 0);
+			expect(uploadConfig).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configSnapshot: expect.objectContaining({
+						cwdLayer: expect.objectContaining({
+							models: expect.objectContaining({
+								providers: expect.objectContaining({
+									local: expect.objectContaining({
+										models: expect.arrayContaining([expect.objectContaining({ id: "after-reload" })]),
+									}),
+								}),
+							}),
+						}),
+					}),
+				}),
+			);
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
 	});
 
 	it("does not start peer MCP executor tools when executor is disabled", async () => {

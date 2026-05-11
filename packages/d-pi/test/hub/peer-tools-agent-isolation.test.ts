@@ -5,11 +5,15 @@ import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding
 import { type Socket as ClientSocket, io as ioClient } from "socket.io-client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HubAgentAdapter } from "../../src/hub/agent/hub-agent-adapter.js";
+import { getChildAgentDir } from "../../src/hub/agents/child-agent-layout.js";
 import { type AgentRecord, MAIN_AGENT_ID } from "../../src/hub/agents/types.js";
 import { getAgentsConfigPath, getSessionFile } from "../../src/hub/config.js";
 import { HubRuntime } from "../../src/hub/runtime/hub-runtime.js";
 import { HUB_PROTOCOL_VERSION } from "../../src/hub/transport/protocol.js";
 import { getAgentSessionFile, initializeWorkspace } from "../../src/hub/workspace.js";
+import { SocketPeerClient } from "../../src/peer/client/socket-client.js";
+import { PeerAppState } from "../../src/peer/state/peer-app-state.js";
+import { PeerUiState } from "../../src/peer/state/peer-ui-state.js";
 
 const tempDirs: string[] = [];
 
@@ -94,6 +98,30 @@ function peerConfig(client: ClientSocket, payload: { tools?: string[] }): Promis
 	return new Promise((resolve) => {
 		client.emit("peer:config", payload, (ack: { ok: boolean; error?: string }) => resolve(ack));
 	});
+}
+
+function mockAdapterCreate(): void {
+	vi.spyOn(HubAgentAdapter, "create").mockImplementation(async () => {
+		return {
+			subscribeLiveEvents: () => () => {},
+			continueCurrentTranscript: () => {},
+			requestInputQueuePump: () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+	});
+}
+
+async function waitForAgentOrder(appState: PeerAppState, expected: string[]): Promise<void> {
+	const deadline = Date.now() + 2_000;
+	let last: string[] = [];
+	while (Date.now() < deadline) {
+		last = appState.getSnapshot().view?.agentOrder ?? [];
+		if (expected.every((agentId) => last.includes(agentId))) {
+			return;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+	expect(last).toEqual(expect.arrayContaining(expected));
 }
 
 afterEach(() => {
@@ -258,6 +286,100 @@ describe("peer tools and group executor isolation (HubRuntime)", () => {
 		).rejects.toThrow(/offline or not registered/);
 
 		m.close();
+		await hub.stop();
+	});
+
+	it("connected peer agent list refreshes after child spawn", async () => {
+		const workspaceDir = mkdtempSync(join(tmpdir(), "peer-agents-spawn-refresh-"));
+		tempDirs.push(workspaceDir);
+		initializeWorkspace(workspaceDir);
+		mockAdapterCreate();
+		const hub = HubRuntime.open(workspaceDir);
+		await hub.initializeAgentAdapter({});
+		const address = await hub.start({ host: "127.0.0.1", port: 0 });
+		const appState = new PeerAppState();
+		const client = new SocketPeerClient({
+			hubUrl: `http://127.0.0.1:${address.port}`,
+			hello: {
+				peerId: "agents-refresh-peer",
+				token: hub.rootTokenForDisplay ?? "",
+				protocolVersion: HUB_PROTOCOL_VERSION,
+				version: "test",
+			},
+			appState,
+			uiState: new PeerUiState(),
+		});
+		await client.connect();
+		await client.uploadConfig({ tools: [] });
+		await client.waitForInitialSync();
+		expect(appState.getSnapshot().view?.agentOrder).toEqual(["root"]);
+
+		const createChild = findToolExecute("create_child_agent", hub.getRootAgentRuntime().tools);
+		expect(createChild).toBeDefined();
+		const result = (await createChild!({
+			id: "spawned-refresh-child",
+			description: "child visible in agents command",
+			mode: "spawn",
+			background: "refresh agent list after spawn",
+		})) as { content: Array<{ type: string; text?: string }> };
+		const childId = JSON.parse(result.content[0]?.text ?? "{}").childId as string;
+
+		await waitForAgentOrder(appState, ["root", childId]);
+		await client.disconnect();
+		await hub.stop();
+	});
+
+	it("connected peer agent list refreshes after child rename", async () => {
+		const workspaceDir = mkdtempSync(join(tmpdir(), "peer-agents-rename-refresh-"));
+		tempDirs.push(workspaceDir);
+		initializeWorkspace(workspaceDir);
+		mkdirSync(join(workspaceDir, ".pi-hub", "agents"), { recursive: true });
+		mkdirSync(getChildAgentDir(workspaceDir, "old-child"), { recursive: true });
+		const childPath = getAgentSessionFile(workspaceDir, "old-child");
+		writeFileSync(childPath, `${headerLine("sess-old-child", workspaceDir)}\n`, "utf8");
+		seedRegistryWithChild(workspaceDir, {
+			id: "old-child",
+			kind: "child",
+			parentId: MAIN_AGENT_ID,
+			description: "old child",
+			sessionFile: childPath,
+			createdAt: new Date(0).toISOString(),
+			lifecycle: "persistent",
+		});
+		mockAdapterCreate();
+		const hub = HubRuntime.open(workspaceDir);
+		await hub.initializeAgentAdapter({});
+		const address = await hub.start({ host: "127.0.0.1", port: 0 });
+		const appState = new PeerAppState();
+		const client = new SocketPeerClient({
+			hubUrl: `http://127.0.0.1:${address.port}`,
+			hello: {
+				peerId: "agents-rename-peer",
+				token: hub.rootTokenForDisplay ?? "",
+				protocolVersion: HUB_PROTOCOL_VERSION,
+				version: "test",
+			},
+			appState,
+			uiState: new PeerUiState(),
+		});
+		await client.connect();
+		await client.uploadConfig({ tools: [] });
+		await client.waitForInitialSync();
+		await waitForAgentOrder(appState, ["root", "old-child"]);
+
+		const stopChild = findToolExecute("stop_child_agent", hub.getRootAgentRuntime().tools);
+		expect(stopChild).toBeDefined();
+		await stopChild!({ agentId: "old-child" });
+		const renameChild = findToolExecute("rename_child_agent", hub.getRootAgentRuntime().tools);
+		expect(renameChild).toBeDefined();
+		await renameChild!({
+			agentId: "old-child",
+			newAgentId: "new-child",
+		});
+
+		await waitForAgentOrder(appState, ["root", "new-child"]);
+		expect(appState.getSnapshot().view?.agentOrder).not.toContain("old-child");
+		await client.disconnect();
 		await hub.stop();
 	});
 

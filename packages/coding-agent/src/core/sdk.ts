@@ -213,13 +213,14 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	// Check if session has existing data to restore
 	const existingSession = sessionManager.buildSessionContext();
 	const hasExistingSession = existingSession.messages.length > 0;
+	const hasExistingModel = existingSession.model !== null;
 	const hasThinkingEntry = sessionManager.getBranch().some((entry) => entry.type === "thinking_level_change");
 
 	let model = options.model;
 	let modelFallbackMessage: string | undefined;
 
-	// If session has data, try to restore model from it
-	if (!model && hasExistingSession && existingSession.model) {
+	// Restore model even when the session only contains model/thinking entries.
+	if (!model && existingSession.model) {
 		const restoredModel = modelRegistry.find(existingSession.model.provider, existingSession.model.modelId);
 		if (restoredModel && modelRegistry.hasConfiguredAuth(restoredModel)) {
 			model = restoredModel;
@@ -383,10 +384,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		}
 	} else {
 		// Save initial model and thinking level for new sessions so they can be restored on resume
-		if (model) {
+		if (model && !hasExistingModel) {
 			sessionManager.appendModelChange(model.provider, model.id);
 		}
-		sessionManager.appendThinkingLevelChange(thinkingLevel);
+		if (!hasThinkingEntry) {
+			sessionManager.appendThinkingLevelChange(thinkingLevel);
+		}
 	}
 
 	const session = new AgentSession({

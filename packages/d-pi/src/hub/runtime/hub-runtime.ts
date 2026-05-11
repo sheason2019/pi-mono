@@ -560,6 +560,10 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 		});
 	}
 
+	private refreshAgentListViews(): void {
+		this.socketServer.refreshAgentListViews();
+	}
+
 	private setPeerConfigSnapshot(agentId: string, peerId: string, snapshot: PeerConfigSnapshot): void {
 		this.queuePeerConfigChange(agentId, peerId, { type: "set", snapshot });
 		void this.applyPendingPeerConfigForAgent(agentId);
@@ -1248,6 +1252,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 			const child = await this.addAndStartNewChildFromRegistry(this.agentRegistry.require(record.id));
 			await this.refreshSourcesForChildExtends(input.extends);
 			this.continueChildCurrentTranscript(child);
+			this.refreshAgentListViews();
 		} catch (e) {
 			this.rollbackPersistedChildRecordIfPresent(record);
 			throw e;
@@ -1380,6 +1385,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 		}
 		this.agentRegistry.update({ ...target, description: input.description });
 		this.agentRegistry.save();
+		this.refreshAgentListViews();
 		return JSON.stringify(
 			{
 				ok: true,
@@ -1431,6 +1437,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 			if (input.description !== undefined) runtime.record.description = input.description;
 			if (input.hubExecutor !== undefined) runtime.record.hubExecutor = input.hubExecutor;
 		}
+		this.refreshAgentListViews();
 		return JSON.stringify(
 			{
 				ok: true,
@@ -1485,6 +1492,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 			}
 		}
 		this.log("info", "child agent renamed", { oldAgentId: target.id, newAgentId: renamed.id });
+		this.refreshAgentListViews();
 		return JSON.stringify(
 			{
 				ok: true,
@@ -1601,6 +1609,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 				if (input.instructions !== undefined && input.instructions.length > 0) {
 					this.continueChildCurrentTranscript(child);
 				}
+				this.refreshAgentListViews();
 			} catch (e) {
 				this.rollbackPersistedChildRecordIfPresent(record);
 				throw e;
@@ -1655,6 +1664,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 			await runtime.stop();
 			this.log("info", "child agent stopped", { agentId: record.id, disconnectedPeers });
 		}
+		this.refreshAgentListViews();
 		return JSON.stringify(
 			{
 				ok: true,
@@ -1687,6 +1697,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 		}
 		this.manuallyStoppedAgentIds.delete(record.id);
 		await this.addAndStartNewChildFromRegistry(record);
+		this.refreshAgentListViews();
 		return JSON.stringify(
 			{
 				ok: true,
@@ -1728,6 +1739,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 		if (deleteFiles) {
 			rmSync(getChildAgentDir(this.cwd, record.id), { recursive: true, force: true });
 		}
+		this.refreshAgentListViews();
 		this.log("info", "child agent removed", {
 			agentId: record.id,
 			wasRunning,

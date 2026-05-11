@@ -10,6 +10,7 @@ import type {
 	ModelCycleResult,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import type { PeerMcpIndexSnapshot } from "../config-aggregation/agent-config-services.js";
 import type { PeerConfigJsonLayers } from "../config-aggregation/types.js";
 import type { HubResourceLoader } from "../resources/hub-resource-loader.js";
 import type { HubSessionService } from "../session/hub-session-service.js";
@@ -125,6 +126,7 @@ export interface CreateHubAgentAdapterOptions {
 	agentDir?: string;
 	configLayers?: PeerConfigJsonLayers[];
 	getConfigLayers?: () => PeerConfigJsonLayers[];
+	getPeerMcpSnapshots?: () => PeerMcpIndexSnapshot[];
 	services?: AgentSessionServices;
 	resourceLoaderOptions?: CreateAgentSessionServicesOptions["resourceLoaderOptions"];
 	prepareServices?: (services: AgentSessionServices) => Promise<void> | void;

@@ -12,6 +12,7 @@ import { HubSessionService } from "../../src/hub/session/hub-session-service.js"
 import { createHubTools } from "../../src/hub/tools/index.js";
 import { PeerToolBridge } from "../../src/hub/tools/peer-tool-bridge.js";
 import type { LiveRenderEvent } from "../../src/hub/transport/live-events.js";
+import { HUB_PROTOCOL_VERSION } from "../../src/hub/transport/protocol.js";
 import { createMainOnlySocketHubServer } from "../../src/hub/transport/socket-hub-server.js";
 import { getAgentSessionFile, initializeWorkspace } from "../../src/hub/workspace.js";
 
@@ -118,6 +119,74 @@ describe("HubAgentRuntime", () => {
 		expect(first.sessionService).toBe(sessionService);
 		expect(first.tools).toBe(runtime.tools);
 		expect(first.cwd).toBe(cwd);
+
+		await runtime.stop();
+		await server.stop();
+	});
+
+	it("does not add one dynamic tool per peer MCP capability", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-agent-rt-peer-mcp-router-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		const agentPath = getAgentSessionFile(cwd, "main");
+		mkdirSync(join(cwd, ".pi-hub", "agents"), { recursive: true });
+		writeFileSync(agentPath, `${headerLine("sess-peer-mcp", cwd)}\n`, "utf8");
+		const sessionService = HubSessionService.openAgent(cwd, agentPath);
+		const registry = new PeerRegistry();
+		registry.register(
+			"socket-a",
+			{
+				peerId: "peer-a",
+				token: "token",
+				protocolVersion: HUB_PROTOCOL_VERSION,
+				version: "test",
+				executorEnabled: true,
+			},
+			MAIN_AGENT_ID,
+		);
+		registry.updateConfigBySocketId("socket-a", {
+			tools: ["mcp__peer_a__read_file"],
+			mcpSnapshot: {
+				servers: [
+					{
+						name: "fs",
+						resourceId: "fs-id",
+						transport: "stdio",
+						status: "running",
+						capabilities: {
+							tools: [{ name: "read_file", description: "Read a file" }],
+							resources: [],
+							prompts: [],
+						},
+					},
+				],
+			},
+		});
+		const server = createMainOnlySocketHubServer(
+			sessionService,
+			registry,
+			() => [],
+			() => undefined,
+		);
+		await server.start({ host: "127.0.0.1", port: 0 });
+
+		const createSpy = vi.spyOn(HubAgentAdapter, "create").mockResolvedValue({
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter);
+
+		const record = createTestRecord("agents/main.jsonl");
+		const runtime = new HubAgentRuntime({
+			cwd,
+			record,
+			sessionService,
+			socketServer: server,
+			peerRegistry: registry,
+		});
+		await runtime.start();
+		const toolNames = createSpy.mock.calls[0]![0]!.tools.map((tool) => tool.name);
+		expect(toolNames).toContain("peer_mcp");
+		expect(toolNames.some((name) => name.startsWith("mcp__peer_a__"))).toBe(false);
 
 		await runtime.stop();
 		await server.stop();
@@ -253,6 +322,7 @@ describe("createHubTools", () => {
 		});
 		const names = new Set(base.map((t) => t.name));
 		expect(names.has("list_peers")).toBe(false);
+		expect(names.has("peer_mcp")).toBe(true);
 		expect(names.size).toBeGreaterThan(0);
 		const extra = defineTool({
 			name: "agent_only_tool",

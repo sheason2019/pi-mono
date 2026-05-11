@@ -50,12 +50,16 @@ export class PeerRuntime {
 	readonly hello: PeerHelloPayload;
 	private readonly peerMcpRuntime: PeerMcpRuntime;
 	private readonly peerSourceRuntime: PeerSourceRuntime;
-	private readonly configSnapshot: PeerConfigSnapshot;
+	private readonly cwd: string;
+	private readonly agentDir: string;
+	private configSnapshot: PeerConfigSnapshot;
 	private readonly baseTools: string[];
 
 	constructor(options: CreatePeerRuntimeOptions) {
 		const cwd = options.cwd ?? process.cwd();
 		const agentDir = options.agentDir ?? getAgentDir();
+		this.cwd = cwd;
+		this.agentDir = agentDir;
 		const configSnapshot = collectPeerConfigSnapshot({ cwd, agentDir });
 		this.configSnapshot = configSnapshot;
 		const executorEnabled = options.executorEnabled !== false;
@@ -194,6 +198,9 @@ export class PeerRuntime {
 	}
 
 	async invokeCommand(commandName: string, args?: string): Promise<void> {
+		if (commandName === "reload") {
+			await this.client.uploadConfig(this.createPeerConfigPayload());
+		}
 		await this.client.invokeCommand(commandName, args);
 	}
 
@@ -277,6 +284,7 @@ export class PeerRuntime {
 	}
 
 	private createPeerConfigPayload(): PeerConfigPayload {
+		this.configSnapshot = collectPeerConfigSnapshot({ cwd: this.cwd, agentDir: this.agentDir });
 		const config: PeerConfigPayload = {
 			configSnapshot: this.configSnapshot,
 			tools: [],

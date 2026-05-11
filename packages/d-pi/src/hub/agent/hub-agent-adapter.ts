@@ -339,6 +339,7 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 						cwd,
 						agentDir,
 						layers: initialConfigLayers,
+						peerMcpSnapshots: options.getPeerMcpSnapshots?.(),
 						resourceLoaderOptions,
 					})
 				: undefined;
@@ -695,7 +696,7 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 	}
 
 	async setModel(model: Model<Api>): Promise<void> {
-		await this.session.setModel(model);
+		await this.session.setModel(model, { persistDefault: false });
 		this.sessionService.syncBoundAgentSession();
 	}
 
@@ -748,7 +749,7 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 		if (!refreshed || refreshed === current) {
 			return;
 		}
-		await this.session.setModel(refreshed);
+		await this.session.setModel(refreshed, { persistDefault: false });
 	}
 
 	private syncDynamicTools(): void {

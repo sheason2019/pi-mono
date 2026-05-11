@@ -603,6 +603,13 @@ export class SocketHubServer {
 		this.syncAgentListToAllViewDocuments();
 	}
 
+	refreshAgentListViews(): void {
+		this.syncAgentListToAllViewDocuments();
+		if (this.io) {
+			this.scheduleCrdtFanoutForAllAgents();
+		}
+	}
+
 	initializeViewDocumentForAgent(agentId: string, options: { syncAgentList?: boolean } = {}): void {
 		const startedAt = Date.now();
 		const runtime = this.deps.getAgentRuntime(agentId);

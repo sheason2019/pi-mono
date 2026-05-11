@@ -205,6 +205,11 @@ export interface ModelCycleResult {
 	isScoped: boolean;
 }
 
+export interface SetModelOptions {
+	/** Persist the selected model as the default for future new sessions. Defaults to true. */
+	persistDefault?: boolean;
+}
+
 /** Session statistics for /session command */
 export interface SessionStats {
 	sessionFile: string | undefined;
@@ -1413,7 +1418,7 @@ export class AgentSession {
 	 * Validates that auth is configured, saves to session and settings.
 	 * @throws Error if no auth is configured for the model
 	 */
-	async setModel(model: Model<any>): Promise<void> {
+	async setModel(model: Model<any>, options: SetModelOptions = {}): Promise<void> {
 		if (!this._modelRegistry.hasConfiguredAuth(model)) {
 			throw new Error(`No API key for ${model.provider}/${model.id}`);
 		}
@@ -1422,7 +1427,9 @@ export class AgentSession {
 		const thinkingLevel = this._getThinkingLevelForModelSwitch();
 		this.agent.state.model = model;
 		this.sessionManager.appendModelChange(model.provider, model.id);
-		this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
+		if (options.persistDefault !== false) {
+			this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
+		}
 
 		// Re-clamp thinking level for new model's capabilities
 		this.setThinkingLevel(thinkingLevel);
