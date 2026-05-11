@@ -65,12 +65,24 @@ function serversFromMcpRoot(root: unknown): unknown[] {
 		return root;
 	}
 	if (root && typeof root === "object" && Array.isArray((root as { servers?: unknown }).servers)) {
-		return (root as { servers: unknown[] }).servers;
+		const { servers, timeoutMs } = root as { servers: unknown[]; timeoutMs?: unknown };
+		if (timeoutMs === undefined) {
+			return servers;
+		}
+		return servers.map((server) => {
+			if (!server || typeof server !== "object" || Array.isArray(server)) {
+				return server;
+			}
+			if ((server as { timeoutMs?: unknown }).timeoutMs !== undefined) {
+				return server;
+			}
+			return { ...server, timeoutMs };
+		});
 	}
 	return [];
 }
 
-function mergePeerMcpConfig(snapshot: PeerConfigSnapshot): { servers: unknown[] } {
+export function mergePeerMcpConfig(snapshot: PeerConfigSnapshot): { servers: unknown[] } {
 	return {
 		servers: [...serversFromMcpRoot(snapshot.global?.mcp), ...serversFromMcpRoot(snapshot.cwdLayer?.mcp)],
 	};

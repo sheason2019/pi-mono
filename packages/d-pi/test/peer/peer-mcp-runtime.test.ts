@@ -1,7 +1,7 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { describe, expect, it, vi } from "vitest";
-import { PeerMcpRuntime, type PeerMcpRuntimeHost } from "../../src/peer/mcp/peer-mcp-runtime.js";
+import { mergePeerMcpConfig, PeerMcpRuntime, type PeerMcpRuntimeHost } from "../../src/peer/mcp/peer-mcp-runtime.js";
 
 function createTool(name: string): ToolDefinition {
 	return {
@@ -14,6 +14,35 @@ function createTool(name: string): ToolDefinition {
 }
 
 describe("PeerMcpRuntime", () => {
+	it("preserves per-layer root timeoutMs when merging peer MCP config", () => {
+		const merged = mergePeerMcpConfig({
+			version: 1,
+			capturedAt: "now",
+			cwd: "/tmp",
+			global: {
+				mcp: {
+					timeoutMs: 45_000,
+					servers: [
+						{ name: "global-default", transport: "stdio", command: "g" },
+						{ name: "global-override", transport: "stdio", command: "g", timeoutMs: 60_000 },
+					],
+				},
+			},
+			cwdLayer: {
+				mcp: {
+					timeoutMs: 75_000,
+					servers: [{ name: "cwd-default", transport: "stdio", command: "c" }],
+				},
+			},
+		});
+
+		expect(merged.servers).toEqual([
+			expect.objectContaining({ name: "global-default", timeoutMs: 45_000 }),
+			expect.objectContaining({ name: "global-override", timeoutMs: 60_000 }),
+			expect.objectContaining({ name: "cwd-default", timeoutMs: 75_000 }),
+		]);
+	});
+
 	it("exposes peer-scoped MCP tool names and executes the local MCP tool", async () => {
 		const tool = createTool("mcp__filesystem-id__read_file");
 		const host: PeerMcpRuntimeHost = {

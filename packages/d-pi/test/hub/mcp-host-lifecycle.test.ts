@@ -158,6 +158,32 @@ describe("McpHost lifecycle", () => {
 		expect(customTools.some((t) => t.name.startsWith("mcp__ok__"))).toBe(true);
 	});
 
+	it("logs MCP startup errors with server name and timeout", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "mcp-lc-log-error-"));
+		tempDirs.push(cwd);
+		writeMcpFile(cwd, { servers: [{ name: "slow", transport: "stdio", command: "x", timeoutMs: 60_000 }] });
+		const customTools: ToolDefinition[] = [];
+		const createClient: McpHostOptions["createClient"] = vi.fn().mockRejectedValue(new McpClientTimeoutError(60_000));
+		const logs = {
+			info: vi.fn(),
+			warning: vi.fn(),
+			error: vi.fn(),
+		};
+		const host = new McpHost({ cwd, customTools, createClient, timeoutMs: 10_000, logs });
+
+		await host.start();
+
+		expect(logs.error).toHaveBeenCalledWith(
+			"mcp server error",
+			expect.objectContaining({
+				mcpServer: "slow",
+				transport: "stdio",
+				timeoutMs: 60_000,
+				error: "MCP client connection or capability discovery timed out after 60000ms",
+			}),
+		);
+	});
+
 	it("start() surfaces fast-rejecting timeout-style error from createClient and completes promptly", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "mcp-lc-tmo-"));
 		tempDirs.push(cwd);

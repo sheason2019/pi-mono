@@ -19,6 +19,7 @@ import {
 	type SocketHubServer,
 	type SocketHubServerMcpMutators,
 } from "../../src/hub/transport/socket-hub-server.js";
+import type { HubLogSink } from "../../src/hub/tui/hub-log.js";
 import { SocketPeerClient } from "../../src/peer/client/socket-client.js";
 import { PeerAppState } from "../../src/peer/state/peer-app-state.js";
 import { PeerUiState } from "../../src/peer/state/peer-ui-state.js";
@@ -194,6 +195,7 @@ function createMcpTestServer(
 	getMcpServerStatuses: () => McpRuntimeStatus[],
 	getMcpConfigError: () => string | undefined,
 	mcpMutators: SocketHubServerMcpMutators,
+	logs?: HubLogSink,
 ) {
 	const mockAdapter = {} as unknown as HubAgentAdapter;
 	const sessionService = createStubSessionService();
@@ -208,6 +210,8 @@ function createMcpTestServer(
 		getMcpServerStatuses,
 		getMcpConfigError,
 		mcpMutators,
+		undefined,
+		logs,
 	);
 }
 
@@ -1099,6 +1103,51 @@ describe("SocketPeerClient CRDT session sync", () => {
 });
 
 describe("SocketPeerClient MCP server actions", () => {
+	it("hub logs peer-local MCP config and server errors from peer config upload", async () => {
+		const logs = {
+			info: vi.fn(),
+			warning: vi.fn(),
+			error: vi.fn(),
+		};
+		const server = createMcpTestServer(
+			() => [],
+			() => undefined,
+			defaultMcpMutators([]),
+			logs,
+		);
+		await withConnectedSocketPeerClient(server, "peer-mcp-log", async (client) => {
+			await client.uploadConfig({
+				mcpSnapshot: {
+					configError: "mcp.json invalid",
+					servers: [
+						{
+							resourceId: "zai-id",
+							name: "zai-mcp-server",
+							transport: "stdio",
+							status: "error",
+							error: "MCP client connection or capability discovery timed out after 10000ms",
+							capabilities: emptyCapabilities,
+						},
+					],
+				},
+			});
+		});
+
+		expect(logs.warning).toHaveBeenCalledWith(
+			"peer mcp config error",
+			expect.objectContaining({ agentId: "root", peerId: "peer-mcp-log", error: "mcp.json invalid" }),
+		);
+		expect(logs.error).toHaveBeenCalledWith(
+			"peer mcp server error",
+			expect.objectContaining({
+				agentId: "root",
+				peerId: "peer-mcp-log",
+				mcpServer: "zai-mcp-server",
+				error: "MCP client connection or capability discovery timed out after 10000ms",
+			}),
+		);
+	});
+
 	it("getMcpServers returns servers and omits configError when the hub has none", async () => {
 		const sample = sampleMcpServers();
 		const getMcpServerStatuses = vi.fn((): McpRuntimeStatus[] => sample);

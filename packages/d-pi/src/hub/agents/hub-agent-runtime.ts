@@ -10,6 +10,7 @@ import { McpHost } from "../mcp/mcp-host.js";
 import { createRemoteMcpToolDefinitions } from "../mcp/remote-mcp-tools.js";
 import type { McpServerConfig } from "../mcp/types.js";
 import { PeerRegistry } from "../peers/peer-registry.js";
+import type { RegisteredPeer } from "../peers/peer-types.js";
 import type { HubSessionService } from "../session/hub-session-service.js";
 import { createHubTools } from "../tools/index.js";
 import { PeerToolBridge } from "../tools/peer-tool-bridge.js";
@@ -59,6 +60,8 @@ export interface HubAgentRuntimeOptions {
 	getGroupHost?: () => GroupToolHost;
 	/** Resolves `HubRuntime` for creating scoped access tokens; all hub agents use this. */
 	getAgentTokenHost?: () => AgentTokenToolHost;
+	/** Resolves executor peers visible to this agent's tree scope. */
+	resolvePeerForTool?: (callerAgentId: string, peerId: string) => RegisteredPeer | undefined;
 }
 
 /**
@@ -109,7 +112,9 @@ export class HubAgentRuntime {
 		this.agentDir = options.agentDir;
 		this.getConfigLayers = options.getConfigLayers;
 		this.peerRegistry = options.peerRegistry ?? new PeerRegistry();
-		this.peerToolBridge = new PeerToolBridge(this.record.id, this.peerRegistry, options.socketServer);
+		this.peerToolBridge = new PeerToolBridge(this.record.id, this.peerRegistry, options.socketServer, {
+			resolvePeer: (peerId) => options.resolvePeerForTool?.(this.record.id, peerId) ?? this.peerRegistry.get(peerId),
+		});
 		this.getChildAgentHost = options.getChildAgentHost;
 		const childManagementTools =
 			options.getChildAgentHost != null
@@ -152,6 +157,7 @@ export class HubAgentRuntime {
 					configPath: options.mcp.configPath,
 					configRoot: options.mcp.configRoot,
 					createClient: options.mcp.createClient,
+					...(options.logs === undefined ? {} : { logs: options.logs }),
 				})
 			: undefined;
 		this.createAgentAdapterImpl = options.createAgentAdapter;

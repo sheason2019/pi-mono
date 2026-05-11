@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { HubLogDetails, HubLogSink } from "../tui/hub-log.js";
 import { createMcpClient, type McpClientHandle } from "./mcp-client.js";
 import { parseMcpConfig, readMcpConfig } from "./mcp-config.js";
 import {
@@ -57,6 +58,7 @@ export interface McpHostOptions {
 	configRoot?: () => unknown;
 	timeoutMs?: number;
 	createClient?: (config: McpServerConfig, opts: { timeoutMs: number }) => Promise<McpClientHandle>;
+	logs?: HubLogSink;
 }
 
 type MutateOk = { ok: true; servers: McpRuntimeStatus[] };
@@ -70,6 +72,7 @@ export class McpHost {
 	private readonly configRoot?: () => unknown;
 	private readonly timeoutMs: number;
 	private readonly createClient: (config: McpServerConfig, opts: { timeoutMs: number }) => Promise<McpClientHandle>;
+	private readonly logs: HubLogSink | undefined;
 	private _configError: string | undefined;
 	/** From the last `readMcpConfig` that succeeded. Empty on parse failure or when file empty. */
 	private orderedServers: McpServerConfig[] = [];
@@ -86,6 +89,15 @@ export class McpHost {
 		this.configRoot = options.configRoot;
 		this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 		this.createClient = options.createClient ?? createMcpClient;
+		this.logs = options.logs;
+	}
+
+	private log(level: keyof HubLogSink, message: string, details?: HubLogDetails): void {
+		try {
+			this.logs?.[level](message, details);
+		} catch {
+			// Logging must never break MCP startup.
+		}
 	}
 
 	/**
@@ -208,6 +220,7 @@ export class McpHost {
 		const read = this.configRoot ? parseMcpConfig(this.configRoot()) : readMcpConfig(this.cwd, this.configPath);
 		if (!read.ok) {
 			this._configError = read.error;
+			this.log("warning", "mcp config error", { error: read.error });
 			removeMcpOwnedTools(this.customTools);
 			return;
 		}
@@ -246,6 +259,13 @@ export class McpHost {
 			if (settled.status === "rejected") {
 				const err = settled.reason;
 				const msg = err instanceof Error ? err.message : String(err);
+				this.log("error", "mcp server error", {
+					mcpServer: cfg.name,
+					resourceId,
+					transport: cfg.transport,
+					timeoutMs: cfg.timeoutMs ?? this.timeoutMs,
+					error: msg,
+				});
 				this.lastStates.set(resourceId, {
 					transport: cfg.transport,
 					status: "error",

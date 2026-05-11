@@ -90,6 +90,12 @@ function peerHello(
 	});
 }
 
+function peerConfig(client: ClientSocket, payload: { tools?: string[] }): Promise<{ ok: boolean; error?: string }> {
+	return new Promise((resolve) => {
+		client.emit("peer:config", payload, (ack: { ok: boolean; error?: string }) => resolve(ack));
+	});
+}
+
 afterEach(() => {
 	for (const d of tempDirs.splice(0)) {
 		rmSync(d, { recursive: true, force: true });
@@ -126,7 +132,7 @@ describe("peer tools and group executor isolation (HubRuntime)", () => {
 		await hub.stop();
 	});
 
-	it("group tool: main and child include host plus only peers bound to that agent", async () => {
+	it("group tool: parent sees descendant executors while child does not see parent peers", async () => {
 		const workspaceDir = mkdtempSync(join(tmpdir(), "peer-isol-list-"));
 		tempDirs.push(workspaceDir);
 		initializeWorkspace(workspaceDir);
@@ -168,13 +174,10 @@ describe("peer tools and group executor isolation (HubRuntime)", () => {
 		};
 		const mainIds = mainBody.executors.map((p) => p.peerId).sort();
 		const childIds = childBody.executors.map((p) => p.peerId).sort();
-		expect(mainIds).toEqual(["host", "peer-on-main"]);
+		expect(mainIds).toEqual(["host", "peer-on-child", "peer-on-main"]);
 		expect(childIds).toEqual(["host", "peer-on-child"]);
 		for (const p of childBody.executors) {
 			expect(p.peerId).not.toBe("peer-on-main");
-		}
-		for (const p of mainBody.executors) {
-			expect(p.peerId).not.toBe("peer-on-child");
 		}
 
 		m.close();
@@ -258,7 +261,7 @@ describe("peer tools and group executor isolation (HubRuntime)", () => {
 		await hub.stop();
 	});
 
-	it("peer read tool from main runtime rejects child-bound peer id (not in main registry)", async () => {
+	it("peer read tool from main runtime can execute a child-bound peer executor", async () => {
 		const workspaceDir = mkdtempSync(join(tmpdir(), "peer-isol-x-child-"));
 		tempDirs.push(workspaceDir);
 		initializeWorkspace(workspaceDir);
@@ -281,15 +284,26 @@ describe("peer tools and group executor isolation (HubRuntime)", () => {
 		const address = await hub.start({ host: "127.0.0.1", port: 0 });
 		const c = await connectClient(`http://127.0.0.1:${address.port}`);
 		await peerHello(c, { peerId: "exclusive-child", agentId: "child-iso-4", token: hub.rootTokenForDisplay });
+		await peerConfig(c, { tools: ["read"] });
+		c.on("tool:call_request", (payload) => {
+			expect(payload.toolName).toBe("read");
+			expect(payload.args).toEqual({ path: "package.json" });
+			c.emit("tool:call_result", {
+				toolCallId: payload.toolCallId,
+				result: {
+					content: [{ type: "text", text: "read through child executor" }],
+					details: undefined,
+				},
+			});
+		});
 
 		const mainRead = findToolExecute("read", hub.getRootAgentRuntime().tools);
 		expect(mainRead).toBeDefined();
-		await expect(
-			mainRead!({
-				"peer-id": "exclusive-child",
-				path: "package.json",
-			}),
-		).rejects.toThrow(/offline or not registered/);
+		const result = (await mainRead!({
+			"peer-id": "exclusive-child",
+			path: "package.json",
+		})) as { content: Array<{ type: string; text?: string }> };
+		expect(result.content.find((part) => part.type === "text")?.text).toBe("read through child executor");
 
 		c.close();
 		await hub.stop();

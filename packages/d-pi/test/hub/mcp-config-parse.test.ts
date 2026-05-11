@@ -86,6 +86,34 @@ describe("mcp config parse", () => {
 		}
 	});
 
+	it("parseMcpConfig: applies wrapped root timeoutMs as the default for servers", () => {
+		const r = parseMcpConfig({
+			timeoutMs: 45_000,
+			servers: [
+				{ name: "slow-default", transport: "stdio", command: "c" },
+				{ name: "slow-override", transport: "stdio", command: "c", timeoutMs: 60_000 },
+			],
+		});
+
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			expect(r.servers[0]).toMatchObject({ name: "slow-default", timeoutMs: 45_000 });
+			expect(r.servers[1]).toMatchObject({ name: "slow-override", timeoutMs: 60_000 });
+		}
+	});
+
+	it("parseMcpConfig: rejects invalid wrapped root timeoutMs", () => {
+		const r = parseMcpConfig({
+			timeoutMs: 0,
+			servers: [{ name: "slow", transport: "stdio", command: "c" }],
+		});
+
+		expect(r.ok).toBe(false);
+		if (!r.ok) {
+			expect(r.error).toMatch(/timeoutMs/i);
+		}
+	});
+
 	it("parseMcpConfig: rejects invalid per-server timeoutMs", () => {
 		const r = parseMcpConfig([{ name: "slow", transport: "stdio", command: "c", timeoutMs: 0 }]);
 

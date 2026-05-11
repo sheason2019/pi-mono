@@ -44,6 +44,7 @@ import type { McpClientHandle } from "../mcp/mcp-client.js";
 import { McpHost } from "../mcp/mcp-host.js";
 import type { McpServerConfig } from "../mcp/types.js";
 import { PeerRegistry } from "../peers/peer-registry.js";
+import type { RegisteredPeer } from "../peers/peer-types.js";
 import { HubSessionService } from "../session/hub-session-service.js";
 import type { HubSessionEvent } from "../session/session-events.js";
 import { loadChildSourcesConfigFromPath, loadSourcesConfigForAgents } from "../sources/source-config.js";
@@ -383,6 +384,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 			socketServer,
 			peerRegistry: rootPeerRegistry,
 			logs: openOptions.logs,
+			resolvePeerForTool: (callerAgentId, peerId) => hubRef.v?.resolvePeerForTool(callerAgentId, peerId),
 			beforeInputQueueDrain: () => hubRef.v?.applyPendingPeerConfigBeforeInput(ROOT_AGENT_ID),
 			refreshSources: async () => {
 				await sourceHost.start();
@@ -450,6 +452,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 			customTools: rootRuntime.tools,
 			configRoot: () => mergeConfigLayers(hubRef.v?.buildConfigLayersForAgent(ROOT_AGENT_ID, undefined) ?? []).mcp,
 			createClient: openOptions.mcp?.createClient,
+			...(openOptions.logs === undefined ? {} : { logs: openOptions.logs }),
 		});
 		const runtime = new HubRuntime(
 			cwd,
@@ -487,6 +490,34 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 				})),
 			) ?? [];
 		return [...local, ...remote];
+	}
+
+	private resolvePeerForTool(callerAgentId: string, peerId: string): RegisteredPeer | undefined {
+		for (const record of this.agentRegistry.getAll()) {
+			if (!this.agentRegistry.isInSubtree(callerAgentId, record.id)) {
+				continue;
+			}
+			const peer = this.tryGetAgentRuntime(record.id)?.peerRegistry.get(peerId);
+			if (peer?.executorEnabled) {
+				return peer;
+			}
+		}
+		return undefined;
+	}
+
+	private getVisibleExecutorPeersForAgent(callerAgentId: string): RegisteredPeer[] {
+		const peers: RegisteredPeer[] = [];
+		for (const record of this.agentRegistry.getAll()) {
+			if (!this.agentRegistry.isInSubtree(callerAgentId, record.id)) {
+				continue;
+			}
+			for (const peer of this.tryGetAgentRuntime(record.id)?.peerRegistry.list() ?? []) {
+				if (peer.executorEnabled) {
+					peers.push(peer);
+				}
+			}
+		}
+		return peers;
 	}
 
 	getSourceStatusesForAgent(agentId: string) {
@@ -652,6 +683,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 				createClient: this.createMcpClient,
 			},
 			logs: this.logs,
+			resolvePeerForTool: (callerAgentId, peerId) => this.resolvePeerForTool(callerAgentId, peerId),
 			beforeInputQueueDrain: () => this.applyPendingPeerConfigBeforeInput(rec.id),
 			refreshSources: async () => {
 				await this.sourceHost.start();
@@ -1287,11 +1319,10 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 				lastError: snapshot?.lastError,
 			};
 		});
-		const callerRuntime = this.tryGetAgentRuntime(callerAgentId);
 		const hostExecutorEnabled = caller.hubExecutor !== "disabled";
 		const executors = [
 			...(hostExecutorEnabled ? [createHostPeerRecord(callerAgentId, this.cwd)] : []),
-			...(callerRuntime?.peerRegistry.list().filter((peer) => peer.executorEnabled) ?? []),
+			...this.getVisibleExecutorPeersForAgent(callerAgentId),
 		].map((peer) => ({
 			agentId: peer.agentId,
 			peerId: peer.peerId,

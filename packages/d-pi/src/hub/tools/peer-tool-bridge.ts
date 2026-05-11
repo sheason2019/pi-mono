@@ -1,5 +1,6 @@
 import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
 import type { PeerRegistry } from "../peers/peer-registry.js";
+import type { RegisteredPeer } from "../peers/peer-types.js";
 import type { SocketHubServer } from "../transport/socket-hub-server.js";
 
 const DEFAULT_PEER_TOOL_TIMEOUT_MS = 60_000;
@@ -16,12 +17,17 @@ export interface ExecutePeerToolOptions<TDetails> {
 
 interface PendingPeerToolCall {
 	peerId: string;
+	agentId: string;
 	toolName: string;
 	timeoutId: ReturnType<typeof setTimeout>;
 	resolve: (result: AgentToolResult<unknown>) => void;
 	reject: (error: Error) => void;
 	onUpdate?: AgentToolUpdateCallback<unknown>;
 	cleanupAbort?: () => void;
+}
+
+export interface PeerToolBridgeOptions {
+	resolvePeer?: (peerId: string) => RegisteredPeer | undefined;
 }
 
 export class PeerToolBridge {
@@ -36,6 +42,7 @@ export class PeerToolBridge {
 		private readonly agentId: string,
 		private readonly peerRegistry: PeerRegistry,
 		private readonly transport: SocketHubServer,
+		private readonly options: PeerToolBridgeOptions = {},
 	) {
 		this.unsubscribePeerRegistry = this.peerRegistry.subscribe((event) => {
 			if (event.type === "unregistered") {
@@ -46,41 +53,29 @@ export class PeerToolBridge {
 			}
 		});
 		this.unsubscribeToolAck = this.transport.onToolCallAck(({ peer, payload }) => {
-			if (peer.agentId !== this.agentId) {
-				return;
-			}
 			const pendingCall = this.pendingCalls.get(payload.toolCallId);
-			if (!pendingCall || pendingCall.peerId !== peer.peerId) {
+			if (!pendingCall || pendingCall.peerId !== peer.peerId || pendingCall.agentId !== peer.agentId) {
 				return;
 			}
 		});
 		this.unsubscribeToolUpdate = this.transport.onToolCallUpdate(({ peer, payload }) => {
-			if (peer.agentId !== this.agentId) {
-				return;
-			}
 			const pendingCall = this.pendingCalls.get(payload.toolCallId);
-			if (!pendingCall || pendingCall.peerId !== peer.peerId) {
+			if (!pendingCall || pendingCall.peerId !== peer.peerId || pendingCall.agentId !== peer.agentId) {
 				return;
 			}
 			pendingCall.onUpdate?.(payload.partialResult);
 		});
 		this.unsubscribeToolResult = this.transport.onToolCallResult(({ peer, payload }) => {
-			if (peer.agentId !== this.agentId) {
-				return;
-			}
 			const pendingCall = this.pendingCalls.get(payload.toolCallId);
-			if (!pendingCall || pendingCall.peerId !== peer.peerId) {
+			if (!pendingCall || pendingCall.peerId !== peer.peerId || pendingCall.agentId !== peer.agentId) {
 				return;
 			}
 			this.cleanupPendingCall(payload.toolCallId);
 			pendingCall.resolve(payload.result);
 		});
 		this.unsubscribeToolError = this.transport.onToolCallError(({ peer, payload }) => {
-			if (peer.agentId !== this.agentId) {
-				return;
-			}
 			const pendingCall = this.pendingCalls.get(payload.toolCallId);
-			if (!pendingCall || pendingCall.peerId !== peer.peerId) {
+			if (!pendingCall || pendingCall.peerId !== peer.peerId || pendingCall.agentId !== peer.agentId) {
 				return;
 			}
 			this.cleanupPendingCall(payload.toolCallId);
@@ -94,12 +89,9 @@ export class PeerToolBridge {
 			throw new Error(`Tool "${options.toolName}" requires a non-empty peer-id.`);
 		}
 
-		const peer = this.peerRegistry.get(peerId);
+		const peer = this.options.resolvePeer?.(peerId) ?? this.peerRegistry.get(peerId);
 		if (!peer) {
 			throw new Error(`Peer "${peerId}" is offline or not registered.`);
-		}
-		if (peer.agentId !== this.agentId) {
-			throw new Error(`Peer "${peerId}" is not in this agent's scope.`);
 		}
 		if (!peer.tools.includes(options.toolName)) {
 			throw new Error(`Peer "${peerId}" does not declare support for tool "${options.toolName}".`);
@@ -116,6 +108,7 @@ export class PeerToolBridge {
 
 			const pendingCall: PendingPeerToolCall = {
 				peerId,
+				agentId: peer.agentId,
 				toolName: options.toolName,
 				timeoutId,
 				resolve: (result) => resolve(result as AgentToolResult<TDetails>),
@@ -137,7 +130,7 @@ export class PeerToolBridge {
 			this.pendingCalls.set(options.toolCallId, pendingCall);
 
 			try {
-				this.transport.sendToolCallRequest(this.agentId, peerId, {
+				this.transport.sendToolCallRequest(peer.agentId, peerId, {
 					toolCallId: options.toolCallId,
 					toolName: options.toolName,
 					args: options.args,

@@ -76,7 +76,17 @@ function parseTransport(value: unknown): { ok: true; transport: McpTransport } |
 	};
 }
 
-function parseMcpEntry(raw: unknown, index: number): McpServerConfig | string {
+function parseTimeoutMs(value: unknown, owner: string): number | string | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+		return `Invalid MCP ${owner}: "timeoutMs" must be a positive integer`;
+	}
+	return value;
+}
+
+function parseMcpEntry(raw: unknown, index: number, defaultTimeoutMs?: number): McpServerConfig | string {
 	if (!isRecord(raw)) {
 		return `Invalid MCP entry at index ${index}: expected object`;
 	}
@@ -100,14 +110,11 @@ function parseMcpEntry(raw: unknown, index: number): McpServerConfig | string {
 		}
 		disabled = raw.disabled;
 	}
-	let timeoutMs: number | undefined;
-	if (raw.timeoutMs !== undefined) {
-		const rawTimeoutMs = raw.timeoutMs;
-		if (typeof rawTimeoutMs !== "number" || !Number.isSafeInteger(rawTimeoutMs) || rawTimeoutMs <= 0) {
-			return `Invalid MCP server ${JSON.stringify(name)}: "timeoutMs" must be a positive integer`;
-		}
-		timeoutMs = rawTimeoutMs;
+	const parsedTimeoutMs = parseTimeoutMs(raw.timeoutMs, `server ${JSON.stringify(name)}`);
+	if (typeof parsedTimeoutMs === "string") {
+		return parsedTimeoutMs;
 	}
+	const timeoutMs = parsedTimeoutMs ?? defaultTimeoutMs;
 	if (tr.transport === "stdio") {
 		const command = raw.command;
 		if (!isNonEmptyString(command)) {
@@ -172,18 +179,34 @@ function parseMcpEntry(raw: unknown, index: number): McpServerConfig | string {
 
 function normalizeMcpList(
 	parsed: unknown,
-): { ok: true; list: unknown[]; wrapper: McpConfigWrapperKind } | { ok: false; error: string } {
+):
+	| { ok: true; list: unknown[]; wrapper: McpConfigWrapperKind; defaultTimeoutMs?: number }
+	| { ok: false; error: string } {
 	if (Array.isArray(parsed)) {
 		return { ok: true, list: parsed, wrapper: "array" };
 	}
 	if (isRecord(parsed)) {
+		const parsedTimeoutMs = parseTimeoutMs(parsed.timeoutMs, "config");
+		if (typeof parsedTimeoutMs === "string") {
+			return { ok: false, error: parsedTimeoutMs };
+		}
 		if (parsed.servers === undefined) {
-			return { ok: true, list: [], wrapper: "object" };
+			return {
+				ok: true,
+				list: [],
+				wrapper: "object",
+				...(parsedTimeoutMs === undefined ? {} : { defaultTimeoutMs: parsedTimeoutMs }),
+			};
 		}
 		if (!Array.isArray(parsed.servers)) {
 			return { ok: false, error: 'Invalid mcp config: "servers" must be an array' };
 		}
-		return { ok: true, list: parsed.servers, wrapper: "object" };
+		return {
+			ok: true,
+			list: parsed.servers,
+			wrapper: "object",
+			...(parsedTimeoutMs === undefined ? {} : { defaultTimeoutMs: parsedTimeoutMs }),
+		};
 	}
 	return {
 		ok: false,
@@ -198,7 +221,7 @@ export function parseMcpConfig(parsed: unknown): ParseMcpConfigResult {
 	}
 	const servers: McpServerConfig[] = [];
 	for (let i = 0; i < norm.list.length; i++) {
-		const r = parseMcpEntry(norm.list[i], i);
+		const r = parseMcpEntry(norm.list[i], i, norm.defaultTimeoutMs);
 		if (typeof r === "string") {
 			return { ok: false, error: r };
 		}

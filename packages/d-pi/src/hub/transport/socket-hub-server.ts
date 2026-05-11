@@ -11,7 +11,7 @@ import { VERSION } from "../config.js";
 import type { PeerConfigSnapshot } from "../config-aggregation/types.js";
 import type { McpRuntimeStatus } from "../mcp/types.js";
 import type { PeerRegistry } from "../peers/peer-registry.js";
-import type { RegisteredPeer } from "../peers/peer-types.js";
+import type { PeerMcpSnapshot, RegisteredPeer } from "../peers/peer-types.js";
 import type { HubSessionService } from "../session/hub-session-service.js";
 import { HubViewDocument, type HubViewProjectionState } from "../session/hub-view-document.js";
 import type { HubSessionEvent } from "../session/session-events.js";
@@ -391,6 +391,32 @@ export class SocketHubServer {
 		}
 	}
 
+	private logPeerMcpSnapshotErrors(agentId: string, peerId: string, snapshot: PeerMcpSnapshot | undefined): void {
+		if (!snapshot) {
+			return;
+		}
+		if (snapshot.configError) {
+			this.log("warning", "peer mcp config error", {
+				agentId,
+				peerId,
+				error: snapshot.configError,
+			});
+		}
+		for (const server of snapshot.servers) {
+			if (server.status !== "error" || !server.error) {
+				continue;
+			}
+			this.log("error", "peer mcp server error", {
+				agentId,
+				peerId,
+				mcpServer: server.name,
+				resourceId: server.resourceId ?? null,
+				transport: server.transport,
+				error: server.error,
+			});
+		}
+	}
+
 	async start(options: SocketHubServerOptions): Promise<SocketHubServerAddress> {
 		if (this.address) {
 			return this.address;
@@ -732,6 +758,7 @@ export class SocketHubServer {
 				if (payload.configSnapshot) {
 					this.deps.onPeerConfigSnapshot?.(agentId, peer.peerId, payload.configSnapshot);
 				}
+				this.logPeerMcpSnapshotErrors(agentId, peer.peerId, payload.mcpSnapshot);
 				ack({ ok: true });
 				this.broadcastPeerListForAgent(agentId);
 				this.resetCrdtSyncForSocket(agentId, socket);
@@ -1843,6 +1870,7 @@ export function createMainOnlySocketHubServer(
 	getMcpConfigError: () => string | undefined = () => undefined,
 	mcpMutators: SocketHubServerMcpMutators = DEFAULT_MCP_MUTATORS,
 	webUiDistDir?: string,
+	logs?: HubLogSink,
 ): SocketHubServer {
 	const mainBinding: HubAgentSocketBinding = {
 		sessionService,
@@ -1884,6 +1912,7 @@ export function createMainOnlySocketHubServer(
 		getMcpServerStatuses: () => getMcpServerStatuses(),
 		getMcpConfigError: () => getMcpConfigError(),
 		mcpMutators,
+		...(logs === undefined ? {} : { logs }),
 		...(webUiDistDir === undefined ? {} : { webUiDistDir }),
 	});
 }
