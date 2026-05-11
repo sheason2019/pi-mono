@@ -100,6 +100,14 @@ function parseMcpEntry(raw: unknown, index: number): McpServerConfig | string {
 		}
 		disabled = raw.disabled;
 	}
+	let timeoutMs: number | undefined;
+	if (raw.timeoutMs !== undefined) {
+		const rawTimeoutMs = raw.timeoutMs;
+		if (typeof rawTimeoutMs !== "number" || !Number.isSafeInteger(rawTimeoutMs) || rawTimeoutMs <= 0) {
+			return `Invalid MCP server ${JSON.stringify(name)}: "timeoutMs" must be a positive integer`;
+		}
+		timeoutMs = rawTimeoutMs;
+	}
 	if (tr.transport === "stdio") {
 		const command = raw.command;
 		if (!isNonEmptyString(command)) {
@@ -124,6 +132,9 @@ function parseMcpEntry(raw: unknown, index: number): McpServerConfig | string {
 			return envResult.error;
 		}
 		const out: McpStdioServerConfig = { resourceId, name, transport: "stdio", command };
+		if (timeoutMs !== undefined) {
+			out.timeoutMs = timeoutMs;
+		}
 		if (args !== undefined) {
 			out.args = args;
 		}
@@ -147,6 +158,9 @@ function parseMcpEntry(raw: unknown, index: number): McpServerConfig | string {
 		return headersResult.error;
 	}
 	const out: McpHttpServerConfig = { resourceId, name, transport: "http", url };
+	if (timeoutMs !== undefined) {
+		out.timeoutMs = timeoutMs;
+	}
 	if (headersResult.map !== undefined) {
 		out.headers = headersResult.map;
 	}

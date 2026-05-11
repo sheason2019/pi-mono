@@ -117,6 +117,21 @@ describe("McpHost lifecycle", () => {
 		expect(createClient).toHaveBeenCalledTimes(1);
 	});
 
+	it("uses per-server timeoutMs when starting a configured server", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "mcp-lc-server-timeout-"));
+		tempDirs.push(cwd);
+		writeMcpFile(cwd, { servers: [{ name: "slow", transport: "stdio", command: "x", timeoutMs: 60_000 }] });
+		const customTools: ToolDefinition[] = [];
+		const h = buildFakeHandle("stdio");
+		const createClient: McpHostOptions["createClient"] = vi.fn().mockResolvedValue(h);
+		const host = new McpHost({ cwd, customTools, createClient, timeoutMs: 10_000 });
+
+		await host.start();
+
+		expect(createClient).toHaveBeenCalledWith(expect.objectContaining({ name: "slow" }), { timeoutMs: 60_000 });
+		expect(host.getStatuses()[0]?.status).toBe("running");
+	});
+
 	it("start() with a failed server records error, omits that server's tools, sibling still comes up", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "mcp-lc-err-"));
 		tempDirs.push(cwd);

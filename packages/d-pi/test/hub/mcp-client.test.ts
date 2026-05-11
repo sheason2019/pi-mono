@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createMcpClient, type McpClientHandle, McpClientTimeoutError } from "../../src/hub/mcp/mcp-client.js";
+import { createMcpClient, type McpClientHandle } from "../../src/hub/mcp/mcp-client.js";
 import { startHttpMcpEverythingServer } from "./fixtures/mcp/http-everything-server.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -253,7 +253,7 @@ describe("createMcpClient", () => {
 				},
 				{ timeoutMs: 400 },
 			),
-		).rejects.toThrow(McpClientTimeoutError);
+		).rejects.toThrow(/timed out after 400ms/);
 	});
 
 	it("rejects when the stdio server exits during initialize", async () => {

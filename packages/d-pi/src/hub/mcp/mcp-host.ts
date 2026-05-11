@@ -236,7 +236,7 @@ export class McpHost {
 		}
 
 		const results = await Promise.allSettled(
-			toConnect.map((cfg) => this.createClient(cfg, { timeoutMs: this.timeoutMs })),
+			toConnect.map((cfg) => this.createClient(cfg, { timeoutMs: cfg.timeoutMs ?? this.timeoutMs })),
 		);
 		const newMcpTools: ToolDefinition[] = [];
 		for (let i = 0; i < toConnect.length; i++) {

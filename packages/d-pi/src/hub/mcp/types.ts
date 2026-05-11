@@ -7,6 +7,7 @@ export interface McpServerConfigBase {
 	name: string;
 	transport: McpTransport;
 	disabled?: boolean;
+	timeoutMs?: number;
 }
 
 export interface McpStdioServerConfig extends McpServerConfigBase {

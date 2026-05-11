@@ -12,9 +12,17 @@ import type {
 
 export class McpClientTimeoutError extends Error {
 	readonly name = "McpClientTimeoutError";
-	constructor(message = "MCP client connection or capability discovery timed out") {
-		super(message);
+	constructor(timeoutMsOrMessage?: number | string) {
+		super(formatMcpClientTimeoutMessage(timeoutMsOrMessage));
 	}
+}
+
+function formatMcpClientTimeoutMessage(timeoutMsOrMessage?: number | string): string {
+	if (typeof timeoutMsOrMessage === "string") {
+		return timeoutMsOrMessage;
+	}
+	const suffix = timeoutMsOrMessage === undefined ? "" : ` after ${timeoutMsOrMessage}ms`;
+	return `MCP client connection or capability discovery timed out${suffix}`;
 }
 
 export interface McpClientHandle {
@@ -191,7 +199,7 @@ export async function createMcpClient(config: McpServerConfig, opts: { timeoutMs
 	} catch (e) {
 		if (abort.signal.aborted) {
 			await close();
-			throw new McpClientTimeoutError();
+			throw new McpClientTimeoutError(opts.timeoutMs);
 		}
 		await close();
 		throw e;

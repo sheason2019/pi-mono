@@ -71,6 +71,30 @@ describe("mcp config parse", () => {
 		}
 	});
 
+	it("parseMcpConfig: preserves positive per-server timeoutMs", () => {
+		const r = parseMcpConfig([{ name: "slow", transport: "stdio", command: "c", timeoutMs: 60_000 }]);
+
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			expect(r.servers[0]).toEqual({
+				resourceId: "slow",
+				name: "slow",
+				transport: "stdio",
+				command: "c",
+				timeoutMs: 60_000,
+			});
+		}
+	});
+
+	it("parseMcpConfig: rejects invalid per-server timeoutMs", () => {
+		const r = parseMcpConfig([{ name: "slow", transport: "stdio", command: "c", timeoutMs: 0 }]);
+
+		expect(r.ok).toBe(false);
+		if (!r.ok) {
+			expect(r.error).toMatch(/timeoutMs/i);
+		}
+	});
+
 	it("parseMcpConfig: stdio entry maps command, args, cwd, env", () => {
 		const r = parseMcpConfig([
 			{
