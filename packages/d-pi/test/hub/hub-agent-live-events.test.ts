@@ -248,7 +248,9 @@ describe("hub agent live events", () => {
 				drainMode: "auto" | "flush",
 			): Promise<void>;
 			session: {
-				promptMessages: ReturnType<typeof vi.fn>;
+				agent: {
+					prompt: ReturnType<typeof vi.fn>;
+				};
 			};
 			sessionService: {
 				setRunState: ReturnType<typeof vi.fn>;
@@ -262,10 +264,12 @@ describe("hub agent live events", () => {
 			setRunState: vi.fn(),
 		};
 		adapter.session = {
-			promptMessages: vi.fn(async () => {
-				promptStarted.resolve();
-				await promptDone.promise;
-			}),
+			agent: {
+				prompt: vi.fn(async () => {
+					promptStarted.resolve();
+					await promptDone.promise;
+				}),
+			},
 		};
 
 		const promptPromise = adapter.promptQueuedInputMessages(

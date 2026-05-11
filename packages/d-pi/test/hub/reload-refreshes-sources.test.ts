@@ -55,6 +55,7 @@ function makeMinimalAgentSession(): AgentSession {
 			firstKeptEntryId: "",
 		}),
 		setAllowedToolNames: vi.fn(),
+		setActiveToolsByName: vi.fn(),
 		reload: async () => {},
 		dispose: () => {},
 	} as unknown as AgentSession;

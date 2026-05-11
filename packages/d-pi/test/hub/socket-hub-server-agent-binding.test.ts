@@ -596,7 +596,6 @@ describe("SocketHubServer agent binding (peer:hello / routing)", () => {
 		const hub = HubRuntime.open(workspaceDir);
 		currentRootToken = hub.rootTokenForDisplay ?? currentRootToken;
 		await hub.initializeAgentAdapter();
-		const childHeaderId = hub.getAgentRuntime("child-a").sessionService.getHeader().id;
 		const address = await hub.start({ host: "127.0.0.1", port: 0 });
 		const client = await connectClient(`http://127.0.0.1:${address.port}`);
 		const welcomePromise = new Promise<{ agentId: string }>((resolve) => {
@@ -610,6 +609,7 @@ describe("SocketHubServer agent binding (peer:hello / routing)", () => {
 		});
 		const ack = await peerHello(client, { peerId: "p-child", agentId: "child-a" });
 		expect(ack).toEqual({ ok: true });
+		const childHeaderId = hub.getAgentRuntime("child-a").sessionService.getHeader().id;
 		const welcome = await welcomePromise;
 		await vi.waitFor(() => {
 			expect(crdtPayloads.length).toBeGreaterThan(0);
@@ -1497,6 +1497,47 @@ describe("SocketHubServer cross-agent event scoping and child routing (hardening
 		expect(sourceAck).toEqual({ ok: true });
 		expect(mainEnqueueFromSource).toHaveBeenCalledWith("local source", "from peer source");
 		expect(childEnqueueFromSource).toHaveBeenCalledWith("local source", "from peer source");
+		client.close();
+		await hub.stop();
+	});
+
+	it("does not partially deliver peer-local source fanout when an extended child is stopped", async () => {
+		const { workspaceDir } = setupHubWithChild("child-source-stopped", "sess-source-stopped");
+		mkdirSync(join(workspaceDir, CHILD_AGENT_DIR_NAME, "child-source-stopped"), { recursive: true });
+		writeJson(join(workspaceDir, CHILD_AGENT_DIR_NAME, "child-source-stopped", "sources.json"), {
+			extends: { host: { sources: ["local source"] } },
+			sources: [],
+		});
+		const mainEnqueueFromSource = vi.fn().mockResolvedValue(undefined);
+		const childEnqueueFromSource = vi.fn().mockResolvedValue(undefined);
+		let created = 0;
+		vi.spyOn(HubAgentAdapter, "create").mockImplementation(async () => {
+			created += 1;
+			return {
+				subscribeLiveEvents: () => () => {},
+				dispose: () => {},
+				enqueueFromSource: created === 1 ? mainEnqueueFromSource : childEnqueueFromSource,
+			} as unknown as HubAgentAdapter;
+		});
+		const hub = HubRuntime.open(workspaceDir);
+		currentRootToken = hub.rootTokenForDisplay ?? currentRootToken;
+		await hub.initializeAgentAdapter();
+		await hub.ensureAgentStarted("child-source-stopped");
+		await hub.stopChildAgent(MAIN_AGENT_ID, { agentId: "child-source-stopped" });
+		const address = await hub.start({ host: "127.0.0.1", port: 0 });
+		const client = await connectClient(`http://127.0.0.1:${address.port}`);
+		const helloAck = await peerHello(client, { peerId: "peer a" });
+		expect(helloAck.ok).toBe(true);
+
+		const sourceAck = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+			client.emit("source:message", { sourceName: "local source", text: "from peer source" }, resolve);
+		});
+
+		expect(sourceAck.ok).toBe(false);
+		expect(sourceAck.error).toMatch(/not initialized|child-source-stopped/);
+		expect(mainEnqueueFromSource).not.toHaveBeenCalled();
+		expect(childEnqueueFromSource).not.toHaveBeenCalled();
+		expect(created).toBe(2);
 		client.close();
 		await hub.stop();
 	});

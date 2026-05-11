@@ -7,6 +7,7 @@ export interface HubTuiAgentView {
 	description?: string;
 	kind: "root" | "child";
 	isRunning: boolean;
+	hydrationStatus?: "running" | "loading" | "not_hydrated" | "error";
 	peerCount: number;
 	sessionFile: string;
 	lastError?: string;
@@ -56,6 +57,9 @@ function statusLabel(status: HubTuiViewModel["status"]): string {
 }
 
 function agentStateLabel(agent: HubTuiAgentView): string {
+	if (agent.hydrationStatus === "loading") return "加载中";
+	if (agent.hydrationStatus === "not_hydrated") return "未加载";
+	if (agent.hydrationStatus === "error") return "错误";
 	return agent.isRunning ? "运行中" : "空闲";
 }
 

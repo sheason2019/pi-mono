@@ -272,6 +272,7 @@ export interface SocketHubServerDeps {
 	getDefaultAgentId: () => string;
 	getAgentIds: () => string[];
 	getAgentRuntime: (agentId: string) => HubAgentSocketBinding | undefined;
+	ensureAgentStarted?: (agentId: string) => Promise<HubAgentSocketBinding | undefined>;
 	getAgentMetadata?: (agentId: string) => HubAgentSocketMetadata | undefined;
 	authenticateToken: (token: string) => HubAuthIdentity | undefined | Promise<HubAuthIdentity | undefined>;
 	isAgentInScope: (scopeRootAgentId: string, targetAgentId: string) => boolean;
@@ -341,7 +342,7 @@ export class SocketHubServer {
 
 		this.viewDocuments.clear();
 		this.viewImagesByAgentId.clear();
-		this.initializeViewDocumentsForAgents(this.deps.getAgentIds());
+		this.initializeViewDocumentsForAgents([this.deps.getDefaultAgentId()]);
 
 		const httpServer = createServer((request, response) => {
 			const url = new URL(request.url ?? "/", "http://127.0.0.1");
@@ -504,23 +505,35 @@ export class SocketHubServer {
 
 	initializeViewDocumentsForAgents(agentIds: string[]): void {
 		for (const agentId of agentIds) {
-			this.initializeViewDocumentForAgent(agentId);
+			this.initializeViewDocumentForAgent(agentId, { syncAgentList: false });
 		}
 		this.syncAgentListToAllViewDocuments();
 	}
 
-	initializeViewDocumentForAgent(agentId: string): void {
+	initializeViewDocumentForAgent(agentId: string, options: { syncAgentList?: boolean } = {}): void {
+		const startedAt = Date.now();
 		const runtime = this.deps.getAgentRuntime(agentId);
 		if (!runtime) {
 			throw new Error(`Unknown agent id: ${agentId}`);
 		}
+		const materializeStartedAt = Date.now();
 		const materialized: MaterializedPeerPayload<{ snapshot: HubSessionSnapshot }> =
 			this.imagePayloadCache.materializePeerPayload({ snapshot: runtime.sessionService.getSnapshot() });
+		const materializeMs = Date.now() - materializeStartedAt;
 		const view = this.getViewDocument(agentId);
 		view.resetSession(materialized.value.snapshot, agentId);
 		this.updateAgentMetadataInView(agentId, view);
 		this.rememberViewImages(agentId, materialized.images);
-		this.syncAgentListToAllViewDocuments();
+		this.log("info", "hub startup timing", {
+			phase: "crdt_view",
+			agentId,
+			durationMs: Date.now() - startedAt,
+			messages: materialized.value.snapshot.entries.length,
+			materializeMs,
+		});
+		if (options.syncAgentList ?? true) {
+			this.syncAgentListToAllViewDocuments();
+		}
 		if (this.io) {
 			this.scheduleCrdtFanoutForAllAgents();
 		}
@@ -572,8 +585,7 @@ export class SocketHubServer {
 				const effective =
 					requestedAgentId ??
 					(clientKind === "host" ? getDefaultHostAgentIdForIdentity(identity) : this.deps.getDefaultAgentId());
-				const target = this.deps.getAgentRuntime(effective);
-				if (!target) {
+				if (!this.deps.getAgentIds().includes(effective)) {
 					ack({ ok: false, error: `Unknown agent id: ${effective}` });
 					return;
 				}
@@ -581,10 +593,13 @@ export class SocketHubServer {
 					ack({ ok: false, error: `Token scope does not allow access to agent id: ${effective}` });
 					return;
 				}
-				const view = this.viewDocuments.get(effective);
-				if (!view) {
-					ack({ ok: false, error: `Hub view document is not initialized for agent id: ${effective}` });
+				const target = (await this.deps.ensureAgentStarted?.(effective)) ?? this.deps.getAgentRuntime(effective);
+				if (!target) {
+					ack({ ok: false, error: `Unknown agent id: ${effective}` });
 					return;
+				}
+				if (!this.viewDocuments.has(effective)) {
+					this.initializeViewDocumentForAgent(effective);
 				}
 				this.socketAgentIds.set(socket.id, effective);
 				this.socketIdentities.set(socket.id, identity);
@@ -1019,18 +1034,22 @@ export class SocketHubServer {
 			return;
 		}
 		try {
+			const targets: Array<{ agentId: string; adapter: HubAgentAdapter }> = [];
 			for (const agentId of targetAgentIds) {
 				if (!this.deps.isAgentInScope(identity.scopeRootAgentId, agentId)) {
 					ack({ ok: false, error: `Token scope does not allow source message target: ${agentId}` });
 					return;
 				}
-				const target = this.deps.getAgentRuntime(agentId);
+				const target = (await this.deps.ensureAgentStarted?.(agentId)) ?? this.deps.getAgentRuntime(agentId);
 				const adapter = target?.agentAdapter;
 				if (!adapter) {
 					ack({ ok: false, error: `Hub agent runtime is not initialized for ${agentId}.` });
 					return;
 				}
-				await adapter.enqueueFromSource(sourceName, text);
+				targets.push({ agentId, adapter });
+			}
+			for (const target of targets) {
+				await target.adapter.enqueueFromSource(sourceName, text);
 			}
 			ack({ ok: true });
 		} catch (error) {
@@ -1041,6 +1060,9 @@ export class SocketHubServer {
 	private broadcastPeerListForAgent(agentId: string): void {
 		const runtime = this.deps.getAgentRuntime(agentId);
 		if (!runtime || !this.io) {
+			return;
+		}
+		if (!this.viewDocuments.has(agentId) && !this.hasConnectedCrdtPeerForAgent(agentId)) {
 			return;
 		}
 		const peers = runtime.peerRegistry.list();
@@ -1325,6 +1347,9 @@ export class SocketHubServer {
 		if (!runtime) {
 			return;
 		}
+		if (!this.viewDocuments.has(agentId) && !this.hasConnectedCrdtPeerForAgent(agentId)) {
+			return;
+		}
 		if (event.type === "snapshot_updated") {
 			const materialized: MaterializedPeerPayload<{ snapshot: HubSessionSnapshot }> =
 				this.imagePayloadCache.materializePeerPayload({ snapshot: runtime.sessionService.getSnapshot() });
@@ -1372,6 +1397,9 @@ export class SocketHubServer {
 
 	broadcastLiveEvent(agentId: string, event: LiveRenderEvent): void {
 		if (!this.io) {
+			return;
+		}
+		if (!this.viewDocuments.has(agentId) && !this.hasConnectedCrdtPeerForAgent(agentId)) {
 			return;
 		}
 		const materialized: MaterializedPeerPayload<{ event: LiveRenderEvent }> =

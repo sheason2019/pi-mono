@@ -446,6 +446,40 @@ describe("HubViewDocument", () => {
 		expect(getMessages(hub.getSnapshot(), "main").map((message) => message.role)).toEqual(["user", "assistant"]);
 	});
 
+	it("limits initial session view history to the latest 500 messages", () => {
+		const hub = new HubViewDocument();
+
+		hub.resetSession(createManyUserMessagesSnapshot("sess-window", 505), "main");
+
+		const messages = getMessages(hub.getSnapshot(), "main");
+		expect(messages).toHaveLength(500);
+		expect(messages[0]?.role === "user" ? messages[0].content : "").toBe("msg-5");
+		expect(messages[499]?.role === "user" ? messages[499].content : "").toBe("msg-504");
+	});
+
+	it("keeps live-appended message history capped at 500 messages", () => {
+		const hub = new HubViewDocument();
+		hub.resetSession(createManyUserMessagesSnapshot("sess-live-window", 500), "main");
+
+		hub.updateLiveEvent(
+			{
+				type: "message_start",
+				messageId: "user:500",
+				message: {
+					role: "user",
+					content: "msg-500",
+					timestamp: 500,
+				},
+			},
+			"main",
+		);
+
+		const messages = getMessages(hub.getSnapshot(), "main");
+		expect(messages).toHaveLength(500);
+		expect(messages[0]?.role === "user" ? messages[0].content : "").toBe("msg-1");
+		expect(messages[499]?.role === "user" ? messages[499].content : "").toBe("msg-500");
+	});
+
 	it("rejects peer sync messages that contain document changes", () => {
 		const hub = new HubViewDocument();
 		hub.updateSession(createSnapshot("sess-a", false), "main");
@@ -522,6 +556,26 @@ function createUserThenAssistantSnapshot(): HubSessionSnapshot {
 				message: createAssistantMessage("hello", 2),
 			},
 		],
+	};
+}
+
+function createManyUserMessagesSnapshot(id: string, count: number): HubSessionSnapshot {
+	const snapshot = createSnapshot(id, false);
+	const entries = Array.from({ length: count }, (_, index) => ({
+		type: "message" as const,
+		id: `user-entry-${index}`,
+		parentId: index === 0 ? null : `user-entry-${index - 1}`,
+		timestamp: new Date(index).toISOString(),
+		message: {
+			role: "user" as const,
+			content: `msg-${index}`,
+			timestamp: index,
+		},
+	}));
+	return {
+		...snapshot,
+		entries,
+		context: { ...snapshot.context, messages: entries.map((entry) => entry.message) },
 	};
 }
 

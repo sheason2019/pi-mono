@@ -153,7 +153,7 @@ describe("HubRuntime multi-agent orchestration", () => {
 		await expect(runtime.revokeAgentTokenText(MAIN_AGENT_ID, { tokenId: "root" })).rejects.toThrow(/root token/i);
 	});
 
-	it("after open, the main agent runtime exists; children appear after initializeAgentAdapter", async () => {
+	it("after open, the main agent runtime exists; children hydrate on demand after root init", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-orchestrator-main-"));
 		tempDirs.push(cwd);
 		initializeWorkspace(cwd);
@@ -179,9 +179,10 @@ describe("HubRuntime multi-agent orchestration", () => {
 		await runtime.initializeAgentAdapter();
 
 		expect(() => runtime.getAgentRuntime(MAIN_AGENT_ID)).not.toThrow();
-		const helper = runtime.getAgentRuntime("helper");
+		expect(() => runtime.getAgentRuntime("helper")).toThrow();
+		const helper = await runtime.ensureAgentStarted("helper");
 		expect(helper).toBeDefined();
-		expect(helper.sessionService).not.toBe(runtime.getRootAgentRuntime().sessionService);
+		expect(helper?.sessionService).not.toBe(runtime.getRootAgentRuntime().sessionService);
 	});
 
 	it("defers peer config restarts while the agent is running and coalesces pending changes", async () => {
@@ -261,6 +262,7 @@ describe("HubRuntime multi-agent orchestration", () => {
 
 		const runtime = HubRuntime.open(cwd);
 		await runtime.initializeAgentAdapter();
+		await runtime.ensureAgentStarted(childId);
 
 		expect(createArgs).toHaveLength(2);
 		expect((createArgs[0] as { agentDir?: string }).agentDir).toBeUndefined();
@@ -327,12 +329,154 @@ describe("HubRuntime multi-agent orchestration", () => {
 
 		const runtime = HubRuntime.open(cwd);
 		await runtime.initializeAgentAdapter();
+		try {
+			await runtime.start({ host: "127.0.0.1", port: 0 });
 
-		await vi.waitFor(() => expect(childSubmit).toHaveBeenCalled(), { timeout: 5000 });
-		expect(childSubmit).toHaveBeenCalledWith("eager-source", "immediate");
-		const srcStatus = runtime.sourceHost.getStatuses().find((s) => s.name === "eager-source");
-		expect(srcStatus?.error).toBeUndefined();
-		expect(srcStatus?.status).not.toBe("error");
+			await vi.waitFor(() => expect(childSubmit).toHaveBeenCalled(), { timeout: 5000 });
+			expect(childSubmit).toHaveBeenCalledWith("eager-source", "immediate");
+			const srcStatus = runtime.sourceHost.getStatuses().find((s) => s.name === "eager-source");
+			expect(srcStatus?.error).toBeUndefined();
+			expect(srcStatus?.status).not.toBe("error");
+		} finally {
+			await runtime.stop();
+		}
+	});
+
+	it("continues background child hydration and starts sources after one child fails", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-bg-child-fail-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		mkdirSync(join(cwd, ".pi-hub", "agents"), { recursive: true });
+		const badPath = getAgentSessionFile(cwd, "bad-child");
+		const srcPath = getAgentSessionFile(cwd, "src-child");
+		writeFileSync(badPath, `${headerLine("bad-child-session", cwd)}\n`, "utf8");
+		writeFileSync(srcPath, `${headerLine("src-child-session", cwd)}\n`, "utf8");
+		seedRegistryMainAndChildren(cwd, [
+			{
+				id: "bad-child",
+				kind: "child",
+				sessionFile: badPath,
+				createdAt: new Date(0).toISOString(),
+			},
+			{
+				id: "src-child",
+				kind: "child",
+				sessionFile: srcPath,
+				createdAt: new Date(0).toISOString(),
+			},
+		]);
+
+		const rpcLine = JSON.stringify({
+			jsonrpc: "2.0",
+			method: "queue/write",
+			params: { content: "after-failure" },
+		});
+		const nodeArg = `process.stdout.write(${JSON.stringify(rpcLine)}+String.fromCharCode(10))`;
+		writeFileSync(
+			getSourcesConfigPath(cwd),
+			`${JSON.stringify(
+				{
+					sources: [
+						{
+							name: "source-after-failure",
+							transport: "stdio",
+							command: process.execPath,
+							args: ["-e", nodeArg],
+							agentId: "src-child",
+						},
+					],
+				},
+				null,
+				2,
+			)}\n`,
+			"utf8",
+		);
+
+		const childSubmit = vi.fn().mockResolvedValue(undefined);
+		const mainStub = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+			enqueueFromSource: vi.fn().mockResolvedValue(undefined),
+		} as unknown as HubAgentAdapter;
+		const childStub = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+			enqueueFromSource: childSubmit,
+		} as unknown as HubAgentAdapter;
+		let createN = 0;
+		vi.spyOn(HubAgentAdapter, "create").mockImplementation(async () => {
+			createN += 1;
+			if (createN === 1) {
+				return mainStub;
+			}
+			if (createN === 2) {
+				throw new Error("bad-child-fail");
+			}
+			return childStub;
+		});
+
+		const runtime = HubRuntime.open(cwd);
+		await runtime.initializeAgentAdapter();
+		try {
+			await runtime.start({ host: "127.0.0.1", port: 0 });
+
+			await vi.waitFor(() => expect(runtime.getAgentHydrationStatus("bad-child")).toBe("error"));
+			await vi.waitFor(() => expect(runtime.getAgentHydrationStatus("src-child")).toBe("running"));
+			await vi.waitFor(() => expect(childSubmit).toHaveBeenCalledWith("source-after-failure", "after-failure"), {
+				timeout: 5000,
+			});
+			const srcStatus = runtime.sourceHost.getStatuses().find((s) => s.name === "source-after-failure");
+			expect(srcStatus?.error).toBeUndefined();
+			expect(srcStatus?.status).not.toBe("error");
+		} finally {
+			await runtime.stop();
+		}
+	});
+
+	it("reaches socket listen before slow child hydration finishes", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-lazy-child-listen-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		mkdirSync(join(cwd, ".pi-hub", "agents"), { recursive: true });
+		const childPath = getAgentSessionFile(cwd, "slow-child");
+		writeFileSync(childPath, `${headerLine("slow-child-session", cwd)}\n`, "utf8");
+		seedRegistryWithChild(cwd, {
+			id: "slow-child",
+			kind: "child",
+			sessionFile: childPath,
+			createdAt: new Date(0).toISOString(),
+		});
+
+		let releaseChild!: () => void;
+		const childStartBlocked = new Promise<void>((resolve) => {
+			releaseChild = resolve;
+		});
+		let createN = 0;
+		vi.spyOn(HubAgentAdapter, "create").mockImplementation(async () => {
+			createN += 1;
+			if (createN > 1) {
+				await childStartBlocked;
+			}
+			return {
+				subscribeLiveEvents: () => () => {},
+				dispose: () => {},
+			} as unknown as HubAgentAdapter;
+		});
+
+		const runtime = HubRuntime.open(cwd);
+		await runtime.initializeAgentAdapter();
+		expect(createN).toBe(1);
+		try {
+			const address = await runtime.start({ host: "127.0.0.1", port: 0 });
+			expect(address.port).toBeGreaterThan(0);
+			await vi.waitFor(() => expect(runtime.getAgentHydrationStatus("slow-child")).toBe("loading"));
+			releaseChild();
+			await vi.waitFor(() => expect(runtime.getAgentHydrationStatus("slow-child")).toBe("running"));
+		} finally {
+			releaseChild();
+			await runtime.stop();
+		}
 	});
 
 	it("getAgentRuntime and getRootAgentRuntime return the root agent shell", () => {
@@ -408,6 +552,7 @@ describe("HubRuntime multi-agent orchestration", () => {
 
 		const runtime = HubRuntime.open(cwd);
 		await runtime.initializeAgentAdapter();
+		await runtime.ensureAgentStarted("w2");
 		const rtMain = runtime.getRootAgentRuntime();
 		const rtChild = runtime.getAgentRuntime("w2");
 		expect(rtMain.agentAdapter).toBeDefined();
@@ -417,22 +562,14 @@ describe("HubRuntime multi-agent orchestration", () => {
 		expect(childDispose).toHaveBeenCalled();
 	});
 
-	it("rolls back when a child agent adapter fails after main and an earlier child started (disposes started runtimes, clears children from map)", async () => {
+	it("keeps the root running when a lazy child hydration fails", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-orchestrator-rollback-"));
 		tempDirs.push(cwd);
 		initializeWorkspace(cwd);
 		mkdirSync(join(cwd, ".pi-hub", "agents"), { recursive: true });
-		const alphaPath = getAgentSessionFile(cwd, "alpha");
 		const betaPath = getAgentSessionFile(cwd, "beta");
-		writeFileSync(alphaPath, `${headerLine("sess-alpha", cwd)}\n`, "utf8");
 		writeFileSync(betaPath, `${headerLine("sess-beta", cwd)}\n`, "utf8");
 		seedRegistryMainAndChildren(cwd, [
-			{
-				id: "alpha",
-				kind: "child",
-				sessionFile: alphaPath,
-				createdAt: new Date(0).toISOString(),
-			},
 			{
 				id: "beta",
 				kind: "child",
@@ -442,7 +579,6 @@ describe("HubRuntime multi-agent orchestration", () => {
 		]);
 
 		const mainDispose = vi.fn();
-		const alphaDispose = vi.fn();
 		const mockAdapter = (dispose: () => void): HubAgentAdapter =>
 			({
 				subscribeLiveEvents: () => () => {},
@@ -455,24 +591,55 @@ describe("HubRuntime multi-agent orchestration", () => {
 			if (createN === 1) {
 				return mockAdapter(mainDispose);
 			}
-			if (createN === 2) {
-				return mockAdapter(alphaDispose);
-			}
 			throw new Error("beta-adapter-fail");
 		});
 
 		const runtime = HubRuntime.open(cwd);
-		await expect(runtime.initializeAgentAdapter()).rejects.toThrow(/beta-adapter-fail/);
+		await runtime.initializeAgentAdapter();
+		await expect(runtime.ensureAgentStarted("beta")).rejects.toThrow(/beta-adapter-fail/);
 
-		expect(createN).toBe(3);
-		expect(mainDispose).toHaveBeenCalled();
-		expect(alphaDispose).toHaveBeenCalled();
-		expect(runtime.getRootAgentRuntime().agentAdapter).toBeUndefined();
-		expect(() => runtime.getAgentRuntime("alpha")).toThrow(/Unknown agent id: alpha/);
-		expect(() => runtime.getAgentRuntime("beta")).toThrow(/Unknown agent id: beta/);
+		expect(createN).toBe(2);
+		expect(mainDispose).not.toHaveBeenCalled();
+		expect(runtime.getRootAgentRuntime().agentAdapter).toBeDefined();
+		expect(runtime.getAgentHydrationStatus("beta")).toBe("error");
 
 		await expect(runtime.stop()).resolves.toBeUndefined();
 		await expect(runtime.stop()).resolves.toBeUndefined();
+	});
+
+	it("does not implicitly rehydrate an explicitly stopped child", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-manual-stop-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		mkdirSync(join(cwd, ".pi-hub", "agents"), { recursive: true });
+		const childPath = getAgentSessionFile(cwd, "manual-stop");
+		writeFileSync(childPath, `${headerLine("manual-stop-session", cwd)}\n`, "utf8");
+		seedRegistryWithChild(cwd, {
+			id: "manual-stop",
+			kind: "child",
+			sessionFile: childPath,
+			createdAt: new Date(0).toISOString(),
+		});
+
+		const adapter = {
+			subscribeLiveEvents: () => () => {},
+			dispose: vi.fn(),
+		} as unknown as HubAgentAdapter;
+		const create = vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(adapter);
+
+		const runtime = HubRuntime.open(cwd);
+		await runtime.initializeAgentAdapter();
+		await runtime.ensureAgentStarted("manual-stop");
+		expect(create).toHaveBeenCalledTimes(2);
+
+		await runtime.stopChildAgent(MAIN_AGENT_ID, { agentId: "manual-stop" });
+		expect(runtime.getAllMessagingAgentIds()).not.toContain("manual-stop");
+		await expect(runtime.ensureAgentStarted("manual-stop", "socket")).resolves.toBeUndefined();
+		expect(create).toHaveBeenCalledTimes(2);
+
+		await runtime.startChildAgent(MAIN_AGENT_ID, { agentId: "manual-stop" });
+		expect(create).toHaveBeenCalledTimes(3);
+		await runtime.stop();
 	});
 
 	it("initializeAgentAdapter passes services and model through to HubAgentAdapter.create for main (not overridden by undefined base fields)", async () => {

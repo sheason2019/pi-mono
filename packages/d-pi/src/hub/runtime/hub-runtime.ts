@@ -77,6 +77,7 @@ type InitializeAdapterOptions = Omit<CreateHubAgentAdapterOptions, "sessionServi
 type CreateMcpClient = NonNullable<HubRuntimeOpenOptions["mcp"]>["createClient"];
 type PendingPeerConfigChange = { type: "set"; snapshot: PeerConfigSnapshot } | { type: "remove" };
 type ChildResourceExtends = SpawnChildToolInput["extends"];
+type AgentHydrationStatus = "running" | "loading" | "not_hydrated" | "error";
 
 export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentTokenToolHost {
 	readonly cwd: string;
@@ -101,6 +102,11 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 	private readonly sessionLogUnsubs = new Map<string, () => void>();
 	private readonly temporaryCleanupUnsubs = new Map<string, () => void>();
 	private readonly temporaryCleanupInFlight = new Set<string>();
+	private readonly childStartInFlightByAgentId = new Map<string, Promise<HubAgentRuntime>>();
+	private readonly childStartErrorsByAgentId = new Map<string, string>();
+	private readonly manuallyStoppedAgentIds = new Set<string>();
+	private backgroundChildHydrationStarted = false;
+	private stopping = false;
 	private sessionFanout: Array<{
 		listener: (agentId: string, event: HubSessionEvent) => void;
 		subscriptions: Array<{ agentId: string; unsubscribe: () => void }>;
@@ -186,13 +192,30 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 		return this.agentRuntimes.get(agentId);
 	}
 
+	getAgentHydrationStatus(agentId: string): AgentHydrationStatus {
+		if (agentId === ROOT_AGENT_ID) {
+			return this.getRootAgentRuntime().agentAdapter ? "running" : "loading";
+		}
+		if (this.childStartInFlightByAgentId.has(agentId)) {
+			return "loading";
+		}
+		if (this.childStartErrorsByAgentId.has(agentId)) {
+			return "error";
+		}
+		const runtime = this.agentRuntimes.get(agentId);
+		return runtime?.agentAdapter ? "running" : "not_hydrated";
+	}
+
 	isAgentInSubtree(scopeRootAgentId: string, targetAgentId: string): boolean {
 		return this.agentRegistry.isInSubtree(scopeRootAgentId, targetAgentId);
 	}
 
-	/** Ids of all agents with a registered `HubAgentRuntime` (main + any children in the map). */
+	/** Ids of all known agents. Child runtimes may hydrate lazily on first use. */
 	getAllMessagingAgentIds(): string[] {
-		return [...this.agentRuntimes.keys()];
+		return this.agentRegistry
+			.getAll()
+			.map((record) => record.id)
+			.filter((agentId) => agentId === ROOT_AGENT_ID || !this.manuallyStoppedAgentIds.has(agentId));
 	}
 
 	/**
@@ -248,7 +271,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 					if (!hub) {
 						throw new Error("HubRuntime is not ready");
 					}
-					const rt = hub.tryGetAgentRuntime(agentId);
+					const rt = await hub.ensureAgentStarted(agentId, "source");
 					if (!rt) {
 						throw new Error(`Unknown agent id: ${JSON.stringify(agentId)}`);
 					}
@@ -265,8 +288,9 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 		const adapterUserOptions: { current: InitializeAdapterOptions } = { current: {} };
 		const socketServer = new SocketHubServer({
 			getDefaultAgentId: () => ROOT_AGENT_ID,
-			getAgentIds: () => hubRef.v?.getAllMessagingAgentIds() ?? [ROOT_AGENT_ID],
+			getAgentIds: () => agentRegistry.getAll().map((record) => record.id),
 			getAgentRuntime: (agentId) => hubRef.v?.tryGetAgentRuntime(agentId),
+			ensureAgentStarted: (agentId) => hubRef.v?.ensureAgentStarted(agentId, "socket") ?? Promise.resolve(undefined),
 			getAgentMetadata: (agentId) => {
 				const record = agentRegistry.get(agentId);
 				return record
@@ -547,66 +571,28 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 
 		this.adapterUserOptions.current = options;
 
-		/** Runtimes for which `start()` has completed in this call (order: main, then child registry order). */
-		const startedRuntimes: HubAgentRuntime[] = [];
-		/** Child ids for which a `HubAgentRuntime` was registered during this call. */
-		const childrenAddedInThisCall: string[] = [];
-		/** New live forwarders built before they replace `this.liveEventUnsubs` (unsubscribe on error). */
-		const pendingLiveUnsubs: Array<{ agentId: string; unsubscribe: () => void }> = [];
 		let mainStartCompleted = false;
 		let mainStartAttempted = false;
-		/** `true` once `this.sourceHost.start()` is entered (for rollback if it throws). */
-		let sourceHostStartReached = false;
 
 		try {
+			const mcpStartedAt = Date.now();
 			await this.mcpHost.start();
-
-			for (const rec of this.agentRegistry.getAll()) {
-				if (rec.id === ROOT_AGENT_ID) {
-					continue;
-				}
-				if (this.agentRuntimes.has(rec.id)) {
-					continue;
-				}
-				const child = this.createChildHubAgentRuntime(rec);
-				this.agentRuntimes.set(rec.id, child);
-				this.wireSessionLogForAgent(rec.id, child);
-				childrenAddedInThisCall.push(rec.id);
-			}
+			this.log("info", "hub startup timing", {
+				phase: "root_mcp",
+				agentId: ROOT_AGENT_ID,
+				durationMs: Date.now() - mcpStartedAt,
+			});
 
 			mainStartAttempted = true;
+			const rootStartedAt = Date.now();
 			await main.start();
 			mainStartCompleted = true;
-			startedRuntimes.push(main);
-			for (const rec of this.agentRegistry.getAll()) {
-				if (rec.id === ROOT_AGENT_ID) {
-					continue;
-				}
-				const child = this.agentRuntimes.get(rec.id);
-				if (child) {
-					await child.start();
-					this.log("info", "child agent started", { agentId: rec.id });
-					startedRuntimes.push(child);
-				}
-			}
-
-			pendingLiveUnsubs.length = 0;
-			for (const ar of this.agentRuntimes.values()) {
-				pendingLiveUnsubs.push({
-					agentId: ar.record.id,
-					unsubscribe: ar.subscribeLiveEvents((event) => {
-						this.socketServer.broadcastLiveEvent(ar.record.id, event);
-					}),
-				});
-			}
-			for (const u of this.liveEventUnsubs) {
-				u.unsubscribe();
-			}
-			this.liveEventUnsubs = pendingLiveUnsubs;
-
-			/** After target agents have adapters, so child-bound sources cannot outrace `submitFromSource`. */
-			sourceHostStartReached = true;
-			await this.sourceHost.start();
+			this.log("info", "hub startup timing", {
+				phase: "root_agent_start",
+				agentId: ROOT_AGENT_ID,
+				durationMs: Date.now() - rootStartedAt,
+			});
+			this.wireLiveEventsForAgent(ROOT_AGENT_ID, main);
 
 			const adapter = main.agentAdapter;
 			if (!adapter) {
@@ -614,35 +600,6 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 			}
 			return adapter;
 		} catch (e) {
-			for (const u of pendingLiveUnsubs) {
-				u.unsubscribe();
-			}
-			if (this.liveEventUnsubs === pendingLiveUnsubs) {
-				this.liveEventUnsubs = [];
-			}
-			if (sourceHostStartReached) {
-				try {
-					await this.sourceHost.stop();
-				} catch {
-					// best-effort: teardown after failed source start
-				}
-			}
-			const stoppedInReversePass = new Set<HubAgentRuntime>();
-			for (const rt of [...startedRuntimes].reverse()) {
-				await rt.stop();
-				stoppedInReversePass.add(rt);
-			}
-			for (const id of childrenAddedInThisCall) {
-				const child = this.agentRuntimes.get(id);
-				if (!child) {
-					continue;
-				}
-				if (!stoppedInReversePass.has(child)) {
-					await child.stop();
-				}
-				this.agentRuntimes.delete(id);
-				this.unwireSessionLogForAgent(id);
-			}
 			if (mainStartAttempted && !mainStartCompleted) {
 				await main.stop();
 			}
@@ -677,6 +634,75 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 		});
 	}
 
+	private ensureAgentRuntimeRegistered(agentId: string): HubAgentRuntime | undefined {
+		const existing = this.agentRuntimes.get(agentId);
+		if (existing) {
+			return existing;
+		}
+		const record = this.agentRegistry.get(agentId);
+		if (!record || record.kind !== "child") {
+			return undefined;
+		}
+		const startedAt = Date.now();
+		const child = this.createChildHubAgentRuntime(record);
+		this.agentRuntimes.set(record.id, child);
+		this.wireSessionLogForAgent(record.id, child);
+		this.wireSessionFanoutForNewAgent(record.id, child);
+		this.wireLiveEventsForAgent(record.id, child);
+		this.log("info", "hub startup timing", {
+			phase: "child_session_open",
+			agentId: record.id,
+			durationMs: Date.now() - startedAt,
+		});
+		return child;
+	}
+
+	async ensureAgentStarted(agentId: string, reason: string = "on_demand"): Promise<HubAgentRuntime | undefined> {
+		if (agentId === ROOT_AGENT_ID) {
+			return this.getRootAgentRuntime();
+		}
+		if (this.manuallyStoppedAgentIds.has(agentId) && reason !== "explicit_start" && reason !== "tool_start") {
+			return undefined;
+		}
+		const existingInFlight = this.childStartInFlightByAgentId.get(agentId);
+		if (existingInFlight) {
+			return existingInFlight;
+		}
+		const child = this.ensureAgentRuntimeRegistered(agentId);
+		if (!child) {
+			return undefined;
+		}
+		if (child.agentAdapter) {
+			return child;
+		}
+		const startPromise = (async () => {
+			const startedAt = Date.now();
+			this.childStartErrorsByAgentId.delete(agentId);
+			this.log("info", "child agent hydration started", { agentId, reason });
+			try {
+				await child.start();
+				this.maybeTrackTemporaryChild(child.record, child);
+				await this.startContainerExecutorsForAgent(child.record);
+				this.log("info", "child agent started", { agentId });
+				this.log("info", "hub startup timing", {
+					phase: "child_agent_start",
+					agentId,
+					durationMs: Date.now() - startedAt,
+				});
+				return child;
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				this.childStartErrorsByAgentId.set(agentId, message);
+				this.log("error", "child agent hydration failed", { agentId, reason, error: message });
+				throw error;
+			} finally {
+				this.childStartInFlightByAgentId.delete(agentId);
+			}
+		})();
+		this.childStartInFlightByAgentId.set(agentId, startPromise);
+		return startPromise;
+	}
+
 	private wireSessionFanoutForNewAgent(agentId: string, rt: HubAgentRuntime): void {
 		for (const e of this.sessionFanout) {
 			e.subscriptions.push({
@@ -707,6 +733,18 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 		}
 		unsubscribe();
 		this.sessionLogUnsubs.delete(agentId);
+	}
+
+	private wireLiveEventsForAgent(agentId: string, rt: HubAgentRuntime): void {
+		if (this.liveEventUnsubs.some((entry) => entry.agentId === agentId)) {
+			return;
+		}
+		this.liveEventUnsubs.push({
+			agentId,
+			unsubscribe: rt.subscribeLiveEvents((event) => {
+				this.socketServer.broadcastLiveEvent(rt.record.id, event);
+			}),
+		});
 	}
 
 	private unwireSessionFanoutForAgent(agentId: string): void {
@@ -755,25 +793,6 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 		return this.sessionFanout.length;
 	}
 
-	/** Stops a partially registered child: fanout, live forwarding, map entry, and runtime stop. */
-	private async rollbackInProgressChildRuntime(
-		agentId: string,
-		child: HubAgentRuntime,
-		liveUnsub: { agentId: string; unsubscribe: () => void },
-	): Promise<void> {
-		this.unwireSessionFanoutForAgent(agentId);
-		this.unwireSessionLogForAgent(agentId);
-		const liveIndex = this.liveEventUnsubs.lastIndexOf(liveUnsub);
-		if (liveIndex >= 0) {
-			liveUnsub.unsubscribe();
-			this.liveEventUnsubs.splice(liveIndex, 1);
-		} else {
-			liveUnsub.unsubscribe();
-		}
-		this.agentRuntimes.delete(agentId);
-		await child.stop();
-	}
-
 	private assertAgentInSubtree(callerAgentId: string, targetAgentId: string, action: string): void {
 		this.agentRegistry.require(callerAgentId);
 		this.agentRegistry.require(targetAgentId);
@@ -784,7 +803,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 
 	/**
 	 * After `agentRegistry` + session file are persisted, if adapter start fails, remove the registry row and
-	 * session file so disk matches the in-memory map (which is rolled back by `rollbackInProgressChildRuntime` first).
+	 * session file so disk matches the in-memory runtime map.
 	 */
 	private rollbackPersistedChildRecordIfPresent(record: AgentRecord): void {
 		if (this.agentRegistry.get(record.id) !== undefined) {
@@ -847,29 +866,90 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 		await this.sourceHost.start();
 	}
 
+	private startBackgroundChildHydration(): void {
+		if (this.backgroundChildHydrationStarted) {
+			return;
+		}
+		this.backgroundChildHydrationStarted = true;
+		const childRecords = this.agentRegistry.getAll().filter((record) => record.kind === "child");
+		if (childRecords.length === 0) {
+			return;
+		}
+		this.log("info", "child agent hydration queued", { agents: childRecords.length });
+		setTimeout(() => {
+			void this.hydrateChildAgentsInBackground(childRecords).catch((error: unknown) => {
+				const message = error instanceof Error ? error.message : String(error);
+				this.log("error", "child agent hydration failed", { error: message });
+			});
+		}, 0);
+	}
+
+	private async hydrateChildAgentsInBackground(childRecords: AgentRecord[]): Promise<void> {
+		const startedAt = Date.now();
+		let started = 0;
+		try {
+			for (const record of childRecords) {
+				if (this.stopping) {
+					return;
+				}
+				if (!this.agentRegistry.get(record.id)) {
+					continue;
+				}
+				try {
+					const child = await this.ensureAgentStarted(record.id, "startup_background");
+					if (child?.agentAdapter) {
+						started += 1;
+					}
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					this.log("error", "child agent hydration failed", {
+						agentId: record.id,
+						reason: "startup_background",
+						error: message,
+					});
+				}
+			}
+		} finally {
+			this.log("info", "hub startup timing", {
+				phase: "child_background_hydration",
+				durationMs: Date.now() - startedAt,
+				agents: started,
+			});
+		}
+	}
+
+	private async startSourceHostAfterChildHydration(): Promise<void> {
+		if (this.stopping) {
+			return;
+		}
+		const startedAt = Date.now();
+		await this.sourceHost.start();
+		this.log("info", "hub startup timing", {
+			phase: "sources_start",
+			durationMs: Date.now() - startedAt,
+			sources: this.sourceHost.getStatuses().length,
+		});
+	}
+
 	/** Starts a new child `HubAgentRuntime` after a registry record and session file were created (used by tools). */
 	private async addAndStartNewChildFromRegistry(record: AgentRecord): Promise<HubAgentRuntime> {
-		const child = this.createChildHubAgentRuntime(record);
-		this.agentRuntimes.set(record.id, child);
-		this.wireSessionLogForAgent(record.id, child);
-		this.wireSessionFanoutForNewAgent(record.id, child);
-		const u = {
-			agentId: record.id,
-			unsubscribe: child.subscribeLiveEvents((event) => {
-				this.socketServer.broadcastLiveEvent(child.record.id, event);
-			}),
-		};
-		this.liveEventUnsubs.push(u);
+		const child = this.ensureAgentRuntimeRegistered(record.id);
+		if (!child) {
+			throw new Error(`Unknown child agent id: ${record.id}`);
+		}
 		try {
-			await child.start();
-			this.socketServer.initializeViewDocumentForAgent(record.id);
-			this.maybeTrackTemporaryChild(record, child);
-			await this.startContainerExecutorsForAgent(record);
-			this.log("info", "child agent started", { agentId: record.id });
-			return child;
+			const started = await this.ensureAgentStarted(record.id, "tool_start");
+			if (!started) {
+				throw new Error(`Unknown child agent id: ${record.id}`);
+			}
+			return started;
 		} catch (e) {
 			this.stopContainerExecutorsForAgent(record.id);
-			await this.rollbackInProgressChildRuntime(record.id, child, u);
+			this.unwireLiveEventsForAgent(record.id);
+			this.unwireSessionFanoutForAgent(record.id);
+			this.unwireSessionLogForAgent(record.id);
+			this.agentRuntimes.delete(record.id);
+			await child.stop();
 			throw e;
 		}
 	}
@@ -1099,6 +1179,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 		HubRuntime.materializeSessionManagerToDisk(sm, record.sessionFile);
 		this.agentRegistry.save();
 		try {
+			this.manuallyStoppedAgentIds.delete(record.id);
 			const child = await this.addAndStartNewChildFromRegistry(this.agentRegistry.require(record.id));
 			await this.refreshSourcesForChildExtends(input.extends);
 			this.continueChildCurrentTranscript(child);
@@ -1166,7 +1247,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 				reportResult: record.reportResult,
 				spawnMode: record.spawnMode,
 				sessionFile: record.sessionFile,
-				status: runtime ? "running" : "stopped",
+				status: this.getAgentHydrationStatus(record.id),
 				peerCount: runtime?.peerRegistry.size() ?? 0,
 				isRunning: snapshot?.isRunning ?? false,
 				isWorking: snapshot?.isRunning ?? false,
@@ -1496,6 +1577,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 		const record = this.requireChildRecordForLifecycle(input.agentId, "stop_child_agent");
 		const runtime = this.agentRuntimes.get(record.id);
 		const disconnectedPeers = runtime?.peerRegistry.size() ?? 0;
+		this.manuallyStoppedAgentIds.add(record.id);
 		if (runtime) {
 			this.stopContainerExecutorsForAgent(record.id);
 			for (const peer of runtime.peerRegistry.list()) {
@@ -1525,7 +1607,8 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 	async startChildAgent(callerAgentId: string, input: StartChildToolInput): Promise<string> {
 		this.assertAgentInSubtree(callerAgentId, input.agentId, "start_child_agent");
 		const record = this.requireChildRecordForLifecycle(input.agentId, "start_child_agent");
-		if (this.agentRuntimes.has(record.id)) {
+		const existing = this.agentRuntimes.get(record.id);
+		if (existing?.agentAdapter) {
 			return JSON.stringify(
 				{
 					ok: true,
@@ -1538,6 +1621,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 				2,
 			);
 		}
+		this.manuallyStoppedAgentIds.delete(record.id);
 		await this.addAndStartNewChildFromRegistry(record);
 		return JSON.stringify(
 			{
@@ -1574,6 +1658,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 			this.temporaryCleanupUnsubs.delete(record.id);
 		}
 		this.configLayers.removeAgentSnapshots(record.id);
+		this.manuallyStoppedAgentIds.delete(record.id);
 		this.agentRegistry.removeChild(record.id);
 		this.agentRegistry.save();
 		if (deleteFiles) {
@@ -1629,6 +1714,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 					sessionFile: r.sessionFile,
 					spawnMode: r.spawnMode,
 					background: r.background,
+					hydrationStatus: this.getAgentHydrationStatus(r.id),
 					peerCount: rt?.peerRegistry.size() ?? 0,
 					isRunning: snap?.isRunning ?? false,
 					lastError: snap?.lastError,
@@ -1720,7 +1806,10 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 
 	async readAgentHistoryText(callerAgentId: string, input: ReadAgentHistoryToolInput): Promise<string> {
 		this.assertAgentInSubtree(callerAgentId, input.agentId, "read_agent_history");
-		const rt = this.getAgentRuntime(input.agentId);
+		const rt = this.ensureAgentRuntimeRegistered(input.agentId);
+		if (!rt) {
+			throw new Error(`Unknown agent id: ${input.agentId}`);
+		}
 		const sm = rt.sessionService.getSessionManager();
 		const br = sm.getBranch();
 		const asMessages: SessionMessageEntry[] = br.filter((e): e is SessionMessageEntry => e.type === "message");
@@ -1736,11 +1825,21 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 	}
 
 	async start(options: StartHubRuntimeOptions = {}): Promise<SocketHubServerAddress> {
+		const startedAt = Date.now();
 		const address = await this.socketServer.start({
 			host: options.host ?? getListenHost(),
 			port: options.port ?? getListenPort(),
 		});
 		this.socketAddress = address;
+		this.log("info", "hub startup timing", {
+			phase: "socket_listen",
+			durationMs: Date.now() - startedAt,
+		});
+		this.startBackgroundChildHydration();
+		void this.startSourceHostAfterChildHydration().catch((error: unknown) => {
+			const message = error instanceof Error ? error.message : String(error);
+			this.log("error", "source startup failed", { error: message });
+		});
 		await this.startContainerExecutorsForRunningAgents();
 		return address;
 	}
@@ -1751,6 +1850,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 	 * open a new hub with `HubRuntime.open()` if you need another lifecycle.
 	 */
 	async stop(): Promise<void> {
+		this.stopping = true;
 		this.stopAllContainerExecutors();
 		for (const e of this.sessionFanout) {
 			for (const subscription of e.subscriptions) {

@@ -118,6 +118,7 @@ describe("peer tools and group executor isolation (HubRuntime)", () => {
 		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
 		const hub = HubRuntime.open(workspaceDir);
 		await hub.initializeAgentAdapter();
+		await hub.ensureAgentStarted("child-iso-1");
 		const mainRt = hub.getRootAgentRuntime();
 		const childRt = hub.getAgentRuntime("child-iso-1");
 		expect(childRt.peerRegistry).not.toBe(mainRt.peerRegistry);
@@ -202,6 +203,7 @@ describe("peer tools and group executor isolation (HubRuntime)", () => {
 		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
 		const hub = HubRuntime.open(workspaceDir);
 		await hub.initializeAgentAdapter();
+		await hub.ensureAgentStarted("child-no-host");
 
 		const childGroup = findToolExecute("group", hub.getAgentRuntime("child-no-host").tools);
 		expect(childGroup).toBeDefined();
@@ -241,6 +243,7 @@ describe("peer tools and group executor isolation (HubRuntime)", () => {
 		const address = await hub.start({ host: "127.0.0.1", port: 0 });
 		const m = await connectClient(`http://127.0.0.1:${address.port}`);
 		await peerHello(m, { peerId: "exclusive-main", token: hub.rootTokenForDisplay });
+		await hub.ensureAgentStarted("child-iso-3");
 
 		const childRead = findToolExecute("read", hub.getAgentRuntime("child-iso-3").tools);
 		expect(childRead).toBeDefined();

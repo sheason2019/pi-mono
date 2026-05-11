@@ -202,7 +202,7 @@ describe("HubRuntime container executors", () => {
 			await runtime.initializeAgentAdapter();
 			const address = await runtime.start({ host: "127.0.0.1", port: 0 });
 
-			expect(spawn).toHaveBeenCalledOnce();
+			await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
 			expect(spawn.mock.calls[0]?.[1]).toContain(`D_PI_HUB_URL=http://127.0.0.1:${address.port}`);
 			expect(spawn.mock.calls[0]?.[1]).toContain("D_PI_AGENT_ID=child-a");
 			expect(spawn.mock.calls[0]?.[1]).toContain("D_PI_PEER_ID=node-tools");

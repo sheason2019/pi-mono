@@ -347,9 +347,10 @@ export function buildSessionContext(
 	const path: SessionEntry[] = [];
 	let current: SessionEntry | undefined = leaf;
 	while (current) {
-		path.unshift(current);
+		path.push(current);
 		current = current.parentId ? byId.get(current.parentId) : undefined;
 	}
+	path.reverse();
 
 	// Extract settings and find compaction
 	let thinkingLevel = "off";
@@ -460,6 +461,40 @@ export function loadEntriesFromFile(filePath: string): FileEntry[] {
 	}
 
 	return entries;
+}
+
+function readSessionHeaderFromFile(filePath: string): SessionHeader | undefined {
+	if (!existsSync(filePath)) return undefined;
+	try {
+		const fd = openSync(filePath, "r");
+		try {
+			let offset = 0;
+			let firstLine = "";
+			const buffer = Buffer.alloc(4096);
+			while (firstLine.length < 1024 * 1024) {
+				const bytesRead = readSync(fd, buffer, 0, buffer.length, offset);
+				if (bytesRead === 0) break;
+				offset += bytesRead;
+				const chunk = buffer.toString("utf8", 0, bytesRead);
+				const newline = chunk.indexOf("\n");
+				if (newline >= 0) {
+					firstLine += chunk.slice(0, newline);
+					break;
+				}
+				firstLine += chunk;
+			}
+			if (!firstLine.trim()) return undefined;
+			const header = JSON.parse(firstLine) as FileEntry;
+			if (header.type !== "session" || typeof header.id !== "string") {
+				return undefined;
+			}
+			return header;
+		} finally {
+			closeSync(fd);
+		}
+	} catch {
+		return undefined;
+	}
 }
 
 function isValidSessionFile(filePath: string): boolean {
@@ -1036,10 +1071,10 @@ export class SessionManager {
 		const startId = fromId ?? this.leafId;
 		let current = startId ? this.byId.get(startId) : undefined;
 		while (current) {
-			path.unshift(current);
+			path.push(current);
 			current = current.parentId ? this.byId.get(current.parentId) : undefined;
 		}
-		return path;
+		return path.reverse();
 	}
 
 	/**
@@ -1279,8 +1314,7 @@ export class SessionManager {
 	 */
 	static open(path: string, sessionDir?: string, cwdOverride?: string): SessionManager {
 		// Extract cwd from session header if possible, otherwise use process.cwd()
-		const entries = loadEntriesFromFile(path);
-		const header = entries.find((e) => e.type === "session") as SessionHeader | undefined;
+		const header = cwdOverride === undefined ? readSessionHeaderFromFile(path) : undefined;
 		const cwd = cwdOverride ?? header?.cwd ?? process.cwd();
 		// If no sessionDir provided, derive from file's parent directory
 		const dir = sessionDir ?? resolve(path, "..");

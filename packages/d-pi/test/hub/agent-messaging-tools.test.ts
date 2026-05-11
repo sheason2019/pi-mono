@@ -463,7 +463,7 @@ describe("agent messaging tools", () => {
 		expect(String(res).toLowerCase()).toMatch(/no|recipients|other|empty/);
 	});
 
-	it("returns clear error when target runtime has no adapter", async () => {
+	it("hydrates a target runtime when its adapter is missing", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "a2a-no-adapter-"));
 		tempDirs.push(cwd);
 		seedMainSessionWithDialog(cwd);
@@ -497,11 +497,11 @@ describe("agent messaging tools", () => {
 				message: "nope",
 			}),
 		);
-		expect(tr.toLowerCase()).toMatch(/adapter|not initialized/);
-		expect(childSubmit).not.toHaveBeenCalled();
+		expect(JSON.parse(tr)).toEqual({ ok: true, queued: [childId] });
+		expect(childSubmit).toHaveBeenCalledWith("root", "nope");
 	});
 
-	it("validates all target adapters before sending to avoid partial multi-target delivery", async () => {
+	it("hydrates all target adapters before sending multi-target messages", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "a2a-no-partial-"));
 		tempDirs.push(cwd);
 		seedMainSessionWithDialog(cwd);
@@ -509,7 +509,7 @@ describe("agent messaging tools", () => {
 		const secondChildSubmit = vi.fn().mockResolvedValue(undefined);
 		let n = 0;
 		vi.spyOn(HubAgentAdapter, "create").mockImplementation(async () => {
-			const submit = n === 1 ? firstChildSubmit : n === 2 ? secondChildSubmit : vi.fn();
+			const submit = n === 1 ? firstChildSubmit : n >= 2 ? secondChildSubmit : vi.fn();
 			n += 1;
 			return {
 				enqueueFromAgent: submit,
@@ -534,8 +534,8 @@ describe("agent messaging tools", () => {
 			}),
 		);
 
-		expect(tr.toLowerCase()).toMatch(/adapter|not initialized/);
-		expect(firstChildSubmit).not.toHaveBeenCalled();
-		expect(secondChildSubmit).not.toHaveBeenCalled();
+		expect(JSON.parse(tr)).toEqual({ ok: true, queued: [firstId, secondId] });
+		expect(firstChildSubmit).toHaveBeenCalledWith("root", "must-not-partially-send");
+		expect(secondChildSubmit).toHaveBeenCalledWith("root", "must-not-partially-send");
 	});
 });

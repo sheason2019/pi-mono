@@ -76,7 +76,7 @@ describe("peer source metadata at hub boundary", () => {
 		expect(createAgentMessageSource("child-a")).toEqual({ kind: "agent", name: "child-a" });
 	});
 
-	it("keeps d-pi security and auth identity headers at the d-pi boundary", () => {
+	it("keeps d-pi metadata out of persisted core message conversion", () => {
 		const user: UserMessage = {
 			role: "user",
 			content: "hello",
@@ -92,17 +92,7 @@ describe("peer source metadata at hub boundary", () => {
 		const out = convertToLlm([user]);
 		const first = out[0]!;
 
-		expect(first.role === "user" && typeof first.content === "string" ? first.content : "").toBe(
-			[
-				"[message source: peer/peer-a]",
-				"[security note: 注意区分消息来源和人员权限范围]",
-				"[message source auth token: web guests]",
-				"[message source auth token description: Guest access]",
-				"[message source user: Li Xujie]",
-				"[message source purpose: Code review guest access]",
-				"hello",
-			].join("\n"),
-		);
+		expect(first.role === "user" && typeof first.content === "string" ? first.content : "").toBe("hello");
 	});
 
 	it("routes session:queue_write and session:queue_flush for registered peers", async () => {

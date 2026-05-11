@@ -13,6 +13,7 @@ export interface AgentMessagingTargetRuntime {
  */
 export interface AgentMessagingToolHost {
 	tryGetAgentRuntime(agentId: string): AgentMessagingTargetRuntime | undefined;
+	ensureAgentStarted?: (agentId: string, reason?: string) => Promise<AgentMessagingTargetRuntime | undefined>;
 	getAllMessagingAgentIds(): readonly string[];
 }
 
@@ -86,13 +87,13 @@ function jsonText(obj: unknown): { content: Array<{ type: "text"; text: string }
 	return { content: [{ type: "text" as const, text: JSON.stringify(obj) }], details: null };
 }
 
-function resolveReadyTargets(
+async function resolveReadyTargets(
 	host: AgentMessagingToolHost,
 	targetIds: readonly string[],
-): Array<{ id: string; adapter: HubAgentAdapter }> | { error: unknown } {
+): Promise<Array<{ id: string; adapter: HubAgentAdapter }> | { error: unknown }> {
 	const ready: Array<{ id: string; adapter: HubAgentAdapter }> = [];
 	for (const id of targetIds) {
-		const rt = host.tryGetAgentRuntime(id);
+		const rt = (await host.ensureAgentStarted?.(id, "agent_message")) ?? host.tryGetAgentRuntime(id);
 		if (!rt) {
 			return { error: { ok: false, error: "agent runtime not found", agentId: id } };
 		}
@@ -132,7 +133,7 @@ export function createAgentMessagingToolDefinitions(
 				const host = getHost();
 				const unknown: string[] = [];
 				for (const id of targetIds) {
-					if (!host.tryGetAgentRuntime(id)) {
+					if (!host.getAllMessagingAgentIds().includes(id)) {
 						unknown.push(id);
 					}
 				}
@@ -143,7 +144,7 @@ export function createAgentMessagingToolDefinitions(
 						unknown,
 					});
 				}
-				const ready = resolveReadyTargets(host, targetIds);
+				const ready = await resolveReadyTargets(host, targetIds);
 				if (!Array.isArray(ready)) {
 					return jsonText(ready.error);
 				}
@@ -179,7 +180,7 @@ export function createAgentMessagingToolDefinitions(
 						message: "no other agents to receive broadcast",
 					});
 				}
-				const ready = resolveReadyTargets(host, recipients);
+				const ready = await resolveReadyTargets(host, recipients);
 				if (!Array.isArray(ready)) {
 					return jsonText(ready.error);
 				}

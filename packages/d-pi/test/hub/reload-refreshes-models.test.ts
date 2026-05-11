@@ -51,6 +51,7 @@ function makeMinimalAgentSession(): AgentSession {
 			firstKeptEntryId: "",
 		}),
 		setAllowedToolNames: vi.fn(),
+		setActiveToolsByName: vi.fn(),
 		reload: async () => {},
 		dispose: () => {},
 	} as unknown as AgentSession;
@@ -119,7 +120,7 @@ describe("HubAgentAdapter.reload refreshes models", () => {
 		expect(refresh).toHaveBeenCalledTimes(1);
 	});
 
-	it("invokes refreshModelsConfig, refreshSources, setAllowedToolNames, session.reload, modelRegistry.refresh in this order", async () => {
+	it("invokes refreshModelsConfig, refreshSources, session.reload, modelRegistry.refresh, setActiveToolsByName in this order", async () => {
 		const calls: string[] = [];
 		const refreshModelsConfig = vi.fn(() => {
 			calls.push("refreshModelsConfig");
@@ -135,8 +136,8 @@ describe("HubAgentAdapter.reload refreshes models", () => {
 		});
 		const session = {
 			...makeMinimalAgentSession(),
-			setAllowedToolNames: vi.fn(() => {
-				calls.push("setAllowedToolNames");
+			setActiveToolsByName: vi.fn(() => {
+				calls.push("setActiveToolsByName");
 			}),
 			reload: sessionReload,
 		} as unknown as AgentSession;
@@ -164,9 +165,9 @@ describe("HubAgentAdapter.reload refreshes models", () => {
 		expect(calls).toEqual([
 			"refreshModelsConfig",
 			"refreshSources",
-			"setAllowedToolNames",
 			"session.reload",
 			"modelRegistry.refresh",
+			"setActiveToolsByName",
 		]);
 	});
 

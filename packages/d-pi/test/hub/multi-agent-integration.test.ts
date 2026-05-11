@@ -259,7 +259,11 @@ describe("multi-agent integration (runtime + socket server)", () => {
 		});
 		expect(pr.ok).toBe(true);
 		expect(mainEnqueue).not.toHaveBeenCalled();
-		expect(childEnqueue).toHaveBeenCalledWith("e2e-child", "child-only");
+		expect(childEnqueue).toHaveBeenCalledWith(
+			"e2e-child",
+			"child-only",
+			expect.objectContaining({ authUser: "root" }),
+		);
 
 		cMain.close();
 		cChild.close();
@@ -315,7 +319,7 @@ describe("multi-agent integration (runtime + socket server)", () => {
 		});
 		expect(pr.ok).toBe(true);
 		expect(mainEnqueue).not.toHaveBeenCalled();
-		expect(childEnqueue).toHaveBeenCalledWith("hot-peer", "p");
+		expect(childEnqueue).toHaveBeenCalledWith("hot-peer", "p", expect.objectContaining({ authUser: "root" }));
 
 		client.close();
 		await hub.stop();

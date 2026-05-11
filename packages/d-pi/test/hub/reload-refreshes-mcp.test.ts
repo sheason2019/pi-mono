@@ -60,6 +60,7 @@ function makeMinimalAgentSession(): AgentSession {
 			firstKeptEntryId: "",
 		}),
 		setAllowedToolNames: vi.fn(),
+		setActiveToolsByName: vi.fn(),
 		reload: async () => {},
 		dispose: () => {},
 	} as unknown as AgentSession;
@@ -170,7 +171,7 @@ describe("HubAgentAdapter.reload refreshes MCP", () => {
 		await expect(adapter.reload()).resolves.toBeUndefined();
 	});
 
-	it("runs refresh steps in order: refreshModelsConfig, refreshSources, refreshMcp, setAllowedToolNames, session.reload, modelRegistry.refresh, refreshSessionOptions", async () => {
+	it("runs refresh steps in order: refreshModelsConfig, refreshSources, refreshMcp, session.reload, modelRegistry.refresh, setActiveToolsByName, refreshSessionOptions", async () => {
 		const calls: string[] = [];
 		const refreshModelsConfig = vi.fn(() => {
 			calls.push("refreshModelsConfig");
@@ -189,8 +190,8 @@ describe("HubAgentAdapter.reload refreshes MCP", () => {
 		});
 		const session = {
 			...makeMinimalAgentSession(),
-			setAllowedToolNames: vi.fn(() => {
-				calls.push("setAllowedToolNames");
+			setActiveToolsByName: vi.fn(() => {
+				calls.push("setActiveToolsByName");
 			}),
 			reload: sessionReload,
 		} as unknown as AgentSession;
@@ -228,9 +229,9 @@ describe("HubAgentAdapter.reload refreshes MCP", () => {
 			"refreshModelsConfig",
 			"refreshSources",
 			"refreshMcp",
-			"setAllowedToolNames",
 			"session.reload",
 			"modelRegistry.refresh",
+			"setActiveToolsByName",
 			"refreshSessionOptions",
 		]);
 	});

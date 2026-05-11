@@ -13,6 +13,8 @@ import {
 	type HubSessionSnapshot,
 } from "./session-snapshot.js";
 
+const MAX_AGENT_VIEW_ITEMS = 500;
+
 export interface HubViewDocumentState extends Record<string, unknown> {
 	version: 1;
 	agentOrder: string[];
@@ -459,16 +461,18 @@ function createEmptyAgent(agentId: string): HubAgentViewModel {
 }
 
 function createItemsFromEntries(entries: SessionEntry[]): HubAgentViewItem[] {
-	return entries.flatMap((entry): HubAgentViewItem[] => {
-		if (entry.type === "message") {
-			return [{ type: "message", message: deepCloneJson(entry.message) }];
-		}
-		if (entry.type === "custom" && entry.customType === HUB_RUN_TIMING_CUSTOM_TYPE) {
-			const timing = parseHubRunTiming(entry.data);
-			return timing ? [{ type: "run_timing", timing }] : [];
-		}
-		return [];
-	});
+	return entries
+		.flatMap((entry): HubAgentViewItem[] => {
+			if (entry.type === "message") {
+				return [{ type: "message", message: deepCloneJson(entry.message) }];
+			}
+			if (entry.type === "custom" && entry.customType === HUB_RUN_TIMING_CUSTOM_TYPE) {
+				const timing = parseHubRunTiming(entry.data);
+				return timing ? [{ type: "run_timing", timing }] : [];
+			}
+			return [];
+		})
+		.slice(-MAX_AGENT_VIEW_ITEMS);
 }
 
 function parseHubRunTiming(value: unknown): HubRunTiming | undefined {
@@ -593,10 +597,12 @@ function upsertLiveMessage(
 		const index = agent.items.length;
 		agent.items.push({ type: "message", message: createMessageView(message) });
 		agent.live.itemIndicesById[messageId] = index;
+		pruneAgentViewItems(agent);
+		const currentIndex = agent.live.itemIndicesById[messageId] ?? Math.max(0, agent.items.length - 1);
 		if (message.role === "assistant") {
-			syncAssistantMessageTextBlocks(doc, agentId, index, message);
+			syncAssistantMessageTextBlocks(doc, agentId, currentIndex, message);
 		}
-		return index;
+		return currentIndex;
 	}
 	syncMessageAt(doc, agentId, existingIndex, message);
 	return existingIndex;
@@ -647,6 +653,7 @@ function applySessionEventToAgent(agent: HubAgentViewModel, event: HubSessionEve
 			syncOptionalProperty(agent.live, "statusMessage", event.lastError);
 			if (event.runTiming) {
 				agent.items.push({ type: "run_timing", timing: deepCloneJson(event.runTiming) });
+				pruneAgentViewItems(agent);
 			}
 			return;
 		case "queue_changed":
@@ -659,6 +666,29 @@ function applySessionEventToAgent(agent: HubAgentViewModel, event: HubSessionEve
 			return;
 		case "snapshot_updated":
 			return;
+	}
+}
+
+function pruneAgentViewItems(agent: HubAgentViewModel): void {
+	const overflow = agent.items.length - MAX_AGENT_VIEW_ITEMS;
+	if (overflow <= 0) {
+		return;
+	}
+	agent.items.splice(0, overflow);
+	for (const [messageId, index] of Object.entries(agent.live.itemIndicesById)) {
+		if (index < overflow) {
+			delete agent.live.itemIndicesById[messageId];
+		} else {
+			agent.live.itemIndicesById[messageId] = index - overflow;
+		}
+	}
+	if (agent.live.streamingMessageIndex !== undefined) {
+		if (agent.live.streamingMessageIndex < overflow) {
+			delete agent.live.streamingMessageIndex;
+			delete agent.live.streamingMessageId;
+		} else {
+			agent.live.streamingMessageIndex -= overflow;
+		}
 	}
 }
 

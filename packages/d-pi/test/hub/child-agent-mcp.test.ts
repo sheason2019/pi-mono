@@ -109,6 +109,7 @@ describe("child agent MCP", () => {
 
 		const runtime = HubRuntime.open(cwd, { mcp: { createClient } });
 		await runtime.initializeAgentAdapter();
+		await runtime.ensureAgentStarted(childId);
 
 		const mainToolNames = toolsByCall[0]!.map((tool) => tool.name);
 		const childToolNames = toolsByCall[1]!.map((tool) => tool.name);
@@ -169,6 +170,7 @@ describe("child agent MCP", () => {
 
 		const runtime = HubRuntime.open(cwd, { mcp: { createClient } });
 		await runtime.initializeAgentAdapter();
+		await runtime.ensureAgentStarted(childId);
 
 		const childToolNames = toolsByCall[1]!.map((tool) => tool.name);
 		expect(childToolNames).toContain("mcp__keep-id__echo");

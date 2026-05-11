@@ -41,6 +41,7 @@ function buildHubServeView(
 				description: record.description,
 				kind: record.kind,
 				isRunning: snapshot?.isRunning ?? false,
+				hydrationStatus: runtime.getAgentHydrationStatus(record.id),
 				peerCount: rt?.peerRegistry.size() ?? 0,
 				sessionFile: record.sessionFile,
 				lastError: snapshot?.lastError,
@@ -73,9 +74,16 @@ export async function runServe(cwd: string = process.cwd(), options: RunServeOpt
 		const logs = HubLogStore.openWorkspace(cwd);
 		logs.info(`hub ${VERSION} 启动中 (protocol v${HUB_PROTOCOL_VERSION})`);
 		logs.info(`Node.js ${process.version} on ${process.platform}/${process.arch}`);
+		const runtimeOpenStartedAt = Date.now();
 		const runtime = HubRuntime.open(cwd, { logs });
+		logs.info("hub startup timing", { phase: "runtime_open", durationMs: Date.now() - runtimeOpenStartedAt });
 		let mode: HubServeMode | undefined;
+		const adapterStartStartedAt = Date.now();
 		const adapter = await runtime.initializeAgentAdapter();
+		logs.info("hub startup timing", {
+			phase: "initialize_agent_adapter",
+			durationMs: Date.now() - adapterStartStartedAt,
+		});
 		const availableModels = await adapter.getAvailableModels();
 		if (availableModels.length === 0 && !options.allowHubNoModel) {
 			const message =
@@ -85,14 +93,17 @@ export async function runServe(cwd: string = process.cwd(), options: RunServeOpt
 			await runtime.stop();
 			return 1;
 		}
+		const socketStartStartedAt = Date.now();
 		const address = await runtime.start();
+		logs.info("hub startup timing", { phase: "runtime_start", durationMs: Date.now() - socketStartStartedAt });
 		logs.info(`hub ${VERSION} 已监听 http://${address.host}:${address.port}`);
 		if (runtime.rootTokenForDisplay) {
 			logs.warning(`Root token: ${runtime.rootTokenForDisplay}`);
 			logs.warning("Root token is shown once; store it securely.");
 		}
 		for (const record of runtime.getAgentRecords()) {
-			logs.info(`${record.id} agent 已启动`);
+			const status = runtime.getAgentHydrationStatus(record.id);
+			logs.info(`${record.id} agent ${status === "running" ? "已启动" : "等待后台加载"}`);
 		}
 		if (adapter.diagnostics.length > 0) {
 			logs.warning(`root agent 诊断信息 ${adapter.diagnostics.length} 条`);
