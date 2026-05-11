@@ -37,14 +37,12 @@ export class RemoteModelSelectorComponent implements Component, Focusable {
 		private readonly currentModel: CurrentModel,
 		private readonly onSelectModel: (model: AvailableModel) => void | Promise<void>,
 		private readonly onCancelSelection: () => void,
+		private readonly onSelectError?: (error: unknown) => void,
 	) {
 		this.filteredModels = [...models];
 		this.searchInput.onEscape = () => this.onCancelSelection();
 		this.searchInput.onSubmit = () => {
-			const selected = this.filteredModels[this.selectedIndex];
-			if (selected) {
-				void this.onSelectModel(selected);
-			}
+			this.submitSelectedModel();
 		};
 	}
 
@@ -114,10 +112,7 @@ export class RemoteModelSelectorComponent implements Component, Focusable {
 			return;
 		}
 		if (kb.matches(data, "tui.select.confirm")) {
-			const selected = this.filteredModels[this.selectedIndex];
-			if (selected) {
-				void this.onSelectModel(selected);
-			}
+			this.submitSelectedModel();
 			return;
 		}
 		if (kb.matches(data, "tui.select.cancel")) {
@@ -130,6 +125,16 @@ export class RemoteModelSelectorComponent implements Component, Focusable {
 	}
 
 	invalidate(): void {}
+
+	private submitSelectedModel(): void {
+		const selected = this.filteredModels[this.selectedIndex];
+		if (!selected) {
+			return;
+		}
+		void Promise.resolve(this.onSelectModel(selected)).catch((error: unknown) => {
+			this.onSelectError?.(error);
+		});
+	}
 
 	private filterModels(query: string): void {
 		this.filteredModels = query

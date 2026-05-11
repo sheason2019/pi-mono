@@ -29,7 +29,12 @@ import {
 } from "../components/index.js";
 import type { RemoteInteractiveActions } from "../interactive/remote-interactive-actions.js";
 import type { RemoteInteractiveCapabilities } from "../interactive/remote-interactive-capabilities.js";
-import type { RemoteInteractiveSessionView, RemoteInteractiveView } from "../interactive/remote-interactive-view.js";
+import type {
+	RemoteInteractiveGroupAgentView,
+	RemoteInteractiveSessionView,
+	RemoteInteractiveView,
+} from "../interactive/remote-interactive-view.js";
+import { RemoteAgentSelectorComponent } from "./components/agent-selector.js";
 import { ForkedFooterComponent } from "./components/footer.js";
 import { buildForkedStartupHelp, keyText } from "./components/keybinding-hints.js";
 import { type McpDetailAction, RemoteMcpDetailSelectorComponent } from "./components/mcp-detail-selector.js";
@@ -68,6 +73,7 @@ type IncrementalAssistantMessageComponent = {
 };
 type SelectorKind =
 	| "model"
+	| "agent-list"
 	| "settings"
 	| "source-list"
 	| "source-detail"
@@ -909,6 +915,9 @@ export class ForkedInteractiveMode {
 				}
 				this.openModelSelector();
 				return;
+			case "show_agents":
+				this.openAgentSelector();
+				return;
 			case "set_thinking_level":
 				await this.deps.actions.setThinkingLevel(command.level);
 				this.appendInfoMessage(`Thinking level changed to ${command.level}.`);
@@ -1125,9 +1134,51 @@ export class ForkedInteractiveMode {
 					done();
 				},
 				() => done(),
+				(error) => {
+					this.appendWarningMessage(error instanceof Error ? error.message : String(error));
+				},
 			);
 			return { component: selector, focus: selector.getFocusTarget() };
 		});
+	}
+
+	private openAgentSelector(): void {
+		const view = this.deps.getView();
+		const agents = view.agents ?? [];
+		if (agents.length === 0) {
+			this.appendWarningMessage("No agents are visible to the current token yet.");
+			return;
+		}
+		const currentAgentId = view.footer.boundAgentId;
+		this.showSelector("agent-list", (done) => {
+			const selector = new RemoteAgentSelectorComponent(
+				agents,
+				currentAgentId,
+				async (agent) => {
+					await this.switchAgent(agent);
+					done();
+				},
+				() => done(),
+				(error) => {
+					this.appendWarningMessage(error instanceof Error ? error.message : String(error));
+				},
+			);
+			return { component: selector, focus: selector.getFocusTarget() };
+		});
+	}
+
+	private async switchAgent(agent: RemoteInteractiveGroupAgentView): Promise<void> {
+		const currentAgentId = this.deps.getView().footer.boundAgentId;
+		if (agent.id === currentAgentId) {
+			this.appendInfoMessage(`Already connected to agent ${agent.id}.`);
+			return;
+		}
+		if (!this.deps.actions.switchAgent) {
+			throw new Error("Agent switching action is not available.");
+		}
+		await this.deps.actions.switchAgent(agent.id);
+		const label = agent.name ? `${agent.id} (${agent.name})` : agent.id;
+		this.appendInfoMessage(`Switched to agent ${label}.`);
 	}
 
 	private findModelResource(

@@ -31,6 +31,22 @@ describe("hub models config", () => {
 					baseUrl: "https://global.example.com/v1",
 					apiKey: "GLOBAL_OPENAI_KEY",
 					api: "openai-responses",
+					compat: {
+						openRouterRouting: {
+							order: ["global-a"],
+							allow_fallbacks: true,
+						},
+					},
+					modelOverrides: {
+						"gpt-4.1": {
+							compat: {
+								openRouterRouting: {
+									order: ["override-global"],
+									require_parameters: true,
+								},
+							},
+						},
+					},
 					headers: {
 						"x-global": "1",
 						"x-shared": "global",
@@ -56,6 +72,20 @@ describe("hub models config", () => {
 					headers: {
 						"x-local": "1",
 						"x-shared": "local",
+					},
+					compat: {
+						openRouterRouting: {
+							only: ["local-a"],
+						},
+					},
+					modelOverrides: {
+						"gpt-4.1": {
+							compat: {
+								openRouterRouting: {
+									only: ["override-local"],
+								},
+							},
+						},
 					},
 					models: [
 						{
@@ -104,6 +134,8 @@ describe("hub models config", () => {
 				{
 					baseUrl?: string;
 					headers?: Record<string, string>;
+					compat?: { openRouterRouting?: Record<string, unknown> };
+					modelOverrides?: Record<string, { compat?: { openRouterRouting?: Record<string, unknown> } }>;
 					models?: Array<{ id: string; name: string }>;
 				}
 			>;
@@ -115,6 +147,16 @@ describe("hub models config", () => {
 			"x-global": "1",
 			"x-local": "1",
 			"x-shared": "local",
+		});
+		expect(merged.providers["corp-openai"].compat?.openRouterRouting).toEqual({
+			order: ["global-a"],
+			allow_fallbacks: true,
+			only: ["local-a"],
+		});
+		expect(merged.providers["corp-openai"].modelOverrides?.["gpt-4.1"]?.compat?.openRouterRouting).toEqual({
+			order: ["override-global"],
+			require_parameters: true,
+			only: ["override-local"],
 		});
 		expect(merged.providers["corp-openai"].models?.map((model) => ({ id: model.id, name: model.name }))).toEqual([
 			{

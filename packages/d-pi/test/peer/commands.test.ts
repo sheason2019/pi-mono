@@ -24,7 +24,18 @@ describe("peer command parsing", () => {
 	it("exposes only supported commands in the visible command list", () => {
 		const names = getVisiblePeerCommands(createCapabilities()).map((command) => command.name);
 
-		expect(names).toEqual(["model", "settings", "compact", "reload", "group", "session", "source", "mcp", "skills"]);
+		expect(names).toEqual([
+			"model",
+			"agents",
+			"settings",
+			"compact",
+			"reload",
+			"group",
+			"session",
+			"source",
+			"mcp",
+			"skills",
+		]);
 		expect(names).not.toContain("fork");
 		expect(DISABLED_PEER_COMMAND_NAMES).toEqual(["new", "resume", "tree", "fork", "clone"]);
 	});
@@ -38,7 +49,7 @@ describe("peer command parsing", () => {
 			}),
 		).map((command) => command.name);
 
-		expect(names).toEqual(["settings", "group", "session", "source", "mcp", "skills"]);
+		expect(names).toEqual(["agents", "settings", "group", "session", "source", "mcp", "skills"]);
 	});
 
 	it("parses model switching with explicit provider and model id", () => {
@@ -47,6 +58,10 @@ describe("peer command parsing", () => {
 			provider: "openai",
 			modelId: "gpt-4.1",
 		});
+	});
+
+	it("parses /agents with no arguments", () => {
+		expect(parsePeerCommand("/agents")).toEqual({ kind: "show_agents" });
 	});
 
 	it("parses settings thinking updates", () => {
@@ -88,6 +103,14 @@ describe("peer command parsing", () => {
 			kind: "invalid",
 			commandName: "group",
 			message: '"/group" does not accept arguments.',
+		});
+	});
+
+	it("rejects /agents with arguments", () => {
+		expect(parsePeerCommand("/agents child-a")).toEqual({
+			kind: "invalid",
+			commandName: "agents",
+			message: '"/agents" does not accept arguments.',
 		});
 	});
 

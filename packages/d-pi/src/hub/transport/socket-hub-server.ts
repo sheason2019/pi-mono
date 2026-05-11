@@ -23,6 +23,7 @@ import type {
 	ActionAck,
 	ClientToServerEvents,
 	LiveRenderEvent,
+	PublicOrgSnapshot,
 	ServerToClientEvents,
 	SessionGetMcpServersAck,
 	SessionGetSkillsAck,
@@ -219,6 +220,60 @@ function serveWebUiStaticRequest(
 	return true;
 }
 
+function servePublicOrgRequest(
+	request: IncomingMessage,
+	response: ServerResponse,
+	url: URL,
+	getSnapshot: () => PublicOrgSnapshot,
+): boolean {
+	if (url.pathname !== "/api/public/org") {
+		return false;
+	}
+	if (request.method !== "GET" && request.method !== "HEAD") {
+		response.statusCode = 405;
+		response.setHeader("allow", "GET, HEAD");
+		response.end();
+		return true;
+	}
+	const body = JSON.stringify(getSnapshot());
+	response.statusCode = 200;
+	response.setHeader("content-type", "application/json; charset=utf-8");
+	response.setHeader("cache-control", "no-store");
+	response.setHeader("x-content-type-options", "nosniff");
+	if (request.method === "HEAD") {
+		response.end();
+		return true;
+	}
+	response.end(body);
+	return true;
+}
+
+function createFallbackPublicOrgSnapshot(deps: SocketHubServerDeps): PublicOrgSnapshot {
+	return {
+		app: "d-pi hub",
+		version: VERSION,
+		protocolVersion: HUB_PROTOCOL_VERSION,
+		generatedAt: new Date().toISOString(),
+		agents: deps.getAgentIds().map((agentId) => {
+			const runtime = deps.getAgentRuntime(agentId);
+			const metadata = deps.getAgentMetadata?.(agentId);
+			const snapshot = runtime?.sessionService.getSnapshot();
+			const activationStatus = runtime?.agentAdapter ? "running" : "not_hydrated";
+			return {
+				id: agentId,
+				...(metadata?.parentId === undefined ? {} : { parentId: metadata.parentId }),
+				...(metadata?.kind === undefined ? {} : { kind: metadata.kind }),
+				...(metadata?.lifecycle === undefined ? {} : { lifecycle: metadata.lifecycle }),
+				...(metadata?.name === undefined ? {} : { name: metadata.name }),
+				activationStatus,
+				isRunning: snapshot?.isRunning ?? false,
+				peerCount: runtime?.peerRegistry.size() ?? 0,
+				hasError: Boolean(snapshot?.lastError),
+			};
+		}),
+	};
+}
+
 function decodeStaticPath(value: string): string | undefined {
 	try {
 		return decodeURIComponent(value);
@@ -274,6 +329,7 @@ export interface SocketHubServerDeps {
 	getAgentRuntime: (agentId: string) => HubAgentSocketBinding | undefined;
 	ensureAgentStarted?: (agentId: string) => Promise<HubAgentSocketBinding | undefined>;
 	getAgentMetadata?: (agentId: string) => HubAgentSocketMetadata | undefined;
+	getPublicOrgSnapshot?: () => PublicOrgSnapshot;
 	authenticateToken: (token: string) => HubAuthIdentity | undefined | Promise<HubAuthIdentity | undefined>;
 	isAgentInScope: (scopeRootAgentId: string, targetAgentId: string) => boolean;
 	getHttpSessionService: () => HubSessionService;
@@ -366,6 +422,17 @@ export class SocketHubServer {
 				response.setHeader("cache-control", "private, max-age=31536000, immutable");
 				response.setHeader("etag", `"${image.imageId}"`);
 				response.end(body);
+				return;
+			}
+
+			if (
+				servePublicOrgRequest(
+					request,
+					response,
+					url,
+					this.deps.getPublicOrgSnapshot ?? (() => createFallbackPublicOrgSnapshot(this.deps)),
+				)
+			) {
 				return;
 			}
 
@@ -688,7 +755,7 @@ export class SocketHubServer {
 				sentAt: getQueueWriteSentAt(payload),
 				...getAuthMessageSourceMetadata(this.socketIdentities.get(socket.id)),
 			};
-			await this.handleSimpleAction(client.bound, payload, ack, (adapter) => {
+			await this.handleSimpleAction(socket, client.bound, payload, ack, (adapter) => {
 				if (client.clientKind === "host") {
 					return adapter.enqueueFromHost(client.hostId, text, metadata);
 				}
@@ -701,9 +768,8 @@ export class SocketHubServer {
 			if (!client) {
 				return;
 			}
-			const adapter = client.bound.agentAdapter;
+			const adapter = await this.getAdapterForSocketAction(socket, client.bound, ack);
 			if (!adapter) {
-				ack({ ok: false, error: "Hub agent runtime is not initialized." });
 				return;
 			}
 			ack({ ok: true });
@@ -725,9 +791,8 @@ export class SocketHubServer {
 			if (!client) {
 				return;
 			}
-			const adapter = client.bound.agentAdapter;
+			const adapter = await this.getAdapterForSocketAction(socket, client.bound, ack);
 			if (!adapter) {
-				ack({ ok: false, error: "Hub agent runtime is not initialized." });
 				return;
 			}
 			ack({ ok: true });
@@ -741,7 +806,7 @@ export class SocketHubServer {
 			if (!client) {
 				return;
 			}
-			await this.handleSetModel(client.bound, payload, ack);
+			await this.handleSetModel(socket, client.bound, payload, ack);
 		});
 
 		socket.on("session:set_thinking_level", async (payload, ack) => {
@@ -749,7 +814,7 @@ export class SocketHubServer {
 			if (!client) {
 				return;
 			}
-			await this.handleSetThinkingLevel(client.bound, payload, ack);
+			await this.handleSetThinkingLevel(socket, client.bound, payload, ack);
 		});
 
 		socket.on("session:invoke_command", async (payload, ack) => {
@@ -757,7 +822,7 @@ export class SocketHubServer {
 			if (!client) {
 				return;
 			}
-			await this.handleInvokeCommand(client.bound, payload, ack);
+			await this.handleInvokeCommand(socket, client.bound, payload, ack);
 		});
 
 		socket.on("session:get_sources", (_payload, ack) => {
@@ -1594,15 +1659,33 @@ export class SocketHubServer {
 		return peer;
 	}
 
+	private async getAdapterForSocketAction(
+		socket: Socket<ClientToServerEvents, ServerToClientEvents>,
+		bound: HubAgentSocketBinding,
+		ack: (response: ActionAck) => void,
+	): Promise<HubAgentAdapter | undefined> {
+		if (bound.agentAdapter) {
+			return bound.agentAdapter;
+		}
+		const agentId = this.socketAgentIds.get(socket.id);
+		const refreshed = agentId ? await this.deps.ensureAgentStarted?.(agentId) : undefined;
+		const adapter = refreshed?.agentAdapter ?? bound.agentAdapter;
+		if (!adapter) {
+			ack({ ok: false, error: "Hub agent runtime is not initialized." });
+			return undefined;
+		}
+		return adapter;
+	}
+
 	private async handleSimpleAction<TPayload>(
+		socket: Socket<ClientToServerEvents, ServerToClientEvents>,
 		bound: HubAgentSocketBinding,
 		_payload: TPayload,
 		ack: (response: ActionAck) => void,
 		action: (adapter: HubAgentAdapter) => Promise<void>,
 	): Promise<void> {
-		const adapter = bound.agentAdapter;
+		const adapter = await this.getAdapterForSocketAction(socket, bound, ack);
 		if (!adapter) {
-			ack({ ok: false, error: "Hub agent runtime is not initialized." });
 			return;
 		}
 
@@ -1615,13 +1698,13 @@ export class SocketHubServer {
 	}
 
 	private async handleSetModel(
+		socket: Socket<ClientToServerEvents, ServerToClientEvents>,
 		bound: HubAgentSocketBinding,
 		payload: SessionSetModelPayload,
 		ack: (response: ActionAck) => void,
 	): Promise<void> {
-		const adapter = bound.agentAdapter;
+		const adapter = await this.getAdapterForSocketAction(socket, bound, ack);
 		if (!adapter) {
-			ack({ ok: false, error: "Hub agent runtime is not initialized." });
 			return;
 		}
 
@@ -1655,13 +1738,13 @@ export class SocketHubServer {
 	}
 
 	private async handleSetThinkingLevel(
+		socket: Socket<ClientToServerEvents, ServerToClientEvents>,
 		bound: HubAgentSocketBinding,
 		payload: SessionSetThinkingLevelPayload,
 		ack: (response: ActionAck) => void,
 	): Promise<void> {
-		const adapter = bound.agentAdapter;
+		const adapter = await this.getAdapterForSocketAction(socket, bound, ack);
 		if (!adapter) {
-			ack({ ok: false, error: "Hub agent runtime is not initialized." });
 			return;
 		}
 		if (!VALID_THINKING_LEVELS.has(payload.level)) {
@@ -1678,6 +1761,7 @@ export class SocketHubServer {
 	}
 
 	private async handleInvokeCommand(
+		socket: Socket<ClientToServerEvents, ServerToClientEvents>,
 		bound: HubAgentSocketBinding,
 		payload: SessionInvokeCommandPayload,
 		ack: (response: ActionAck) => void,
@@ -1697,17 +1781,17 @@ export class SocketHubServer {
 
 		switch (commandName) {
 			case "compact":
-				await this.handleSimpleAction(bound, payload, ack, async (adapter) => {
+				await this.handleSimpleAction(socket, bound, payload, ack, async (adapter) => {
 					await adapter.compact(payload.args?.trim() || undefined);
 				});
 				return;
 			case "dequeue":
-				await this.handleSimpleAction(bound, payload, ack, async (adapter) => {
+				await this.handleSimpleAction(socket, bound, payload, ack, async (adapter) => {
 					await adapter.dequeue();
 				});
 				return;
 			case "reload":
-				await this.handleSimpleAction(bound, payload, ack, async (adapter) => {
+				await this.handleSimpleAction(socket, bound, payload, ack, async (adapter) => {
 					await adapter.reload();
 				});
 				return;

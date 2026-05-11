@@ -214,6 +214,81 @@ afterEach(() => {
 });
 
 describe("SocketHubServer agent binding (peer:hello / routing)", () => {
+	it("serves a public sanitized org snapshot without a token", async () => {
+		const workspaceDir = mkdtempSync(join(tmpdir(), "hub-public-org-"));
+		tempDirs.push(workspaceDir);
+		initializeWorkspace(workspaceDir);
+		seedRegistryWithChild(workspaceDir, {
+			id: "child-public",
+			kind: "child",
+			name: "Public child",
+			description: "Safe public description",
+			sessionFile: getAgentSessionFile(workspaceDir, "child-public"),
+			createdAt: new Date(0).toISOString(),
+		});
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue({
+			diagnostics: [],
+			getAvailableModels: async () => [{}],
+			resourceLoader: {
+				getSummary: () => ({ skills: 0, prompts: 0, themes: 0 }),
+			},
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter);
+		const hub = HubRuntime.open(workspaceDir);
+		currentRootToken = hub.rootTokenForDisplay ?? currentRootToken;
+		try {
+			await hub.initializeAgentAdapter();
+			const address = await hub.start({ host: "127.0.0.1", port: 0 });
+			const response = await fetch(`http://${address.host}:${address.port}/api/public/org`);
+			const raw = await response.text();
+			const body = JSON.parse(raw) as {
+				agents: Array<{
+					id: string;
+					parentId?: string;
+					name?: string;
+					activationStatus: string;
+					isRunning: boolean;
+					peerCount: number;
+					hasError: boolean;
+				}>;
+			};
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get("content-type")).toContain("application/json");
+			expect(body.agents).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						id: MAIN_AGENT_ID,
+						activationStatus: "running",
+						isRunning: false,
+						peerCount: 0,
+						hasError: false,
+					}),
+					expect.objectContaining({
+						id: "child-public",
+						parentId: MAIN_AGENT_ID,
+						name: "Public child",
+						activationStatus: expect.stringMatching(/^(running|loading|not_hydrated)$/),
+						isRunning: false,
+						peerCount: 0,
+						hasError: false,
+					}),
+				]),
+			);
+			expect(raw).not.toContain(currentRootToken);
+			expect(raw).not.toContain(workspaceDir);
+			expect(raw).not.toContain("Safe public description");
+			expect(raw).not.toContain("sessionFile");
+			expect(raw).not.toContain("cwd");
+			expect(raw).not.toContain("rootToken");
+			expect(raw).not.toContain("lastError");
+			expect(raw).not.toContain("executors");
+		} finally {
+			await hub.stop();
+		}
+	});
+
 	it("rejects peer config before hello", async () => {
 		const workspaceDir = mkdtempSync(join(tmpdir(), "hub-bind-config-before-hello-"));
 		tempDirs.push(workspaceDir);
@@ -1582,6 +1657,45 @@ describe("SocketHubServer cross-agent event scoping and child routing (hardening
 		);
 		expect(setAck).toEqual({ ok: true });
 		expect(mainSetModel).not.toHaveBeenCalled();
+		expect(childSetModel).toHaveBeenCalledWith(stubModel);
+		client.close();
+		await hub.stop();
+	});
+
+	it("set_model waits for a bound child adapter to be reinitialized", async () => {
+		const { workspaceDir } = setupHubWithChild("child-sm-restart", "sess-sm-restart");
+		const childSetModel = vi.fn().mockResolvedValue(undefined);
+		const stubModel = { resourceId: "model-1", id: "m1" } as unknown as Model<Api>;
+		let n = 0;
+		vi.spyOn(HubAgentAdapter, "create").mockImplementation(async () => {
+			n += 1;
+			return {
+				subscribeLiveEvents: () => () => {},
+				setModel: childSetModel,
+				services: {
+					modelRegistry: {
+						getAll: () => (n === 1 ? [] : [stubModel]),
+					},
+				},
+				dispose: () => {},
+			} as unknown as HubAgentAdapter;
+		});
+		const hub = HubRuntime.open(workspaceDir);
+		currentRootToken = hub.rootTokenForDisplay ?? currentRootToken;
+		await hub.initializeAgentAdapter();
+		const address = await hub.start({ host: "127.0.0.1", port: 0 });
+		const client = await connectClient(`http://127.0.0.1:${address.port}`);
+		const h = await peerHello(client, { peerId: "sm-child-restart", agentId: "child-sm-restart" });
+		expect(h.ok).toBe(true);
+		const childRuntime = hub.tryGetAgentRuntime("child-sm-restart");
+		expect(childRuntime?.agentAdapter).toBeDefined();
+		childRuntime!.agentAdapter = undefined;
+
+		const setAck = await new Promise<{ ok: boolean; error?: string }>((resolve) =>
+			client.emit("session:set_model", { modelResourceId: "model-1" }, resolve),
+		);
+
+		expect(setAck).toEqual({ ok: true });
 		expect(childSetModel).toHaveBeenCalledWith(stubModel);
 		client.close();
 		await hub.stop();

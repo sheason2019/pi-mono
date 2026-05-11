@@ -9,6 +9,7 @@ export interface RemoteInteractiveActions {
 	submitFollowUp(text: string): Promise<void>;
 	steer(text: string): Promise<void>;
 	abort(): Promise<void>;
+	switchAgent?(agentId: string): Promise<void>;
 	setModel(modelResourceId: string): Promise<void>;
 	setThinkingLevel(level: PeerThinkingLevel): Promise<void>;
 	invokeCommand(commandName: string, args?: string): Promise<void>;

@@ -1,2 +1,2 @@
 import "./app.css";
-import "./d-pi-web-app.js";
+import "./d-pi-root-app.js";

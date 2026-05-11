@@ -19,7 +19,9 @@ body {
 	overflow: hidden;
 }
 
-d-pi-web-app {
+d-pi-root-app,
+d-pi-web-app,
+d-pi-public-org {
 	display: block;
 	height: 100vh;
 }

@@ -64,7 +64,7 @@ export function getComposerActionView(input: {
 
 export function createAgentPath(agentId: string): string {
 	if (agentId === "root" || agentId === "main") {
-		return "/";
+		return "/agents/root";
 	}
 	return `/agents/${encodeURIComponent(agentId)}`;
 }

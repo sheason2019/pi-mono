@@ -1,7 +1,7 @@
 import { stripVTControlCharacters } from "node:util";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER } from "@earendil-works/pi-tui";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { RemoteModelSelectorComponent } from "../../src/peer/tui/forked/components/model-selector.js";
 
 describe("remote model selector", () => {
@@ -74,5 +74,22 @@ describe("remote model selector", () => {
 		expect(lines.every((line) => !line.includes("hub_"))).toBe(true);
 		expect(lines.every((line) => !line.includes("peer_"))).toBe(true);
 		expect(lines.some((line) => line.includes("glm-5.1 [ark-openai-compatible] GLM-5.1 ✓"))).toBe(true);
+	});
+
+	it("reports async selection errors instead of leaving an unhandled rejection", async () => {
+		initTheme();
+		const onSelectError = vi.fn();
+		const selector = new RemoteModelSelectorComponent(
+			[{ resourceId: "model-1", provider: "openai", modelId: "gpt-4.1", label: "GPT 4.1", reasoning: true }],
+			null,
+			async () => {
+				throw new Error("Hub agent runtime is not initialized.");
+			},
+			() => {},
+			onSelectError,
+		);
+
+		selector.handleInput("\r");
+		await vi.waitFor(() => expect(onSelectError).toHaveBeenCalledWith(expect.any(Error)));
 	});
 });

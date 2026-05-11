@@ -124,6 +124,7 @@ export interface CreateHubAgentAdapterOptions {
 	cwd?: string;
 	agentDir?: string;
 	configLayers?: PeerConfigJsonLayers[];
+	getConfigLayers?: () => PeerConfigJsonLayers[];
 	services?: AgentSessionServices;
 	resourceLoaderOptions?: CreateAgentSessionServicesOptions["resourceLoaderOptions"];
 	prepareServices?: (services: AgentSessionServices) => Promise<void> | void;

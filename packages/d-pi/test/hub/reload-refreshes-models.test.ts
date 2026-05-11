@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
@@ -11,6 +11,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HubAgentAdapter } from "../../src/hub/agent/hub-agent-adapter.js";
+import type { PeerConfigJsonLayers } from "../../src/hub/config-aggregation/types.js";
 import type { HubResourceLoader } from "../../src/hub/resources/hub-resource-loader.js";
 import { HubSessionService } from "../../src/hub/session/hub-session-service.js";
 import { cleanWorkspace, initializeWorkspace } from "../../src/hub/workspace.js";
@@ -64,6 +65,30 @@ const minimalExtensions = {
 } as unknown as LoadExtensionsResult;
 
 const minimalResourceLoader = {} as unknown as HubResourceLoader;
+
+function writeJson(path: string, value: unknown): void {
+	writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function customModelsConfig(modelId: string): unknown {
+	return {
+		providers: {
+			"reload-test": {
+				baseUrl: "https://reload.example/v1",
+				apiKey: "reload-key",
+				api: "openai-responses",
+				models: [
+					{
+						id: modelId,
+						name: modelId,
+						api: "openai-responses",
+						input: ["text"],
+					},
+				],
+			},
+		},
+	};
+}
 
 type HubAgentAdapterNewArgs = {
 	sessionService: HubSessionService;
@@ -197,5 +222,71 @@ describe("HubAgentAdapter.reload refreshes models", () => {
 		expect(await adapter.getAvailableModels()).toEqual([]);
 		await adapter.reload();
 		expect(await adapter.getAvailableModels()).toEqual([newModel]);
+	});
+
+	it("after reload, updates the current model from the refreshed registry when the same model changed", async () => {
+		const oldModel = { id: "same", provider: "test", baseUrl: "https://old.example" } as Model<Api>;
+		const refreshedModel = { id: "same", provider: "test", baseUrl: "https://new.example" } as Model<Api>;
+		const setModel = vi.fn(async (_model: Model<Api>) => {});
+		const services = {
+			modelRegistry: {
+				getAvailable: () => [refreshedModel],
+				refresh: vi.fn(),
+				find: (provider: string, modelId: string) =>
+					provider === refreshedModel.provider && modelId === refreshedModel.id ? refreshedModel : undefined,
+			},
+		} as unknown as AgentSessionServices;
+		const session = {
+			...makeMinimalAgentSession(),
+			model: oldModel,
+			setModel,
+		} as unknown as AgentSession;
+		const adapter = new HubAgentAdapterForTest({
+			sessionService: service,
+			session,
+			services,
+			extensionsResult: minimalExtensions,
+			resourceLoader: minimalResourceLoader,
+			diagnostics: [],
+			tools: hubAdapterReloadTestTools,
+		});
+
+		await adapter.reload();
+
+		expect(setModel).toHaveBeenCalledWith(refreshedModel);
+	});
+
+	it("reload re-materializes aggregated model layers before refreshing the registry", async () => {
+		const modelsPath = join(hubCwd, ".pi", "models.json");
+		mkdirSync(join(hubCwd, ".pi"), { recursive: true });
+		writeJson(modelsPath, customModelsConfig("before-reload"));
+		const readConfigLayers = (): PeerConfigJsonLayers[] => [
+			{
+				source: { kind: "hub", scope: "workspace" },
+				models: JSON.parse(readFileSync(modelsPath, "utf8")) as unknown,
+			},
+		];
+		const adapter = await HubAgentAdapter.create({
+			cwd: hubCwd,
+			sessionService: service,
+			tools: hubAdapterReloadTestTools,
+			configLayers: readConfigLayers(),
+			getConfigLayers: readConfigLayers,
+		});
+
+		expect(
+			(await adapter.getAvailableModels()).some(
+				(model) => model.provider === "reload-test" && model.id === "before-reload",
+			),
+		).toBe(true);
+
+		writeJson(modelsPath, customModelsConfig("after-reload"));
+		await adapter.reload();
+
+		expect(
+			(await adapter.getAvailableModels()).some(
+				(model) => model.provider === "reload-test" && model.id === "after-reload",
+			),
+		).toBe(true);
 	});
 });

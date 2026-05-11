@@ -19,7 +19,10 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { loadExtensionFromFactory } from "../../../../coding-agent/src/core/extensions/loader.js";
-import { createAggregatedAgentSessionServices } from "../config-aggregation/agent-config-services.js";
+import {
+	createAggregatedAgentSessionServices,
+	materializeAggregatedModelsConfig,
+} from "../config-aggregation/agent-config-services.js";
 import {
 	appendDPiExtensionFactory,
 	createDPiExtensionFactory,
@@ -326,12 +329,16 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 		const resourceLoaderOptions = canInjectInlineExtension
 			? appendDPiExtensionFactory(options.resourceLoaderOptions, dPiExtensionFactory)
 			: options.resourceLoaderOptions;
+		const getConfigLayers = ():
+			| ReturnType<NonNullable<CreateHubAgentAdapterOptions["getConfigLayers"]>>
+			| undefined => options.getConfigLayers?.() ?? options.configLayers;
+		const initialConfigLayers = getConfigLayers();
 		const aggregatedConfig =
-			options.services === undefined && options.configLayers
+			options.services === undefined && initialConfigLayers
 				? await createAggregatedAgentSessionServices({
 						cwd,
 						agentDir,
-						layers: options.configLayers,
+						layers: initialConfigLayers,
 						resourceLoaderOptions,
 					})
 				: undefined;
@@ -384,7 +391,12 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 			refreshModelsConfig: modelsConfig
 				? () => materializeMergedModelsConfig(cwd, agentDir)
 				: aggregatedConfig
-					? () => undefined
+					? () =>
+							materializeAggregatedModelsConfig({
+								cwd,
+								layers: getConfigLayers() ?? initialConfigLayers ?? [],
+								mergedModelsFile: aggregatedConfig.mergedModelsFile,
+							})
 					: undefined,
 			refreshSources: options.refreshSources,
 			refreshMcp: options.refreshMcp,
@@ -717,6 +729,7 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 		this.syncDynamicTools();
 		await this.session.reload();
 		this.services.modelRegistry.refresh();
+		await this.refreshCurrentModelFromRegistry();
 		this.session.setActiveToolsByName(this.tools.map((tool) => tool.name));
 		await this.refreshSessionOptions();
 		this.sessionService.syncBoundAgentSession();
@@ -724,6 +737,18 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 
 	async getAvailableModels(): Promise<Model<Api>[]> {
 		return this.services.modelRegistry.getAvailable();
+	}
+
+	private async refreshCurrentModelFromRegistry(): Promise<void> {
+		const current = this.session.model;
+		if (!current) {
+			return;
+		}
+		const refreshed = this.services.modelRegistry.find(current.provider, current.id);
+		if (!refreshed || refreshed === current) {
+			return;
+		}
+		await this.session.setModel(refreshed);
 	}
 
 	private syncDynamicTools(): void {

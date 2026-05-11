@@ -60,10 +60,47 @@ describe("PeerRuntime hub binding", () => {
 		expect(peer.getBoundAgentId()).toBe("child-b");
 	});
 
-	it("does not expose a runtime agent switch API", () => {
-		const peer = new PeerRuntime({ hubUrl: "http://127.0.0.1:1", version: "t" });
-		expect("setBoundAgentId" in peer).toBe(false);
-		expect("switchAgent" in peer).toBe(false);
+	it("switchAgent reconnects with the same peer config and new agent id", async () => {
+		const peer = new PeerRuntime({ hubUrl: "http://127.0.0.1:1", version: "t", peerId: "peer-a" });
+		const internals = peer as unknown as {
+			peerMcpRuntime: {
+				getSnapshot: () => { servers: [] };
+				getRemoteToolNames: (peerId: string) => string[];
+			};
+			peerSourceRuntime: {
+				stop: () => Promise<void>;
+				start: () => Promise<void>;
+			};
+		};
+		const calls: string[] = [];
+		vi.spyOn(internals.peerMcpRuntime, "getSnapshot").mockReturnValue({ servers: [] });
+		vi.spyOn(internals.peerMcpRuntime, "getRemoteToolNames").mockReturnValue(["peer/tool"]);
+		vi.spyOn(internals.peerSourceRuntime, "stop").mockImplementation(async () => {
+			calls.push("source-stop");
+		});
+		vi.spyOn(peer.client, "disconnect").mockImplementation(async () => {
+			calls.push("disconnect");
+		});
+		vi.spyOn(peer.client, "connect").mockImplementation(async () => {
+			calls.push(`connect:${peer.hello.agentId}`);
+		});
+		const uploadConfig = vi.spyOn(peer.client, "uploadConfig").mockImplementation(async () => {
+			calls.push("config");
+		});
+		vi.spyOn(peer.client, "waitForInitialSync").mockImplementation(async () => {
+			calls.push("sync");
+		});
+		vi.spyOn(internals.peerSourceRuntime, "start").mockImplementation(async () => {
+			calls.push("source-start");
+		});
+
+		await peer.switchAgent("child-a");
+
+		expect(peer.hello.agentId).toBe("child-a");
+		expect(calls).toEqual(["source-stop", "disconnect", "connect:child-a", "config", "sync", "source-start"]);
+		expect(uploadConfig).toHaveBeenCalledWith(
+			expect.objectContaining({ tools: expect.arrayContaining(["peer/tool"]) }),
+		);
 	});
 
 	it("starts sources only after peer config is prepared and the hub connection is synchronized", async () => {

@@ -23,6 +23,7 @@ function createRemoteActions(overrides: Partial<RemoteInteractiveActions> = {}):
 		submitFollowUp: vi.fn(async () => {}),
 		steer: vi.fn(async () => {}),
 		abort: vi.fn(async () => {}),
+		switchAgent: vi.fn(async () => {}),
 		setModel: vi.fn(async () => {}),
 		setThinkingLevel: vi.fn(async () => {}),
 		invokeCommand: vi.fn(async () => {}),
@@ -215,6 +216,7 @@ describe("forked interactive mode", () => {
 			submitFollowUp: vi.fn(async () => {}),
 			steer: vi.fn(async () => {}),
 			abort: vi.fn(async () => {}),
+			switchAgent: vi.fn(async () => {}),
 			setModel: vi.fn(async () => {}),
 			setThinkingLevel: vi.fn(async () => {}),
 			invokeCommand: vi.fn(async () => {}),
@@ -250,6 +252,72 @@ describe("forked interactive mode", () => {
 		});
 
 		expect(mode).toBeTruthy();
+	});
+
+	it("opens an agent selector via /agents and switches to the selected agent", async () => {
+		const switchAgent = vi.fn(async (_agentId: string) => {});
+		const view: RemoteInteractiveView = {
+			connection: { state: "connected", message: "Connected" },
+			welcome: {
+				sessionId: "s-root",
+				peerId: "peer-a",
+				agentId: "root",
+				clientKind: "peer",
+				hubVersion: "0",
+				protocolVersion: 4,
+				toolNames: [],
+				identity: {
+					id: "root-token",
+					name: "root",
+					description: "root token",
+					user: "test",
+					purpose: "test",
+					scopeRootAgentId: "root",
+					createdByAgentId: "root",
+					root: true,
+				},
+				scopeRootAgentId: "root",
+			},
+			agents: [
+				{ id: "root", isRunning: false, messageCount: 1 },
+				{ id: "child-a", name: "Child A", parentId: "root", isRunning: true, messageCount: 2 },
+			],
+			peers: [],
+			footer: {
+				cwd: "/tmp/workspace",
+				modelLabel: "openai/gpt-4.1",
+				queueSummary: "follow-up 0, steering 0",
+				pendingToolCount: 0,
+				peerCount: 0,
+				isRunning: false,
+				peerId: "peer-a",
+				boundAgentId: "root",
+			},
+			status: { diagnostics: [] },
+			commands: [],
+		};
+		const mode = new ForkedInteractiveMode({
+			peerId: "peer-a",
+			cwd: "/tmp/workspace",
+			getView: () => view,
+			actions: createRemoteActions({ switchAgent }),
+			capabilities: createRemoteCapabilities(),
+			getDraft: () => "",
+			setDraft: (_draft: string) => {},
+			subscribe: (_listener: () => void) => () => {},
+		});
+
+		await (mode as any).handleParsedCommand({ kind: "show_agents" });
+		expect((mode as any).activeSelectorKind).toBe("agent-list");
+		expect((mode as any).ui.focusedComponent?.constructor?.name).toBe("RemoteAgentSelectorComponent");
+
+		(mode as any).activeSelector?.handleInput("\x1b[B");
+		(mode as any).activeSelector?.handleInput("\r");
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(switchAgent).toHaveBeenCalledWith("child-a");
+		expect((mode as any).activeSelectorKind).toBeUndefined();
 	});
 
 	it("renders hub-provided working elapsed time in the status area", () => {

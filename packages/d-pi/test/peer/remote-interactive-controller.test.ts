@@ -30,6 +30,7 @@ describe("remote interactive controller", () => {
 			followUp: vi.fn(async (_text: string) => {}),
 			steer: vi.fn(async (_text: string) => {}),
 			abort: vi.fn(async () => {}),
+			switchAgent: vi.fn(async (_agentId: string) => {}),
 			setModel: vi.fn(async (_modelResourceId: string) => {}),
 			setThinkingLevel: vi.fn(async (_level: "high") => {}),
 			invokeCommand: vi.fn(async (_commandName: string, _args?: string) => {}),
@@ -74,6 +75,7 @@ describe("remote interactive controller", () => {
 			followUp: vi.fn(async (_text: string) => {}),
 			steer: vi.fn(async (_text: string) => {}),
 			abort: vi.fn(async () => {}),
+			switchAgent: vi.fn(async (_agentId: string) => {}),
 			setModel: vi.fn(async (_modelResourceId: string) => {}),
 			setThinkingLevel: vi.fn(async (_level: "high") => {}),
 			invokeCommand: vi.fn(async (_commandName: string, _args?: string) => {}),
@@ -102,6 +104,47 @@ describe("remote interactive controller", () => {
 		expect(runtime.abort).toHaveBeenCalledTimes(1);
 		expect(controller.capabilities.supportsCompact).toBe(true);
 		expect(controller.capabilities.supportsSessionFork).toBe(false);
+	});
+
+	it("forwards agent switching to peer runtime", async () => {
+		const appSnapshot: PeerAppSnapshot = {
+			welcome: undefined,
+			selectedAgent: undefined,
+			live: { toolExecutions: [] },
+			peers: [],
+		};
+		const uiSnapshot: PeerUiSnapshot = {
+			connectionState: "connected",
+			connectionMessage: "Connected",
+			draft: "",
+		};
+		const runtime = {
+			hello: { peerId: "peer-a", cwd: "/tmp/workspace" },
+			submitPrompt: vi.fn(async (_text: string) => {}),
+			followUp: vi.fn(async (_text: string) => {}),
+			steer: vi.fn(async (_text: string) => {}),
+			abort: vi.fn(async () => {}),
+			switchAgent: vi.fn(async (_agentId: string) => {}),
+			setModel: vi.fn(async (_modelResourceId: string) => {}),
+			setThinkingLevel: vi.fn(async (_level: "high") => {}),
+			invokeCommand: vi.fn(async (_commandName: string, _args?: string) => {}),
+			getSessionSources: vi.fn(async () => []),
+			pauseSource: vi.fn(async (_name: string) => []),
+			restartSource: vi.fn(async (_name: string) => []),
+			removeSource: vi.fn(async (_name: string) => []),
+			getMcpServers: vi.fn(async () => ({ servers: [] })),
+			getSkills: vi.fn(async () => ({ ok: true as const, skills: [], diagnostics: [] })),
+			pauseMcpServer: vi.fn(async (_name: string) => []),
+			restartMcpServer: vi.fn(async (_name: string) => []),
+			removeMcpServer: vi.fn(async (_name: string) => []),
+			appState: { getSnapshot: () => appSnapshot },
+			uiState: { getSnapshot: () => uiSnapshot },
+		};
+
+		const controller = createRemoteInteractiveController(runtime);
+		await controller.actions.switchAgent?.("child-a");
+
+		expect(runtime.switchAgent).toHaveBeenCalledWith("child-a");
 	});
 
 	it("forwards MCP server actions to peer runtime", async () => {
@@ -253,6 +296,7 @@ describe("remote interactive controller", () => {
 		expect(view.footer.peerId).toBe("peer-a");
 		expect(view.commands.map((command) => command.name)).toEqual([
 			"model",
+			"agents",
 			"settings",
 			"compact",
 			"reload",

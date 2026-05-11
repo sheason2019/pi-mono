@@ -1,4 +1,5 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
+import { getImageDimensions } from "@earendil-works/pi-tui";
 import { applyExifOrientation } from "./exif-orientation.js";
 import { loadPhoton } from "./photon.js";
 
@@ -61,6 +62,23 @@ export async function resizeImage(img: ImageContent, options?: ImageResizeOption
 	const opts = { ...DEFAULT_OPTIONS, ...options };
 	const inputBuffer = Buffer.from(img.data, "base64");
 	const inputBase64Size = Buffer.byteLength(img.data, "utf-8");
+	const headerDimensions = getImageDimensions(img.data, img.mimeType);
+	if (
+		headerDimensions &&
+		headerDimensions.widthPx <= opts.maxWidth &&
+		headerDimensions.heightPx <= opts.maxHeight &&
+		inputBase64Size < opts.maxBytes
+	) {
+		return {
+			data: img.data,
+			mimeType: img.mimeType,
+			originalWidth: headerDimensions.widthPx,
+			originalHeight: headerDimensions.heightPx,
+			width: headerDimensions.widthPx,
+			height: headerDimensions.heightPx,
+			wasResized: false,
+		};
+	}
 
 	const photon = await loadPhoton();
 	if (!photon) {

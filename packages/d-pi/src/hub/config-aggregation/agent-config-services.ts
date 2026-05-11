@@ -28,6 +28,18 @@ export interface AggregatedAgentSessionServices {
 	mergedModelsFile: string;
 }
 
+export function materializeAggregatedModelsConfig(options: {
+	cwd: string;
+	layers: PeerConfigJsonLayers[];
+	mergedModelsFile?: string;
+}): string {
+	const merged = mergeConfigLayers(options.layers);
+	const mergedModelsFile = options.mergedModelsFile ?? join(getWorkspaceDir(options.cwd), "merged-models.json");
+	mkdirSync(getWorkspaceDir(options.cwd), { recursive: true });
+	writeFileSync(mergedModelsFile, `${JSON.stringify(merged.models, null, 2)}\n`, "utf8");
+	return mergedModelsFile;
+}
+
 function createReadOnlySettingsManager(settings: unknown): SettingsManager {
 	const content = JSON.stringify(settings && typeof settings === "object" ? settings : {});
 	return SettingsManager.fromStorage({
@@ -84,9 +96,11 @@ export async function createAggregatedAgentSessionServices(
 ): Promise<AggregatedAgentSessionServices> {
 	const merged = mergeConfigLayers(options.layers);
 	const peerSkills = materializePeerSkills(options.cwd, options.layers);
-	const mergedModelsFile = options.mergedModelsFile ?? join(getWorkspaceDir(options.cwd), "merged-models.json");
-	mkdirSync(getWorkspaceDir(options.cwd), { recursive: true });
-	writeFileSync(mergedModelsFile, `${JSON.stringify(merged.models, null, 2)}\n`, "utf8");
+	const mergedModelsFile = materializeAggregatedModelsConfig({
+		cwd: options.cwd,
+		layers: options.layers,
+		mergedModelsFile: options.mergedModelsFile,
+	});
 	const authStorage = AuthStorage.inMemory(merged.auth);
 	const settingsManager = createReadOnlySettingsManager(merged.settings);
 	const upstreamResourceOptions = options.resourceLoaderOptions;

@@ -31,6 +31,29 @@ export type PeerConfigAck = { ok: true } | { ok: false; error: string };
 export type ActionAck = { ok: true } | { ok: false; error: string };
 
 export type { LiveRenderEvent, LiveRenderEventType } from "./live-events.js";
+
+export type PublicAgentActivationStatus = "running" | "loading" | "not_hydrated" | "error";
+
+export interface PublicOrgAgent {
+	id: string;
+	parentId?: string;
+	kind?: "root" | "child";
+	lifecycle?: "persistent" | "temporary";
+	name?: string;
+	activationStatus: PublicAgentActivationStatus;
+	isRunning: boolean;
+	peerCount: number;
+	hasError: boolean;
+}
+
+export interface PublicOrgSnapshot {
+	app: "d-pi hub";
+	version: string;
+	protocolVersion: number;
+	generatedAt: string;
+	agents: PublicOrgAgent[];
+}
+
 export interface SessionQueueWritePayload {
 	text: string;
 	sentAt?: string;

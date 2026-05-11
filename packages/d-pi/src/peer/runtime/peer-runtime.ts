@@ -106,18 +106,13 @@ export class PeerRuntime {
 	}
 
 	async start(): Promise<void> {
-		const config: PeerConfigPayload = {
-			configSnapshot: this.configSnapshot,
-			tools: [],
-		};
 		let peerMcpStarted = false;
 		try {
 			if (this.hello.executorEnabled !== false) {
 				await this.peerMcpRuntime.start();
 				peerMcpStarted = true;
-				config.mcpSnapshot = this.peerMcpRuntime.getSnapshot();
-				config.tools = [...this.baseTools, ...this.peerMcpRuntime.getRemoteToolNames(this.hello.peerId)];
 			}
+			const config = this.createPeerConfigPayload();
 			await this.client.connect();
 			await this.client.uploadConfig(config);
 			await this.client.waitForInitialSync();
@@ -135,6 +130,32 @@ export class PeerRuntime {
 		await this.peerSourceRuntime.stop();
 		await this.client.disconnect();
 		await this.peerMcpRuntime.stop();
+	}
+
+	async switchAgent(agentId: string): Promise<void> {
+		const nextAgentId = agentId.trim();
+		if (!nextAgentId) {
+			throw new Error("Agent id is required.");
+		}
+		if (nextAgentId === this.getBoundAgentId()) {
+			this.hello.agentId = nextAgentId;
+			return;
+		}
+		const previousAgentId = this.hello.agentId;
+		await this.peerSourceRuntime.stop();
+		try {
+			await this.client.disconnect();
+			this.hello.agentId = nextAgentId;
+			await this.client.connect();
+			await this.client.uploadConfig(this.createPeerConfigPayload());
+			await this.client.waitForInitialSync();
+			await this.peerSourceRuntime.start();
+		} catch (error) {
+			await this.client.disconnect().catch(() => {});
+			this.hello.agentId = previousAgentId;
+			await this.restorePreviousAgentAfterFailedSwitch().catch(() => {});
+			throw error;
+		}
 	}
 
 	/**
@@ -253,6 +274,25 @@ export class PeerRuntime {
 
 	retryConnection(): void {
 		this.client.retryConnectionNow();
+	}
+
+	private createPeerConfigPayload(): PeerConfigPayload {
+		const config: PeerConfigPayload = {
+			configSnapshot: this.configSnapshot,
+			tools: [],
+		};
+		if (this.hello.executorEnabled !== false) {
+			config.mcpSnapshot = this.peerMcpRuntime.getSnapshot();
+			config.tools = [...this.baseTools, ...this.peerMcpRuntime.getRemoteToolNames(this.hello.peerId)];
+		}
+		return config;
+	}
+
+	private async restorePreviousAgentAfterFailedSwitch(): Promise<void> {
+		await this.client.connect();
+		await this.client.uploadConfig(this.createPeerConfigPayload());
+		await this.client.waitForInitialSync();
+		await this.peerSourceRuntime.start();
 	}
 
 	getStatus() {

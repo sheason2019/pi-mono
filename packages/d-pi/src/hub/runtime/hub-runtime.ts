@@ -1,6 +1,7 @@
 import { existsSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { SessionManager, type SessionMessageEntry } from "@earendil-works/pi-coding-agent";
+import { VERSION } from "../../version.js";
 import { HubAgentAdapter } from "../agent/hub-agent-adapter.js";
 import type { CreateHubAgentAdapterOptions } from "../agent/types.js";
 import { AgentRegistry } from "../agents/agent-registry.js";
@@ -49,6 +50,7 @@ import { loadChildSourcesConfigFromPath, loadSourcesConfigForAgents } from "../s
 import { SourceHost } from "../sources/source-host.js";
 import { createHostPeerRecord } from "../tools/host-peer.js";
 import type { PeerToolBridge } from "../tools/peer-tool-bridge.js";
+import { HUB_PROTOCOL_VERSION, type PublicOrgSnapshot } from "../transport/protocol.js";
 import { SocketHubServer, type SocketHubServerAddress } from "../transport/socket-hub-server.js";
 import type { HubLogDetails, HubLogSink } from "../tui/hub-log.js";
 import { assertWorkspaceInitialized } from "../workspace.js";
@@ -206,6 +208,31 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 		return runtime?.agentAdapter ? "running" : "not_hydrated";
 	}
 
+	getPublicOrgSnapshot(): PublicOrgSnapshot {
+		return {
+			app: "d-pi hub",
+			version: VERSION,
+			protocolVersion: HUB_PROTOCOL_VERSION,
+			generatedAt: new Date().toISOString(),
+			agents: this.getAgentRecords().map((record) => {
+				const runtime = this.tryGetAgentRuntime(record.id);
+				const snapshot = runtime?.sessionService.getSnapshot();
+				const activationStatus = this.getAgentHydrationStatus(record.id);
+				return {
+					id: record.id,
+					...(record.parentId === undefined ? {} : { parentId: record.parentId }),
+					kind: record.kind,
+					lifecycle: record.lifecycle,
+					...(record.name === undefined ? {} : { name: record.name }),
+					activationStatus,
+					isRunning: snapshot?.isRunning ?? false,
+					peerCount: runtime?.peerRegistry.size() ?? 0,
+					hasError: activationStatus === "error" || Boolean(snapshot?.lastError),
+				};
+			}),
+		};
+	}
+
 	isAgentInSubtree(scopeRootAgentId: string, targetAgentId: string): boolean {
 		return this.agentRegistry.isInSubtree(scopeRootAgentId, targetAgentId);
 	}
@@ -303,6 +330,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 						}
 					: undefined;
 			},
+			getPublicOrgSnapshot: () => hubRef.v!.getPublicOrgSnapshot(),
 			authenticateToken: (token) => authTokenStore.authenticate(token),
 			isAgentInScope: (scopeRootAgentId, targetAgentId) =>
 				agentRegistry.isInSubtree(scopeRootAgentId, targetAgentId),
@@ -375,6 +403,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 					...adapterUserOptions.current,
 					cwd: hub.cwd,
 					configLayers: hub.buildConfigLayersForAgent(ROOT_AGENT_ID, undefined),
+					getConfigLayers: () => hub.buildConfigLayersForAgent(ROOT_AGENT_ID, undefined),
 					sessionService: base.sessionService,
 					tools: base.tools,
 					refreshSources: async () => {
@@ -659,7 +688,11 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 
 	async ensureAgentStarted(agentId: string, reason: string = "on_demand"): Promise<HubAgentRuntime | undefined> {
 		if (agentId === ROOT_AGENT_ID) {
-			return this.getRootAgentRuntime();
+			const root = this.getRootAgentRuntime();
+			if (!root.agentAdapter) {
+				await root.start();
+			}
+			return root;
 		}
 		if (this.manuallyStoppedAgentIds.has(agentId) && reason !== "explicit_start" && reason !== "tool_start") {
 			return undefined;

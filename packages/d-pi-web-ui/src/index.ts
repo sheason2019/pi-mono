@@ -1,3 +1,5 @@
+export { DPiPublicOrg } from "./d-pi-public-org.js";
+export { DPiRootApp } from "./d-pi-root-app.js";
 export { DPiWebApp } from "./d-pi-web-app.js";
 export {
 	DPiWebClient,

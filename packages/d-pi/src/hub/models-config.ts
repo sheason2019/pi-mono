@@ -201,10 +201,29 @@ function mergeUnknownRecord(
 	if (!globalRecord && !localRecord) {
 		return undefined;
 	}
-	return {
-		...(globalRecord ?? {}),
-		...(localRecord ?? {}),
-	};
+	return deepMergeRecords(globalRecord ?? {}, localRecord ?? {});
+}
+
+function isMergeableRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function deepMergeValue(globalValue: unknown, localValue: unknown): unknown {
+	if (isMergeableRecord(globalValue) && isMergeableRecord(localValue)) {
+		return deepMergeRecords(globalValue, localValue);
+	}
+	return localValue;
+}
+
+function deepMergeRecords(
+	globalRecord: Record<string, unknown>,
+	localRecord: Record<string, unknown>,
+): Record<string, unknown> {
+	const merged: Record<string, unknown> = { ...globalRecord };
+	for (const [key, value] of Object.entries(localRecord)) {
+		merged[key] = key in merged ? deepMergeValue(merged[key], value) : value;
+	}
+	return merged;
 }
 
 function asStringRecord(value: unknown): Record<string, string> | undefined {

@@ -207,6 +207,7 @@ export class HubAgentRuntime {
 			cwd: this.cwd,
 			agentDir: this.agentDir,
 			configLayers: this.getConfigLayers?.(),
+			getConfigLayers: this.getConfigLayers,
 			sessionService: this.sessionService,
 			tools: this.tools,
 			services: this.services,

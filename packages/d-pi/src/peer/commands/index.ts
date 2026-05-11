@@ -4,6 +4,7 @@ import type { RemoteInteractiveCapabilities } from "../tui/interactive/remote-in
 export const DISABLED_PEER_COMMAND_NAMES = DISABLED_SESSION_COMMAND_NAMES;
 export const VISIBLE_PEER_COMMANDS = [
 	{ name: "model", description: "Inspect or switch the active model" },
+	{ name: "agents", description: "Switch to another agent allowed by the current token" },
 	{ name: "settings", description: "Inspect supported peer settings" },
 	{ name: "compact", description: "Ask hub to compact the current session" },
 	{ name: "reload", description: "Ask hub to reload resources" },
@@ -23,6 +24,7 @@ export type DisabledPeerCommandName = (typeof DISABLED_PEER_COMMAND_NAMES)[numbe
 export type PeerCommandParseResult =
 	| { kind: "set_model"; provider: string; modelId: string }
 	| { kind: "show_model" }
+	| { kind: "show_agents" }
 	| { kind: "set_thinking_level"; level: PeerThinkingLevel }
 	| { kind: "show_settings" }
 	| { kind: "compact"; customInstructions?: string }
@@ -85,6 +87,12 @@ export function parsePeerCommand(input: string): PeerCommandParseResult | null {
 	switch (commandName) {
 		case "model":
 			return parseModelCommand(rawArgs);
+		case "agents":
+			return rawArgs.length > 0
+				? invalid(commandName, '"/agents" does not accept arguments.')
+				: {
+						kind: "show_agents",
+					};
 		case "settings":
 			return parseSettingsCommand(rawArgs);
 		case "compact":

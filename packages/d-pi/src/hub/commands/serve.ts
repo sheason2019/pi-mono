@@ -1,6 +1,7 @@
 import { VERSION } from "../../version.js";
 import { HubRuntime } from "../runtime/hub-runtime.js";
 import { HUB_PROTOCOL_VERSION } from "../transport/protocol.js";
+import { HubHeadlessMode } from "../tui/hub-headless-mode.js";
 import { type HubLogEntry, HubLogStore } from "../tui/hub-log.js";
 import { type HubServeMode, HubTuiMode, type HubTuiModeDeps } from "../tui/hub-tui-mode.js";
 import type { HubTuiStatusCounts, HubTuiViewModel } from "../tui/hub-tui-view.js";
@@ -8,11 +9,13 @@ import { WorkspaceNotInitializedError } from "../workspace.js";
 
 export interface RunServeOptions {
 	allowHubNoModel?: boolean;
+	panel?: boolean;
 	createMode?: (deps: HubTuiModeDeps) => HubServeMode;
+	createHeadlessMode?: (deps: HubTuiModeDeps) => HubServeMode;
 }
 
-export function parseHubServeArgs(args: string[]): Pick<RunServeOptions, "allowHubNoModel"> {
-	return { allowHubNoModel: args.includes("--allow-hub-no-model") };
+export function parseHubServeArgs(args: string[]): Pick<RunServeOptions, "allowHubNoModel" | "panel"> {
+	return { allowHubNoModel: args.includes("--allow-hub-no-model"), panel: args.includes("--panel") };
 }
 
 function buildHubServeView(
@@ -109,7 +112,10 @@ export async function runServe(cwd: string = process.cwd(), options: RunServeOpt
 			logs.warning(`root agent 诊断信息 ${adapter.diagnostics.length} 条`);
 		}
 		try {
-			mode = (options.createMode ?? ((deps) => new HubTuiMode(deps)))({
+			const createMode = options.panel
+				? (options.createMode ?? ((deps) => new HubTuiMode(deps)))
+				: (options.createHeadlessMode ?? ((deps) => new HubHeadlessMode(deps)));
+			mode = createMode({
 				getView: () => buildHubServeView(runtime, address, logs),
 				subscribe: (listener) => {
 					return runtime.subscribeAllSessionServiceEvents((_agentId) => listener());

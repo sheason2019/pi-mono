@@ -27,6 +27,7 @@ Commands:
 Examples:
   ${APP_NAME} init
   ${APP_NAME} serve
+  ${APP_NAME} serve --panel
   ${APP_NAME} serve --allow-hub-no-model
   ${APP_NAME} export ./workspace.tar
   ${APP_NAME} import ./workspace.tar --force

@@ -53,7 +53,8 @@ describe("D-Pi Web UI view helpers", () => {
 	});
 
 	it("creates canonical agent paths for UI switching", () => {
-		expect(createAgentPath("main")).toBe("/");
+		expect(createAgentPath("root")).toBe("/agents/root");
+		expect(createAgentPath("main")).toBe("/agents/root");
 		expect(createAgentPath("child a")).toBe("/agents/child%20a");
 	});
 

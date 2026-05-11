@@ -37,7 +37,7 @@ export function createRemoteInteractiveView(
 	const status = createStatusView(ui, session, live);
 	const agents =
 		app.view && Array.isArray(app.view.agentOrder) && app.view.agentsById
-			? app.view.agentOrder
+			? filterScopedAgentIds(app.view.agentOrder, app.view.agentsById, app.welcome?.scopeRootAgentId)
 					.map((agentId) => {
 						const agent = app.view?.agentsById[agentId];
 						if (!agent) {
@@ -45,6 +45,10 @@ export function createRemoteInteractiveView(
 						}
 						return {
 							id: agentId,
+							parentId: agent.parentId,
+							kind: agent.kind,
+							lifecycle: agent.lifecycle,
+							name: agent.name,
 							isRunning: agent.status.isRunning,
 							messageCount: agent.items.filter((item) => item.type === "message").length,
 						};
@@ -77,6 +81,34 @@ function resolveBoundAgentId(app: PeerAppSnapshot, helloAgentId: string | undefi
 		return helloAgentId.trim();
 	}
 	return HUB_DEFAULT_AGENT_ID;
+}
+
+function filterScopedAgentIds(
+	agentIds: readonly string[],
+	agentsById: NonNullable<PeerAppSnapshot["view"]>["agentsById"],
+	scopeRootAgentId: string | undefined,
+): string[] {
+	if (!scopeRootAgentId || scopeRootAgentId === HUB_DEFAULT_AGENT_ID) {
+		return [...agentIds];
+	}
+	return agentIds.filter((agentId) => isAgentInScope(agentId, scopeRootAgentId, agentsById));
+}
+
+function isAgentInScope(
+	agentId: string,
+	scopeRootAgentId: string,
+	agentsById: NonNullable<PeerAppSnapshot["view"]>["agentsById"],
+): boolean {
+	let currentId: string | undefined = agentId;
+	const seen = new Set<string>();
+	while (currentId && !seen.has(currentId)) {
+		if (currentId === scopeRootAgentId) {
+			return true;
+		}
+		seen.add(currentId);
+		currentId = agentsById[currentId]?.parentId;
+	}
+	return false;
 }
 
 function mapAgentSession(agent: NonNullable<PeerAppSnapshot["selectedAgent"]>): RemoteInteractiveSessionView {

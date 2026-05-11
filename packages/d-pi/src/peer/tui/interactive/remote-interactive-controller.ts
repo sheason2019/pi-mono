@@ -26,6 +26,7 @@ export interface RemoteInteractiveRuntimeBridge {
 	followUp?: (text: string) => Promise<void>;
 	steer?: (text: string) => Promise<void>;
 	abort(): Promise<void>;
+	switchAgent?(agentId: string): Promise<void>;
 	setModel(modelResourceId: string): Promise<void>;
 	setThinkingLevel(level: PeerThinkingLevel): Promise<void>;
 	invokeCommand(commandName: string, args?: string): Promise<void>;
@@ -118,6 +119,12 @@ export function createRemoteInteractiveController(
 				throw new Error("Queue write action is not available.");
 			},
 			abort: () => runtime.abort(),
+			switchAgent: (agentId: string) => {
+				if (!runtime.switchAgent) {
+					throw new Error("Agent switching action is not available.");
+				}
+				return runtime.switchAgent(agentId);
+			},
 			setModel: (modelResourceId: string) => runtime.setModel(modelResourceId),
 			setThinkingLevel: (level) => runtime.setThinkingLevel(level),
 			invokeCommand: (commandName: string, args?: string) => runtime.invokeCommand(commandName, args),
