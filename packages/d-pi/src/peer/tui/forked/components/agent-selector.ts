@@ -8,8 +8,8 @@ export class RemoteAgentSelectorComponent implements Component, Focusable {
 	focused = false;
 
 	constructor(
-		private readonly agents: RemoteInteractiveGroupAgentView[],
-		private readonly currentAgentId: string,
+		private agents: RemoteInteractiveGroupAgentView[],
+		private currentAgentId: string,
 		private readonly onSelectAgent: (agent: RemoteInteractiveGroupAgentView) => void | Promise<void>,
 		private readonly onCancelSelection: () => void,
 		private readonly onSelectError?: (error: unknown) => void,
@@ -17,6 +17,18 @@ export class RemoteAgentSelectorComponent implements Component, Focusable {
 
 	getFocusTarget(): Component {
 		return this;
+	}
+
+	updateAgents(agents: RemoteInteractiveGroupAgentView[], currentAgentId: string): void {
+		const selectedAgentId = this.agents[this.selectedIndex]?.id;
+		this.agents = agents;
+		this.currentAgentId = currentAgentId;
+		if (this.agents.length === 0) {
+			this.selectedIndex = 0;
+			return;
+		}
+		const nextIndex = selectedAgentId ? this.agents.findIndex((agent) => agent.id === selectedAgentId) : -1;
+		this.selectedIndex = nextIndex >= 0 ? nextIndex : Math.min(this.selectedIndex, this.agents.length - 1);
 	}
 
 	render(width: number): string[] {

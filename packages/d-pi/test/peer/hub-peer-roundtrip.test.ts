@@ -6,6 +6,7 @@ import { AuthStorage, createAgentSessionServices, ModelRegistry } from "@earendi
 import { describe, expect, it, vi } from "vitest";
 import { HubRuntime, initializeWorkspace } from "../../src/hub/index.js";
 import type { HubAgentViewModel } from "../../src/hub/session/hub-view-document.js";
+import { sendOneShotPeerMessage } from "../../src/peer/commands/send-message.js";
 import { PeerRuntime } from "../../src/peer/runtime/peer-runtime.js";
 
 function getMessageText(message: unknown): string {
@@ -156,6 +157,159 @@ describe.sequential("hub-peer roundtrip", () => {
 				}
 			} finally {
 				await peer.stop().catch(() => {});
+				await hub.stop().catch(() => {});
+				faux.unregister();
+				rmSync(workspaceDir, { recursive: true, force: true });
+				rmSync(agentDir, { recursive: true, force: true });
+			}
+		},
+		10_000,
+	);
+
+	it.sequential(
+		"one-shot peer CLI message returns the assistant response",
+		async () => {
+			const workspaceDir = mkdtempSync(join(tmpdir(), "pi-peer-one-shot-workspace-"));
+			const agentDir = mkdtempSync(join(tmpdir(), "pi-peer-one-shot-agent-"));
+			const faux = registerFauxProvider({
+				provider: "faux-peer-one-shot",
+				models: [{ id: "faux-1", name: "Faux 1", reasoning: false }],
+			});
+			const responseText = "已收到一次性 CLI 消息。";
+			faux.setResponses([fauxAssistantMessage(responseText)]);
+
+			const authStorage = AuthStorage.inMemory();
+			authStorage.setRuntimeApiKey(faux.getModel().provider, "faux-key");
+			const modelRegistry = ModelRegistry.inMemory(authStorage);
+			modelRegistry.registerProvider(faux.getModel().provider, {
+				baseUrl: faux.getModel().baseUrl,
+				apiKey: "faux-key",
+				api: faux.api,
+				models: faux.models.map((model) => ({
+					id: model.id,
+					name: model.name,
+					api: model.api,
+					reasoning: model.reasoning,
+					input: model.input,
+					cost: model.cost,
+					contextWindow: model.contextWindow,
+					maxTokens: model.maxTokens,
+					baseUrl: model.baseUrl,
+				})),
+			});
+
+			initializeWorkspace(workspaceDir);
+			const services = await createAgentSessionServices({
+				cwd: workspaceDir,
+				agentDir,
+				authStorage,
+				modelRegistry,
+			});
+			const hub = HubRuntime.open(workspaceDir);
+
+			try {
+				const adapter = await hub.initializeAgentAdapter({
+					services,
+					model: faux.getModel(),
+				});
+				const address = await hub.start({ host: "127.0.0.1", port: 0 });
+
+				const result = await sendOneShotPeerMessage({
+					hubUrl: `http://127.0.0.1:${address.port}`,
+					token: hub.rootTokenForDisplay,
+					peerId: "one-shot-cli",
+					message: "hello from cli",
+					version: "test",
+					responseTimeoutMs: 5000,
+				});
+
+				expect(result).toBe(responseText);
+				const userMessage = adapter.session.messages.find((message) => message.role === "user");
+				expect(userMessage).toBeDefined();
+				expect(getMessageText(userMessage)).toBe("hello from cli");
+				expect(userMessage && "messageSource" in userMessage ? userMessage.messageSource : undefined).toEqual(
+					expect.objectContaining({ kind: "host", name: "one-shot-cli" }),
+				);
+			} finally {
+				await hub.stop().catch(() => {});
+				faux.unregister();
+				rmSync(workspaceDir, { recursive: true, force: true });
+				rmSync(agentDir, { recursive: true, force: true });
+			}
+		},
+		10_000,
+	);
+
+	it.sequential(
+		"one-shot peer CLI message can skip waiting for the response",
+		async () => {
+			const workspaceDir = mkdtempSync(join(tmpdir(), "pi-peer-one-shot-no-response-workspace-"));
+			const agentDir = mkdtempSync(join(tmpdir(), "pi-peer-one-shot-no-response-agent-"));
+			const faux = registerFauxProvider({
+				provider: "faux-peer-one-shot-no-response",
+				models: [{ id: "faux-1", name: "Faux 1", reasoning: false }],
+			});
+			faux.setResponses([fauxAssistantMessage("no-response path eventually answered")]);
+
+			const authStorage = AuthStorage.inMemory();
+			authStorage.setRuntimeApiKey(faux.getModel().provider, "faux-key");
+			const modelRegistry = ModelRegistry.inMemory(authStorage);
+			modelRegistry.registerProvider(faux.getModel().provider, {
+				baseUrl: faux.getModel().baseUrl,
+				apiKey: "faux-key",
+				api: faux.api,
+				models: faux.models.map((model) => ({
+					id: model.id,
+					name: model.name,
+					api: model.api,
+					reasoning: model.reasoning,
+					input: model.input,
+					cost: model.cost,
+					contextWindow: model.contextWindow,
+					maxTokens: model.maxTokens,
+					baseUrl: model.baseUrl,
+				})),
+			});
+
+			initializeWorkspace(workspaceDir);
+			const services = await createAgentSessionServices({
+				cwd: workspaceDir,
+				agentDir,
+				authStorage,
+				modelRegistry,
+			});
+			const hub = HubRuntime.open(workspaceDir);
+
+			try {
+				const adapter = await hub.initializeAgentAdapter({
+					services,
+					model: faux.getModel(),
+				});
+				const address = await hub.start({ host: "127.0.0.1", port: 0 });
+
+				const result = await sendOneShotPeerMessage({
+					hubUrl: `http://127.0.0.1:${address.port}`,
+					token: hub.rootTokenForDisplay,
+					peerId: "one-shot-no-response",
+					message: "fire and forget",
+					noResponse: true,
+					version: "test",
+					responseTimeoutMs: 5000,
+				});
+
+				expect(result).toBeUndefined();
+				await vi.waitFor(
+					() => {
+						const userMessage = adapter.session.messages.find(
+							(message) => getMessageText(message) === "fire and forget",
+						);
+						expect(userMessage && "messageSource" in userMessage ? userMessage.messageSource : undefined).toEqual(
+							expect.objectContaining({ kind: "host", name: "one-shot-no-response" }),
+						);
+					},
+					{ timeout: 5000 },
+				);
+			} finally {
 				await hub.stop().catch(() => {});
 				faux.unregister();
 				rmSync(workspaceDir, { recursive: true, force: true });

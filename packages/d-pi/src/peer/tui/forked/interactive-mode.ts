@@ -402,6 +402,7 @@ export class ForkedInteractiveMode {
 		if (!this.activeSelector && this.editor.getText() !== draft) {
 			this.editor.setText(draft);
 		}
+		this.updateActiveSelectorFromView(view);
 
 		if (dirtyFlags.liveText && !this.tryRenderLiveStateIncrementally(view)) {
 			this.renderMessages(view);
@@ -451,6 +452,7 @@ export class ForkedInteractiveMode {
 
 	private renderFromState(): void {
 		const view = this.deps.getView();
+		this.updateActiveSelectorFromView(view);
 		this.renderHeader(view);
 		this.renderMessages(view);
 		this.renderPendingMessages(view);
@@ -458,6 +460,13 @@ export class ForkedInteractiveMode {
 		this.footer.setView(view);
 		this.lastRenderedSignatures = getRenderViewSignatures(view);
 		this.ui.requestRender();
+	}
+
+	private updateActiveSelectorFromView(view: RemoteInteractiveView): void {
+		if (this.activeSelectorKind !== "agent-list" || !(this.activeSelector instanceof RemoteAgentSelectorComponent)) {
+			return;
+		}
+		this.activeSelector.updateAgents(view.agents ?? [], view.footer.boundAgentId);
 	}
 
 	private renderHeader(view: RemoteInteractiveView): void {

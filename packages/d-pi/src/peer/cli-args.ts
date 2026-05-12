@@ -8,6 +8,8 @@ export interface PeerCliOptions {
 	displayName?: string;
 	token?: string;
 	disableExecutor?: boolean;
+	message?: string;
+	noResponse?: boolean;
 }
 
 function readOptionValue(flagName: string, next: string | undefined): string {
@@ -72,9 +74,23 @@ export function parsePeerCliArgs(args: string[]): { options: PeerCliOptions; hel
 			case "--disable-executor":
 				options.disableExecutor = true;
 				break;
+			case "-p":
+			case "--message": {
+				const v = readOptionValue(arg, args[i + 1]);
+				options.message = v;
+				i += 1;
+				break;
+			}
+			case "--no-response":
+				options.noResponse = true;
+				break;
 			default:
 				throw new Error(`Unknown argument: ${arg}`);
 		}
+	}
+
+	if (options.noResponse === true && options.message === undefined) {
+		throw new Error("--no-response requires -p or --message.");
 	}
 
 	if (options.token === undefined) {
@@ -94,6 +110,7 @@ export function parsePeerCliArgs(args: string[]): { options: PeerCliOptions; hel
 export function getPeerCliHelpText(appName: string): string {
 	return `Usage:
   ${appName} [--hub <url>] [--agent <agent-id>] [--peer-id <id>] [--name <display-name>] [--token <token>] [--disable-executor]
+  ${appName} [--hub <url>] [--agent <agent-id>] [--token <token>] -p <message> [--no-response]
   ${appName} add-skills
 
 Options:
@@ -103,10 +120,13 @@ Options:
   --name               Display name shown in hub peer lists
   --token              Hub access token (or set D_PI_TOKEN)
   --disable-executor   Connect without exposing local peer tools or peer MCP tools to the remote agent
+  -p, --message        Send a one-shot message to the target hub agent and print the assistant response
+  --no-response        Send the one-shot message without waiting for or printing an assistant response
 
 Examples:
   ${appName} --hub ${DEFAULT_HUB_URL}
   ${appName} --agent writer --hub ${DEFAULT_HUB_URL}
+  ${appName} --hub ${DEFAULT_HUB_URL} -p "hello"
 
 Resource configuration:
   Install built-in guidance skills:

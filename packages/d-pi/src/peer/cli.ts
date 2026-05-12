@@ -1,5 +1,6 @@
 import { getPeerCliHelpText, parsePeerCliArgs } from "./cli-args.js";
 import { runAddSkills } from "./commands/add-skills.js";
+import { sendOneShotPeerMessage } from "./commands/send-message.js";
 import { APP_NAME, VERSION } from "./config.js";
 import { PeerRuntime } from "./runtime/peer-runtime.js";
 import { PeerInteractiveMode } from "./tui/peer-interactive-mode.js";
@@ -18,6 +19,24 @@ export async function runPiPeerCli(args: string[] = process.argv.slice(2)): Prom
 	const { options, help } = parsePeerCliArgs(args);
 	if (help) {
 		printHelp();
+		return 0;
+	}
+	if (options.message !== undefined) {
+		const response = await sendOneShotPeerMessage({
+			hubUrl: options.hubUrl,
+			agentId: options.agentId,
+			peerId: options.peerId,
+			token: options.token,
+			message: options.message,
+			noResponse: options.noResponse,
+			version: VERSION,
+			onHandshakeLog: (message) => {
+				console.error(`[d-pi peer] ${message}`);
+			},
+		});
+		if (response !== undefined) {
+			console.log(response);
+		}
 		return 0;
 	}
 	const runtime = new PeerRuntime({

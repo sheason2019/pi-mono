@@ -320,6 +320,54 @@ describe("forked interactive mode", () => {
 		expect((mode as any).activeSelectorKind).toBeUndefined();
 	});
 
+	it("refreshes an open agent selector when agent run states change", async () => {
+		let view: RemoteInteractiveView = {
+			connection: { state: "connected", message: "Connected" },
+			agents: [
+				{ id: "root", isRunning: false, messageCount: 1 },
+				{ id: "child-a", name: "Child A", parentId: "root", isRunning: false, messageCount: 2 },
+			],
+			peers: [],
+			footer: {
+				cwd: "/tmp/workspace",
+				modelLabel: "openai/gpt-4.1",
+				queueSummary: "follow-up 0, steering 0",
+				pendingToolCount: 0,
+				peerCount: 0,
+				isRunning: false,
+				peerId: "peer-a",
+				boundAgentId: "root",
+			},
+			status: { diagnostics: [] },
+			commands: [],
+		};
+		const mode = new ForkedInteractiveMode({
+			peerId: "peer-a",
+			cwd: "/tmp/workspace",
+			getView: () => view,
+			actions: createRemoteActions(),
+			capabilities: createRemoteCapabilities(),
+			getDraft: () => "",
+			setDraft: (_draft: string) => {},
+			subscribe: (_listener: () => void) => () => {},
+		});
+
+		await (mode as any).handleParsedCommand({ kind: "show_agents" });
+		expect(stripAnsi((mode as any).activeSelector.render(80).join("\n"))).toMatch(/child-a \(Child A\).*idle/);
+
+		view = {
+			...view,
+			agents: [
+				{ id: "root", isRunning: false, messageCount: 1 },
+				{ id: "child-a", name: "Child A", parentId: "root", isRunning: true, messageCount: 2 },
+			],
+		};
+		(mode as any).renderFromState();
+
+		const selectorText = stripAnsi((mode as any).activeSelector.render(80).join("\n"));
+		expect(selectorText).toMatch(/child-a \(Child A\).*working/);
+	});
+
 	it("renders hub-provided working elapsed time in the status area", () => {
 		vi.spyOn(Date, "now").mockReturnValue(1_700_000_037_000);
 		const view = createTimingView({

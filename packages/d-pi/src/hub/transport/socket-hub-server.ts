@@ -1446,21 +1446,38 @@ export class SocketHubServer {
 		if (!runtime) {
 			return;
 		}
-		if (!this.viewDocuments.has(agentId) && !this.hasConnectedCrdtPeerForAgent(agentId)) {
+		const targetViewAgentIds =
+			event.type === "run_state_changed"
+				? [...this.viewDocuments.keys()]
+				: this.getBoundSessionEventViewAgentIds(agentId);
+		if (targetViewAgentIds.length === 0) {
 			return;
 		}
+		let materialized: MaterializedPeerPayload<{ snapshot: HubSessionSnapshot }> | undefined;
 		if (event.type === "snapshot_updated") {
-			const materialized: MaterializedPeerPayload<{ snapshot: HubSessionSnapshot }> =
-				this.imagePayloadCache.materializePeerPayload({ snapshot: runtime.sessionService.getSnapshot() });
-			this.getViewDocument(agentId).updateSession(materialized.value.snapshot, agentId);
-			this.rememberViewImages(agentId, materialized.images);
-		} else {
-			this.getViewDocument(agentId).updateSessionEvent(event, agentId);
+			materialized = this.imagePayloadCache.materializePeerPayload({
+				snapshot: runtime.sessionService.getSnapshot(),
+			});
 		}
-		this.scheduleCompactCheckForAgent(agentId);
-		if (this.hasConnectedCrdtPeerForAgent(agentId)) {
-			this.scheduleCrdtFanoutForAgent(agentId, "session", 0);
+		for (const viewAgentId of targetViewAgentIds) {
+			if (event.type === "snapshot_updated" && materialized) {
+				this.getViewDocument(viewAgentId).updateSession(materialized.value.snapshot, agentId);
+				this.rememberViewImages(viewAgentId, materialized.images);
+			} else {
+				this.getViewDocument(viewAgentId).updateSessionEvent(event, agentId);
+			}
+			this.scheduleCompactCheckForAgent(viewAgentId);
+			if (this.hasConnectedCrdtPeerForAgent(viewAgentId)) {
+				this.scheduleCrdtFanoutForAgent(viewAgentId, "session", 0);
+			}
 		}
+	}
+
+	private getBoundSessionEventViewAgentIds(agentId: string): string[] {
+		if (!this.viewDocuments.has(agentId) && !this.hasConnectedCrdtPeerForAgent(agentId)) {
+			return [];
+		}
+		return [agentId];
 	}
 
 	private logSocketFanout(
