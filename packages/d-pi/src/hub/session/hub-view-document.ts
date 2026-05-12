@@ -655,6 +655,9 @@ function applySessionEventToAgent(agent: HubAgentViewModel, event: HubSessionEve
 				agent.items.push({ type: "run_timing", timing: deepCloneJson(event.runTiming) });
 				pruneAgentViewItems(agent);
 			}
+			if (!event.isRunning) {
+				clearLiveToolExecutions(agent);
+			}
 			return;
 		case "queue_changed":
 			agent.queue.size = event.messages.length;
@@ -666,6 +669,13 @@ function applySessionEventToAgent(agent: HubAgentViewModel, event: HubSessionEve
 			return;
 		case "snapshot_updated":
 			return;
+	}
+}
+
+function clearLiveToolExecutions(agent: HubAgentViewModel): void {
+	agent.live.toolOrder.splice(0, agent.live.toolOrder.length);
+	for (const toolCallId of Object.keys(agent.live.toolsById)) {
+		delete agent.live.toolsById[toolCallId];
 	}
 }
 

@@ -480,6 +480,44 @@ describe("HubViewDocument", () => {
 		expect(messages[499]?.role === "user" ? messages[499].content : "").toBe("msg-500");
 	});
 
+	it("clears completed live tool executions when a run finishes", () => {
+		const hub = new HubViewDocument();
+		hub.resetSession(createSnapshot("sess-live-tool-clear", true), "main");
+		hub.updateLiveEvent(
+			{
+				type: "tool_execution_start",
+				toolCallId: "call-done",
+				toolName: "bash",
+				args: { command: "pwd" },
+			},
+			"main",
+		);
+		hub.updateLiveEvent(
+			{
+				type: "tool_execution_end",
+				toolCallId: "call-done",
+				toolName: "bash",
+				result: { content: [{ type: "text", text: "/tmp/pi" }], details: undefined },
+				isError: false,
+			},
+			"main",
+		);
+		expect(hub.getSnapshot().agentsById.main?.live.toolOrder).toEqual(["call-done"]);
+
+		hub.updateSessionEvent(
+			{
+				type: "run_state_changed",
+				seq: 1,
+				timestamp: "2026-04-27T00:00:01.000Z",
+				isRunning: false,
+			},
+			"main",
+		);
+
+		expect(hub.getSnapshot().agentsById.main?.live.toolOrder).toEqual([]);
+		expect(hub.getSnapshot().agentsById.main?.live.toolsById).toEqual({});
+	});
+
 	it("rejects peer sync messages that contain document changes", () => {
 		const hub = new HubViewDocument();
 		hub.updateSession(createSnapshot("sess-a", false), "main");

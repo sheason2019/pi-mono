@@ -684,6 +684,44 @@ describe("forked interactive mode", () => {
 		expect(secondText).not.toContain("↑1.0k ↓200");
 	});
 
+	it("does not render completed orphan live tools at the bottom of the chat", () => {
+		const view = createTimingView({
+			isRunning: false,
+			messages: [],
+		});
+		view.live = {
+			toolExecutions: [
+				{
+					toolCallId: "orphan-tool-1",
+					toolName: "bash",
+					args: { command: "pwd" },
+					result: { content: [{ type: "text", text: "/tmp/workspace" }], details: undefined },
+					isError: false,
+				},
+			],
+		};
+		const mode = new ForkedInteractiveMode({
+			peerId: "peer-a",
+			cwd: "/tmp/workspace",
+			getView: () => view,
+			actions: createRemoteActions(),
+			capabilities: createRemoteCapabilities(),
+			getDraft: () => "",
+			setDraft: (_draft: string) => {},
+			subscribe: (_listener: () => void) => () => {},
+		});
+
+		(mode as unknown as { renderFromState(): void }).renderFromState();
+		const text = stripAnsi(
+			(mode as unknown as { chatContainer: { render(w: number): string[] } }).chatContainer.render(120).join("\n"),
+		);
+
+		expect(text).toContain("Session is ready");
+		expect(text).not.toContain("bash");
+		expect(text).not.toContain("pwd");
+		expect(text).not.toContain("/tmp/workspace");
+	});
+
 	it("renders every persisted run duration after its matching assistant message", () => {
 		const view = createTimingView({
 			messages: [

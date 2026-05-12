@@ -609,9 +609,11 @@ export class ForkedInteractiveMode {
 		for (const toolCallId of renderedToolCallIds) {
 			activeToolCallIds.add(toolCallId);
 		}
-		this.renderLiveToolExecutions(liveToolExecutions, renderedToolCallIds);
+		this.renderLiveToolExecutions(liveToolExecutions, renderedToolCallIds, snapshot.isRunning);
 		for (const execution of liveToolExecutions.values()) {
-			activeToolCallIds.add(execution.toolCallId);
+			if (snapshot.isRunning || execution.result === undefined) {
+				activeToolCallIds.add(execution.toolCallId);
+			}
 		}
 		if (items.length === 0 && !shouldRenderLiveStreamingMessage) {
 			this.chatContainer.addChild(new Text(theme.fg("dim", "Session is ready. Enter a prompt to begin."), 1, 0));
@@ -794,9 +796,13 @@ export class ForkedInteractiveMode {
 	private renderLiveToolExecutions(
 		liveToolExecutions: Map<string, LiveToolExecution>,
 		renderedToolCallIds: Set<string>,
+		isRunning: boolean,
 	): void {
 		for (const execution of liveToolExecutions.values()) {
 			if (renderedToolCallIds.has(execution.toolCallId)) {
+				continue;
+			}
+			if (!isRunning && execution.result !== undefined) {
 				continue;
 			}
 			const signature = getLiveToolExecutionSignature(execution);
