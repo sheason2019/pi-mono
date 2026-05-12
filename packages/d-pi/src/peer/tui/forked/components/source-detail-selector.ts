@@ -22,6 +22,19 @@ const ACTION_ITEMS: { value: SourceDetailAction; label: string; description: str
 	{ value: "remove", label: "Remove", description: "Delete the entry from the source config file" },
 ];
 
+function actionItemsForSource(
+	source: SourceRuntimeStatus,
+): { value: SourceDetailAction; label: string; description: string }[] {
+	const items: { value: SourceDetailAction; label: string; description: string }[] = [];
+	if (source.status === "running" || source.status === "starting") {
+		items.push(ACTION_ITEMS[0]!);
+	} else {
+		items.push(ACTION_ITEMS[1]!);
+	}
+	items.push(ACTION_ITEMS[2]!);
+	return items;
+}
+
 export class RemoteSourceDetailSelectorComponent implements Component, Focusable {
 	private readonly selectList: SelectList;
 	focused = false;
@@ -31,9 +44,10 @@ export class RemoteSourceDetailSelectorComponent implements Component, Focusable
 		private readonly onAction: (action: SourceDetailAction) => void,
 		private readonly onCancelSelection: () => void,
 	) {
+		const actionItems = actionItemsForSource(this.source);
 		this.selectList = new SelectList(
-			ACTION_ITEMS.map((item) => ({ value: item.value, label: item.label, description: item.description })),
-			ACTION_ITEMS.length,
+			actionItems.map((item) => ({ value: item.value, label: item.label, description: item.description })),
+			actionItems.length,
 			getForkedSelectListTheme(),
 			{ minPrimaryColumnWidth: 12, maxPrimaryColumnWidth: 20 },
 		);

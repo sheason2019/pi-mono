@@ -20,6 +20,7 @@ import { type AgentMessagingToolHost, createAgentMessagingToolDefinitions } from
 import { type ChildAgentToolHost, createChildAgentToolDefinitions } from "./child-agent-tools.js";
 import { createGroupToolDefinitions, type GroupToolHost } from "./group-tools.js";
 import { createReloadConfigToolDefinition } from "./reload-config-tool.js";
+import { createResourceStatusToolDefinition, type ResourceStatusToolHost } from "./resource-status-tool.js";
 import type { AgentRecord } from "./types.js";
 
 const START_ABORTED_MESSAGE = "HubAgentRuntime: start() aborted by stop()";
@@ -57,6 +58,8 @@ export interface HubAgentRuntimeOptions {
 	getAgentMessagingHost?: () => AgentMessagingToolHost;
 	/** Resolves `HubRuntime` for group identity and agent description tools; all hub agents use this. */
 	getGroupHost?: () => GroupToolHost;
+	/** Resolves `HubRuntime` for source/MCP/skill status inspection; all hub agents use this. */
+	getResourceStatusHost?: () => ResourceStatusToolHost;
 	/** Resolves `HubRuntime` for creating scoped access tokens; all hub agents use this. */
 	getAgentTokenHost?: () => AgentTokenToolHost;
 	/** Resolves executor peers visible to this agent's tree scope. */
@@ -125,6 +128,10 @@ export class HubAgentRuntime {
 				: [];
 		const groupTools =
 			options.getGroupHost != null ? createGroupToolDefinitions(options.getGroupHost, options.record.id) : [];
+		const resourceStatusTool =
+			options.getResourceStatusHost != null
+				? [createResourceStatusToolDefinition(options.getResourceStatusHost, options.record.id)]
+				: [];
 		const agentTokenTools =
 			options.getAgentTokenHost != null
 				? createAgentTokenToolDefinitions(options.getAgentTokenHost, options.record.id)
@@ -144,6 +151,7 @@ export class HubAgentRuntime {
 				reloadConfigTool,
 				...childManagementTools,
 				...groupTools,
+				...resourceStatusTool,
 				...agentTokenTools,
 				...agentMessagingTools,
 				...(options.agentTools ?? []),

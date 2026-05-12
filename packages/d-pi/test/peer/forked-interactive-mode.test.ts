@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProcessTerminal, resetCapabilitiesCache, setCapabilities } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HubSkillInfo, McpRuntimeStatus } from "../../src/hub/index.js";
+import type { HubSkillInfo, McpRuntimeStatus, SourceRuntimeStatus } from "../../src/hub/index.js";
 import { initTheme } from "../../src/peer/tui/components/index.js";
+import { RemoteSourceDetailSelectorComponent } from "../../src/peer/tui/forked/components/source-detail-selector.js";
 import { ForkedInteractiveMode } from "../../src/peer/tui/forked/interactive-mode.js";
 import type { RemoteInteractiveActions } from "../../src/peer/tui/interactive/remote-interactive-actions.js";
 import type { RemoteInteractiveCapabilities } from "../../src/peer/tui/interactive/remote-interactive-capabilities.js";
@@ -1306,7 +1307,6 @@ describe("forked interactive mode", () => {
 
 		(mode as any).activeSelector?.handleInput("\r");
 		expect((mode as any).activeSelectorKind).toBe("source-detail");
-		(mode as any).activeSelector?.handleInput("\x1b[B");
 		(mode as any).activeSelector?.handleInput("\r");
 		await Promise.resolve();
 		await Promise.resolve();
@@ -1316,13 +1316,60 @@ describe("forked interactive mode", () => {
 
 		(mode as any).activeSelector?.handleInput("\r");
 		(mode as any).activeSelector?.handleInput("\x1b[B");
-		(mode as any).activeSelector?.handleInput("\x1b[B");
 		(mode as any).activeSelector?.handleInput("\r");
 		await Promise.resolve();
 		await Promise.resolve();
 		expect(removeSource).toHaveBeenCalledWith("src-one");
 		expect((mode as any).activeSelectorKind).toBe("source-list");
 		expect((mode as any).currentSourceStatuses).toEqual(removedSources);
+	});
+
+	it("shows source Pause or Restart actions based on runtime status", () => {
+		initTheme();
+		const baseSource: SourceRuntimeStatus = {
+			resourceId: "src-one",
+			name: "src-one",
+			transport: "stdio",
+			agentId: "main",
+			origin: "hub",
+			status: "running",
+		};
+		const runningText = stripAnsi(
+			new RemoteSourceDetailSelectorComponent(
+				baseSource,
+				() => {},
+				() => {},
+			)
+				.render(80)
+				.join("\n"),
+		);
+		expect(runningText).toContain("Pause");
+		expect(runningText).not.toContain("Restart");
+
+		const stoppedText = stripAnsi(
+			new RemoteSourceDetailSelectorComponent(
+				{ ...baseSource, status: "stopped" },
+				() => {},
+				() => {},
+			)
+				.render(80)
+				.join("\n"),
+		);
+		expect(stoppedText).not.toContain("Pause");
+		expect(stoppedText).toContain("Restart");
+
+		const errorText = stripAnsi(
+			new RemoteSourceDetailSelectorComponent(
+				{ ...baseSource, status: "error", error: "process exited" },
+				() => {},
+				() => {},
+			)
+				.render(80)
+				.join("\n"),
+		);
+		expect(errorText).not.toContain("Pause");
+		expect(errorText).toContain("Restart");
+		expect(errorText).toContain("Remove");
 	});
 
 	it("warns and stays in editor when /source has no configured sources", async () => {

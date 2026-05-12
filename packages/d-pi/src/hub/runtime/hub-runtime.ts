@@ -26,6 +26,7 @@ import type {
 } from "../agents/child-agent-tools.js";
 import type { GroupToolHost, UpdateAgentDescriptionToolInput } from "../agents/group-tools.js";
 import { HubAgentRuntime } from "../agents/hub-agent-runtime.js";
+import type { ResourceStatusToolHost } from "../agents/resource-status-tool.js";
 import type { AgentExecutorConfig, AgentRecord } from "../agents/types.js";
 import { ROOT_AGENT_ID } from "../agents/types.js";
 import { HubAuthTokenStore } from "../auth/token-store.js";
@@ -82,7 +83,7 @@ type PendingPeerConfigChange = { type: "set"; snapshot: PeerConfigSnapshot } | {
 type ChildResourceExtends = SpawnChildToolInput["extends"];
 type AgentHydrationStatus = "running" | "loading" | "not_hydrated" | "error";
 
-export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentTokenToolHost {
+export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceStatusToolHost, AgentTokenToolHost {
 	readonly cwd: string;
 	readonly agentRegistry: AgentRegistry;
 	readonly authTokenStore: HubAuthTokenStore;
@@ -439,6 +440,13 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 				}
 				return hub;
 			},
+			getResourceStatusHost: () => {
+				const hub = hubRef.v;
+				if (!hub) {
+					throw new Error("HubRuntime is not ready");
+				}
+				return hub;
+			},
 			getAgentTokenHost: () => {
 				const hub = hubRef.v;
 				if (!hub) {
@@ -695,6 +703,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 			getChildAgentHost: () => this,
 			getAgentMessagingHost: () => this,
 			getGroupHost: () => this,
+			getResourceStatusHost: () => this,
 			getAgentTokenHost: () => this,
 		});
 	}
@@ -1367,6 +1376,80 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, AgentToken
 					"Use broadcast_message_to_agents when every other agent should receive the same note.",
 					"Keep child agent descriptions current so group discovery stays useful.",
 				],
+			},
+			null,
+			2,
+		);
+	}
+
+	async resourceStatusText(callerAgentId: string): Promise<string> {
+		this.agentRegistry.require(callerAgentId);
+		const runtime = this.tryGetAgentRuntime(callerAgentId);
+		const skills = runtime?.agentAdapter?.resourceLoader.getSkills();
+		const skillUnavailableDiagnostic =
+			skills === undefined
+				? [
+						{
+							type: "warning",
+							message: `Agent runtime resources are not available for ${callerAgentId}.`,
+						},
+					]
+				: [];
+		return JSON.stringify(
+			{
+				agentId: callerAgentId,
+				fieldNotes: {
+					"sources.status": "running/starting sources may be paused; stopped/error sources may be restarted.",
+					"mcp.configError": "Config parse/read error from this agent's MCP host, if present.",
+					"mcp.servers.error": "Per-server startup or capability discovery error, if present.",
+					"skills.diagnostics": "Skill loading diagnostics with file paths when available.",
+				},
+				sources: this.getSourceStatusesForAgent(callerAgentId).map((source) => ({
+					...(source.resourceId === undefined ? {} : { resourceId: source.resourceId }),
+					name: source.name,
+					transport: source.transport,
+					agentId: source.agentId,
+					origin: source.origin,
+					...(source.peerId === undefined ? {} : { peerId: source.peerId }),
+					status: source.status,
+					...(source.error === undefined ? {} : { error: source.error }),
+				})),
+				mcp: {
+					...(this.getMcpHostForAgent(callerAgentId)?.getConfigError() === undefined
+						? {}
+						: { configError: this.getMcpHostForAgent(callerAgentId)?.getConfigError() }),
+					servers: this.getMcpServerStatusesForAgent(callerAgentId).map((server) => ({
+						...(server.resourceId === undefined ? {} : { resourceId: server.resourceId }),
+						name: server.name,
+						transport: server.transport,
+						status: server.status,
+						...(server.disabled === undefined ? {} : { disabled: server.disabled }),
+						...(server.error === undefined ? {} : { error: server.error }),
+						capabilities: {
+							tools: server.capabilities.tools.length,
+							resources: server.capabilities.resources.length,
+							prompts: server.capabilities.prompts.length,
+						},
+					})),
+				},
+				skills: {
+					count: skills?.skills.length ?? 0,
+					skills:
+						skills?.skills.map((skill) => ({
+							name: skill.name,
+							description: skill.description,
+							filePath: skill.filePath,
+							disableModelInvocation: skill.disableModelInvocation,
+						})) ?? [],
+					diagnostics: [
+						...skillUnavailableDiagnostic,
+						...(skills?.diagnostics.map((diagnostic) => ({
+							type: diagnostic.type,
+							message: diagnostic.message,
+							...(diagnostic.path === undefined ? {} : { path: diagnostic.path }),
+						})) ?? []),
+					],
+				},
 			},
 			null,
 			2,

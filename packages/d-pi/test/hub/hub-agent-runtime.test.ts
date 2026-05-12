@@ -237,6 +237,56 @@ describe("HubAgentRuntime", () => {
 		}
 	});
 
+	it("exposes resource_status so agents can inspect MCP and skill diagnostics", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-agent-rt-resource-status-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		const agentPath = getAgentSessionFile(cwd, "main");
+		mkdirSync(join(cwd, ".pi-hub", "agents"), { recursive: true });
+		writeFileSync(agentPath, `${headerLine("sess-resource-status", cwd)}\n`, "utf8");
+		const sessionService = HubSessionService.openAgent(cwd, agentPath);
+		const registry = new PeerRegistry();
+		const server = createMainOnlySocketHubServer(
+			sessionService,
+			registry,
+			() => [],
+			() => undefined,
+		);
+		await server.start({ host: "127.0.0.1", port: 0 });
+		const resourceStatusText = vi.fn(async () =>
+			JSON.stringify({
+				mcp: {
+					configError: "mcp.json parse failed",
+					servers: [{ name: "db", status: "error", error: "connection refused" }],
+				},
+				skills: {
+					diagnostics: [{ type: "error", message: "invalid skill frontmatter", path: "/skills/broken/SKILL.md" }],
+				},
+			}),
+		);
+		const record = createTestRecord("agents/main.jsonl");
+		const runtime = new HubAgentRuntime({
+			cwd,
+			record,
+			sessionService,
+			socketServer: server,
+			getResourceStatusHost: () => ({ resourceStatusText }),
+		});
+		await runtime.start();
+		try {
+			const tool = runtime.tools.find((candidate) => candidate.name === "resource_status");
+			expect(tool).toBeDefined();
+			const result = await tool!.execute("resource-status-1", {}, undefined, undefined, {} as never);
+			const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+			expect(resourceStatusText).toHaveBeenCalledWith(MAIN_AGENT_ID);
+			expect(text).toContain("mcp.json parse failed");
+			expect(text).toContain("invalid skill frontmatter");
+		} finally {
+			await runtime.stop();
+			await server.stop();
+		}
+	});
+
 	it("aborts the current adapter before replacing it during restart", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "hub-agent-rt-restart-abort-"));
 		tempDirs.push(cwd);
