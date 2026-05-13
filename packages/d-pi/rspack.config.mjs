@@ -11,6 +11,7 @@ const aiEnvApiKeysDistPath = resolve(packageRoot, "../ai/dist/env-api-keys.js").
 	"\\$&",
 );
 const dPiNodeEnvApiKeysPath = resolve(packageRoot, "src/shims/env-api-keys-node.js");
+const nodeImportMetaResolveLoaderPath = resolve(packageRoot, "scripts/rspack-node-import-meta-resolve-loader.cjs");
 
 export default {
 	mode: "production",
@@ -58,6 +59,10 @@ export default {
 			},
 		},
 		rules: [
+			{
+				test: /packages\/coding-agent\/dist\/core\/extensions\/loader\.js$/,
+				loader: nodeImportMetaResolveLoaderPath,
+			},
 			{
 				test: /\.[cm]?tsx?$/,
 				exclude: /node_modules/,

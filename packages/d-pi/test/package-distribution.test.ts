@@ -99,11 +99,32 @@ describe("d-pi package distribution", () => {
 		expect(bundle).not.toContain("packages/coding-agent/src");
 	});
 
+	it("keeps Node import.meta.resolve semantics in built chunks", () => {
+		const distDir = join(packageRoot, "dist");
+		if (!existsSync(distDir) || !statSync(distDir).isDirectory()) {
+			return;
+		}
+
+		for (const entry of readdirSync(distDir)) {
+			if (!entry.endsWith(".cjs")) continue;
+			const bundle = readFileSync(join(distDir, entry), "utf8");
+			expect(bundle, entry).not.toContain("/*import.meta.resolve*/(__webpack_require__(");
+			expect(bundle, entry).not.toContain("({}).resolve(specifier)");
+		}
+	});
+
 	it("keeps warning cleanup explicit instead of suppressing all warnings", () => {
 		const rspackConfig = readFileSync(join(packageRoot, "rspack.config.mjs"), "utf8");
+		const importMetaResolveLoader = readFileSync(
+			join(packageRoot, "scripts", "rspack-node-import-meta-resolve-loader.cjs"),
+			"utf8",
+		);
 
 		expect(rspackConfig).not.toContain("ignoreWarnings");
 		expect(rspackConfig).toContain("importMetaResolve");
+		expect(rspackConfig).toContain("rspack-node-import-meta-resolve-loader.cjs");
+		expect(importMetaResolveLoader).toContain("createRequire(module.filename).resolve(specifier)");
+		expect(importMetaResolveLoader).toContain("pathToFileURL");
 		expect(rspackConfig).toContain("bufferutil");
 		expect(rspackConfig).toContain("utf-8-validate");
 		expect(rspackConfig).toContain("node_modules\\/jiti\\/lib\\/jiti\\.mjs");
