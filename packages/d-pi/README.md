@@ -726,7 +726,8 @@ Use the main agent's child-agent tools from the conversation:
 - `stop_child_agent`
 - `start_child_agent`
 - `remove_child_agent`
-- `read_agent_history`
+- `search_memory`
+- `list_memory`
 
 Use `/group` to inspect all known agents and connected peers.
 

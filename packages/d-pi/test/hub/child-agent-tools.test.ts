@@ -24,7 +24,8 @@ const CHAIN_TOOL_NAMES = new Set([
 	"update_child_agent",
 	"rename_child_agent",
 	"update_agent_description",
-	"read_agent_history",
+	"search_memory",
+	"list_memory",
 	"stop_child_agent",
 	"start_child_agent",
 	"remove_child_agent",
@@ -128,6 +129,7 @@ describe("tree child management tools", () => {
 		for (const n of CHAIN_TOOL_NAMES) {
 			expect(mainNames.has(n), `main missing ${n}`).toBe(true);
 		}
+		expect(mainNames.has("read_agent_history")).toBe(false);
 		const spawnEx = findToolExecute("create_child_agent", runtime.getRootAgentRuntime().tools);
 		const spawnRes = (await (spawnEx as (a: { mode: "spawn"; background: string }) => Promise<unknown>)({
 			mode: "spawn",
@@ -374,7 +376,7 @@ describe("tree child management tools", () => {
 		expect(childContinue).toHaveBeenCalledTimes(1);
 	});
 
-	it("read_agent_history returns compact history and respects limit", async () => {
+	it("search_memory finds child session memory and list_memory expands context", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "child-tools-read-"));
 		tempDirs.push(cwd);
 		seedMainSessionWithDialog(cwd);
@@ -391,16 +393,97 @@ describe("tree child management tools", () => {
 		};
 		const spawnText = spawnRes.content.find((c) => c.type === "text")?.text ?? "";
 		const childId = /"childId":\s*"([^"]+)"/.exec(spawnText)![1]!;
-		const readExec = findToolExecute("read_agent_history", runtime.getRootAgentRuntime().tools);
-		const h1 = (await readExec!({ agentId: childId, limit: 5 })) as { content: { type: string; text: string }[] };
-		const body = h1.content.find((c) => c.type === "text")?.text ?? "";
-		expect(body).toContain("H0");
-		const h2 = (await readExec!({ agentId: childId, limit: 1, includeToolResults: false })) as {
+		const searchExec = findToolExecute("search_memory", runtime.getRootAgentRuntime().tools);
+		const search = (await searchExec!({ agentId: childId, query: "H0", limit: 5 })) as {
 			content: { type: string; text: string }[];
 		};
-		const body2 = h2.content.find((c) => c.type === "text")?.text ?? "";
-		const lineCount = body2.split("\n").filter((l) => l.trim().length > 0).length;
-		expect(lineCount).toBeLessThanOrEqual(4);
+		const searchBody = JSON.parse(search.content.find((c) => c.type === "text")?.text ?? "") as {
+			results: Array<{ memoryId: string; text: string; agentId: string }>;
+		};
+		expect(searchBody.results[0]?.agentId).toBe(childId);
+		expect(searchBody.results[0]?.text).toContain("H0");
+		const listExec = findToolExecute("list_memory", runtime.getRootAgentRuntime().tools);
+		const listed = (await listExec!({
+			memoryIds: [searchBody.results[0]!.memoryId],
+			contextBefore: 0,
+			contextAfter: 1,
+		})) as {
+			content: { type: string; text: string }[];
+		};
+		const listBody = JSON.parse(listed.content.find((c) => c.type === "text")?.text ?? "") as {
+			contexts: Array<{ items: Array<{ text: string; agentId?: string }> }>;
+		};
+		expect(listBody.contexts[0]?.items.map((item) => item.text).join("\n")).toContain("H0");
+	});
+
+	it("search_memory limits child callers to their own subtree", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "child-tools-search-scope-"));
+		tempDirs.push(cwd);
+		seedMainSessionWithDialog(cwd);
+		const stub = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
+		const runtime = HubRuntime.open(cwd);
+		await runtime.initializeAgentAdapter();
+		const spawnExec = findToolExecute("create_child_agent", runtime.getRootAgentRuntime().tools);
+		const firstText = textResult(await spawnExec!({ mode: "spawn", background: "first-private-memory" }));
+		const secondText = textResult(await spawnExec!({ mode: "spawn", background: "second-private-memory" }));
+		const firstId = JSON.parse(firstText).childId as string;
+		const secondId = JSON.parse(secondText).childId as string;
+		const childSearch = findToolExecute("search_memory", runtime.getAgentRuntime(firstId).tools);
+
+		await expect(childSearch!({ agentId: secondId, query: "second-private-memory" })).rejects.toThrow(
+			/outside caller subtree/,
+		);
+		await expect(childSearch!({ agentId: MAIN_AGENT_ID, query: "main-user-line" })).rejects.toThrow(
+			/outside caller subtree/,
+		);
+		const scopedSearch = (await childSearch!({ query: "second-private-memory" })) as {
+			content: { type: string; text: string }[];
+		};
+		const scopedBody = JSON.parse(scopedSearch.content.find((c) => c.type === "text")?.text ?? "") as {
+			results: unknown[];
+		};
+		expect(scopedBody.results).toHaveLength(0);
+	});
+
+	it("list_memory rejects memory ids outside the caller subtree", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "child-tools-list-memory-scope-"));
+		tempDirs.push(cwd);
+		seedMainSessionWithDialog(cwd);
+		const stub = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
+		const runtime = HubRuntime.open(cwd);
+		await runtime.initializeAgentAdapter();
+		const spawnExec = findToolExecute("create_child_agent", runtime.getRootAgentRuntime().tools);
+		const firstText = textResult(await spawnExec!({ mode: "spawn", background: "first-list-memory" }));
+		const secondText = textResult(await spawnExec!({ mode: "spawn", background: "second-list-memory" }));
+		const firstId = JSON.parse(firstText).childId as string;
+		const secondId = JSON.parse(secondText).childId as string;
+		const rootSearch = findToolExecute("search_memory", runtime.getRootAgentRuntime().tools);
+		const mainResult = JSON.parse(
+			textResult(await rootSearch!({ agentId: MAIN_AGENT_ID, query: "main-user-line" })),
+		) as {
+			results: Array<{ memoryId: string }>;
+		};
+		const siblingResult = JSON.parse(
+			textResult(await rootSearch!({ agentId: secondId, query: "second-list-memory" })),
+		) as {
+			results: Array<{ memoryId: string }>;
+		};
+		const childList = findToolExecute("list_memory", runtime.getAgentRuntime(firstId).tools);
+
+		await expect(childList!({ memoryIds: [mainResult.results[0]!.memoryId] })).rejects.toThrow(
+			/outside caller subtree|ask the parent agent/,
+		);
+		await expect(childList!({ memoryIds: [siblingResult.results[0]!.memoryId] })).rejects.toThrow(
+			/outside caller subtree|ask the parent agent/,
+		);
 	});
 
 	it("group includes main and child with peer counts and run state", async () => {
@@ -648,6 +731,34 @@ describe("tree child management tools", () => {
 		expect(runtime.tryGetAgentRuntime(childId)).toBeDefined();
 	});
 
+	it("search_memory indexes stopped children without making them running again", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "child-tools-stopped-memory-"));
+		tempDirs.push(cwd);
+		seedMainSessionWithDialog(cwd);
+		const stub = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
+		const runtime = HubRuntime.open(cwd);
+		await runtime.initializeAgentAdapter();
+		const create = findToolExecute("create_child_agent", runtime.getRootAgentRuntime().tools);
+		const childId = JSON.parse(textResult(await create!({ mode: "spawn", background: "stopped-memory" })))
+			.childId as string;
+		const stop = findToolExecute("stop_child_agent", runtime.getRootAgentRuntime().tools);
+		await stop!({ agentId: childId });
+		expect(runtime.tryGetAgentRuntime(childId)).toBeUndefined();
+		const search = findToolExecute("search_memory", runtime.getRootAgentRuntime().tools);
+		const searchResult = JSON.parse(textResult(await search!({ agentId: childId, query: "stopped-memory" }))) as {
+			results: Array<{ memoryId: string }>;
+		};
+		expect(searchResult.results).toHaveLength(1);
+		expect(runtime.tryGetAgentRuntime(childId)).toBeUndefined();
+		const rename = findToolExecute("rename_child_agent", runtime.getRootAgentRuntime().tools);
+		await rename!({ agentId: childId, newAgentId: "renamed-memory-child" });
+		expect(runtime.agentRegistry.get("renamed-memory-child")).toBeDefined();
+	});
+
 	it("stop_child_agent aborts an active child adapter before disposing it", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "child-tools-stop-abort-before-dispose-"));
 		tempDirs.push(cwd);
@@ -862,7 +973,7 @@ describe("tree child management tools", () => {
 		expect(runtime.tryGetAgentRuntime("child-1")).toBeUndefined();
 	});
 
-	it("read_agent_history includeToolResults false omits tool result and tool-call assistant lines", async () => {
+	it("search_memory includeToolResults false omits tool result and tool-call assistant lines", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "child-tools-read-tool-filter-"));
 		tempDirs.push(cwd);
 		seedMainOnlyRegistry(cwd);
@@ -941,21 +1052,39 @@ describe("tree child management tools", () => {
 		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(runtimeStub);
 		const runtime = HubRuntime.open(cwd);
 		await runtime.initializeAgentAdapter();
-		const readExec = findToolExecute("read_agent_history", runtime.getRootAgentRuntime().tools);
-		const withTools = (await (readExec as (a: { agentId: string }) => Promise<unknown>)({ agentId: childId })) as {
+		const searchExec = findToolExecute("search_memory", runtime.getRootAgentRuntime().tools);
+		const withTools = (await (searchExec as (a: { agentId: string; query: string }) => Promise<unknown>)({
+			agentId: childId,
+			query: "tool-out",
+		})) as {
 			content: { type: string; text: string }[];
 		};
-		const withBody = withTools.content.find((c) => c.type === "text")?.text ?? "";
-		expect(withBody).toContain("plain-user");
-		expect(withBody).toContain("tool-out");
-		const noTools = (await (readExec as (a: { agentId: string; includeToolResults: boolean }) => Promise<unknown>)({
+		const withBody = JSON.parse(withTools.content.find((c) => c.type === "text")?.text ?? "") as {
+			results: Array<{ text: string }>;
+		};
+		expect(withBody.results[0]?.text).toContain("tool-out");
+		const noTools = (await (
+			searchExec as (a: { agentId: string; query: string; includeToolResults: boolean }) => Promise<unknown>
+		)({
 			agentId: childId,
+			query: "tool-out",
 			includeToolResults: false,
 		})) as { content: { type: string; text: string }[] };
-		const noBody = noTools.content.find((c) => c.type === "text")?.text ?? "";
-		expect(noBody).toContain("plain-user");
-		expect(noBody).not.toContain("tool-out");
-		expect(noBody).not.toContain("with-tool");
+		const noBody = JSON.parse(noTools.content.find((c) => c.type === "text")?.text ?? "") as {
+			results: Array<{ text: string }>;
+		};
+		expect(noBody.results).toHaveLength(0);
+		const noAssistantToolCall = (await (
+			searchExec as (a: { agentId: string; query: string; includeToolResults: boolean }) => Promise<unknown>
+		)({
+			agentId: childId,
+			query: "with-tool",
+			includeToolResults: false,
+		})) as { content: { type: string; text: string }[] };
+		const noAssistantToolCallBody = JSON.parse(
+			noAssistantToolCall.content.find((c) => c.type === "text")?.text ?? "",
+		) as { results: Array<{ text: string }> };
+		expect(noAssistantToolCallBody.results).toHaveLength(0);
 	});
 
 	it("dynamically spawned child is in getAgentRuntime after hub socket start (no restart)", async () => {

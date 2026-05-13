@@ -42,7 +42,9 @@ export default {
 		extensions: ["...", ".ts", ".tsx"],
 	},
 	externals: {
+		"better-sqlite3": "commonjs better-sqlite3",
 		bufferutil: "commonjs bufferutil",
+		nodejieba: "commonjs nodejieba",
 		"socket.io-client": "commonjs socket.io-client",
 		"utf-8-validate": "commonjs utf-8-validate",
 	},

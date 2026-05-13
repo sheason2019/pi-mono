@@ -282,4 +282,60 @@ describe("hub agent live events", () => {
 		promptDone.resolve();
 		await promptPromise;
 	});
+
+	it("flushInputQueue returns after scheduling the flushed turn", async () => {
+		const promptStarted = createDeferred();
+		const promptDone = createDeferred();
+		const adapter = Object.create(HubAgentAdapter.prototype) as {
+			flushInputQueue(): Promise<{ flushed: boolean; messages: number }>;
+			inputQueue: Array<{ text: string; messageSource: { kind: "agent"; name: string } }>;
+			queuedInputTimes: Map<object, number>;
+			explicitFlushDepth: number;
+			session: {
+				isStreaming: boolean;
+				agent: {
+					prompt: ReturnType<typeof vi.fn>;
+				};
+			};
+			sessionService: {
+				setInputQueue: ReturnType<typeof vi.fn>;
+				setRunState: ReturnType<typeof vi.fn>;
+				syncBoundAgentSession: ReturnType<typeof vi.fn>;
+				recordError: ReturnType<typeof vi.fn>;
+			};
+			agentId: string;
+			logs: undefined;
+		};
+		const message = { text: "urgent", messageSource: { kind: "agent" as const, name: "root" } };
+		adapter.inputQueue = [message];
+		adapter.queuedInputTimes = new Map([[message, Date.now()]]);
+		adapter.explicitFlushDepth = 0;
+		adapter.agentId = "child";
+		adapter.logs = undefined;
+		adapter.sessionService = {
+			setInputQueue: vi.fn(),
+			setRunState: vi.fn(),
+			syncBoundAgentSession: vi.fn(),
+			recordError: vi.fn(),
+		};
+		adapter.session = {
+			isStreaming: false,
+			agent: {
+				prompt: vi.fn(async () => {
+					promptStarted.resolve();
+					await promptDone.promise;
+				}),
+			},
+		};
+
+		const result = await Promise.race([
+			adapter.flushInputQueue().then((value) => ({ status: "resolved" as const, value })),
+			new Promise<{ status: "pending" }>((resolve) => setTimeout(() => resolve({ status: "pending" }), 20)),
+		]);
+
+		expect(result).toEqual({ status: "resolved", value: { flushed: true, messages: 1 } });
+		await promptStarted.promise;
+		expect(adapter.session.agent.prompt).toHaveBeenCalledOnce();
+		promptDone.resolve();
+	});
 });

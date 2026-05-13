@@ -455,8 +455,20 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 		if (messages.length === 0) {
 			return { flushed: false, messages: 0 };
 		}
-		let promptSucceeded = false;
+		this.startInputQueueFlush(messages);
+		return { flushed: true, messages: queuedMessageCount };
+	}
+
+	private startInputQueueFlush(messages: readonly QueuedInputMessage[]): void {
 		this.explicitFlushDepth++;
+		void this.runInputQueueFlush(messages).catch((error) => {
+			this.sessionService.recordError(error instanceof Error ? error.message : String(error));
+			this.sessionService.syncBoundAgentSession();
+		});
+	}
+
+	private async runInputQueueFlush(messages: readonly QueuedInputMessage[]): Promise<void> {
+		let promptSucceeded = false;
 		try {
 			if (this.session.isStreaming) {
 				const abortStartedAt = Date.now();
@@ -485,7 +497,6 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 				this.scheduleInputQueuePump();
 			}
 		}
-		return { flushed: true, messages: queuedMessageCount };
 	}
 
 	async dequeue(): Promise<QueuedInputMessage[]> {

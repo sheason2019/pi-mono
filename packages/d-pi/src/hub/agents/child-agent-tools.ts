@@ -135,20 +135,44 @@ const removeChildSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-const readHistorySchema = Type.Object(
+const searchMemorySchema = Type.Object(
 	{
-		agentId: Type.String({ minLength: 1, description: "Target agent id (root or a child id)." }),
+		query: Type.String({ minLength: 1, description: "Search query for historical session memory." }),
+		agentId: Type.Optional(Type.String({ minLength: 1, description: "Optional target agent id to search." })),
 		limit: Type.Optional(
 			Type.Number({
 				minimum: 1,
-				description:
-					"Max number of user/assistant text lines. Uses the most recent N messages in branch time order, formatted oldest-to-newest within that window.",
+				maximum: 100,
+				description: "Max number of memory hits to return.",
 			}),
 		),
 		includeToolResults: Type.Optional(
 			Type.Boolean({
-				description:
-					"When false, omits tool-result messages, assistant messages that include tool calls, and other tool-oriented lines (compact).",
+				description: "When false, omits tool-result messages and assistant tool-call messages.",
+			}),
+		),
+	},
+	{ additionalProperties: false },
+);
+
+const listMemorySchema = Type.Object(
+	{
+		memoryIds: Type.Array(Type.String({ minLength: 1 }), {
+			minItems: 1,
+			description: "Memory ids returned by search_memory.",
+		}),
+		contextBefore: Type.Optional(
+			Type.Number({
+				minimum: 0,
+				maximum: 20,
+				description: "Number of memory entries to include before each hit in the same session.",
+			}),
+		),
+		contextAfter: Type.Optional(
+			Type.Number({
+				minimum: 0,
+				maximum: 20,
+				description: "Number of memory entries to include after each hit in the same session.",
 			}),
 		),
 	},
@@ -181,7 +205,8 @@ export type RenameChildToolInput = Static<typeof renameChildSchema>;
 export type StopChildToolInput = Static<typeof childLifecycleSchema>;
 export type StartChildToolInput = Static<typeof childLifecycleSchema>;
 export type RemoveChildToolInput = Static<typeof removeChildSchema>;
-export type ReadAgentHistoryToolInput = Static<typeof readHistorySchema>;
+export type SearchMemoryToolInput = Static<typeof searchMemorySchema>;
+export type ListMemoryToolInput = Static<typeof listMemorySchema>;
 
 /**
  * Host surface (implemented by `HubRuntime`) for main-only child management tools. Kept as an interface to avoid
@@ -195,7 +220,8 @@ export interface ChildAgentToolHost {
 	stopChildAgent(callerAgentId: string, input: StopChildToolInput): Promise<string>;
 	startChildAgent(callerAgentId: string, input: StartChildToolInput): Promise<string>;
 	removeChildAgent(callerAgentId: string, input: RemoveChildToolInput): Promise<string>;
-	readAgentHistoryText(callerAgentId: string, input: ReadAgentHistoryToolInput): Promise<string>;
+	searchMemoryText(callerAgentId: string, input: SearchMemoryToolInput): Promise<string>;
+	listMemoryText(callerAgentId: string, input: ListMemoryToolInput): Promise<string>;
 }
 
 export function createChildAgentToolDefinitions(
@@ -281,12 +307,24 @@ export function createChildAgentToolDefinitions(
 			},
 		}),
 		defineTool({
-			name: "read_agent_history",
-			label: "read_agent_history",
-			description: "Read compact text history for the current agent or one of its descendants.",
-			parameters: readHistorySchema,
+			name: "search_memory",
+			label: "search_memory",
+			description:
+				"Search long-term indexed session memory for the current agent subtree. Returns compact hits and memoryId values.",
+			parameters: searchMemorySchema,
 			async execute(_id, params) {
-				const text = await getHost().readAgentHistoryText(callerAgentId, params);
+				const text = await getHost().searchMemoryText(callerAgentId, params);
+				return { content: [{ type: "text" as const, text }], details: null };
+			},
+		}),
+		defineTool({
+			name: "list_memory",
+			label: "list_memory",
+			description:
+				"Expand memoryId values from search_memory into nearby session context with timestamps, agent, role, model, and text.",
+			parameters: listMemorySchema,
+			async execute(_id, params) {
+				const text = await getHost().listMemoryText(callerAgentId, params);
 				return { content: [{ type: "text" as const, text }], details: null };
 			},
 		}),

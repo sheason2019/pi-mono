@@ -745,7 +745,8 @@ pm2 stop d-pi-hub
 - `stop_child_agent`
 - `start_child_agent`
 - `remove_child_agent`
-- `read_agent_history`
+- `search_memory`
+- `list_memory`
 
 使用 `/group` 查看所有已知 agents 和 connected peers。
 

@@ -1,6 +1,6 @@
 {
 	"name": "@sheason/d-pi",
-	"version": "0.5.5",
+	"version": "0.5.6",
 	"private": true,
 	"description": "Unified CLI entry point for D-Pi hub and peer",
 	"type": "module",
@@ -23,6 +23,9 @@
 		"verify:e2e": "npx tsx scripts/full-e2e-verify.ts"
 	},
 	"dependencies": {
+		"better-sqlite3": "^12.10.0",
+		"drizzle-orm": "^0.45.2",
+		"nodejieba": "^3.5.8",
 		"socket.io-client": "^4.8.3"
 	},
 	"devDependencies": {
@@ -34,6 +37,7 @@
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"@rspack/cli": "^2.0.2",
 		"@rspack/core": "^2.0.2",
+		"@types/better-sqlite3": "^7.6.13",
 		"@types/node": "^24.3.0",
 		"shx": "^0.4.0",
 		"socket.io": "^4.8.3",

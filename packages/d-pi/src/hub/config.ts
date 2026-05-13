@@ -10,6 +10,7 @@ export const SOURCES_CONFIG_FILE_NAME = "sources.json";
 export const AGENTS_CONFIG_FILE_NAME = "agents.json";
 export const AUTH_CONFIG_FILE_NAME = "auth.json";
 export const SESSION_FILE_NAME = "session.jsonl";
+export const MEMORY_DB_FILE_NAME = "memory.sqlite";
 export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_PORT = 4317;
 
@@ -35,6 +36,10 @@ export function getAuthConfigPath(cwd: string): string {
 
 export function getSessionFile(cwd: string): string {
 	return join(getWorkspaceDir(cwd), SESSION_FILE_NAME);
+}
+
+export function getMemoryDbFile(cwd: string): string {
+	return join(getWorkspaceDir(cwd), MEMORY_DB_FILE_NAME);
 }
 
 export function getListenHost(): string {

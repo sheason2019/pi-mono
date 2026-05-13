@@ -38,4 +38,10 @@ todo.md
 plans/
 .pi/hf-sessions/
 .pi/hf-sessions-backup/
+/.pi-hub/
+packages/*/.pi/
+packages/*/.pi-hub/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 collect.sh

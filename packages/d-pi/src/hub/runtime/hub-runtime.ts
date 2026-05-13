@@ -16,9 +16,10 @@ import type {
 	CreateChildToolInput,
 	CreateTemporaryChildToolInput,
 	ForkChildToolInput,
-	ReadAgentHistoryToolInput,
+	ListMemoryToolInput,
 	RemoveChildToolInput,
 	RenameChildToolInput,
+	SearchMemoryToolInput,
 	SpawnChildToolInput,
 	StartChildToolInput,
 	StopChildToolInput,
@@ -31,7 +32,7 @@ import type { AgentExecutorConfig, AgentRecord } from "../agents/types.js";
 import { ROOT_AGENT_ID } from "../agents/types.js";
 import { HubAuthTokenStore } from "../auth/token-store.js";
 import type { AgentTokenToolHost, CreateAgentTokenToolInput, RevokeAgentTokenToolInput } from "../auth/token-tools.js";
-import { getListenHost, getListenPort } from "../config.js";
+import { getListenHost, getListenPort, getWorkspaceDir } from "../config.js";
 import { ConfigLayerRegistry } from "../config-aggregation/config-layer-registry.js";
 import { buildAgentConfigLayers } from "../config-aggregation/local-config-layers.js";
 import { mergeConfigLayers } from "../config-aggregation/merge-config.js";
@@ -44,6 +45,7 @@ import {
 import type { McpClientHandle } from "../mcp/mcp-client.js";
 import { McpHost } from "../mcp/mcp-host.js";
 import type { McpServerConfig } from "../mcp/types.js";
+import { MemoryStore } from "../memory/memory-store.js";
 import { PeerRegistry } from "../peers/peer-registry.js";
 import type { RegisteredPeer } from "../peers/peer-types.js";
 import { HubSessionService } from "../session/hub-session-service.js";
@@ -99,6 +101,22 @@ function publicOrgAgentModel(snapshot: HubSessionSnapshot): PublicOrgAgentModel 
 	};
 }
 
+function compactMemoryText(text: string, maxLength = 600): string {
+	const compacted = text.replace(/\s+/g, " ").trim();
+	if (compacted.length <= maxLength) {
+		return compacted;
+	}
+	return `${compacted.slice(0, maxLength - 3)}...`;
+}
+
+function memoryAgentIdFromMemoryId(memoryId: string): string | undefined {
+	const separatorIndex = memoryId.indexOf(":");
+	if (separatorIndex <= 0) {
+		return undefined;
+	}
+	return memoryId.slice(0, separatorIndex);
+}
+
 export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceStatusToolHost, AgentTokenToolHost {
 	readonly cwd: string;
 	readonly agentRegistry: AgentRegistry;
@@ -120,6 +138,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 	private readonly pendingPeerConfigChangesByAgentId = new Map<string, Map<string, PendingPeerConfigChange>>();
 	private readonly peerConfigApplyInFlightByAgentId = new Map<string, Promise<boolean>>();
 	private readonly sessionLogUnsubs = new Map<string, () => void>();
+	private readonly memoryIndexUnsubs = new Map<string, () => void>();
 	private readonly temporaryCleanupUnsubs = new Map<string, () => void>();
 	private readonly temporaryCleanupInFlight = new Set<string>();
 	private readonly childStartInFlightByAgentId = new Map<string, Promise<HubAgentRuntime>>();
@@ -145,6 +164,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 		createMcpClient: CreateMcpClient | undefined,
 		logs: HubLogSink | undefined,
 		containerExecutorLauncher: NodeContainerExecutorLauncher,
+		private readonly memoryStore: MemoryStore,
 	) {
 		this.cwd = cwd;
 		this.agentRegistry = agentRegistry;
@@ -494,9 +514,11 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 			openOptions.mcp?.createClient,
 			openOptions.logs,
 			new NodeContainerExecutorLauncher({ spawn: openOptions.executors?.containerSpawn }),
+			MemoryStore.open(cwd),
 		);
 		hubRef.v = runtime;
 		runtime.wireSessionLogForAgent(ROOT_AGENT_ID, rootRuntime);
+		runtime.wireMemoryIndexForAgent(ROOT_AGENT_ID, rootRuntime);
 		return runtime;
 	}
 
@@ -740,6 +762,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 		const child = this.createChildHubAgentRuntime(record);
 		this.agentRuntimes.set(record.id, child);
 		this.wireSessionLogForAgent(record.id, child);
+		this.wireMemoryIndexForAgent(record.id, child);
 		this.wireSessionFanoutForNewAgent(record.id, child);
 		this.wireLiveEventsForAgent(record.id, child);
 		this.log("info", "hub startup timing", {
@@ -830,6 +853,45 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 		}
 		unsubscribe();
 		this.sessionLogUnsubs.delete(agentId);
+	}
+
+	private wireMemoryIndexForAgent(agentId: string, rt: HubAgentRuntime): void {
+		if (this.memoryIndexUnsubs.has(agentId)) {
+			return;
+		}
+		this.indexAgentMemory(agentId, rt);
+		const unsubscribe = rt.sessionService.subscribe((event) => {
+			if (event.type !== "snapshot_updated" && event.type !== "run_state_changed") {
+				return;
+			}
+			this.indexAgentMemory(agentId, rt);
+		});
+		this.memoryIndexUnsubs.set(agentId, unsubscribe);
+	}
+
+	private unwireMemoryIndexForAgent(agentId: string): void {
+		const unsubscribe = this.memoryIndexUnsubs.get(agentId);
+		if (!unsubscribe) {
+			return;
+		}
+		unsubscribe();
+		this.memoryIndexUnsubs.delete(agentId);
+	}
+
+	private indexAgentMemory(agentId: string, rt: HubAgentRuntime): void {
+		try {
+			const snapshot = rt.sessionService.getSnapshot();
+			this.memoryStore.indexSession({
+				agentId,
+				sessionFile: snapshot.sessionFile,
+				entries: snapshot.entries,
+			});
+		} catch (error) {
+			this.log("error", "agent memory indexing failed", {
+				agentId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 
 	private wireLiveEventsForAgent(agentId: string, rt: HubAgentRuntime): void {
@@ -1045,6 +1107,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 			this.unwireLiveEventsForAgent(record.id);
 			this.unwireSessionFanoutForAgent(record.id);
 			this.unwireSessionLogForAgent(record.id);
+			this.unwireMemoryIndexForAgent(record.id);
 			this.agentRuntimes.delete(record.id);
 			await child.stop();
 			throw e;
@@ -1762,6 +1825,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 			this.unwireLiveEventsForAgent(record.id);
 			this.unwireSessionFanoutForAgent(record.id);
 			this.unwireSessionLogForAgent(record.id);
+			this.unwireMemoryIndexForAgent(record.id);
 			this.agentRuntimes.delete(record.id);
 			await runtime.stop();
 			this.log("info", "child agent stopped", { agentId: record.id, disconnectedPeers });
@@ -1903,27 +1967,6 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 		);
 	}
 
-	private static messageHasOmittableToolContent(m: unknown): boolean {
-		if (typeof m !== "object" || m === null) {
-			return false;
-		}
-		const o = m as { role?: string; content?: unknown; toolCalls?: unknown[] };
-		if (o.role === "toolResult") {
-			return true;
-		}
-		if (o.role === "assistant") {
-			if (Array.isArray(o.toolCalls) && o.toolCalls.length > 0) {
-				return true;
-			}
-			if (Array.isArray(o.content)) {
-				return o.content.some(
-					(b) => b && typeof b === "object" && "type" in b && (b as { type: string }).type === "toolCall",
-				);
-			}
-		}
-		return false;
-	}
-
 	private static messagePlainText(m: SessionMessageEntry["message"]): string {
 		if (m.role === "user") {
 			const c = m.content;
@@ -1976,30 +2019,136 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 		return JSON.stringify(m);
 	}
 
-	private static formatSessionMessageForHistory(entry: SessionMessageEntry): string {
-		const m = entry.message;
-		const preview = HubRuntime.messagePlainText(m);
-		return `${m.role}: ${preview}`;
+	async searchMemoryText(callerAgentId: string, input: SearchMemoryToolInput): Promise<string> {
+		const scopeAgentIds = this.getMemoryScopeAgentIds(callerAgentId, input.agentId, "search_memory");
+		this.refreshMemoryIndexForScope(scopeAgentIds);
+		const results = this.memoryStore.search({
+			query: input.query,
+			agentId: input.agentId,
+			limit: input.limit,
+			includeToolResults: input.includeToolResults,
+			scopeAgentIds,
+		});
+		return JSON.stringify(
+			{
+				ok: true,
+				query: input.query,
+				...(input.agentId === undefined ? {} : { agentId: input.agentId }),
+				results: results.map((result) => ({
+					memoryId: result.memoryId,
+					agentId: result.agentId,
+					sessionEntryId: result.sessionEntryId,
+					timestamp: result.timestamp,
+					role: result.role,
+					kind: result.kind,
+					score: result.score,
+					text: compactMemoryText(result.text),
+					...(result.modelProvider === undefined && result.modelId === undefined
+						? {}
+						: { model: { provider: result.modelProvider, modelId: result.modelId } }),
+					...(result.toolName === undefined ? {} : { toolName: result.toolName }),
+				})),
+			},
+			null,
+			2,
+		);
 	}
 
-	async readAgentHistoryText(callerAgentId: string, input: ReadAgentHistoryToolInput): Promise<string> {
-		this.assertAgentInSubtree(callerAgentId, input.agentId, "read_agent_history");
-		const rt = this.ensureAgentRuntimeRegistered(input.agentId);
-		if (!rt) {
-			throw new Error(`Unknown agent id: ${input.agentId}`);
+	async listMemoryText(callerAgentId: string, input: ListMemoryToolInput): Promise<string> {
+		const scopeAgentIds = this.getMemoryScopeAgentIds(callerAgentId, undefined, "list_memory");
+		this.assertMemoryIdsInScope(callerAgentId, input.memoryIds);
+		this.refreshMemoryIndexForScope(scopeAgentIds);
+		const contexts = this.memoryStore.list({
+			memoryIds: input.memoryIds,
+			contextBefore: input.contextBefore,
+			contextAfter: input.contextAfter,
+			scopeAgentIds,
+		});
+		return JSON.stringify(
+			{
+				ok: true,
+				contexts: contexts.map((context) => ({
+					memoryId: context.memoryId,
+					agentId: context.agentId,
+					sessionFile: context.sessionFile,
+					sessionEntryId: context.sessionEntryId,
+					items: context.items.map((item) => ({
+						memoryId: item.memoryId,
+						sessionEntryId: item.sessionEntryId,
+						...(item.parentEntryId === undefined ? {} : { parentEntryId: item.parentEntryId }),
+						timestamp: item.timestamp,
+						role: item.role,
+						kind: item.kind,
+						text: item.text,
+						...(item.modelProvider === undefined && item.modelId === undefined
+							? {}
+							: { model: { provider: item.modelProvider, modelId: item.modelId } }),
+						...(item.toolName === undefined ? {} : { toolName: item.toolName }),
+						rawJson: item.rawJson,
+					})),
+				})),
+			},
+			null,
+			2,
+		);
+	}
+
+	private getMemoryScopeAgentIds(callerAgentId: string, targetAgentId: string | undefined, action: string): string[] {
+		this.agentRegistry.require(callerAgentId);
+		if (targetAgentId !== undefined) {
+			this.assertAgentInSubtree(callerAgentId, targetAgentId, action);
+			return [targetAgentId];
 		}
-		const sm = rt.sessionService.getSessionManager();
-		const br = sm.getBranch();
-		const asMessages: SessionMessageEntry[] = br.filter((e): e is SessionMessageEntry => e.type === "message");
-		const withToolFilter =
-			input.includeToolResults === false
-				? asMessages.filter((e) => !HubRuntime.messageHasOmittableToolContent(e.message))
-				: asMessages;
-		const lim = input.limit !== undefined && Number.isFinite(input.limit) ? Math.floor(input.limit) : 32;
-		const safeLim = lim < 1 ? 1 : lim;
-		const slice = withToolFilter.slice(-safeLim);
-		const text = slice.map((e) => HubRuntime.formatSessionMessageForHistory(e)).join("\n");
-		return text;
+		return this.agentRegistry
+			.getAll()
+			.filter((record) => this.agentRegistry.isInSubtree(callerAgentId, record.id))
+			.map((record) => record.id);
+	}
+
+	private assertMemoryIdsInScope(callerAgentId: string, memoryIds: readonly string[]): void {
+		for (const memoryId of memoryIds) {
+			const agentId = memoryAgentIdFromMemoryId(memoryId);
+			if (!agentId) {
+				continue;
+			}
+			try {
+				this.assertAgentInSubtree(callerAgentId, agentId, "list_memory");
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				throw new Error(`${message} Ask the parent agent to provide memory context if upward access is needed.`);
+			}
+		}
+	}
+
+	private refreshMemoryIndexForScope(agentIds: string[]): void {
+		for (const agentId of agentIds) {
+			const rt = this.agentRuntimes.get(agentId);
+			if (rt) {
+				this.indexAgentMemory(agentId, rt);
+			} else {
+				this.indexRegisteredAgentMemory(agentId);
+			}
+		}
+	}
+
+	private indexRegisteredAgentMemory(agentId: string): void {
+		const record = this.agentRegistry.get(agentId);
+		if (!record) {
+			return;
+		}
+		try {
+			const sessionManager = SessionManager.open(record.sessionFile, getWorkspaceDir(this.cwd), this.cwd);
+			this.memoryStore.indexSession({
+				agentId,
+				sessionFile: record.sessionFile,
+				entries: sessionManager.getEntries(),
+			});
+		} catch (error) {
+			this.log("error", "registered agent memory indexing failed", {
+				agentId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 
 	async start(options: StartHubRuntimeOptions = {}): Promise<SocketHubServerAddress> {
@@ -2040,6 +2189,10 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 			unsubscribe();
 		}
 		this.sessionLogUnsubs.clear();
+		for (const unsubscribe of this.memoryIndexUnsubs.values()) {
+			unsubscribe();
+		}
+		this.memoryIndexUnsubs.clear();
 		for (const u of this.liveEventUnsubs) {
 			u.unsubscribe();
 		}
@@ -2056,5 +2209,6 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 			console.error(`d-pi hub: error stopping McpHost: ${message}`);
 		}
 		await this.socketServer.stop();
+		this.memoryStore.close();
 	}
 }
