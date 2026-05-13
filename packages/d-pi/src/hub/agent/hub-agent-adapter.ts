@@ -13,12 +13,12 @@ import {
 	createExtensionRuntime,
 	getAgentDir,
 	type LoadExtensionsResult,
+	loadExtensionFromFactory,
 	type ModelCycleResult,
 	ModelRegistry,
 	type ResourceLoader,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { loadExtensionFromFactory } from "../../../../coding-agent/src/core/extensions/loader.js";
 import {
 	createAggregatedAgentSessionServices,
 	materializeAggregatedModelsConfig,

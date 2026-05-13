@@ -1,10 +1,9 @@
 import { mkdirSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import type { SessionEntry, SessionMessageEntry } from "@earendil-works/pi-coding-agent";
-import Database from "better-sqlite3";
-import { and, eq, inArray } from "drizzle-orm";
-import { type BetterSQLite3Database, drizzle } from "drizzle-orm/better-sqlite3";
+import { type Client, createClient, type InValue, type Row } from "@libsql/client";
 import { getMemoryDbFile, getWorkspaceDir } from "../config.js";
-import { MEMORY_SCHEMA_VERSION, type MemoryItem, memoryItems, type NewMemoryItem } from "./schema.js";
+import { MEMORY_SCHEMA_VERSION, type MemoryItem, type NewMemoryItem } from "./schema.js";
 import { buildFtsQuery, buildTokenizedMemoryText } from "./tokenizer.js";
 
 export interface IndexSessionInput {
@@ -69,69 +68,64 @@ interface SearchDbRow {
 	score: number;
 }
 
+const MEMORY_ITEM_SELECT_COLUMNS = `
+	id,
+	agent_id AS agentId,
+	session_file AS sessionFile,
+	session_entry_id AS sessionEntryId,
+	parent_entry_id AS parentEntryId,
+	entry_index AS entryIndex,
+	timestamp,
+	role,
+	kind,
+	text,
+	raw_json AS rawJson,
+	model_provider AS modelProvider,
+	model_id AS modelId,
+	tool_name AS toolName,
+	has_tool_content AS hasToolContent,
+	updated_at AS updatedAt
+`;
+
 export class MemoryStore {
-	private constructor(
-		private readonly sqlite: Database.Database,
-		private readonly db: BetterSQLite3Database<{ memoryItems: typeof memoryItems }>,
-	) {}
+	private readonly ready: Promise<void>;
+
+	private constructor(private readonly client: Client) {
+		this.ready = this.initialize();
+	}
 
 	static open(cwd: string): MemoryStore {
 		mkdirSync(getWorkspaceDir(cwd), { recursive: true });
-		const sqlite = new Database(getMemoryDbFile(cwd));
-		const db = drizzle(sqlite, { schema: { memoryItems } });
-		const store = new MemoryStore(sqlite, db);
-		store.initialize();
-		return store;
+		return new MemoryStore(createClient({ url: pathToFileURL(getMemoryDbFile(cwd)).href }));
 	}
 
 	close(): void {
-		this.sqlite.close();
+		this.client.close();
 	}
 
-	indexSession(input: IndexSessionInput): void {
+	async indexSession(input: IndexSessionInput): Promise<void> {
+		await this.ready;
 		const rows = input.entries
 			.map((entry, index) => this.entryToMemoryItem(input.agentId, input.sessionFile, entry, index))
 			.filter((row): row is NewMemoryItem => row !== undefined);
-		const transaction = this.sqlite.transaction((items: NewMemoryItem[]) => {
-			for (const item of items) {
-				this.db
-					.insert(memoryItems)
-					.values(item)
-					.onConflictDoUpdate({
-						target: memoryItems.id,
-						set: {
-							agentId: item.agentId,
-							sessionFile: item.sessionFile,
-							sessionEntryId: item.sessionEntryId,
-							parentEntryId: item.parentEntryId,
-							entryIndex: item.entryIndex,
-							timestamp: item.timestamp,
-							role: item.role,
-							kind: item.kind,
-							text: item.text,
-							rawJson: item.rawJson,
-							modelProvider: item.modelProvider,
-							modelId: item.modelId,
-							toolName: item.toolName,
-							hasToolContent: item.hasToolContent,
-							updatedAt: item.updatedAt,
-						},
-					})
-					.run();
-				this.upsertFtsRow(item);
-			}
-		});
-		transaction(rows);
+		if (rows.length === 0) {
+			return;
+		}
+		await this.client.batch(
+			rows.flatMap((item) => [upsertMemoryItemStatement(item), ...upsertFtsRowStatements(item)]),
+			"write",
+		);
 	}
 
-	search(input: SearchMemoryInput): SearchMemoryResult[] {
+	async search(input: SearchMemoryInput): Promise<SearchMemoryResult[]> {
+		await this.ready;
 		const ftsQuery = buildFtsQuery(input.query);
 		if (!ftsQuery) {
 			return [];
 		}
 		const limit = normalizeLimit(input.limit, 20, 100);
 		const conditions: string[] = ["memory_fts MATCH ?"];
-		const params: unknown[] = [ftsQuery];
+		const params: InValue[] = [ftsQuery];
 		if (input.agentId) {
 			conditions.push("i.agent_id = ?");
 			params.push(input.agentId);
@@ -147,62 +141,54 @@ export class MemoryStore {
 			conditions.push("i.has_tool_content = 0");
 		}
 		params.push(limit);
-		const rows = this.sqlite
-			.prepare(
-				`SELECT f.item_id AS memoryId, bm25(memory_fts) AS score
+		const result = await this.client.execute({
+			sql: `SELECT f.item_id AS memoryId, bm25(memory_fts) AS score
 				FROM memory_fts AS f
 				JOIN memory_items AS i ON i.id = f.item_id
 				WHERE ${conditions.join(" AND ")}
 				ORDER BY score ASC
 				LIMIT ?`,
-			)
-			.all(...params) as SearchDbRow[];
-		const items = this.getItemsByIds(rows.map((row) => row.memoryId));
+			args: params as InValue[],
+		});
+		const rows = result.rows.map(
+			(row): SearchDbRow => ({ memoryId: String(row.memoryId), score: Number(row.score) }),
+		);
+		const items = await this.getItemsByIds(rows.map((row) => row.memoryId));
 		return rows.flatMap((row) => {
 			const item = items.get(row.memoryId);
 			return item ? [toSearchMemoryResult(item, row.score)] : [];
 		});
 	}
 
-	list(input: ListMemoryInput): MemoryContextResult[] {
+	async list(input: ListMemoryInput): Promise<MemoryContextResult[]> {
+		await this.ready;
 		if (input.memoryIds.length === 0) {
 			return [];
 		}
 		const before = normalizeContext(input.contextBefore, 3);
 		const after = normalizeContext(input.contextAfter, 3);
-		const hits = this.getItemsByIds(input.memoryIds);
-		return input.memoryIds.flatMap((memoryId) => {
+		const hits = await this.getItemsByIds(input.memoryIds);
+		const contexts: MemoryContextResult[] = [];
+		for (const memoryId of input.memoryIds) {
 			const hit = hits.get(memoryId);
 			if (!hit || !isAgentInScope(hit.agentId, input.scopeAgentIds)) {
-				return [];
+				continue;
 			}
-			const rows = this.db
-				.select()
-				.from(memoryItems)
-				.where(
-					and(
-						eq(memoryItems.agentId, hit.agentId),
-						eq(memoryItems.sessionFile, hit.sessionFile),
-						inArray(memoryItems.entryIndex, range(hit.entryIndex - before, hit.entryIndex + after)),
-					),
-				)
-				.orderBy(memoryItems.entryIndex)
-				.all();
-			return [
-				{
-					memoryId: hit.id,
-					agentId: hit.agentId,
-					sessionFile: hit.sessionFile,
-					sessionEntryId: hit.sessionEntryId,
-					items: rows.map(toListedMemoryItem),
-				},
-			];
-		});
+			const rows = await this.getSessionItemsInRange(hit, hit.entryIndex - before, hit.entryIndex + after);
+			contexts.push({
+				memoryId: hit.id,
+				agentId: hit.agentId,
+				sessionFile: hit.sessionFile,
+				sessionEntryId: hit.sessionEntryId,
+				items: rows.map(toListedMemoryItem),
+			});
+		}
+		return contexts;
 	}
 
-	private initialize(): void {
-		this.sqlite.pragma("journal_mode = WAL");
-		this.sqlite.exec(`
+	private async initialize(): Promise<void> {
+		await this.client.execute("PRAGMA journal_mode = WAL");
+		await this.client.executeMultiple(`
 			CREATE TABLE IF NOT EXISTS memory_items (
 				id TEXT PRIMARY KEY NOT NULL,
 				agent_id TEXT NOT NULL,
@@ -272,28 +258,139 @@ export class MemoryStore {
 		};
 	}
 
-	private upsertFtsRow(item: NewMemoryItem): void {
-		const tokenizedText = buildTokenizedMemoryText(item.text, [
-			item.agentId,
-			item.role,
-			item.kind,
-			item.modelProvider ?? "",
-			item.modelId ?? "",
-			item.toolName ?? "",
-		]);
-		this.sqlite.prepare("DELETE FROM memory_fts WHERE item_id = ?").run(item.id);
-		this.sqlite
-			.prepare("INSERT INTO memory_fts(item_id, agent_id, tokenized_text) VALUES (?, ?, ?)")
-			.run(item.id, item.agentId, tokenizedText);
-	}
-
-	private getItemsByIds(ids: string[]): Map<string, MemoryItem> {
+	private async getItemsByIds(ids: string[]): Promise<Map<string, MemoryItem>> {
 		if (ids.length === 0) {
 			return new Map();
 		}
-		const rows = this.db.select().from(memoryItems).where(inArray(memoryItems.id, ids)).all();
+		const result = await this.client.execute({
+			sql: `SELECT ${MEMORY_ITEM_SELECT_COLUMNS}
+				FROM memory_items
+				WHERE id IN (${ids.map(() => "?").join(", ")})`,
+			args: ids,
+		});
+		const rows = result.rows.map(rowToMemoryItem);
 		return new Map(rows.map((row) => [row.id, row]));
 	}
+
+	private async getSessionItemsInRange(hit: MemoryItem, fromIndex: number, toIndex: number): Promise<MemoryItem[]> {
+		const result = await this.client.execute({
+			sql: `SELECT ${MEMORY_ITEM_SELECT_COLUMNS}
+				FROM memory_items
+				WHERE agent_id = ? AND session_file = ? AND entry_index BETWEEN ? AND ?
+				ORDER BY entry_index`,
+			args: [hit.agentId, hit.sessionFile, fromIndex, toIndex],
+		});
+		return result.rows.map(rowToMemoryItem);
+	}
+}
+
+function upsertMemoryItemStatement(item: NewMemoryItem): { sql: string; args: InValue[] } {
+	return {
+		sql: `INSERT INTO memory_items (
+				id,
+				agent_id,
+				session_file,
+				session_entry_id,
+				parent_entry_id,
+				entry_index,
+				timestamp,
+				role,
+				kind,
+				text,
+				raw_json,
+				model_provider,
+				model_id,
+				tool_name,
+				has_tool_content,
+				updated_at
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET
+				agent_id = excluded.agent_id,
+				session_file = excluded.session_file,
+				session_entry_id = excluded.session_entry_id,
+				parent_entry_id = excluded.parent_entry_id,
+				entry_index = excluded.entry_index,
+				timestamp = excluded.timestamp,
+				role = excluded.role,
+				kind = excluded.kind,
+				text = excluded.text,
+				raw_json = excluded.raw_json,
+				model_provider = excluded.model_provider,
+				model_id = excluded.model_id,
+				tool_name = excluded.tool_name,
+				has_tool_content = excluded.has_tool_content,
+				updated_at = excluded.updated_at`,
+		args: [
+			item.id,
+			item.agentId,
+			item.sessionFile,
+			item.sessionEntryId,
+			item.parentEntryId ?? null,
+			item.entryIndex,
+			item.timestamp,
+			item.role,
+			item.kind,
+			item.text,
+			item.rawJson,
+			item.modelProvider ?? null,
+			item.modelId ?? null,
+			item.toolName ?? null,
+			item.hasToolContent ? 1 : 0,
+			item.updatedAt,
+		],
+	};
+}
+
+function upsertFtsRowStatements(item: NewMemoryItem): Array<{ sql: string; args: InValue[] }> {
+	const tokenizedText = buildTokenizedMemoryText(item.text, [
+		item.agentId,
+		item.role,
+		item.kind,
+		item.modelProvider ?? "",
+		item.modelId ?? "",
+		item.toolName ?? "",
+	]);
+	return [
+		{ sql: "DELETE FROM memory_fts WHERE item_id = ?", args: [item.id] },
+		{
+			sql: "INSERT INTO memory_fts(item_id, agent_id, tokenized_text) VALUES (?, ?, ?)",
+			args: [item.id, item.agentId, tokenizedText],
+		},
+	];
+}
+
+function rowToMemoryItem(row: Row): MemoryItem {
+	return {
+		id: stringValue(row.id),
+		agentId: stringValue(row.agentId),
+		sessionFile: stringValue(row.sessionFile),
+		sessionEntryId: stringValue(row.sessionEntryId),
+		parentEntryId: optionalStringValue(row.parentEntryId),
+		entryIndex: numberValue(row.entryIndex),
+		timestamp: stringValue(row.timestamp),
+		role: stringValue(row.role),
+		kind: stringValue(row.kind),
+		text: stringValue(row.text),
+		rawJson: stringValue(row.rawJson),
+		modelProvider: optionalStringValue(row.modelProvider),
+		modelId: optionalStringValue(row.modelId),
+		toolName: optionalStringValue(row.toolName),
+		hasToolContent: Boolean(row.hasToolContent),
+		updatedAt: stringValue(row.updatedAt),
+	};
+}
+
+function stringValue(value: unknown): string {
+	return typeof value === "string" ? value : String(value ?? "");
+}
+
+function optionalStringValue(value: unknown): string | null {
+	return value === null || value === undefined ? null : stringValue(value);
+}
+
+function numberValue(value: unknown): number {
+	return typeof value === "number" ? value : Number(value);
 }
 
 function createMemoryId(agentId: string, sessionEntryId: string): string {
@@ -393,14 +490,6 @@ function normalizeContext(value: number | undefined, defaultValue: number): numb
 		return defaultValue;
 	}
 	return Math.max(0, Math.min(20, Math.floor(value)));
-}
-
-function range(start: number, end: number): number[] {
-	const values: number[] = [];
-	for (let value = start; value <= end; value += 1) {
-		values.push(value);
-	}
-	return values;
 }
 
 function isAgentInScope(agentId: string, scopeAgentIds: string[] | undefined): boolean {

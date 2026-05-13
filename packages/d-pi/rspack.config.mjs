@@ -6,8 +6,6 @@ import rspack from "@rspack/core";
 const packageRoot = dirname(fileURLToPath(import.meta.url));
 const packageJson = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
 const packageVersion = packageJson.version;
-const aiEnvApiKeysPath = resolve(packageRoot, "../ai/src/env-api-keys.ts").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const dPiNodeEnvApiKeysPath = resolve(packageRoot, "src/shims/env-api-keys-node.ts");
 
 export default {
 	mode: "production",
@@ -27,13 +25,6 @@ export default {
 				packageRoot,
 				"../../node_modules/@automerge/automerge/dist/mjs/entrypoints/fullfat_base64.js",
 			),
-			"@earendil-works/pi-agent-core": resolve(packageRoot, "../agent/src/index.ts"),
-			"@earendil-works/pi-ai": resolve(packageRoot, "../ai/src/index.ts"),
-			"@earendil-works/pi-ai/bedrock-provider": resolve(packageRoot, "../ai/src/bedrock-provider.ts"),
-			"@earendil-works/pi-ai/oauth": resolve(packageRoot, "../ai/src/oauth.ts"),
-			"@earendil-works/pi-coding-agent": resolve(packageRoot, "../coding-agent/src/index.ts"),
-			"@earendil-works/pi-tui": resolve(packageRoot, "../tui/src/index.ts"),
-			"jiti/static": resolve(packageRoot, "../../node_modules/jiti/lib/jiti.mjs"),
 		},
 		extensionAlias: {
 			".js": [".ts", ".tsx", ".js"],
@@ -42,13 +33,25 @@ export default {
 		extensions: ["...", ".ts", ".tsx"],
 	},
 	externals: {
-		"better-sqlite3": "commonjs better-sqlite3",
+		"@libsql/client": "commonjs @libsql/client",
+		"@node-rs/jieba": "commonjs @node-rs/jieba",
+		"@node-rs/jieba/dict.js": "commonjs @node-rs/jieba/dict.js",
 		bufferutil: "commonjs bufferutil",
-		nodejieba: "commonjs nodejieba",
 		"socket.io-client": "commonjs socket.io-client",
 		"utf-8-validate": "commonjs utf-8-validate",
 	},
 	module: {
+		parser: {
+			javascript: {
+				importMetaResolve: true,
+			},
+			"javascript/auto": {
+				importMetaResolve: true,
+			},
+			"javascript/esm": {
+				importMetaResolve: true,
+			},
+		},
 		rules: [
 			{
 				test: /\.[cm]?tsx?$/,
@@ -68,7 +71,13 @@ export default {
 				},
 			},
 			{
-				test: /node_modules\/@mariozechner\/jiti\/lib\/jiti\.mjs$/,
+				test: /node_modules\/jiti\/lib\/jiti\.mjs$/,
+				parser: {
+					exprContextCritical: false,
+				},
+			},
+			{
+				test: /packages\/(?:ai\/dist\/(?:env-api-keys|providers\/(?:openai-codex-responses|register-builtins))|coding-agent\/dist\/core\/extensions\/loader)\.js$/,
 				parser: {
 					exprContextCritical: false,
 				},
@@ -84,7 +93,6 @@ export default {
 			__D_PI_VERSION__: JSON.stringify(packageVersion),
 			"import.meta.url": 'module.require("node:url").pathToFileURL(module.filename).href',
 		}),
-		new rspack.NormalModuleReplacementPlugin(new RegExp(`^${aiEnvApiKeysPath}$`), dPiNodeEnvApiKeysPath),
 		new rspack.BannerPlugin({
 			banner: "#!/usr/bin/env node",
 			raw: true,
@@ -105,15 +113,12 @@ export default {
 					to: "skills/reproducing-real-bugs-with-e2e",
 				},
 				{
-					from: resolve(packageRoot, "../coding-agent/src/modes/interactive/theme"),
+					from: resolve(packageRoot, "../coding-agent/dist/modes/interactive/theme"),
 					to: "dist/modes/interactive/theme",
 				},
 				{
-					from: resolve(packageRoot, "../coding-agent/src/core/export-html"),
+					from: resolve(packageRoot, "../coding-agent/dist/core/export-html"),
 					to: "dist/core/export-html",
-					globOptions: {
-						ignore: ["**/*.ts"],
-					},
 				},
 			],
 		}),

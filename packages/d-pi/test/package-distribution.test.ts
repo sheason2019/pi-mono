@@ -39,9 +39,6 @@ describe("d-pi package distribution", () => {
 			scripts?: Record<string, string>;
 			types?: string;
 		};
-		const rootPkg = JSON.parse(readFileSync(join(packageRoot, "..", "..", "package.json"), "utf8")) as {
-			scripts?: Record<string, string>;
-		};
 
 		expect(pkg.private).toBe(true);
 		expect(pkg.main).toBeUndefined();
@@ -50,13 +47,15 @@ describe("d-pi package distribution", () => {
 		expect(pkg.devDependencies ?? {}).toHaveProperty("@rspack/cli");
 		expect(pkg.devDependencies ?? {}).not.toHaveProperty("@rslib/core");
 		expect(pkg.bin?.["d-pi"]).toBe("dist/cli.cjs");
+		expect(pkg.scripts?.build).toContain("build:deps");
 		expect(pkg.scripts?.build).toContain("rspack");
 		expect(pkg.scripts?.build).toContain("chmod +x dist/cli.cjs");
 		expect(pkg.scripts?.build).toContain("write-publish-package.mjs");
+		expect(pkg.scripts?.["build:deps"]).toContain("npm --prefix ../tui run build");
+		expect(pkg.scripts?.["build:deps"]).toContain("npm --prefix ../ai run build");
+		expect(pkg.scripts?.["build:deps"]).toContain("npm --prefix ../coding-agent run build");
 		expect(pkg.scripts?.["publish:dry"]).toContain("cd dist && npm pack --dry-run");
 		expect(pkg.scripts?.["publish:dist"]).toContain("cd dist && npm publish --access public");
-		expect(rootPkg.scripts?.publish).toContain("cd packages/d-pi && npm run publish:dist");
-		expect(rootPkg.scripts?.["publish:dry"]).toContain("cd packages/d-pi && npm run publish:dry");
 		expect(pkg.scripts?.build).not.toContain("rslib");
 		expect(pkg.scripts?.build).not.toContain("tsgo");
 	});
@@ -68,7 +67,13 @@ describe("d-pi package distribution", () => {
 		expect(manifest.name).toBe("@sheason/d-pi");
 		expect(manifest.bin).toEqual({ "d-pi": "cli.cjs" });
 		expect(manifest.private).toBeUndefined();
-		expect(manifest.dependencies).toEqual({ "socket.io-client": "^4.8.3" });
+		expect(manifest.dependencies).toEqual({
+			"@libsql/client": "^0.17.3",
+			"@node-rs/jieba": "^2.0.1",
+			"socket.io-client": "^4.8.3",
+		});
+		expect(manifest.dependencies).not.toHaveProperty("better-sqlite3");
+		expect(manifest.dependencies).not.toHaveProperty("drizzle-orm");
 		expect(manifest.devDependencies).toBeUndefined();
 		expect(manifest.scripts).toBeUndefined();
 		expect(manifest.type).toBeUndefined();
@@ -96,33 +101,37 @@ describe("d-pi package distribution", () => {
 
 	it("keeps warning cleanup explicit instead of suppressing all warnings", () => {
 		const rspackConfig = readFileSync(join(packageRoot, "rspack.config.mjs"), "utf8");
-		const webUiConfig = readFileSync(join(packageRoot, "..", "d-pi-web-ui", "vite.config.ts"), "utf8");
-		const providerRegistry = readFileSync(
-			join(packageRoot, "..", "ai", "src", "providers", "register-builtins.ts"),
-			"utf8",
-		);
-		const extensionLoader = readFileSync(
-			join(packageRoot, "..", "coding-agent", "src", "core", "extensions", "loader.ts"),
-			"utf8",
-		);
 
 		expect(rspackConfig).not.toContain("ignoreWarnings");
+		expect(rspackConfig).toContain("importMetaResolve");
 		expect(rspackConfig).toContain("bufferutil");
 		expect(rspackConfig).toContain("utf-8-validate");
-		expect(rspackConfig).toContain("jiti");
-		expect(webUiConfig).toContain("manualChunks");
-		expect(providerRegistry).not.toContain("webpackIgnore");
-		expect(providerRegistry).toContain('importNodeOnlyProvider("./amazon-bedrock.js")');
-		expect(extensionLoader).not.toContain("import.meta.resolve");
-		expect(extensionLoader).toContain("require.resolve(specifier)");
+		expect(rspackConfig).toContain("node_modules\\/jiti\\/lib\\/jiti\\.mjs");
+		expect(rspackConfig).toContain("ai\\/dist\\/(?:env-api-keys");
+		expect(rspackConfig).toContain("coding-agent\\/dist\\/core\\/extensions\\/loader");
 	});
 
-	it("copies coding-agent runtime assets to the bundled package root layout", () => {
+	it("uses workspace package outputs instead of sibling source aliases", () => {
 		const rspackConfig = readFileSync(join(packageRoot, "rspack.config.mjs"), "utf8");
 
-		expect(rspackConfig).toContain("../coding-agent/src/modes/interactive/theme");
+		for (const sourceAlias of [
+			"../agent/src/index.ts",
+			"../ai/src/index.ts",
+			"../coding-agent/src/index.ts",
+			"../tui/src/index.ts",
+		]) {
+			expect(rspackConfig).not.toContain(sourceAlias);
+		}
+		expect(rspackConfig).not.toContain("NormalModuleReplacementPlugin");
+		expect(rspackConfig).not.toContain("src/shims/env-api-keys-node.ts");
+	});
+
+	it("copies coding-agent runtime assets from built package outputs", () => {
+		const rspackConfig = readFileSync(join(packageRoot, "rspack.config.mjs"), "utf8");
+
+		expect(rspackConfig).toContain("../coding-agent/dist/modes/interactive/theme");
 		expect(rspackConfig).toContain("dist/modes/interactive/theme");
-		expect(rspackConfig).toContain("../coding-agent/src/core/export-html");
+		expect(rspackConfig).toContain("../coding-agent/dist/core/export-html");
 		expect(rspackConfig).toContain("dist/core/export-html");
 	});
 

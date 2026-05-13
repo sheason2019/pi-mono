@@ -73,7 +73,11 @@ import type {
 } from "../../core/extensions/index.js";
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.js";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.js";
-import { createCompactionSummaryMessage } from "../../core/messages.js";
+import {
+	type ArtifactMessage,
+	createCompactionSummaryMessage,
+	type UserWithAttachmentsMessage,
+} from "../../core/messages.js";
 import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.js";
 import { DefaultPackageManager } from "../../core/package-manager.js";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.js";
@@ -3001,25 +3005,34 @@ export class InteractiveMode {
 	}
 
 	private addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void {
-		switch (message.role) {
+		const renderMessage = message as AgentMessage | UserWithAttachmentsMessage | ArtifactMessage;
+		switch (renderMessage.role) {
 			case "bashExecution": {
-				const component = new BashExecutionComponent(message.command, this.ui, message.excludeFromContext);
-				if (message.output) {
-					component.appendOutput(message.output);
+				const component = new BashExecutionComponent(
+					renderMessage.command,
+					this.ui,
+					renderMessage.excludeFromContext,
+				);
+				if (renderMessage.output) {
+					component.appendOutput(renderMessage.output);
 				}
 				component.setComplete(
-					message.exitCode,
-					message.cancelled,
-					message.truncated ? ({ truncated: true } as TruncationResult) : undefined,
-					message.fullOutputPath,
+					renderMessage.exitCode,
+					renderMessage.cancelled,
+					renderMessage.truncated ? ({ truncated: true } as TruncationResult) : undefined,
+					renderMessage.fullOutputPath,
 				);
 				this.chatContainer.addChild(component);
 				break;
 			}
 			case "custom": {
-				if (message.display) {
-					const renderer = this.session.extensionRunner.getMessageRenderer(message.customType);
-					const component = new CustomMessageComponent(message, renderer, this.getMarkdownThemeWithSettings());
+				if (renderMessage.display) {
+					const renderer = this.session.extensionRunner.getMessageRenderer(renderMessage.customType);
+					const component = new CustomMessageComponent(
+						renderMessage,
+						renderer,
+						this.getMarkdownThemeWithSettings(),
+					);
 					component.setExpanded(this.toolOutputExpanded);
 					this.chatContainer.addChild(component);
 				}
@@ -3027,20 +3040,20 @@ export class InteractiveMode {
 			}
 			case "compactionSummary": {
 				this.chatContainer.addChild(new Spacer(1));
-				const component = new CompactionSummaryMessageComponent(message, this.getMarkdownThemeWithSettings());
+				const component = new CompactionSummaryMessageComponent(renderMessage, this.getMarkdownThemeWithSettings());
 				component.setExpanded(this.toolOutputExpanded);
 				this.chatContainer.addChild(component);
 				break;
 			}
 			case "branchSummary": {
 				this.chatContainer.addChild(new Spacer(1));
-				const component = new BranchSummaryMessageComponent(message, this.getMarkdownThemeWithSettings());
+				const component = new BranchSummaryMessageComponent(renderMessage, this.getMarkdownThemeWithSettings());
 				component.setExpanded(this.toolOutputExpanded);
 				this.chatContainer.addChild(component);
 				break;
 			}
 			case "user": {
-				const textContent = this.getUserMessageText(message);
+				const textContent = this.getUserMessageText(renderMessage);
 				if (textContent) {
 					if (this.chatContainer.children.length > 0) {
 						this.chatContainer.addChild(new Spacer(1));
@@ -3073,7 +3086,7 @@ export class InteractiveMode {
 				break;
 			}
 			case "user-with-attachments": {
-				const textContent = this.getTextContent(message.content);
+				const textContent = this.getTextContent(renderMessage.content);
 				if (textContent) {
 					if (this.chatContainer.children.length > 0) {
 						this.chatContainer.addChild(new Spacer(1));
@@ -3091,7 +3104,7 @@ export class InteractiveMode {
 			}
 			case "assistant": {
 				const assistantComponent = new AssistantMessageComponent(
-					message,
+					renderMessage,
 					this.hideThinkingBlock,
 					this.getMarkdownThemeWithSettings(),
 					this.hiddenThinkingLabel,
@@ -3104,7 +3117,7 @@ export class InteractiveMode {
 				break;
 			}
 			default: {
-				const _exhaustive: never = message;
+				const _exhaustive: never = renderMessage;
 			}
 		}
 	}

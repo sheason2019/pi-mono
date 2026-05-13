@@ -1,12 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import * as PiCodingAgent from "@earendil-works/pi-coding-agent";
 import type { Keybinding, KeybindingDefinitions, KeybindingsConfig, KeyId } from "@earendil-works/pi-tui";
-import {
-	migrateKeybindingsConfig,
-	KEYBINDINGS as PI_KEYBINDINGS,
-	KeybindingsManager as PiKeybindingsManager,
-} from "../../../../coding-agent/src/core/keybindings.js";
 
 declare module "@earendil-works/pi-tui" {
 	interface Keybindings {
@@ -15,7 +10,7 @@ declare module "@earendil-works/pi-tui" {
 }
 
 const D_PI_KEYBINDINGS = {
-	...PI_KEYBINDINGS,
+	...PiCodingAgent.KEYBINDINGS,
 	"app.connection.retry": {
 		defaultKeys: "ctrl+r",
 		description: "Retry remote connection",
@@ -56,14 +51,14 @@ function loadRawConfig(path: string): Record<string, unknown> | undefined {
 	}
 }
 
-export class KeybindingsManager extends PiKeybindingsManager {
+export class KeybindingsManager extends PiCodingAgent.KeybindingsManager {
 	constructor(userBindings: KeybindingsConfig = {}, configPath?: string) {
 		super(userBindings, configPath);
 		(this as unknown as { definitions: KeybindingDefinitions }).definitions = D_PI_KEYBINDINGS;
 		this.setUserBindings(userBindings);
 	}
 
-	static create(agentDir: string = getAgentDir()): KeybindingsManager {
+	static create(agentDir: string = PiCodingAgent.getAgentDir()): KeybindingsManager {
 		const configPath = join(agentDir, "keybindings.json");
 		const userBindings = KeybindingsManager.loadDpiFromFile(configPath);
 		return new KeybindingsManager(userBindings, configPath);
@@ -74,7 +69,7 @@ export class KeybindingsManager extends PiKeybindingsManager {
 		if (!rawConfig) {
 			return {};
 		}
-		return toKeybindingsConfig(migrateKeybindingsConfig(rawConfig).config);
+		return toKeybindingsConfig(PiCodingAgent.migrateKeybindingsConfig(rawConfig).config);
 	}
 }
 

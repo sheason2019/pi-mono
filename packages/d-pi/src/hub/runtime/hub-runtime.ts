@@ -859,12 +859,12 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 		if (this.memoryIndexUnsubs.has(agentId)) {
 			return;
 		}
-		this.indexAgentMemory(agentId, rt);
+		void this.indexAgentMemory(agentId, rt);
 		const unsubscribe = rt.sessionService.subscribe((event) => {
 			if (event.type !== "snapshot_updated" && event.type !== "run_state_changed") {
 				return;
 			}
-			this.indexAgentMemory(agentId, rt);
+			void this.indexAgentMemory(agentId, rt);
 		});
 		this.memoryIndexUnsubs.set(agentId, unsubscribe);
 	}
@@ -878,10 +878,10 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 		this.memoryIndexUnsubs.delete(agentId);
 	}
 
-	private indexAgentMemory(agentId: string, rt: HubAgentRuntime): void {
+	private async indexAgentMemory(agentId: string, rt: HubAgentRuntime): Promise<void> {
 		try {
 			const snapshot = rt.sessionService.getSnapshot();
-			this.memoryStore.indexSession({
+			await this.memoryStore.indexSession({
 				agentId,
 				sessionFile: snapshot.sessionFile,
 				entries: snapshot.entries,
@@ -2021,8 +2021,8 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 
 	async searchMemoryText(callerAgentId: string, input: SearchMemoryToolInput): Promise<string> {
 		const scopeAgentIds = this.getMemoryScopeAgentIds(callerAgentId, input.agentId, "search_memory");
-		this.refreshMemoryIndexForScope(scopeAgentIds);
-		const results = this.memoryStore.search({
+		await this.refreshMemoryIndexForScope(scopeAgentIds);
+		const results = await this.memoryStore.search({
 			query: input.query,
 			agentId: input.agentId,
 			limit: input.limit,
@@ -2057,8 +2057,8 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 	async listMemoryText(callerAgentId: string, input: ListMemoryToolInput): Promise<string> {
 		const scopeAgentIds = this.getMemoryScopeAgentIds(callerAgentId, undefined, "list_memory");
 		this.assertMemoryIdsInScope(callerAgentId, input.memoryIds);
-		this.refreshMemoryIndexForScope(scopeAgentIds);
-		const contexts = this.memoryStore.list({
+		await this.refreshMemoryIndexForScope(scopeAgentIds);
+		const contexts = await this.memoryStore.list({
 			memoryIds: input.memoryIds,
 			contextBefore: input.contextBefore,
 			contextAfter: input.contextAfter,
@@ -2120,25 +2120,25 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 		}
 	}
 
-	private refreshMemoryIndexForScope(agentIds: string[]): void {
+	private async refreshMemoryIndexForScope(agentIds: string[]): Promise<void> {
 		for (const agentId of agentIds) {
 			const rt = this.agentRuntimes.get(agentId);
 			if (rt) {
-				this.indexAgentMemory(agentId, rt);
+				await this.indexAgentMemory(agentId, rt);
 			} else {
-				this.indexRegisteredAgentMemory(agentId);
+				await this.indexRegisteredAgentMemory(agentId);
 			}
 		}
 	}
 
-	private indexRegisteredAgentMemory(agentId: string): void {
+	private async indexRegisteredAgentMemory(agentId: string): Promise<void> {
 		const record = this.agentRegistry.get(agentId);
 		if (!record) {
 			return;
 		}
 		try {
 			const sessionManager = SessionManager.open(record.sessionFile, getWorkspaceDir(this.cwd), this.cwd);
-			this.memoryStore.indexSession({
+			await this.memoryStore.indexSession({
 				agentId,
 				sessionFile: record.sessionFile,
 				entries: sessionManager.getEntries(),

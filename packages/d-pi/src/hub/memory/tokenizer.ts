@@ -1,7 +1,9 @@
-import nodejieba from "nodejieba";
+import { Jieba } from "@node-rs/jieba";
+import { dict } from "@node-rs/jieba/dict.js";
 
 const TOKEN_PATTERN = /[\p{L}\p{N}_-]+/gu;
 const HAN_PATTERN = /\p{Script=Han}/u;
+const jieba = Jieba.withDict(dict);
 
 function normalizeToken(token: string): string | undefined {
 	const normalized = token.trim().toLocaleLowerCase();
@@ -21,7 +23,7 @@ export function tokenizeMemoryText(text: string): string[] {
 			tokens.add(normalized);
 		}
 	}
-	for (const token of nodejieba.cutForSearch(text)) {
+	for (const token of jieba.cutForSearch(text)) {
 		const normalized = normalizeToken(token);
 		if (normalized) {
 			tokens.add(normalized);
@@ -32,7 +34,7 @@ export function tokenizeMemoryText(text: string): string[] {
 
 function tokenizeMemoryQuery(query: string): string[] {
 	const tokens = new Set<string>();
-	for (const token of nodejieba.cutForSearch(query)) {
+	for (const token of jieba.cutForSearch(query)) {
 		const normalized = normalizeToken(token);
 		if (normalized && (normalized.length > 1 || HAN_PATTERN.test(normalized))) {
 			tokens.add(normalized);

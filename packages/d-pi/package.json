@@ -12,7 +12,8 @@
 	],
 	"scripts": {
 		"clean": "shx rm -rf dist",
-		"build": "npm run build:web-ui && rspack build --config rspack.config.mjs && shx chmod +x dist/cli.cjs && node scripts/write-publish-package.mjs",
+		"build": "npm run build:deps && npm run build:web-ui && rspack build --config rspack.config.mjs && shx chmod +x dist/cli.cjs && node scripts/write-publish-package.mjs",
+		"build:deps": "npm --prefix ../tui run build && npm --prefix ../ai run build && npm --prefix ../agent run build && npm --prefix ../coding-agent run build",
 		"build:web-ui": "cd ../d-pi-web-ui && npm run build",
 		"dev": "rspack build --watch --config rspack.config.mjs",
 		"prepare:publish": "npm run clean && npm run build",
@@ -23,9 +24,8 @@
 		"verify:e2e": "npx tsx scripts/full-e2e-verify.ts"
 	},
 	"dependencies": {
-		"better-sqlite3": "^12.10.0",
-		"drizzle-orm": "^0.45.2",
-		"nodejieba": "^3.5.8",
+		"@libsql/client": "^0.17.3",
+		"@node-rs/jieba": "^2.0.1",
 		"socket.io-client": "^4.8.3"
 	},
 	"devDependencies": {
@@ -37,12 +37,9 @@
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"@rspack/cli": "^2.0.2",
 		"@rspack/core": "^2.0.2",
-		"@types/better-sqlite3": "^7.6.13",
-		"@types/node": "^24.3.0",
 		"shx": "^0.4.0",
 		"socket.io": "^4.8.3",
-		"typebox": "^1.1.32",
-		"typescript": "^5.7.3"
+		"typebox": "^1.1.32"
 	},
 	"keywords": [
 		"pi",

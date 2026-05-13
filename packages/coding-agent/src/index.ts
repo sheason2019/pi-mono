@@ -91,7 +91,6 @@ export type {
 	InputEvent,
 	InputEventResult,
 	InputSource,
-	KeybindingsManager,
 	LoadExtensionsResult,
 	LsToolCallEvent,
 	MessageRenderer,
@@ -142,11 +141,13 @@ export {
 	isReadToolResult,
 	isToolCallEventType,
 	isWriteToolResult,
+	loadExtensionFromFactory,
 	wrapRegisteredTool,
 	wrapRegisteredTools,
 } from "./core/extensions/index.js";
 // Footer data provider (git branch + extension statuses - data not otherwise available to extensions)
 export type { ReadonlyFooterDataProvider } from "./core/footer-data-provider.js";
+export { KEYBINDINGS, KeybindingsManager, migrateKeybindingsConfig } from "./core/keybindings.js";
 export { convertToLlm } from "./core/messages.js";
 export { ModelRegistry } from "./core/model-registry.js";
 export type {
@@ -337,6 +338,7 @@ export {
 } from "./modes/interactive/components/index.js";
 // Theme utilities for custom tools and extensions
 export {
+	getEditorTheme,
 	getLanguageFromPath,
 	getMarkdownTheme,
 	getSelectListTheme,
@@ -345,6 +347,7 @@ export {
 	initTheme,
 	Theme,
 	type ThemeColor,
+	theme,
 } from "./modes/interactive/theme/theme.js";
 // Clipboard utilities
 export { copyToClipboard } from "./utils/clipboard.js";

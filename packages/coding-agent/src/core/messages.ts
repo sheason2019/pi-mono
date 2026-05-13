@@ -66,6 +66,17 @@ export interface CompactionSummaryMessage {
 	timestamp: number;
 }
 
+export interface UserWithAttachmentsMessage {
+	role: "user-with-attachments";
+	content: string | (TextContent | ImageContent)[];
+	timestamp: number;
+}
+
+export interface ArtifactMessage {
+	role: "artifact";
+	timestamp: number;
+}
+
 // Extend CustomAgentMessages via declaration merging
 declare module "@earendil-works/pi-agent-core" {
 	interface CustomAgentMessages {
@@ -146,7 +157,7 @@ export function createCustomMessage(
  * - Custom extensions and tools
  */
 export function convertToLlm(messages: AgentMessage[]): Message[] {
-	return messages
+	return (messages as (AgentMessage | UserWithAttachmentsMessage | ArtifactMessage)[])
 		.map((m): Message | undefined => {
 			switch (m.role) {
 				case "bashExecution":
