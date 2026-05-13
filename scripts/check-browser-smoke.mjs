@@ -5,6 +5,7 @@ import { build } from "esbuild";
 
 const outputPath = join(tmpdir(), "pi-browser-smoke.js");
 const errorLogPath = join(tmpdir(), "pi-browser-smoke-errors.log");
+const aiBrowserEnvApiKeysPath = join(process.cwd(), "packages/ai/src/env-api-keys.browser.ts");
 
 try {
 	await build({
@@ -14,6 +15,16 @@ try {
 		format: "esm",
 		logLevel: "silent",
 		outfile: outputPath,
+		plugins: [
+			{
+				name: "pi-ai-browser-env-api-keys",
+				setup(build) {
+					build.onResolve({ filter: /env-api-keys\.js$/ }, () => {
+						return { path: aiBrowserEnvApiKeysPath };
+					});
+				},
+			},
+		],
 	});
 	process.exit(0);
 } catch (error) {
