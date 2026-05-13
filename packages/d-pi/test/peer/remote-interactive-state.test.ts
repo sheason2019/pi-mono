@@ -194,6 +194,45 @@ describe("remote interactive state", () => {
 		expect(view.agents).toEqual([]);
 	});
 
+	it("maps CRDT group agent models into the agent selector view", () => {
+		const rootAgent = createHubAgentView("root", "openai", "gpt-4.1");
+		const childAgent = createHubAgentView("child-a", "anthropic", "claude-sonnet-4", {
+			parentId: "root",
+			name: "Child A",
+			isRunning: true,
+		});
+		const app: PeerAppSnapshot = {
+			view: {
+				version: 1,
+				agentOrder: ["root", "child-a"],
+				agentsById: {
+					root: rootAgent,
+					"child-a": childAgent,
+				},
+				peers: [],
+			},
+			selectedAgent: rootAgent,
+			live: { toolExecutions: [] },
+			peers: [],
+		};
+		const ui: PeerUiSnapshot = {
+			connectionState: "connected",
+			connectionMessage: undefined,
+			draft: "",
+		};
+
+		const view = createRemoteInteractiveView(app, ui, {
+			peerId: "peer-a",
+			cwd: "/tmp/workspace",
+			visibleCommands: [],
+		});
+
+		expect(view.agents).toEqual([
+			expect.objectContaining({ id: "root", model: { provider: "openai", modelId: "gpt-4.1" } }),
+			expect.objectContaining({ id: "child-a", model: { provider: "anthropic", modelId: "claude-sonnet-4" } }),
+		]);
+	});
+
 	it("uses unprefixed provider names for footer model labels", () => {
 		const selectedAgent = {
 			agentId: "main",
@@ -379,3 +418,28 @@ describe("remote interactive state", () => {
 		expect(view.footer.queueSummary).toBe("queued 2");
 	});
 });
+
+function createHubAgentView(
+	agentId: string,
+	provider: string,
+	modelId: string,
+	options: { parentId?: string; name?: string; isRunning?: boolean } = {},
+): HubAgentViewModel {
+	return {
+		agentId,
+		...(options.parentId === undefined ? {} : { parentId: options.parentId }),
+		...(options.name === undefined ? {} : { name: options.name }),
+		status: { isRunning: options.isRunning ?? false },
+		queue: { messages: [], size: 0 },
+		context: {
+			thinkingLevel: "off",
+			model: { provider, modelId },
+			pendingToolCallIds: [],
+		},
+		items: [],
+		live: { itemIndicesById: {}, toolOrder: [], toolsById: {} },
+		availableModels: [{ provider, modelId, label: modelId, reasoning: true }],
+		availableThinkingLevels: ["off"],
+		diagnostics: [],
+	};
+}

@@ -50,9 +50,9 @@ export class DPiToolCallCard extends LitElement {
 				</div>
 
 				${command ? this.renderCommand(command, status) : ""}
-				${this.renderCollapse("Arguments", formatToolCallArguments(this.toolCall.arguments), "json", false)}
-				${output ? this.renderCollapse("Output", output, "text", status === "error") : this.renderPendingOutput(status)}
-				${details ? this.renderCollapse("Details", details, "json", false) : ""}
+				${this.renderCollapse("参数", formatToolCallArguments(this.toolCall.arguments), "json", false)}
+				${output ? this.renderCollapse("输出", output, "text", status === "error") : this.renderPendingOutput(status)}
+				${details ? this.renderCollapse("详情", details, "json", false) : ""}
 			</div>
 		</article>`;
 	}
@@ -61,7 +61,7 @@ export class DPiToolCallCard extends LitElement {
 		return html`<div class="rounded-box border border-base-300 bg-base-100 p-3">
 			<div class="mb-2 flex items-center gap-2 text-sm font-medium">
 				${status === "pending" ? html`<span class="loading loading-spinner loading-xs text-info"></span>` : ""}
-				<span>${status === "pending" ? "Running Command" : "Command"}</span>
+				<span>${status === "pending" ? "正在执行命令" : "命令"}</span>
 			</div>
 			<pre class="overflow-x-auto whitespace-pre-wrap break-words text-sm"><code>${command}</code></pre>
 		</div>`;
@@ -71,7 +71,7 @@ export class DPiToolCallCard extends LitElement {
 		if (status !== "pending") {
 			return "";
 		}
-		return html`<div class="text-sm text-base-content/60">Waiting for tool result...</div>`;
+		return html`<div class="text-sm text-base-content/60">正在等待工具结果...</div>`;
 	}
 
 	private renderCollapse(title: string, content: string, language: string, open: boolean): TemplateResult {

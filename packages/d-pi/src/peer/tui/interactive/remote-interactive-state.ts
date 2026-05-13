@@ -51,6 +51,7 @@ export function createRemoteInteractiveView(
 							name: agent.name,
 							isRunning: agent.status.isRunning,
 							messageCount: agent.items.filter((item) => item.type === "message").length,
+							model: agent.context.model,
 						};
 					})
 					.filter((agent): agent is NonNullable<typeof agent> => agent !== undefined)

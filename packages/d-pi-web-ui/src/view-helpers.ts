@@ -43,22 +43,22 @@ export function getComposerActionView(input: {
 	if (input.isRunning) {
 		return {
 			kind: "interrupt",
-			ariaLabel: "Interrupt response",
-			title: "Interrupt response",
+			ariaLabel: "中断回复",
+			title: "中断回复",
 			buttonClass: "btn btn-error btn-circle btn-sm",
 			icon: "stop",
 			disabled: !input.isConnected,
-			hint: "Response in progress. Click stop to interrupt.",
+			hint: "正在回复，点击停止可中断。",
 		};
 	}
 	return {
 		kind: "send",
-		ariaLabel: "Send message",
-		title: "Send message",
+		ariaLabel: "发送消息",
+		title: "发送消息",
 		buttonClass: "btn btn-primary btn-circle btn-sm",
 		icon: "send",
 		disabled: !input.isConnected || !input.inputValue.trim(),
-		hint: "Enter to send, Shift+Enter for newline.",
+		hint: "Enter 发送，Shift+Enter 换行。",
 	};
 }
 

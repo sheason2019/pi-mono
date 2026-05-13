@@ -100,13 +100,13 @@ export class DPiWebClient {
 			}
 		});
 		socket.on("disconnect", (reason) => {
-			this.error = typeof reason === "string" ? reason : "disconnected";
+			this.error = formatDisconnectReason(reason);
 			this.setConnectionState("disconnected");
 		});
 
 		return new Promise<void>((resolve, reject) => {
 			socket.on("connect_error", (payload) => {
-				const error = payload instanceof Error ? payload : new Error("Failed to connect to D-Pi hub.");
+				const error = payload instanceof Error ? payload : new Error("连接 D-Pi 枢纽失败。");
 				this.error = error.message;
 				this.setConnectionState("error");
 				reject(error);
@@ -118,7 +118,7 @@ export class DPiWebClient {
 					token: this.options.token ?? "",
 					clientKind: "host" as const,
 					protocolVersion: HUB_PROTOCOL_VERSION,
-					displayName: this.options.displayName ?? "Web UI",
+					displayName: this.options.displayName ?? "网页控制台",
 					version: WEB_UI_VERSION,
 					platform: "web",
 					hostname: globalThis.location?.hostname,
@@ -192,7 +192,7 @@ export class DPiWebClient {
 	): Promise<void> {
 		const socket = this.socket;
 		if (!socket) {
-			return Promise.reject(new Error("Web UI is not connected to D-Pi hub."));
+			return Promise.reject(new Error("网页控制台尚未连接到 D-Pi 枢纽。"));
 		}
 		return new Promise<void>((resolve, reject) => {
 			socket.emit(event, payload, (ack) => {
@@ -225,6 +225,26 @@ function defaultSocketFactory(url: string): DPiWebSocketLike {
 		transports: ["websocket"],
 		autoConnect: true,
 	}) as unknown as DPiWebSocketLike;
+}
+
+function formatDisconnectReason(reason: unknown): string {
+	if (typeof reason !== "string") {
+		return "已断开连接。";
+	}
+	switch (reason) {
+		case "io server disconnect":
+			return "服务端已断开连接。";
+		case "io client disconnect":
+			return "客户端已断开连接。";
+		case "ping timeout":
+			return "连接心跳超时。";
+		case "transport close":
+			return "传输连接已关闭。";
+		case "transport error":
+			return "传输连接异常。";
+		default:
+			return `已断开连接：${reason}`;
+	}
 }
 
 function createPeerId(): string {
@@ -300,5 +320,5 @@ function toUint8Array(value: unknown): Uint8Array {
 	if (Array.isArray(value)) {
 		return new Uint8Array(value);
 	}
-	throw new Error("Invalid CRDT sync payload.");
+	throw new Error("无效的 CRDT 同步载荷。");
 }

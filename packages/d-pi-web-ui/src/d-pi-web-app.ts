@@ -31,6 +31,7 @@ import {
 } from "./view-helpers.js";
 
 type WebAgentItem = NonNullable<DPiWebClientSnapshot["agent"]>["items"][number];
+type WebAgentModel = NonNullable<DPiWebClientSnapshot["agent"]>["context"]["model"];
 type WebRunTiming = Extract<WebAgentItem, { type: "run_timing" }>["timing"];
 type LockState = "locked" | "unlocking" | "unlocked";
 
@@ -93,14 +94,13 @@ export class DPiWebApp extends LitElement {
 	private renderHeader(isRunning: boolean): TemplateResult {
 		const state = this.snapshot.connectionState;
 		const connected = state === "connected";
-		const statusText = connected ? (isRunning ? "Working" : "Idle") : state;
+		const statusText = connected ? (isRunning ? "工作中" : "空闲") : formatConnectionState(state);
 		const agentId = getHeaderAgentId(this.selectedAgentId, this.snapshot.agentId);
 		const agentIds = getSelectableAgentIds(this.snapshot.view, agentId);
 		const identity = this.snapshot.welcome?.identity;
 		const identityText =
-			identity === undefined
-				? "unauthenticated"
-				: `${identity.name} · scope ${this.snapshot.welcome?.scopeRootAgentId}`;
+			identity === undefined ? "未认证" : `${identity.name} · 范围 ${this.snapshot.welcome?.scopeRootAgentId}`;
+		const modelText = formatModel(this.snapshot.agent?.context.model);
 		const statusClass = connected
 			? isRunning
 				? "inline-flex items-center gap-1.5 rounded-full border border-info/25 bg-info/10 px-2 py-1 text-xs font-medium text-info"
@@ -114,14 +114,14 @@ export class DPiWebApp extends LitElement {
 		return html`<header class="navbar border-b border-base-300 bg-base-100 px-4 shadow-sm md:px-8">
 			<div class="mx-auto flex w-full max-w-5xl items-center justify-between gap-4">
 				<div class="min-w-0">
-					<h1 class="text-lg font-semibold">D-Pi Web UI</h1>
+					<h1 class="text-lg font-semibold">D-Pi 网页控制台</h1>
 					<p class="truncate text-sm text-base-content/60">
-						${agentId} agent · ${identityText} · host UI
+						${agentId} 智能体 · ${identityText} · 模型 ${modelText}
 					</p>
 				</div>
 				<div class="flex items-center gap-3">
 					<label class="flex items-center gap-2 text-sm text-base-content/70">
-						<span>Agent</span>
+						<span>智能体</span>
 						${keyed(
 							agentId,
 							html`<select
@@ -138,7 +138,7 @@ export class DPiWebApp extends LitElement {
 						)}
 					</label>
 					<div class=${statusClass}><span class=${statusDotClass}></span>${statusText}</div>
-					<button type="button" class="btn btn-ghost btn-sm" @click=${this.handleLock}>Lock</button>
+					<button type="button" class="btn btn-ghost btn-sm" @click=${this.handleLock}>锁定</button>
 				</div>
 			</div>
 		</header>`;
@@ -150,14 +150,14 @@ export class DPiWebApp extends LitElement {
 			<section class="card w-full max-w-md border border-base-300 bg-base-100 shadow-xl">
 				<form class="card-body gap-5" @submit=${this.handleUnlock}>
 					<div class="space-y-2">
-						<div class="badge badge-outline">D-Pi Web UI</div>
-						<h1 class="text-2xl font-semibold">Unlock hub access</h1>
+						<div class="badge badge-outline">D-Pi 网页控制台</div>
+						<h1 class="text-2xl font-semibold">解锁 Hub 访问</h1>
 						<p class="text-sm text-base-content/60">
-							Enter a root or agent-scoped token. After verification, the UI opens on the agent that created the token.
+							输入 root 或智能体范围的访问令牌。验证通过后，控制台会打开到创建该令牌的智能体。
 						</p>
 					</div>
 					<label class="flex flex-col gap-2">
-						<span class="label">Access token</span>
+						<span class="label">访问令牌</span>
 						<input
 							class="input w-full font-mono"
 							type="password"
@@ -180,7 +180,7 @@ export class DPiWebApp extends LitElement {
 						class="btn btn-primary w-full"
 						?disabled=${isUnlocking || this.tokenValue.trim().length === 0}
 					>
-						${isUnlocking ? "Unlocking..." : "Unlock"}
+						${isUnlocking ? "正在解锁..." : "解锁"}
 					</button>
 				</form>
 			</section>
@@ -192,7 +192,7 @@ export class DPiWebApp extends LitElement {
 			return "";
 		}
 		return html`<div class="alert alert-error">
-			${this.snapshot.error ?? "Failed to connect to D-Pi hub."}
+			${this.snapshot.error ?? "连接 D-Pi 枢纽失败。"}
 		</div>`;
 	}
 
@@ -214,7 +214,7 @@ export class DPiWebApp extends LitElement {
 		return html`<div class="card border border-base-300 bg-base-200 shadow-sm">
 			<div class="card-body gap-3 p-4">
 				<div class="flex items-center gap-2 text-sm font-medium">
-					<span>Queued Messages</span>
+					<span>队列消息</span>
 					<span class="badge badge-neutral">${queue.size}</span>
 				</div>
 				<div class="flex flex-col gap-2">
@@ -287,9 +287,9 @@ export class DPiWebApp extends LitElement {
 	private renderEmptyState(): TemplateResult {
 		return html`<div class="hero min-h-80 rounded-box border border-dashed border-base-300 bg-base-200/40">
 			<div class="max-w-md px-6 text-center">
-				<div class="mb-2 text-lg font-medium">Connect to ${this.snapshot.agentId} agent</div>
+				<div class="mb-2 text-lg font-medium">连接到 ${this.snapshot.agentId} 智能体</div>
 				<p class="text-sm text-base-content/60">
-					Start a conversation below. Messages are queued through D-Pi hub and rendered from the CRDT view.
+					从下方开始对话。消息会通过 D-Pi 枢纽排队，并从 CRDT 视图中渲染。
 				</p>
 			</div>
 		</div>`;
@@ -305,7 +305,7 @@ export class DPiWebApp extends LitElement {
 			<div class="card-body gap-3 p-3">
 			<textarea
 				class="textarea textarea-bordered min-h-24 w-full resize-none"
-				placeholder=${`Message ${this.selectedAgentId} agent...`}
+				placeholder=${`发送消息给 ${this.selectedAgentId} 智能体...`}
 				.value=${this.inputValue}
 				?disabled=${this.snapshot.connectionState !== "connected"}
 				@input=${this.handleInput}
@@ -383,10 +383,10 @@ export class DPiWebApp extends LitElement {
 			</div>
 			${
 				message.stopReason === "error" && message.errorMessage
-					? html`<div class="alert alert-error mt-3 text-sm"><strong>Error:</strong> ${message.errorMessage}</div>`
+					? html`<div class="alert alert-error mt-3 text-sm"><strong>错误：</strong> ${message.errorMessage}</div>`
 					: ""
 			}
-			${message.stopReason === "aborted" ? html`<div class="alert alert-warning mt-3 text-sm">Request aborted</div>` : ""}
+			${message.stopReason === "aborted" ? html`<div class="alert alert-warning mt-3 text-sm">请求已中断</div>` : ""}
 		</div>`;
 	}
 
@@ -442,7 +442,7 @@ export class DPiWebApp extends LitElement {
 		event.preventDefault();
 		const token = this.tokenValue.trim();
 		if (!token) {
-			this.lockError = "Token is required.";
+			this.lockError = "必须输入访问令牌。";
 			return;
 		}
 		this.lockState = "unlocking";
@@ -537,6 +537,26 @@ export class DPiWebApp extends LitElement {
 
 function createWebHostId(): string {
 	return `web-${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+}
+
+function formatConnectionState(state: DPiWebClientSnapshot["connectionState"]): string {
+	switch (state) {
+		case "connected":
+			return "已连接";
+		case "connecting":
+			return "连接中";
+		case "disconnected":
+			return "未连接";
+		case "error":
+			return "连接异常";
+	}
+}
+
+function formatModel(model: WebAgentModel | undefined): string {
+	if (!model) {
+		return "未配置";
+	}
+	return `${model.provider}/${model.modelId}`;
 }
 
 declare global {

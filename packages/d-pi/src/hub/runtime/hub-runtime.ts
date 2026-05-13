@@ -48,11 +48,12 @@ import { PeerRegistry } from "../peers/peer-registry.js";
 import type { RegisteredPeer } from "../peers/peer-types.js";
 import { HubSessionService } from "../session/hub-session-service.js";
 import type { HubSessionEvent } from "../session/session-events.js";
+import type { HubSessionSnapshot } from "../session/session-snapshot.js";
 import { loadChildSourcesConfigFromPath, loadSourcesConfigForAgents } from "../sources/source-config.js";
 import { SourceHost } from "../sources/source-host.js";
 import { createHostPeerRecord } from "../tools/host-peer.js";
 import type { PeerToolBridge } from "../tools/peer-tool-bridge.js";
-import { HUB_PROTOCOL_VERSION, type PublicOrgSnapshot } from "../transport/protocol.js";
+import { HUB_PROTOCOL_VERSION, type PublicOrgAgentModel, type PublicOrgSnapshot } from "../transport/protocol.js";
 import { SocketHubServer, type SocketHubServerAddress } from "../transport/socket-hub-server.js";
 import type { HubLogDetails, HubLogSink } from "../tui/hub-log.js";
 import { assertWorkspaceInitialized } from "../workspace.js";
@@ -82,6 +83,21 @@ type CreateMcpClient = NonNullable<HubRuntimeOpenOptions["mcp"]>["createClient"]
 type PendingPeerConfigChange = { type: "set"; snapshot: PeerConfigSnapshot } | { type: "remove" };
 type ChildResourceExtends = SpawnChildToolInput["extends"];
 type AgentHydrationStatus = "running" | "loading" | "not_hydrated" | "error";
+
+function publicOrgAgentModel(snapshot: HubSessionSnapshot): PublicOrgAgentModel | undefined {
+	const model = snapshot.context.model;
+	if (!model) {
+		return undefined;
+	}
+	const availableModel = snapshot.availableModels.find(
+		(candidate) => candidate.provider === model.provider && candidate.modelId === model.modelId,
+	);
+	return {
+		provider: model.provider,
+		modelId: model.modelId,
+		...(availableModel?.label === undefined ? {} : { label: availableModel.label }),
+	};
+}
 
 export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceStatusToolHost, AgentTokenToolHost {
 	readonly cwd: string;
@@ -220,6 +236,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 				const runtime = this.tryGetAgentRuntime(record.id);
 				const snapshot = runtime?.sessionService.getSnapshot();
 				const activationStatus = this.getAgentHydrationStatus(record.id);
+				const model = snapshot ? publicOrgAgentModel(snapshot) : undefined;
 				return {
 					id: record.id,
 					...(record.parentId === undefined ? {} : { parentId: record.parentId }),
@@ -229,7 +246,9 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 					activationStatus,
 					isRunning: snapshot?.isRunning ?? false,
 					peerCount: runtime?.peerRegistry.size() ?? 0,
+					hasProviderError: Boolean(snapshot?.lastError),
 					hasError: activationStatus === "error" || Boolean(snapshot?.lastError),
+					...(model === undefined ? {} : { model }),
 				};
 			}),
 		};

@@ -239,6 +239,18 @@ describe("SocketHubServer agent binding (peer:hello / routing)", () => {
 		currentRootToken = hub.rootTokenForDisplay ?? currentRootToken;
 		try {
 			await hub.initializeAgentAdapter();
+			hub.sessionService.updateSessionOptions({
+				availableModels: [
+					{
+						resourceId: "faux:secret-resource",
+						provider: "faux",
+						modelId: "faux-public",
+						label: "Faux Public",
+					},
+				],
+			});
+			hub.sessionService.getSessionManager().appendModelChange("faux", "faux-public");
+			hub.sessionService.recordError("AI Provider exploded", { endRun: false });
 			const address = await hub.start({ host: "127.0.0.1", port: 0 });
 			const response = await fetch(`http://${address.host}:${address.port}/api/public/org`);
 			const raw = await response.text();
@@ -251,6 +263,12 @@ describe("SocketHubServer agent binding (peer:hello / routing)", () => {
 					isRunning: boolean;
 					peerCount: number;
 					hasError: boolean;
+					hasProviderError?: boolean;
+					model?: {
+						provider: string;
+						modelId: string;
+						label?: string;
+					};
 				}>;
 			};
 
@@ -263,7 +281,13 @@ describe("SocketHubServer agent binding (peer:hello / routing)", () => {
 						activationStatus: "running",
 						isRunning: false,
 						peerCount: 0,
-						hasError: false,
+						hasError: true,
+						hasProviderError: true,
+						model: {
+							provider: "faux",
+							modelId: "faux-public",
+							label: "Faux Public",
+						},
 					}),
 					expect.objectContaining({
 						id: "child-public",
@@ -273,6 +297,7 @@ describe("SocketHubServer agent binding (peer:hello / routing)", () => {
 						isRunning: false,
 						peerCount: 0,
 						hasError: false,
+						hasProviderError: false,
 					}),
 				]),
 			);
@@ -283,7 +308,9 @@ describe("SocketHubServer agent binding (peer:hello / routing)", () => {
 			expect(raw).not.toContain("cwd");
 			expect(raw).not.toContain("rootToken");
 			expect(raw).not.toContain("lastError");
+			expect(raw).not.toContain("AI Provider exploded");
 			expect(raw).not.toContain("executors");
+			expect(raw).not.toContain("secret-resource");
 		} finally {
 			await hub.stop();
 		}
@@ -1022,7 +1049,7 @@ function setupHubWithChild(childId: string, headerId: string): { workspaceDir: s
 }
 
 describe("SocketHubServer cross-agent event scoping and child routing (hardening)", () => {
-	it("session updates sync through CRDT only and do not emit session:event", async () => {
+	it("run state updates sync through CRDT to initialized views and do not emit session:event", async () => {
 		const { workspaceDir } = setupHubWithChild("child-evt", "sess-evt");
 		const stub: HubAgentAdapter = {
 			subscribeLiveEvents: () => () => {},
@@ -1063,10 +1090,10 @@ describe("SocketHubServer cross-agent event scoping and child routing (hardening
 		await vi.waitFor(
 			() => {
 				expect(mainSync.length).toBeGreaterThan(0);
+				expect(childSync.length).toBeGreaterThan(0);
 			},
 			{ timeout: 2000 },
 		);
-		expect(childSync).toHaveLength(0);
 		expect(mainSessionEvents).toBe(0);
 		expect(childSessionEvents).toBe(0);
 		mainSync.length = 0;
@@ -1074,11 +1101,11 @@ describe("SocketHubServer cross-agent event scoping and child routing (hardening
 		hub.getAgentRuntime("child-evt").sessionService.setRunState(true);
 		await vi.waitFor(
 			() => {
+				expect(mainSync.length).toBeGreaterThan(0);
 				expect(childSync.length).toBeGreaterThan(0);
 			},
 			{ timeout: 2000 },
 		);
-		expect(mainSync).toHaveLength(0);
 		expect(mainSessionEvents).toBe(0);
 		expect(childSessionEvents).toBe(0);
 		m.close();

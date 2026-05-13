@@ -280,8 +280,15 @@ describe("forked interactive mode", () => {
 				scopeRootAgentId: "root",
 			},
 			agents: [
-				{ id: "root", isRunning: false, messageCount: 1 },
-				{ id: "child-a", name: "Child A", parentId: "root", isRunning: true, messageCount: 2 },
+				{ id: "root", isRunning: false, messageCount: 1, model: { provider: "openai", modelId: "gpt-4.1" } },
+				{
+					id: "child-a",
+					name: "Child A",
+					parentId: "root",
+					isRunning: true,
+					messageCount: 2,
+					model: { provider: "anthropic", modelId: "claude-sonnet-4" },
+				},
 			],
 			peers: [],
 			footer: {
@@ -311,6 +318,9 @@ describe("forked interactive mode", () => {
 		await (mode as any).handleParsedCommand({ kind: "show_agents" });
 		expect((mode as any).activeSelectorKind).toBe("agent-list");
 		expect((mode as any).ui.focusedComponent?.constructor?.name).toBe("RemoteAgentSelectorComponent");
+		const selectorText = stripAnsi((mode as any).activeSelector.render(100).join("\n"));
+		expect(selectorText).toContain("openai/gpt-4.1");
+		expect(selectorText).toContain("anthropic/claude-sonnet-4");
 
 		(mode as any).activeSelector?.handleInput("\x1b[B");
 		(mode as any).activeSelector?.handleInput("\r");
@@ -325,8 +335,15 @@ describe("forked interactive mode", () => {
 		let view: RemoteInteractiveView = {
 			connection: { state: "connected", message: "Connected" },
 			agents: [
-				{ id: "root", isRunning: false, messageCount: 1 },
-				{ id: "child-a", name: "Child A", parentId: "root", isRunning: false, messageCount: 2 },
+				{ id: "root", isRunning: false, messageCount: 1, model: { provider: "openai", modelId: "gpt-4.1" } },
+				{
+					id: "child-a",
+					name: "Child A",
+					parentId: "root",
+					isRunning: false,
+					messageCount: 2,
+					model: { provider: "anthropic", modelId: "claude-sonnet-4" },
+				},
 			],
 			peers: [],
 			footer: {
@@ -359,14 +376,22 @@ describe("forked interactive mode", () => {
 		view = {
 			...view,
 			agents: [
-				{ id: "root", isRunning: false, messageCount: 1 },
-				{ id: "child-a", name: "Child A", parentId: "root", isRunning: true, messageCount: 2 },
+				{ id: "root", isRunning: false, messageCount: 1, model: { provider: "openai", modelId: "gpt-4.1" } },
+				{
+					id: "child-a",
+					name: "Child A",
+					parentId: "root",
+					isRunning: true,
+					messageCount: 2,
+					model: { provider: "anthropic", modelId: "claude-sonnet-4.5" },
+				},
 			],
 		};
 		(mode as any).renderFromState();
 
 		const selectorText = stripAnsi((mode as any).activeSelector.render(80).join("\n"));
 		expect(selectorText).toMatch(/child-a \(Child A\).*working/);
+		expect(selectorText).toContain("anthropic/claude-sonnet-4.5");
 	});
 
 	it("renders hub-provided working elapsed time in the status area", () => {

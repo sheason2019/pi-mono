@@ -110,10 +110,15 @@ export class RemoteAgentSelectorComponent implements Component, Focusable {
 		const active = agent.id === this.currentAgentId ? theme.fg("success", "[current]") : "";
 		const status = agent.isRunning ? theme.fg("success", "working") : theme.fg("muted", "idle");
 		const kind = agent.kind ? theme.fg("muted", `[${agent.kind}]`) : "";
-		const left = [prefix + name, active, kind, status].filter((part) => part.length > 0).join(" ");
+		const model = theme.fg("muted", formatAgentModel(agent));
+		const left = [prefix + name, active, kind, status, model].filter((part) => part.length > 0).join(" ");
 		const summary = buildSummary(agent, rowWidth, left);
 		return summary.length > 0 ? `${left} ${summary}` : left;
 	}
+}
+
+function formatAgentModel(agent: RemoteInteractiveGroupAgentView): string {
+	return agent.model ? `${agent.model.provider}/${agent.model.modelId}` : "no-model";
 }
 
 function buildSummary(agent: RemoteInteractiveGroupAgentView, rowWidth: number, leftWithAnsi: string): string {

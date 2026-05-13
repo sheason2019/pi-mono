@@ -34,6 +34,12 @@ export type { LiveRenderEvent, LiveRenderEventType } from "./live-events.js";
 
 export type PublicAgentActivationStatus = "running" | "loading" | "not_hydrated" | "error";
 
+export interface PublicOrgAgentModel {
+	provider: string;
+	modelId: string;
+	label?: string;
+}
+
 export interface PublicOrgAgent {
 	id: string;
 	parentId?: string;
@@ -44,6 +50,8 @@ export interface PublicOrgAgent {
 	isRunning: boolean;
 	peerCount: number;
 	hasError: boolean;
+	hasProviderError: boolean;
+	model?: PublicOrgAgentModel;
 }
 
 export interface PublicOrgSnapshot {

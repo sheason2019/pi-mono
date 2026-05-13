@@ -30,25 +30,25 @@ export function getToolCallStatusView(status: DPiToolCallStatus): ToolCallStatus
 	switch (status) {
 		case "success":
 			return {
-				label: "Done",
+				label: "完成",
 				badgeClass:
 					"inline-flex items-center gap-1 rounded-full border border-success/25 bg-success/10 px-2 py-0.5 text-xs font-medium text-success",
 			};
 		case "error":
 			return {
-				label: "Error",
+				label: "错误",
 				badgeClass:
 					"inline-flex items-center gap-1 rounded-full border border-error/25 bg-error/10 px-2 py-0.5 text-xs font-medium text-error",
 			};
 		case "aborted":
 			return {
-				label: "Aborted",
+				label: "已中断",
 				badgeClass:
 					"inline-flex items-center gap-1 rounded-full border border-warning/25 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning",
 			};
 		case "pending":
 			return {
-				label: "Running",
+				label: "运行中",
 				badgeClass:
 					"inline-flex items-center gap-1 rounded-full border border-info/25 bg-info/10 px-2 py-0.5 text-xs font-medium text-info",
 			};

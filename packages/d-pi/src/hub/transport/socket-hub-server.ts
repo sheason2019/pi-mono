@@ -23,6 +23,7 @@ import type {
 	ActionAck,
 	ClientToServerEvents,
 	LiveRenderEvent,
+	PublicOrgAgentModel,
 	PublicOrgSnapshot,
 	ServerToClientEvents,
 	SessionGetMcpServersAck,
@@ -53,6 +54,21 @@ const SOCKET_COMPRESSION_MIN_BYTES = 32 * 1024;
 const INITIAL_CRDT_SYNC_DEBOUNCE_MS = 750;
 const LIVE_CRDT_FANOUT_DEBOUNCE_MS = 33;
 const SESSION_CRDT_FANOUT_DEBOUNCE_MS = 10;
+
+function publicOrgAgentModel(snapshot: HubSessionSnapshot | undefined): PublicOrgAgentModel | undefined {
+	const model = snapshot?.context.model;
+	if (!model) {
+		return undefined;
+	}
+	const availableModel = snapshot?.availableModels.find(
+		(candidate) => candidate.provider === model.provider && candidate.modelId === model.modelId,
+	);
+	return {
+		provider: model.provider,
+		modelId: model.modelId,
+		...(availableModel?.label === undefined ? {} : { label: availableModel.label }),
+	};
+}
 const IDLE_CRDT_COMPACT_CHANGE_THRESHOLD = 20_000;
 const ACTIVE_CRDT_COMPACT_CHANGE_THRESHOLD = 80_000;
 const CRDT_COMPACT_THROTTLE_MS = 500;
@@ -259,6 +275,7 @@ function createFallbackPublicOrgSnapshot(deps: SocketHubServerDeps): PublicOrgSn
 			const metadata = deps.getAgentMetadata?.(agentId);
 			const snapshot = runtime?.sessionService.getSnapshot();
 			const activationStatus = runtime?.agentAdapter ? "running" : "not_hydrated";
+			const model = publicOrgAgentModel(snapshot);
 			return {
 				id: agentId,
 				...(metadata?.parentId === undefined ? {} : { parentId: metadata.parentId }),
@@ -268,7 +285,9 @@ function createFallbackPublicOrgSnapshot(deps: SocketHubServerDeps): PublicOrgSn
 				activationStatus,
 				isRunning: snapshot?.isRunning ?? false,
 				peerCount: runtime?.peerRegistry.size() ?? 0,
+				hasProviderError: Boolean(snapshot?.lastError),
 				hasError: Boolean(snapshot?.lastError),
+				...(model === undefined ? {} : { model }),
 			};
 		}),
 	};
