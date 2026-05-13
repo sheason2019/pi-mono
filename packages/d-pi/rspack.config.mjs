@@ -6,6 +6,11 @@ import rspack from "@rspack/core";
 const packageRoot = dirname(fileURLToPath(import.meta.url));
 const packageJson = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
 const packageVersion = packageJson.version;
+const aiEnvApiKeysDistPath = resolve(packageRoot, "../ai/dist/env-api-keys.js").replace(
+	/[.*+?^${}()|[\]\\]/g,
+	"\\$&",
+);
+const dPiNodeEnvApiKeysPath = resolve(packageRoot, "src/shims/env-api-keys-node.js");
 
 export default {
 	mode: "production",
@@ -93,6 +98,7 @@ export default {
 			__D_PI_VERSION__: JSON.stringify(packageVersion),
 			"import.meta.url": 'module.require("node:url").pathToFileURL(module.filename).href',
 		}),
+		new rspack.NormalModuleReplacementPlugin(new RegExp(`^${aiEnvApiKeysDistPath}$`), dPiNodeEnvApiKeysPath),
 		new rspack.BannerPlugin({
 			banner: "#!/usr/bin/env node",
 			raw: true,

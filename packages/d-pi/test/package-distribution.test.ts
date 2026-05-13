@@ -107,7 +107,9 @@ describe("d-pi package distribution", () => {
 		expect(rspackConfig).toContain("bufferutil");
 		expect(rspackConfig).toContain("utf-8-validate");
 		expect(rspackConfig).toContain("node_modules\\/jiti\\/lib\\/jiti\\.mjs");
-		expect(rspackConfig).toContain("ai\\/dist\\/(?:env-api-keys");
+		expect(rspackConfig).toContain("NormalModuleReplacementPlugin");
+		expect(rspackConfig).toContain("../ai/dist/env-api-keys.js");
+		expect(rspackConfig).toContain("src/shims/env-api-keys-node.js");
 		expect(rspackConfig).toContain("coding-agent\\/dist\\/core\\/extensions\\/loader");
 	});
 
@@ -122,8 +124,7 @@ describe("d-pi package distribution", () => {
 		]) {
 			expect(rspackConfig).not.toContain(sourceAlias);
 		}
-		expect(rspackConfig).not.toContain("NormalModuleReplacementPlugin");
-		expect(rspackConfig).not.toContain("src/shims/env-api-keys-node.ts");
+		expect(rspackConfig).not.toContain("../ai/src/env-api-keys.ts");
 	});
 
 	it("copies coding-agent runtime assets from built package outputs", () => {
