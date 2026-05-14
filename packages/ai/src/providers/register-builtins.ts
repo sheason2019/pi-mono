@@ -16,6 +16,7 @@ import type { AzureOpenAIResponsesOptions } from "./azure-openai-responses.js";
 import type { GoogleOptions } from "./google.js";
 import type { GoogleVertexOptions } from "./google-vertex.js";
 import type { MistralOptions } from "./mistral.js";
+import type { ModelHubOptions } from "./modelhub.js";
 import type { OpenAICodexResponsesOptions } from "./openai-codex-responses.js";
 import type { OpenAICompletionsOptions } from "./openai-completions.js";
 import type { OpenAIResponsesOptions } from "./openai-responses.js";
@@ -56,6 +57,11 @@ interface GoogleVertexProviderModule {
 interface MistralProviderModule {
 	streamMistral: StreamFunction<"mistral-conversations", MistralOptions>;
 	streamSimpleMistral: StreamFunction<"mistral-conversations", SimpleStreamOptions>;
+}
+
+interface ModelHubProviderModule {
+	streamModelHubCompletions: StreamFunction<"modelhub-completions", ModelHubOptions>;
+	streamSimpleModelHubCompletions: StreamFunction<"modelhub-completions", SimpleStreamOptions>;
 }
 
 interface OpenAICodexResponsesProviderModule {
@@ -102,6 +108,9 @@ let googleVertexProviderModulePromise:
 	| undefined;
 let mistralProviderModulePromise:
 	| Promise<LazyProviderModule<"mistral-conversations", MistralOptions, SimpleStreamOptions>>
+	| undefined;
+let modelHubProviderModulePromise:
+	| Promise<LazyProviderModule<"modelhub-completions", ModelHubOptions, SimpleStreamOptions>>
 	| undefined;
 let openAICodexResponsesProviderModulePromise:
 	| Promise<LazyProviderModule<"openai-codex-responses", OpenAICodexResponsesOptions, SimpleStreamOptions>>
@@ -265,6 +274,19 @@ function loadMistralProviderModule(): Promise<
 	return mistralProviderModulePromise;
 }
 
+function loadModelHubProviderModule(): Promise<
+	LazyProviderModule<"modelhub-completions", ModelHubOptions, SimpleStreamOptions>
+> {
+	modelHubProviderModulePromise ||= import("./modelhub.js").then((module) => {
+		const provider = module as ModelHubProviderModule;
+		return {
+			stream: provider.streamModelHubCompletions,
+			streamSimple: provider.streamSimpleModelHubCompletions,
+		};
+	});
+	return modelHubProviderModulePromise;
+}
+
 function loadOpenAICodexResponsesProviderModule(): Promise<
 	LazyProviderModule<"openai-codex-responses", OpenAICodexResponsesOptions, SimpleStreamOptions>
 > {
@@ -330,6 +352,8 @@ export const streamGoogleVertex = createLazyStream(loadGoogleVertexProviderModul
 export const streamSimpleGoogleVertex = createLazySimpleStream(loadGoogleVertexProviderModule);
 export const streamMistral = createLazyStream(loadMistralProviderModule);
 export const streamSimpleMistral = createLazySimpleStream(loadMistralProviderModule);
+export const streamModelHubCompletions = createLazyStream(loadModelHubProviderModule);
+export const streamSimpleModelHubCompletions = createLazySimpleStream(loadModelHubProviderModule);
 export const streamOpenAICodexResponses = createLazyStream(loadOpenAICodexResponsesProviderModule);
 export const streamSimpleOpenAICodexResponses = createLazySimpleStream(loadOpenAICodexResponsesProviderModule);
 export const streamOpenAICompletions = createLazyStream(loadOpenAICompletionsProviderModule);
@@ -356,6 +380,12 @@ export function registerBuiltInApiProviders(): void {
 		api: "mistral-conversations",
 		stream: streamMistral,
 		streamSimple: streamSimpleMistral,
+	});
+
+	registerApiProvider({
+		api: "modelhub-completions",
+		stream: streamModelHubCompletions,
+		streamSimple: streamSimpleModelHubCompletions,
 	});
 
 	registerApiProvider({

@@ -25,6 +25,7 @@ describe("ModelRegistry", () => {
 			rmSync(tempDir, { recursive: true });
 		}
 		clearApiKeyCache();
+		delete process.env.MODELHUB_AK;
 	});
 
 	/** Create minimal provider config  */
@@ -214,6 +215,38 @@ describe("ModelRegistry", () => {
 	});
 
 	describe("custom models merge behavior", () => {
+		test("loads ModelHub custom models with a registered provider and env-backed ak", async () => {
+			process.env.MODELHUB_AK = "test-modelhub-ak";
+			writeRawModelsJson({
+				modelhub: {
+					baseUrl: "https://aidp.bytedance.net",
+					apiKey: "MODELHUB_AK",
+					api: "modelhub-completions",
+					models: [
+						{
+							id: "kimi-k2.5",
+							name: "ModelHub kimi-k2.5",
+							reasoning: false,
+							input: ["text"],
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+							contextWindow: 2_000_000,
+							maxTokens: 32_000,
+						},
+					],
+				},
+			});
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const model = registry.find("modelhub", "kimi-k2.5");
+			const auth = await registry.getApiKeyAndHeaders(model!);
+
+			expect(registry.getError()).toBeUndefined();
+			expect(model?.api).toBe("modelhub-completions");
+			expect(model?.baseUrl).toBe("https://aidp.bytedance.net");
+			expect(getApiProvider(model!.api)).toBeDefined();
+			expect(auth).toEqual({ ok: true, apiKey: "test-modelhub-ak", headers: undefined });
+		});
+
 		test("built-in provider custom models inherit api and baseUrl without explicit fields", () => {
 			// Built-in providers already have api/baseUrl on every model, and auth
 			// comes from env vars / auth storage. No need to specify them.

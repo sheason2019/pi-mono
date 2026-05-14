@@ -115,6 +115,7 @@ For each built-in provider, pi maintains a list of tool-capable models, updated 
 - Google Vertex
 - Amazon Bedrock
 - Mistral
+- ModelHub
 - Groq
 - Cerebras
 - Cloudflare AI Gateway
@@ -137,7 +138,9 @@ For each built-in provider, pi maintains a list of tool-capable models, updated 
 
 See [docs/providers.md](docs/providers.md) for detailed setup instructions.
 
-**Custom providers & models:** Add providers via `~/.pi/agent/models.json` if they speak a supported API (OpenAI, Anthropic, Google). For custom APIs or OAuth, use extensions. See [docs/models.md](docs/models.md) and [docs/custom-provider.md](docs/custom-provider.md).
+**Custom providers & models:** Add providers via `~/.pi/agent/models.json` if they speak a supported API (OpenAI, Anthropic, Google, ModelHub). For custom APIs or OAuth, use extensions. See [docs/models.md](docs/models.md) and [docs/custom-provider.md](docs/custom-provider.md).
+
+ModelHub models use `api: "modelhub-completions"` with `MODELHUB_AK` or `MODELHUB_API_KEY`. Set `baseUrl` to the correct ModelHub domain for your network or region; pi sends OpenAI-compatible chat completion bodies to `/api/modelhub/online/v2/crawl?ak=...`.
 
 ---
 

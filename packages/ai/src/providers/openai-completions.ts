@@ -13,6 +13,7 @@ import type {
 import { getEnvApiKey } from "../env-api-keys.js";
 import { calculateCost, clampThinkingLevel } from "../models.js";
 import type {
+	Api,
 	AssistantMessage,
 	CacheRetention,
 	Context,
@@ -79,6 +80,19 @@ export interface OpenAICompletionsOptions extends StreamOptions {
 	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
 }
 
+/**
+ * @internal Shared by provider implementations that reuse the OpenAI Chat
+ * Completions wire format. Not intended as stable public API.
+ */
+export interface OpenAIChatCompletionsRequestConfig {
+	compat?: OpenAICompletionsCompat;
+	clientHeaders?: Record<string, string | null>;
+	requestOptions?: {
+		path?: string;
+		query?: Record<string, string | number | boolean | undefined>;
+	};
+}
+
 interface OpenAICompatCacheControl {
 	type: "ephemeral";
 	ttl?: string;
@@ -108,11 +122,24 @@ function resolveCacheRetention(cacheRetention?: CacheRetention): CacheRetention 
 	return "short";
 }
 
-export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenAICompletionsOptions> = (
-	model: Model<"openai-completions">,
+function createConfiguredCompletionsModel<TApi extends Api>(
+	model: Model<TApi>,
+	config: OpenAIChatCompletionsRequestConfig,
+): Model<"openai-completions"> {
+	const compat = config.compat ? { ...model.compat, ...config.compat } : model.compat;
+	return { ...model, compat } as unknown as Model<"openai-completions">;
+}
+
+/**
+ * @internal Shared by provider implementations that reuse the OpenAI Chat
+ * Completions wire format. Not intended as stable public API.
+ */
+export function streamOpenAIChatCompletions<TApi extends Api>(
+	model: Model<TApi>,
 	context: Context,
 	options?: OpenAICompletionsOptions,
-): AssistantMessageEventStream => {
+	config: OpenAIChatCompletionsRequestConfig = {},
+): AssistantMessageEventStream {
 	const stream = new AssistantMessageEventStream();
 
 	(async () => {
@@ -136,11 +163,20 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 
 		try {
 			const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
-			const compat = getCompat(model);
+			const configuredModel = createConfiguredCompletionsModel(model, config);
+			const compat = getCompat(configuredModel);
 			const cacheRetention = resolveCacheRetention(options?.cacheRetention);
 			const cacheSessionId = cacheRetention === "none" ? undefined : options?.sessionId;
-			const client = createClient(model, context, apiKey, options?.headers, cacheSessionId, compat);
-			let params = buildParams(model, context, options, compat, cacheRetention);
+			const client = createClient(
+				configuredModel,
+				context,
+				apiKey,
+				options?.headers,
+				cacheSessionId,
+				compat,
+				config.clientHeaders,
+			);
+			let params = buildParams(configuredModel, context, options, compat, cacheRetention);
 			const nextParams = await options?.onPayload?.(params, model);
 			if (nextParams !== undefined) {
 				params = nextParams as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
@@ -149,6 +185,7 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
 				...(options?.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
+				...config.requestOptions,
 			};
 			const { data: openaiStream, response } = await client.chat.completions
 				.create(params, requestOptions)
@@ -411,7 +448,13 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 	})();
 
 	return stream;
-};
+}
+
+export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenAICompletionsOptions> = (
+	model: Model<"openai-completions">,
+	context: Context,
+	options?: OpenAICompletionsOptions,
+): AssistantMessageEventStream => streamOpenAIChatCompletions(model, context, options);
 
 export const streamSimpleOpenAICompletions: StreamFunction<"openai-completions", SimpleStreamOptions> = (
 	model: Model<"openai-completions">,
@@ -442,6 +485,7 @@ function createClient(
 	optionsHeaders?: Record<string, string>,
 	sessionId?: string,
 	compat: ResolvedOpenAICompletionsCompat = getCompat(model),
+	clientHeaders?: Record<string, string | null>,
 ) {
 	if (!apiKey) {
 		if (!process.env.OPENAI_API_KEY) {
@@ -452,7 +496,7 @@ function createClient(
 		apiKey = process.env.OPENAI_API_KEY;
 	}
 
-	const headers = { ...model.headers };
+	const headers: Record<string, string | null> = { ...model.headers };
 	if (model.provider === "github-copilot") {
 		const hasImages = hasCopilotVisionInput(context.messages);
 		const copilotHeaders = buildCopilotDynamicHeaders({
@@ -471,6 +515,9 @@ function createClient(
 	// Merge options headers last so they can override defaults
 	if (optionsHeaders) {
 		Object.assign(headers, optionsHeaders);
+	}
+	if (clientHeaders) {
+		Object.assign(headers, clientHeaders);
 	}
 
 	const defaultHeaders =
@@ -994,7 +1041,7 @@ function parseChunkUsage(
 		prompt_cache_hit_tokens?: number;
 		prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
 	},
-	model: Model<"openai-completions">,
+	model: Model<Api>,
 ): AssistantMessage["usage"] {
 	const promptTokens = rawUsage.prompt_tokens || 0;
 	const reportedCachedTokens = rawUsage.prompt_tokens_details?.cached_tokens ?? rawUsage.prompt_cache_hit_tokens ?? 0;

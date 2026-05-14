@@ -16,6 +16,7 @@ export type { GoogleThinkingLevel } from "./providers/google-shared.js";
 export type { GoogleVertexOptions } from "./providers/google-vertex.js";
 export * from "./providers/images/register-builtins.js";
 export type { MistralOptions } from "./providers/mistral.js";
+export type { ModelHubOptions } from "./providers/modelhub.js";
 export type {
 	OpenAICodexResponsesOptions,
 	OpenAICodexWebSocketDebugStats,

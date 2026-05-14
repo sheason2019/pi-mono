@@ -58,6 +58,7 @@ Unified LLM API with automatic model discovery, provider configuration, token an
 - **Google**
 - **Vertex AI** (Gemini via Vertex AI)
 - **Mistral**
+- **ModelHub** (OpenAI-compatible body with ModelHub endpoint and `ak` query auth)
 - **Groq**
 - **Cerebras**
 - **Cloudflare AI Gateway**
@@ -801,6 +802,7 @@ A **provider** offers models through a specific API. For example:
 - **Google** models use the `google-generative-ai` API
 - **OpenAI** models use the `openai-responses` API
 - **Mistral** models use the `mistral-conversations` API
+- **ModelHub** models use the `modelhub-completions` API
 - **xAI, Cerebras, Groq, Together AI, etc.** models use the `openai-completions` API (OpenAI-compatible)
 
 ### Querying Providers and Models
@@ -865,6 +867,20 @@ const litellmModel: Model<'openai-completions'> = {
   }
 };
 
+// Example: ModelHub using OpenAI-compatible request/stream bodies with ak query auth
+const modelHubModel: Model<'modelhub-completions'> = {
+  id: 'kimi-k2.5',
+  name: 'ModelHub kimi-k2.5',
+  api: 'modelhub-completions',
+  provider: 'modelhub',
+  baseUrl: 'https://aidp.bytedance.net',
+  reasoning: false,
+  input: ['text'],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 2000000,
+  maxTokens: 32000
+};
+
 // Example: Custom endpoint with headers (bypassing Cloudflare bot detection)
 const proxyModel: Model<'anthropic-messages'> = {
   id: 'claude-sonnet-4',
@@ -894,6 +910,8 @@ Some OpenAI-compatible servers do not understand the `developer` role used for r
 Use model-level `thinkingLevelMap` to describe model-specific thinking controls. Keys are pi thinking levels (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`). Missing keys use provider defaults, string values are sent to the provider, and `null` marks a level unsupported.
 
 This commonly applies to Ollama, vLLM, SGLang, and similar OpenAI-compatible servers. You can set `compat` at the provider level or per model.
+
+For ModelHub, set `MODELHUB_AK` or `MODELHUB_API_KEY`, use `api: 'modelhub-completions'`, and set `baseUrl` to the correct ModelHub domain for your network or region. The provider posts to `/api/modelhub/online/v2/crawl?ak=...` and reuses the OpenAI Chat Completions streaming response format.
 
 ```typescript
 const ollamaReasoningModel: Model<'openai-completions'> = {

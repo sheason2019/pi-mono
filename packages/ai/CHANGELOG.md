@@ -2,8 +2,11 @@
 
 ## [Unreleased]
 
+## [0.74.1] - 2026-05-14
+
 ### Added
 
+- Added a ModelHub chat completions provider for OpenAI-compatible request bodies served from ModelHub's non-standard endpoint.
 - Added Together AI as a built-in OpenAI-compatible provider with generated model metadata and `TOGETHER_API_KEY` authentication ([#3624](https://github.com/earendil-works/pi-mono/pull/3624) by [@Nutlope](https://github.com/Nutlope)).
 
 ### Fixed

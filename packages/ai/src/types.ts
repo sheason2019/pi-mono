@@ -5,6 +5,7 @@ export type { AssistantMessageEventStream } from "./utils/event-stream.js";
 
 export type KnownApi =
 	| "openai-completions"
+	| "modelhub-completions"
 	| "mistral-conversations"
 	| "openai-responses"
 	| "azure-openai-responses"
