@@ -333,6 +333,7 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 			| ReturnType<NonNullable<CreateHubAgentAdapterOptions["getConfigLayers"]>>
 			| undefined => options.getConfigLayers?.() ?? options.configLayers;
 		const initialConfigLayers = getConfigLayers();
+		console.log("[d-pi hub] 创建智能体会话: 加载配置层");
 		const aggregatedConfig =
 			options.services === undefined && initialConfigLayers
 				? await createAggregatedAgentSessionServices({
@@ -352,6 +353,7 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 			services = aggregatedConfig.services;
 		}
 		if (!services) {
+			console.log("[d-pi hub] 创建智能体会话: 初始化服务");
 			const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
 			services = await createAgentSessionServices({
 				cwd,
@@ -362,6 +364,7 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 			});
 		}
 		if (!canInjectInlineExtension) {
+			console.log("[d-pi hub] 创建智能体会话: 加载扩展");
 			services.resourceLoader = await appendLoadedExtensionToResourceLoader(
 				services.resourceLoader,
 				dPiExtensionFactory,
@@ -371,6 +374,7 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 		const resourceLoader = HubResourceLoader.wrap(services.resourceLoader);
 		services.resourceLoader = resourceLoader;
 		await options.prepareServices?.(services);
+		console.log("[d-pi hub] 创建智能体会话: 创建Agent会话");
 		const created = await createAgentSessionFromServices({
 			services,
 			sessionManager: options.sessionService.getSessionManager(),
@@ -379,6 +383,7 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 			scopedModels: options.scopedModels,
 			customTools: dynamicTools,
 		});
+		console.log("[d-pi hub] 创建智能体会话: 设置活跃工具");
 		created.session.setActiveToolsByName(options.tools.map((tool) => tool.name));
 		const adapter = new HubAgentAdapter({
 			sessionService: options.sessionService,
@@ -406,6 +411,7 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 			logs: options.logs,
 		});
 		await adapter.refreshSessionOptions();
+		console.log("[d-pi hub] 创建智能体会话: 完成");
 		return adapter;
 	}
 
