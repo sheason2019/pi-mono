@@ -24,7 +24,7 @@ export interface PeerHelloPayload {
 	 * `peer` clients can execute peer tools and are listed in peer/executor registries.
 	 * `host` clients are remote hub UIs only; they may drive the hub session but are not executors.
 	 */
-	clientKind?: "peer" | "host";
+	clientKind?: "peer" | "host" | "guest";
 	protocolVersion: number;
 	displayName?: string;
 	version?: string;

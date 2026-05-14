@@ -49,6 +49,7 @@ export function createRemoteInteractiveView(
 							kind: agent.kind,
 							lifecycle: agent.lifecycle,
 							name: agent.name,
+							summary: agent.summary,
 							isRunning: agent.status.isRunning,
 							messageCount: agent.items.filter((item) => item.type === "message").length,
 							model: agent.context.model,

@@ -817,6 +817,12 @@ export class SessionManager {
 		return this.persist;
 	}
 
+	flushPendingEntries(): void {
+		if (!this.persist || !this.sessionFile) return;
+		this._rewriteFile();
+		this.flushed = true;
+	}
+
 	getCwd(): string {
 		return this.cwd;
 	}
@@ -844,10 +850,7 @@ export class SessionManager {
 		}
 
 		if (!this.flushed) {
-			for (const e of this.fileEntries) {
-				appendFileSync(this.sessionFile, `${JSON.stringify(e)}\n`);
-			}
-			this.flushed = true;
+			this.flushPendingEntries();
 		} else {
 			appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`);
 		}

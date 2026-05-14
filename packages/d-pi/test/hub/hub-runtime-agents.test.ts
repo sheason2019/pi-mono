@@ -106,6 +106,56 @@ describe("HubRuntime multi-agent orchestration", () => {
 		expect(parsed.token).toMatch(/^dpi_/);
 	});
 
+	it("createAgentTokenText can create self-scoped tokens for descendants", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-token-self-scope-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		mkdirSync(join(cwd, ".pi-hub", "agents"), { recursive: true });
+		seedRegistryMainAndChildren(cwd, [
+			{
+				id: "child-a",
+				kind: "child",
+				sessionFile: getAgentSessionFile(cwd, "child-a"),
+				createdAt: new Date(0).toISOString(),
+			},
+			{
+				id: "guest-a",
+				kind: "guest",
+				parentId: "child-a",
+				sessionFile: getAgentSessionFile(cwd, "guest-a"),
+				createdAt: new Date(0).toISOString(),
+			},
+			{
+				id: "child-b",
+				kind: "child",
+				sessionFile: getAgentSessionFile(cwd, "child-b"),
+				createdAt: new Date(0).toISOString(),
+			},
+		]);
+		const runtime = HubRuntime.open(cwd);
+		const input: Parameters<HubRuntime["createAgentTokenText"]>[1] & {
+			scopeMode: "self";
+			scopeAgentId: string;
+		} = {
+			name: "guest a token",
+			description: "ACP guest access",
+			user: "Guest A",
+			purpose: "Connect ACP guest.",
+			scopeMode: "self",
+			scopeAgentId: "guest-a",
+		};
+
+		const text = await runtime.createAgentTokenText("child-a", input);
+		const parsed = JSON.parse(text) as { token: string; scope?: { mode: string; rootAgentId: string } };
+		const identity = runtime.authTokenStore.authenticate(parsed.token);
+
+		expect(parsed.scope).toEqual({ mode: "self", rootAgentId: "guest-a" });
+		expect(identity?.scope).toEqual({ mode: "self", rootAgentId: "guest-a" });
+		await expect(runtime.createAgentTokenText("child-a", { ...input, scopeAgentId: "child-b" })).rejects.toThrow(
+			/outside caller subtree/i,
+		);
+	});
+
 	it("revokeAgentTokenText revokes tokens within the caller subtree only", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "hub-rt-token-revoke-"));
 		tempDirs.push(cwd);

@@ -199,8 +199,8 @@ function createCompactPolicyServer(thresholds: SocketHubServerCrdtCompactThresho
 						root: true,
 					}
 				: undefined,
-		isAgentInScope: (scopeRootAgentId, targetAgentId) =>
-			scopeRootAgentId === MAIN_AGENT_ID && targetAgentId === MAIN_AGENT_ID,
+		isAgentInScope: (identity, targetAgentId) =>
+			identity.scopeRootAgentId === MAIN_AGENT_ID && targetAgentId === MAIN_AGENT_ID,
 		getHttpSessionService: () => session,
 		subscribeAllAgentSessionEvents: () => () => {},
 		getSourceStatuses: () => [],
@@ -281,8 +281,8 @@ describe("socket hub server tool payload sizes", () => {
 				createdByAgentId: MAIN_AGENT_ID,
 				root: true,
 			}),
-			isAgentInScope: (scopeRootAgentId, targetAgentId) =>
-				scopeRootAgentId === MAIN_AGENT_ID && targetAgentId === MAIN_AGENT_ID,
+			isAgentInScope: (identity, targetAgentId) =>
+				identity.scopeRootAgentId === MAIN_AGENT_ID && targetAgentId === MAIN_AGENT_ID,
 			getHttpSessionService: () => session,
 			subscribeAllAgentSessionEvents: (onEvent) => session.subscribe((event) => onEvent(MAIN_AGENT_ID, event)),
 			getSourceStatuses: () => [],

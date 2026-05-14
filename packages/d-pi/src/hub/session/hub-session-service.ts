@@ -9,6 +9,7 @@ import { assertWorkspaceInitialized, getWorkspacePaths } from "../workspace.js";
 import type { HubSessionEvent } from "./session-events.js";
 import { DEFAULT_AVAILABLE_THINKING_LEVELS, type HubAvailableModel } from "./session-options.js";
 import {
+	HUB_AGENT_SUMMARY_CUSTOM_TYPE,
 	HUB_RUN_TIMING_CUSTOM_TYPE,
 	type HubQueuedInputMessage,
 	type HubRunEndReason,
@@ -45,6 +46,7 @@ export class HubSessionService {
 	private queuedMessages: HubQueuedInputMessage[] = [];
 	private lastError: string | undefined;
 	private diagnostics: string[] = [];
+	private summary: string | undefined;
 	private availableModels: HubAvailableModel[] = [];
 	private availableThinkingLevels: string[] = [...DEFAULT_AVAILABLE_THINKING_LEVELS];
 	private boundAgentSession: AgentSession | undefined;
@@ -55,6 +57,7 @@ export class HubSessionService {
 		this.sessionFile = sessionFile;
 		this.now = options.now ?? (() => Date.now());
 		this.hydrateLastRunTimingFromEntries();
+		this.hydrateSummaryFromEntries();
 	}
 
 	static open(cwd: string = process.cwd(), options: HubSessionServiceOptions = {}): HubSessionService {
@@ -106,6 +109,7 @@ export class HubSessionService {
 			contextUsage: this.boundAgentSession?.getContextUsage(),
 			lastError: this.lastError,
 			diagnostics: [...this.diagnostics],
+			summary: this.summary,
 			runStartedAt: this.runStartedAt,
 			lastRunStartedAt: this.lastRunStartedAt,
 			lastRunEndedAt: this.lastRunEndedAt,
@@ -265,6 +269,19 @@ export class HubSessionService {
 		});
 	}
 
+	updateSummary(summary: string): HubSessionEvent {
+		const normalized = summary.trim();
+		this.summary = normalized.length > 0 ? normalized : undefined;
+		this.sessionManager.appendCustomEntry(HUB_AGENT_SUMMARY_CUSTOM_TYPE, { summary: this.summary ?? null });
+		this.sessionManager.flushPendingEntries();
+		return this.emit({
+			type: "summary_changed",
+			seq: this.nextSeq(),
+			timestamp: new Date().toISOString(),
+			summary: this.summary,
+		});
+	}
+
 	updateSessionOptions(options: {
 		availableModels: HubAvailableModel[];
 		availableThinkingLevels?: string[];
@@ -342,6 +359,19 @@ export class HubSessionService {
 			return;
 		}
 	}
+
+	private hydrateSummaryFromEntries(): void {
+		const entries = this.sessionManager.getEntries();
+		for (let i = entries.length - 1; i >= 0; i -= 1) {
+			const entry = entries[i];
+			if (entry?.type !== "custom" || entry.customType !== HUB_AGENT_SUMMARY_CUSTOM_TYPE) {
+				continue;
+			}
+			const summary = parseHubAgentSummary(entry.data);
+			this.summary = summary;
+			return;
+		}
+	}
 }
 
 function isHubRunEndReason(value: unknown): value is HubRunEndReason {
@@ -372,4 +402,14 @@ function parseHubRunTiming(value: unknown): HubRunTiming | undefined {
 		durationMs: candidate.durationMs,
 		endReason: candidate.endReason,
 	};
+}
+
+function parseHubAgentSummary(value: unknown): string | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return undefined;
+	}
+	const candidate = value as { summary?: unknown };
+	return typeof candidate.summary === "string" && candidate.summary.trim().length > 0
+		? candidate.summary.trim()
+		: undefined;
 }

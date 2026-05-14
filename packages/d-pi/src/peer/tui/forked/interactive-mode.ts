@@ -931,13 +931,25 @@ export class ForkedInteractiveMode {
 				this.openModelSelector();
 				return;
 			case "show_agents":
+				if (this.deps.capabilities.supportsAgentSwitching === false) {
+					this.appendWarningMessage('"/agents" is disabled in this remote mode.');
+					return;
+				}
 				this.openAgentSelector();
 				return;
 			case "set_thinking_level":
+				if (this.deps.capabilities.supportsSettings === false) {
+					this.appendWarningMessage('"/settings" is disabled in this remote mode.');
+					return;
+				}
 				await this.deps.actions.setThinkingLevel(command.level);
 				this.appendInfoMessage(`Thinking level changed to ${command.level}.`);
 				return;
 			case "show_settings":
+				if (this.deps.capabilities.supportsSettings === false) {
+					this.appendWarningMessage('"/settings" is disabled in this remote mode.');
+					return;
+				}
 				this.openSettingsSelector();
 				return;
 			case "compact":
@@ -957,20 +969,40 @@ export class ForkedInteractiveMode {
 				this.appendInfoMessage("Requested hub resource reload.");
 				return;
 			case "show_group":
+				if (this.deps.capabilities.supportsGroup === false) {
+					this.appendWarningMessage('"/group" is disabled in this remote mode.');
+					return;
+				}
 				this.showGroupSummary();
 				return;
 			case "show_session":
+				if (this.deps.capabilities.supportsSessionDetails === false) {
+					this.appendWarningMessage('"/session" is disabled in this remote mode.');
+					return;
+				}
 				this.showSessionSummary();
 				return;
 			case "show_sources": {
+				if (this.deps.capabilities.supportsSources === false) {
+					this.appendWarningMessage('"/source" is disabled in this remote mode.');
+					return;
+				}
 				await this.openSourceSelector();
 				return;
 			}
 			case "show_mcp_servers": {
+				if (this.deps.capabilities.supportsMcp === false) {
+					this.appendWarningMessage('"/mcp" is disabled in this remote mode.');
+					return;
+				}
 				await this.openMcpSelector();
 				return;
 			}
 			case "show_skills": {
+				if (this.deps.capabilities.supportsSkills === false) {
+					this.appendWarningMessage('"/skills" is disabled in this remote mode.');
+					return;
+				}
 				await this.openSkillSelector();
 				return;
 			}

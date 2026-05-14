@@ -25,10 +25,11 @@ export interface HubViewDocumentState extends Record<string, unknown> {
 export interface HubAgentViewModel extends Record<string, unknown> {
 	agentId: string;
 	parentId?: string;
-	kind?: "root" | "child";
+	kind?: "root" | "child" | "guest";
 	lifecycle?: "persistent" | "temporary";
 	name?: string;
 	description?: string;
+	summary?: string;
 	sessionId?: string;
 	cwd?: string;
 	sessionFile?: string;
@@ -165,6 +166,14 @@ export class HubViewDocument {
 		this.mutationsSinceCompact += 1;
 	}
 
+	updateAgentSummary(agentId: string, summary: string | undefined): void {
+		this.doc = Automerge.change(this.doc, (doc) => {
+			const agent = ensureAgent(doc, agentId);
+			syncOptionalProperty(agent, "summary", summary);
+		});
+		this.mutationsSinceCompact += 1;
+	}
+
 	updateSession(snapshot: HubSessionSnapshot, agentId = snapshot.header.id): void {
 		this.doc = Automerge.change(this.doc, (doc) => {
 			const agent = ensureAgent(doc, agentId);
@@ -176,6 +185,7 @@ export class HubViewDocument {
 			agent.cwd = snapshot.header.cwd;
 			agent.protocolVersion = snapshot.header.version;
 			agent.sessionFile = snapshot.sessionFile;
+			syncOptionalProperty(agent, "summary", snapshot.summary);
 			agent.status.isRunning = snapshot.isRunning;
 			syncOptionalProperty(agent.status, "runStartedAt", snapshot.runStartedAt);
 			syncOptionalProperty(agent.status, "lastRunStartedAt", snapshot.lastRunStartedAt);
@@ -312,6 +322,7 @@ function createAgentFromSnapshot(agentId: string, snapshot: HubSessionSnapshot):
 		cwd: snapshot.header.cwd,
 		protocolVersion: snapshot.header.version,
 		sessionFile: snapshot.sessionFile,
+		...(snapshot.summary === undefined ? {} : { summary: snapshot.summary }),
 		status: {
 			isRunning: snapshot.isRunning,
 			...(snapshot.runStartedAt === undefined ? {} : { runStartedAt: snapshot.runStartedAt }),
@@ -662,6 +673,9 @@ function applySessionEventToAgent(agent: HubAgentViewModel, event: HubSessionEve
 		case "queue_changed":
 			agent.queue.size = event.messages.length;
 			syncArray(agent.queue.messages, event.messages);
+			return;
+		case "summary_changed":
+			syncOptionalProperty(agent, "summary", event.summary);
 			return;
 		case "error":
 			agent.lastError = event.message;

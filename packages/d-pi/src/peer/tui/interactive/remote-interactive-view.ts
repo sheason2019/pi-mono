@@ -79,6 +79,7 @@ export interface RemoteInteractiveGroupAgentView {
 	kind?: HubAgentViewModel["kind"];
 	lifecycle?: HubAgentViewModel["lifecycle"];
 	name?: string;
+	summary?: string;
 	isRunning: boolean;
 	messageCount: number;
 	model?: HubAgentViewModel["context"]["model"];

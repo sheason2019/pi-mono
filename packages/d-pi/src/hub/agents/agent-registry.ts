@@ -7,6 +7,7 @@ import {
 	type AgentRecord,
 	type AgentRegistryFile,
 	type CreateChildAgentRecordInput,
+	type CreateGuestAgentRecordInput,
 	type HubExecutorPolicy,
 	ROOT_AGENT_ID,
 } from "./types.js";
@@ -122,7 +123,10 @@ function isIdTaken(ids: ReadonlySet<string>, id: string): boolean {
 	return ids.has(id);
 }
 
-function allocateChildId(existingIds: ReadonlySet<string>, input: CreateChildAgentRecordInput): string {
+function allocateChildId(
+	existingIds: ReadonlySet<string>,
+	input: CreateChildAgentRecordInput | CreateGuestAgentRecordInput,
+): string {
 	if (input.id !== undefined && input.id.trim() !== "") {
 		const sanitized = sanitizeIdBase(input.id);
 		if (sanitized === ROOT_AGENT_ID) {
@@ -188,7 +192,7 @@ function parseRegistryJson(raw: string, contextPath: string): AgentRegistryFile 
 			throw new Error(`Invalid agent id in ${contextPath}`);
 		}
 		const legacyMain = obj.version === 1 && rec.kind === "main";
-		if (!legacyMain && rec.kind !== "root" && rec.kind !== "child") {
+		if (!legacyMain && rec.kind !== "root" && rec.kind !== "child" && rec.kind !== "guest") {
 			throw new Error(`Invalid agent kind for "${rec.id}" in ${contextPath}`);
 		}
 		const kind = legacyMain ? "root" : (rec.kind as AgentKind);
@@ -216,7 +220,7 @@ function parseRegistryJson(raw: string, contextPath: string): AgentRegistryFile 
 		};
 		const parentId =
 			typeof rec.parentId === "string" ? (rec.parentId === "main" ? ROOT_AGENT_ID : rec.parentId) : undefined;
-		if (kind === "child") {
+		if (kind === "child" || kind === "guest") {
 			record.parentId = parentId ?? ROOT_AGENT_ID;
 		}
 		if (typeof rec.name === "string") record.name = rec.name;
@@ -243,10 +247,10 @@ function parseRegistryJson(raw: string, contextPath: string): AgentRegistryFile 
 		if (a.kind === "root" && a.id !== ROOT_AGENT_ID) {
 			throw new Error(`Only "${ROOT_AGENT_ID}" may have kind "root" (${contextPath})`);
 		}
-		if (a.id !== ROOT_AGENT_ID && a.kind !== "child") {
-			throw new Error(`Agent "${a.id}" must have kind "child" (${contextPath})`);
+		if (a.id !== ROOT_AGENT_ID && a.kind !== "child" && a.kind !== "guest") {
+			throw new Error(`Agent "${a.id}" must have kind "child" or "guest" (${contextPath})`);
 		}
-		if (a.kind === "child" && (!a.parentId || !seenIds.has(a.parentId))) {
+		if ((a.kind === "child" || a.kind === "guest") && (!a.parentId || !seenIds.has(a.parentId))) {
 			throw new Error(`Agent "${a.id}" has unknown parent "${a.parentId}" (${contextPath})`);
 		}
 	}
@@ -340,6 +344,13 @@ export class AgentRegistry {
 		return this.createChild({ ...input, id, sessionFile });
 	}
 
+	createGuestResolvingSessionPath(input: Omit<CreateGuestAgentRecordInput, "sessionFile">): AgentRecord {
+		const existingIds = new Set(this.agents.keys());
+		const id = allocateChildId(existingIds, { ...input, sessionFile: "x" } as CreateGuestAgentRecordInput);
+		const sessionFile = getChildAgentSessionFile(this.cwd, id);
+		return this.createGuest({ ...input, id, sessionFile });
+	}
+
 	createChild(input: CreateChildAgentRecordInput): AgentRecord {
 		const sessionFile = assertNonEmptySessionFile(input.sessionFile, "createChild");
 		const parent = this.agents.get(input.parentId);
@@ -370,6 +381,30 @@ export class AgentRegistry {
 		return cloneRecord(record);
 	}
 
+	createGuest(input: CreateGuestAgentRecordInput): AgentRecord {
+		const sessionFile = assertNonEmptySessionFile(input.sessionFile, "createGuest");
+		const parent = this.agents.get(input.parentId);
+		if (!parent) {
+			throw new Error(`Unknown parent agent id: ${input.parentId}`);
+		}
+		const existingIds = new Set(this.agents.keys());
+		const id = allocateChildId(existingIds, input);
+		const record: AgentRecord = {
+			id,
+			kind: "guest",
+			parentId: parent.id,
+			sessionFile,
+			createdAt: new Date().toISOString(),
+			lifecycle: input.lifecycle ?? "persistent",
+			hubExecutor: "disabled",
+		};
+		if (input.name !== undefined) record.name = input.name;
+		if (input.description !== undefined) record.description = input.description;
+		if (input.createdBy !== undefined) record.createdBy = input.createdBy;
+		this.agents.set(id, record);
+		return cloneRecord(record);
+	}
+
 	update(record: AgentRecord): void {
 		const existing = this.agents.get(record.id);
 		if (!existing) {
@@ -385,8 +420,8 @@ export class AgentRegistry {
 				throw new Error(`Root agent must have kind "root"`);
 			}
 		} else {
-			if (record.kind !== "child") {
-				throw new Error(`Agent "${record.id}" must have kind "child"`);
+			if (record.kind !== "child" && record.kind !== "guest") {
+				throw new Error(`Agent "${record.id}" must have kind "child" or "guest"`);
 			}
 			if (!record.parentId || !this.agents.has(record.parentId)) {
 				throw new Error(`Agent "${record.id}" has unknown parent "${record.parentId}"`);

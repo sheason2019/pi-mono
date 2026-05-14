@@ -9,6 +9,14 @@ const TOKEN_PREFIX = "dpi";
 const ROOT_TOKEN_USER = "root";
 const ROOT_TOKEN_PURPOSE = "full hub administration";
 
+export type HubAuthTokenScopeMode = "subtree" | "self" | "direct_children" | "explicit";
+
+export interface HubAuthTokenScope {
+	mode: HubAuthTokenScopeMode;
+	rootAgentId: string;
+	agentIds?: string[];
+}
+
 export interface StoredAuthToken {
 	id: string;
 	name: string;
@@ -16,6 +24,7 @@ export interface StoredAuthToken {
 	user: string;
 	purpose: string;
 	scopeRootAgentId: string;
+	scope?: HubAuthTokenScope;
 	createdByAgentId: string;
 	createdAt: string;
 	lastUsedAt?: string;
@@ -41,6 +50,7 @@ export interface HubAuthIdentity {
 	user: string;
 	purpose: string;
 	scopeRootAgentId: string;
+	scope?: HubAuthTokenScope;
 	createdByAgentId: string;
 	root: boolean;
 }
@@ -56,6 +66,7 @@ export interface CreateScopedTokenInput {
 	user: string;
 	purpose: string;
 	scopeRootAgentId: string;
+	scope?: HubAuthTokenScope;
 	createdByAgentId: string;
 }
 
@@ -79,6 +90,48 @@ function assertNonEmptyTokenField(value: string, fieldName: string): string {
 		throw new Error(`Token ${fieldName} is required.`);
 	}
 	return trimmed;
+}
+
+function defaultTokenScope(scopeRootAgentId: string): HubAuthTokenScope {
+	return { mode: "subtree", rootAgentId: scopeRootAgentId };
+}
+
+function parseTokenScope(raw: unknown, scopeRootAgentId: string, path: string, tokenId: string): HubAuthTokenScope {
+	if (raw === undefined) {
+		return defaultTokenScope(scopeRootAgentId);
+	}
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+		throw new Error(`Invalid auth token scope for "${tokenId}" in ${path}`);
+	}
+	const scope = raw as { mode?: unknown; rootAgentId?: unknown; agentIds?: unknown };
+	if (
+		scope.mode !== "subtree" &&
+		scope.mode !== "self" &&
+		scope.mode !== "direct_children" &&
+		scope.mode !== "explicit"
+	) {
+		throw new Error(`Invalid auth token scope mode for "${tokenId}" in ${path}`);
+	}
+	if (typeof scope.rootAgentId !== "string" || scope.rootAgentId.trim().length === 0) {
+		throw new Error(`Invalid auth token scope rootAgentId for "${tokenId}" in ${path}`);
+	}
+	const normalized: HubAuthTokenScope = {
+		mode: scope.mode,
+		rootAgentId: scope.rootAgentId.trim(),
+	};
+	if (scope.mode === "explicit") {
+		if (!Array.isArray(scope.agentIds)) {
+			throw new Error(`Invalid auth token explicit scope agentIds for "${tokenId}" in ${path}`);
+		}
+		const agentIds = scope.agentIds
+			.map((agentId) => (typeof agentId === "string" ? agentId.trim() : ""))
+			.filter((agentId) => agentId.length > 0);
+		if (agentIds.length === 0) {
+			throw new Error(`Invalid auth token explicit scope agentIds for "${tokenId}" in ${path}`);
+		}
+		normalized.agentIds = [...new Set(agentIds)];
+	}
+	return normalized;
 }
 
 function parseAuthFile(raw: string, path: string): ParsedAuthFile {
@@ -140,6 +193,7 @@ function parseAuthFile(raw: string, path: string): ParsedAuthFile {
 			user: user ?? ROOT_TOKEN_USER,
 			purpose: purpose ?? ROOT_TOKEN_PURPOSE,
 			scopeRootAgentId: token.scopeRootAgentId,
+			scope: parseTokenScope(token.scope, token.scopeRootAgentId, path, token.id),
 			createdByAgentId: token.createdByAgentId,
 			createdAt: token.createdAt,
 			...(typeof token.lastUsedAt === "string" ? { lastUsedAt: token.lastUsedAt } : {}),
@@ -158,9 +212,36 @@ function identityFromRecord(record: StoredAuthToken): HubAuthIdentity {
 		user: record.user,
 		purpose: record.purpose,
 		scopeRootAgentId: record.scopeRootAgentId,
+		scope: record.scope ?? defaultTokenScope(record.scopeRootAgentId),
 		createdByAgentId: record.createdByAgentId,
 		root: record.root === true,
 	};
+}
+
+export function isAuthIdentityAllowedForAgent(
+	identity: HubAuthIdentity,
+	targetAgentId: string,
+	isInSubtree: (scopeRootAgentId: string, targetAgentId: string) => boolean,
+	isDirectChild?: (parentAgentId: string, targetAgentId: string) => boolean,
+): boolean {
+	if (identity.root === true) {
+		return true;
+	}
+	const target = targetAgentId.trim();
+	if (!target) {
+		return false;
+	}
+	const scope = identity.scope ?? defaultTokenScope(identity.scopeRootAgentId);
+	switch (scope.mode) {
+		case "subtree":
+			return scope.rootAgentId === target || isInSubtree(scope.rootAgentId, target);
+		case "self":
+			return scope.rootAgentId === target;
+		case "direct_children":
+			return isDirectChild?.(scope.rootAgentId, target) === true;
+		case "explicit":
+			return scope.agentIds?.includes(target) === true;
+	}
 }
 
 export class HubAuthTokenStore {
@@ -215,6 +296,7 @@ export class HubAuthTokenStore {
 			user: ROOT_TOKEN_USER,
 			purpose: ROOT_TOKEN_PURPOSE,
 			scopeRootAgentId: ROOT_AGENT_ID,
+			scope: defaultTokenScope(ROOT_AGENT_ID),
 			createdByAgentId: ROOT_AGENT_ID,
 			createdAt: new Date().toISOString(),
 			token,
@@ -231,6 +313,7 @@ export class HubAuthTokenStore {
 		const description = assertNonEmptyTokenField(input.description, "description");
 		const user = assertNonEmptyTokenField(input.user, "user");
 		const purpose = assertNonEmptyTokenField(input.purpose, "purpose");
+		const scope = input.scope ?? defaultTokenScope(input.scopeRootAgentId);
 		const token = createTokenSecret();
 		const id = `token-${randomBytes(8).toString("hex")}`;
 		const record: StoredAuthToken = {
@@ -239,7 +322,8 @@ export class HubAuthTokenStore {
 			description,
 			user,
 			purpose,
-			scopeRootAgentId: input.scopeRootAgentId,
+			scopeRootAgentId: scope.rootAgentId,
+			scope,
 			createdByAgentId: input.createdByAgentId,
 			createdAt: new Date().toISOString(),
 			token,
@@ -300,7 +384,11 @@ export class HubAuthTokenStore {
 		const kept: StoredAuthToken[] = [];
 		const revoked: HubAuthIdentity[] = [];
 		for (const record of this.file.tokens) {
-			if (record.root === true || record.id === ROOT_TOKEN_ID || !scopes.has(record.scopeRootAgentId)) {
+			const scope = record.scope ?? defaultTokenScope(record.scopeRootAgentId);
+			const matchesScopeRoot = scopes.has(record.scopeRootAgentId) || scopes.has(scope.rootAgentId);
+			const matchesExplicitAgent =
+				scope.mode === "explicit" && scope.agentIds?.some((agentId) => scopes.has(agentId));
+			if (record.root === true || record.id === ROOT_TOKEN_ID || (!matchesScopeRoot && !matchesExplicitAgent)) {
 				kept.push(record);
 				continue;
 			}

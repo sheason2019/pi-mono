@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Automerge from "@automerge/automerge";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type Socket as ClientSocket, io as ioClient } from "socket.io-client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HubAgentAdapter } from "../../src/hub/agent/hub-agent-adapter.js";
@@ -19,9 +19,29 @@ import type { SocketHubServer } from "../../src/hub/transport/socket-hub-server.
 import { getAgentSessionFile, initializeWorkspace } from "../../src/hub/workspace.js";
 
 const tempDirs: string[] = [];
+const extCtx = { notify: () => {} } as unknown as ExtensionContext;
 
 function writeJson(path: string, value: unknown): void {
 	writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function findToolExecute(
+	name: string,
+	tools: ToolDefinition[],
+): ((params: unknown) => ReturnType<NonNullable<ToolDefinition["execute"]>>) | undefined {
+	const t = tools.find((x) => x.name === name) as ToolDefinition | undefined;
+	if (!t) {
+		return undefined;
+	}
+	return (params: unknown) =>
+		t.execute("tc1", params as never, undefined, undefined, extCtx) as ReturnType<
+			NonNullable<ToolDefinition["execute"]>
+		>;
+}
+
+function textResult(value: unknown): string {
+	const payload = value as { content?: Array<{ type: string; text?: string }> };
+	return payload.content?.find((part) => part.type === "text")?.text ?? "";
 }
 
 function imageIdForPngData(data: string): string {
@@ -99,7 +119,7 @@ function peerHello(
 		peerId: string;
 		agentId?: string;
 		protocolVersion?: number;
-		clientKind?: "peer" | "host";
+		clientKind?: "peer" | "host" | "guest";
 		token?: string;
 	},
 	options: { configure?: boolean } = {},
@@ -109,7 +129,12 @@ function peerHello(
 			"peer:hello",
 			{ token: currentRootToken, protocolVersion: HUB_PROTOCOL_VERSION, ...payload },
 			(ack: { ok: boolean; error?: string }) => {
-				if (!ack.ok || payload.clientKind === "host" || options.configure === false) {
+				if (
+					!ack.ok ||
+					payload.clientKind === "host" ||
+					payload.clientKind === "guest" ||
+					options.configure === false
+				) {
 					resolve(ack);
 					return;
 				}
@@ -137,7 +162,7 @@ function peerHelloOnly(
 		peerId: string;
 		agentId?: string;
 		protocolVersion?: number;
-		clientKind?: "peer" | "host";
+		clientKind?: "peer" | "host" | "guest";
 		token?: string;
 	},
 ): Promise<{ ok: boolean; error?: string }> {
@@ -467,6 +492,295 @@ describe("SocketHubServer agent binding (peer:hello / routing)", () => {
 			missing.close();
 			invalid.close();
 			scoped.close();
+			await hub.stop();
+		}
+	});
+
+	it("enforces self-scoped tokens during peer hello", async () => {
+		const workspaceDir = mkdtempSync(join(tmpdir(), "hub-bind-auth-self-scope-"));
+		tempDirs.push(workspaceDir);
+		initializeWorkspace(workspaceDir);
+		mkdirSync(join(workspaceDir, ".pi"), { recursive: true });
+		mkdirSync(join(workspaceDir, ".pi-hub", "agents"), { recursive: true });
+		const childPath = getAgentSessionFile(workspaceDir, "child-a");
+		const grandchildPath = getAgentSessionFile(workspaceDir, "child-grandchild");
+		writeFileSync(childPath, `${headerLine("child-a-session", workspaceDir)}\n`, "utf8");
+		writeFileSync(grandchildPath, `${headerLine("child-grandchild-session", workspaceDir)}\n`, "utf8");
+		const root: AgentRecord = {
+			id: MAIN_AGENT_ID,
+			kind: "root",
+			sessionFile: getSessionFile(workspaceDir),
+			createdAt: new Date(0).toISOString(),
+			lifecycle: "persistent",
+		};
+		writeJson(getAgentsConfigPath(workspaceDir), {
+			version: 2 as const,
+			agents: [
+				root,
+				{
+					id: "child-a",
+					kind: "child",
+					parentId: MAIN_AGENT_ID,
+					sessionFile: childPath,
+					createdAt: new Date(0).toISOString(),
+					lifecycle: "persistent",
+				},
+				{
+					id: "child-grandchild",
+					kind: "child",
+					parentId: "child-a",
+					sessionFile: grandchildPath,
+					createdAt: new Date(0).toISOString(),
+					lifecycle: "persistent",
+				},
+			],
+		});
+		const stub: HubAgentAdapter = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
+		const hub = HubRuntime.open(workspaceDir);
+		await hub.initializeAgentAdapter();
+		const token = hub.authTokenStore.createScopedToken({
+			name: "child self",
+			description: "child only",
+			user: "test-user",
+			purpose: "test access",
+			scopeRootAgentId: "child-a",
+			scope: { mode: "self", rootAgentId: "child-a" },
+			createdByAgentId: "child-a",
+		});
+		const address = await hub.start({ host: "127.0.0.1", port: 0 });
+		const allowed = await connectClient(`http://127.0.0.1:${address.port}`);
+		const denied = await connectClient(`http://127.0.0.1:${address.port}`);
+		try {
+			expect(await peerHello(allowed, { peerId: "self-child", agentId: "child-a", token: token.token })).toEqual({
+				ok: true,
+			});
+			expect(
+				await peerHello(denied, {
+					peerId: "self-grandchild",
+					agentId: "child-grandchild",
+					token: token.token,
+				}),
+			).toEqual({
+				ok: false,
+				error: "Token scope does not allow access to agent id: child-grandchild",
+			});
+		} finally {
+			allowed.close();
+			denied.close();
+			await hub.stop();
+		}
+	});
+
+	it("guest clients bind only to existing guest agents", async () => {
+		const workspaceDir = mkdtempSync(join(tmpdir(), "hub-bind-guest-client-"));
+		tempDirs.push(workspaceDir);
+		initializeWorkspace(workspaceDir);
+		mkdirSync(join(workspaceDir, ".pi"), { recursive: true });
+		mkdirSync(join(workspaceDir, ".pi-hub", "agents"), { recursive: true });
+		const childPath = getAgentSessionFile(workspaceDir, "child-a");
+		const guestPath = getAgentSessionFile(workspaceDir, "claude-guest");
+		writeFileSync(childPath, `${headerLine("child-a-session", workspaceDir)}\n`, "utf8");
+		writeFileSync(guestPath, `${headerLine("claude-guest-session", workspaceDir)}\n`, "utf8");
+		const root: AgentRecord = {
+			id: MAIN_AGENT_ID,
+			kind: "root",
+			sessionFile: getSessionFile(workspaceDir),
+			createdAt: new Date(0).toISOString(),
+			lifecycle: "persistent",
+		};
+		writeJson(getAgentsConfigPath(workspaceDir), {
+			version: 2 as const,
+			agents: [
+				root,
+				{
+					id: "child-a",
+					kind: "child",
+					parentId: MAIN_AGENT_ID,
+					sessionFile: childPath,
+					createdAt: new Date(0).toISOString(),
+					lifecycle: "persistent",
+				},
+				{
+					id: "claude-guest",
+					kind: "guest",
+					parentId: "child-a",
+					sessionFile: guestPath,
+					createdAt: new Date(0).toISOString(),
+					lifecycle: "persistent",
+					hubExecutor: "disabled",
+				},
+			],
+		});
+		const stub: HubAgentAdapter = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
+		const hub = HubRuntime.open(workspaceDir);
+		await hub.initializeAgentAdapter();
+		const token = hub.authTokenStore.createScopedToken({
+			name: "guest self",
+			description: "guest only",
+			user: "test-user",
+			purpose: "test access",
+			scopeRootAgentId: "claude-guest",
+			scope: { mode: "self", rootAgentId: "claude-guest" },
+			createdByAgentId: "child-a",
+		});
+		const address = await hub.start({ host: "127.0.0.1", port: 0 });
+		const guestClient = await connectClient(`http://127.0.0.1:${address.port}`);
+		const normalPeerClient = await connectClient(`http://127.0.0.1:${address.port}`);
+		const childClient = await connectClient(`http://127.0.0.1:${address.port}`);
+		const unknownClient = await connectClient(`http://127.0.0.1:${address.port}`);
+		const welcome = new Promise<{ agentId: string; clientKind?: string; toolNames: string[] }>((resolve) =>
+			guestClient.once("hub:welcome", resolve),
+		);
+		const guestInitialSync = new Promise<SessionCrdtSyncPayload>((resolve) => {
+			guestClient.once("session:crdt_sync", resolve);
+		});
+		try {
+			expect(
+				await peerHello(guestClient, {
+					peerId: "guest-peer",
+					clientKind: "guest",
+					agentId: "claude-guest",
+					token: token.token,
+				}),
+			).toEqual({ ok: true });
+			expect(await welcome).toEqual(
+				expect.objectContaining({
+					agentId: "claude-guest",
+					clientKind: "guest",
+					toolNames: ["group", "send_message_to_agent", "broadcast_message_to_agents"],
+				}),
+			);
+			await expect(guestInitialSync).resolves.toEqual(
+				expect.objectContaining({
+					format: expect.any(String),
+					message: expect.any(Uint8Array),
+				}),
+			);
+			expect(
+				await peerHello(normalPeerClient, {
+					peerId: "normal-peer-guest",
+					agentId: "claude-guest",
+					token: token.token,
+				}),
+			).toEqual({
+				ok: false,
+				error: 'Guest agent ids require clientKind "guest": claude-guest',
+			});
+			expect(
+				await peerHello(childClient, {
+					peerId: "guest-child",
+					clientKind: "guest",
+					agentId: "child-a",
+					token: token.token,
+				}),
+			).toEqual({
+				ok: false,
+				error: "Guest clients can only bind guest agent ids: child-a",
+			});
+			expect(
+				await peerHello(unknownClient, {
+					peerId: "guest-unknown",
+					clientKind: "guest",
+					agentId: "new-guest",
+					token: token.token,
+				}),
+			).toEqual({
+				ok: false,
+				error: "Unknown agent id: new-guest",
+			});
+		} finally {
+			guestClient.close();
+			normalPeerClient.close();
+			childClient.close();
+			unknownClient.close();
+			await hub.stop();
+		}
+	});
+
+	it("routes send_message_to_agent deliveries to connected guest clients", async () => {
+		const workspaceDir = mkdtempSync(join(tmpdir(), "hub-bind-guest-message-"));
+		tempDirs.push(workspaceDir);
+		initializeWorkspace(workspaceDir);
+		mkdirSync(join(workspaceDir, ".pi"), { recursive: true });
+		mkdirSync(join(workspaceDir, ".pi-hub", "agents"), { recursive: true });
+		const guestPath = getAgentSessionFile(workspaceDir, "claude-guest");
+		writeFileSync(guestPath, `${headerLine("claude-guest-session", workspaceDir)}\n`, "utf8");
+		const root: AgentRecord = {
+			id: MAIN_AGENT_ID,
+			kind: "root",
+			sessionFile: getSessionFile(workspaceDir),
+			createdAt: new Date(0).toISOString(),
+			lifecycle: "persistent",
+		};
+		writeJson(getAgentsConfigPath(workspaceDir), {
+			version: 2 as const,
+			agents: [
+				root,
+				{
+					id: "claude-guest",
+					kind: "guest",
+					parentId: MAIN_AGENT_ID,
+					sessionFile: guestPath,
+					createdAt: new Date(0).toISOString(),
+					lifecycle: "persistent",
+					hubExecutor: "disabled",
+				},
+			],
+		});
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue({
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter);
+		const hub = HubRuntime.open(workspaceDir);
+		await hub.initializeAgentAdapter();
+		const token = hub.authTokenStore.createScopedToken({
+			name: "guest self",
+			description: "guest only",
+			user: "test-user",
+			purpose: "test access",
+			scopeRootAgentId: "claude-guest",
+			scope: { mode: "self", rootAgentId: "claude-guest" },
+			createdByAgentId: MAIN_AGENT_ID,
+		});
+		const address = await hub.start({ host: "127.0.0.1", port: 0 });
+		const guestClient = await connectClient(`http://127.0.0.1:${address.port}`);
+		const delivered = new Promise<Record<string, unknown>>((resolve) => {
+			guestClient.once("guest:agent_message" as never, resolve as never);
+		});
+		try {
+			expect(
+				await peerHello(guestClient, {
+					peerId: "guest-peer",
+					clientKind: "guest",
+					agentId: "claude-guest",
+					token: token.token,
+				}),
+			).toEqual({ ok: true });
+			const exec = findToolExecute("send_message_to_agent", hub.getRootAgentRuntime().tools);
+			expect(exec).toBeDefined();
+			const text = textResult(
+				await exec!({
+					agentIds: "claude-guest",
+					message: "hello guest",
+				}),
+			);
+
+			expect(JSON.parse(text)).toEqual({ ok: true, queued: ["claude-guest"] });
+			await expect(delivered).resolves.toMatchObject({
+				fromAgentId: MAIN_AGENT_ID,
+				toAgentId: "claude-guest",
+				message: "hello guest",
+			});
+		} finally {
+			guestClient.close();
 			await hub.stop();
 		}
 	});
@@ -1049,6 +1363,89 @@ function setupHubWithChild(childId: string, headerId: string): { workspaceDir: s
 }
 
 describe("SocketHubServer cross-agent event scoping and child routing (hardening)", () => {
+	it("refreshes recovered child summaries into already connected root CRDT views", async () => {
+		const { workspaceDir } = setupHubWithChild("child-recovered-summary", "sess-recovered-summary");
+		const childPath = getAgentSessionFile(workspaceDir, "child-recovered-summary");
+		writeFileSync(
+			childPath,
+			`${headerLine("sess-recovered-summary", workspaceDir)}\n${JSON.stringify({
+				type: "custom",
+				id: "summary-entry",
+				parentId: null,
+				timestamp: "2026-05-14T09:00:00.000Z",
+				customType: "agent_summary",
+				data: { summary: "resuming persisted child summary" },
+			})}\n`,
+			"utf8",
+		);
+		const stub: HubAgentAdapter = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
+		const hub = HubRuntime.open(workspaceDir);
+		currentRootToken = hub.rootTokenForDisplay ?? currentRootToken;
+		await hub.initializeAgentAdapter();
+		const address = await hub.start({ host: "127.0.0.1", port: 0 });
+		const main = await connectClient(`http://127.0.0.1:${address.port}`);
+		const mainSync: SessionCrdtSyncPayload[] = [];
+		const crdt = installCrdtSyncEcho(main, mainSync);
+
+		await peerHello(main, { peerId: "recovered-summary-main" });
+		await vi.waitFor(
+			() => {
+				const doc = crdt.getDoc() as HubViewDocumentState;
+				expect(doc.agentsById["child-recovered-summary"]?.summary).toBe("resuming persisted child summary");
+			},
+			{ timeout: 2000 },
+		);
+
+		main.close();
+		await hub.stop();
+	});
+
+	it("fans out child agent summaries to the root CRDT view", async () => {
+		const { workspaceDir } = setupHubWithChild("child-summary", "sess-summary");
+		const stub: HubAgentAdapter = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
+		const hub = HubRuntime.open(workspaceDir);
+		currentRootToken = hub.rootTokenForDisplay ?? currentRootToken;
+		await hub.initializeAgentAdapter();
+		await hub.ensureAgentStarted("child-summary", "test");
+		hub.getAgentRuntime("child-summary").sessionService.updateSummary("running initial child task");
+		const address = await hub.start({ host: "127.0.0.1", port: 0 });
+		const base = `http://127.0.0.1:${address.port}`;
+		const main = await connectClient(base);
+		const mainSync: SessionCrdtSyncPayload[] = [];
+		const crdt = installCrdtSyncEcho(main, mainSync);
+
+		await peerHello(main, { peerId: "summary-main" });
+		await vi.waitFor(
+			() => {
+				const doc = crdt.getDoc() as HubViewDocumentState;
+				expect(doc.agentsById["child-summary"]?.summary).toBe("running initial child task");
+			},
+			{ timeout: 2000 },
+		);
+
+		mainSync.length = 0;
+		hub.getAgentRuntime("child-summary").sessionService.updateSummary("running updated child task");
+		await vi.waitFor(
+			() => {
+				const doc = crdt.getDoc() as HubViewDocumentState;
+				expect(doc.agentsById["child-summary"]?.summary).toBe("running updated child task");
+				expect(mainSync.length).toBeGreaterThan(0);
+			},
+			{ timeout: 2000 },
+		);
+
+		main.close();
+		await hub.stop();
+	});
+
 	it("run state updates sync through CRDT to initialized views and do not emit session:event", async () => {
 		const { workspaceDir } = setupHubWithChild("child-evt", "sess-evt");
 		const stub: HubAgentAdapter = {

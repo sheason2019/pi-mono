@@ -5,9 +5,10 @@ import { getDPiHelpText, resolveDPiCommand } from "../src/index.js";
 import { VERSION } from "../src/version.js";
 
 describe("d-pi CLI", () => {
-	it("resolves hub and peer subcommands for in-process dispatch", () => {
+	it("resolves hub, peer, and guest subcommands for in-process dispatch", () => {
 		const hub = resolveDPiCommand(["hub", "serve", "--port", "0"]);
 		const peer = resolveDPiCommand(["peer", "--hub", "http://127.0.0.1:4317"]);
+		const guest = resolveDPiCommand(["guest", "acp", "--agent", "claude-guest"]);
 
 		expect(hub).toMatchObject({
 			subcommand: "hub",
@@ -16,6 +17,10 @@ describe("d-pi CLI", () => {
 		expect(peer).toMatchObject({
 			subcommand: "peer",
 			args: ["--hub", "http://127.0.0.1:4317"],
+		});
+		expect(guest).toMatchObject({
+			subcommand: "guest",
+			args: ["acp", "--agent", "claude-guest"],
 		});
 	});
 
@@ -35,6 +40,7 @@ describe("d-pi CLI", () => {
 		expect(help).toContain("D-Pi");
 		expect(help).toContain("d-pi hub");
 		expect(help).toContain("d-pi peer");
+		expect(help).toContain("d-pi guest");
 	});
 
 	it("runs bundled help and unknown-command paths in-process", async () => {

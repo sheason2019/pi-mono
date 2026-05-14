@@ -19,11 +19,13 @@ import { initializeWorkspace } from "../../src/hub/workspace.js";
 const tempDirs: string[] = [];
 const CHAIN_TOOL_NAMES = new Set([
 	"create_child_agent",
+	"create_guest_agent",
 	"create_temporary_child_agent",
 	"group",
 	"update_child_agent",
 	"rename_child_agent",
 	"update_agent_description",
+	"update_agent_summary",
 	"search_memory",
 	"list_memory",
 	"stop_child_agent",
@@ -199,6 +201,43 @@ describe("tree child management tools", () => {
 			sources: [],
 		});
 		expect(() => runtime.getAgentRuntime(childId)).not.toThrow();
+	});
+
+	it("create_guest_agent creates an explicit guest with only group and messaging tools", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "child-tools-create-guest-"));
+		tempDirs.push(cwd);
+		seedMainSessionWithDialog(cwd);
+		const stub = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
+		const runtime = HubRuntime.open(cwd);
+		await runtime.initializeAgentAdapter();
+		const exec = findToolExecute("create_guest_agent", runtime.getRootAgentRuntime().tools);
+		expect(exec).toBeDefined();
+
+		const text = textResult(await exec!({ name: "Claude Guest", description: "Claude Code ACP guest" }));
+		const parsed = JSON.parse(text) as {
+			guestId: string;
+			kind: string;
+			peerConnectCommand: string;
+			recommendedTokenScope: { scopeMode: string; scopeAgentId: string };
+		};
+
+		expect(parsed.kind).toBe("guest");
+		expect(parsed.peerConnectCommand).toContain(
+			`d-pi guest acp --hub http://127.0.0.1:4317 --agent ${parsed.guestId}`,
+		);
+		expect(parsed.recommendedTokenScope).toEqual({ scopeMode: "self", scopeAgentId: parsed.guestId });
+		const record = runtime.agentRegistry.require(parsed.guestId);
+		expect(record.kind).toBe("guest");
+		expect(record.parentId).toBe(MAIN_AGENT_ID);
+		expect(record.hubExecutor).toBe("disabled");
+		expect(record.executors).toBeUndefined();
+
+		const guestToolNames = new Set(runtime.getAgentRuntime(parsed.guestId).tools.map((tool) => tool.name));
+		expect(guestToolNames).toEqual(new Set(["group", "send_message_to_agent", "broadcast_message_to_agents"]));
 	});
 
 	it("child agents create direct descendants with parentId set to the caller", async () => {
@@ -538,6 +577,52 @@ describe("tree child management tools", () => {
 		await expect(childUpdate!({ agentId: MAIN_AGENT_ID, description: "cannot edit root" })).rejects.toThrow(
 			/root agent description|outside caller subtree/,
 		);
+	});
+
+	it("update_agent_summary lets each agent publish current work for group and public org", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "child-tools-summary-"));
+		tempDirs.push(cwd);
+		seedMainSessionWithDialog(cwd);
+		const stub = {
+			subscribeLiveEvents: () => () => {},
+			dispose: () => {},
+		} as unknown as HubAgentAdapter;
+		vi.spyOn(HubAgentAdapter, "create").mockResolvedValue(stub);
+		const runtime = HubRuntime.open(cwd);
+		await runtime.initializeAgentAdapter();
+		const spawnExec = findToolExecute("create_child_agent", runtime.getRootAgentRuntime().tools);
+		const childText = textResult(await spawnExec!({ mode: "spawn", background: "child work" }));
+		const childId = JSON.parse(childText).childId as string;
+
+		const rootSummary = findToolExecute("update_agent_summary", runtime.getRootAgentRuntime().tools);
+		const childSummary = findToolExecute("update_agent_summary", runtime.getAgentRuntime(childId).tools);
+		const summaryTool = runtime.getRootAgentRuntime().tools.find((tool) => tool.name === "update_agent_summary");
+		expect(summaryTool?.description).toContain("progress field");
+		expect(summaryTool?.promptSnippet).toContain("batch tasks");
+		expect(summaryTool?.promptGuidelines?.join("\n")).toContain("processing 3/12");
+		await rootSummary!({ summary: "Coordinating urgent websocket fix" });
+		await childSummary!({ summary: "Running focused reconnect tests" });
+
+		expect(runtime.getRootAgentRuntime().sessionService.getSnapshot().summary).toBe(
+			"Coordinating urgent websocket fix",
+		);
+		expect(runtime.getAgentRuntime(childId).sessionService.getSnapshot().summary).toBe(
+			"Running focused reconnect tests",
+		);
+		const groupText = textResult(await findToolExecute("group", runtime.getRootAgentRuntime().tools)!({}));
+		const group = JSON.parse(groupText) as {
+			agents: Array<{ id: string; summary?: string }>;
+			tips: string[];
+		};
+		expect(group.agents.find((agent) => agent.id === MAIN_AGENT_ID)?.summary).toBe(
+			"Coordinating urgent websocket fix",
+		);
+		expect(group.agents.find((agent) => agent.id === childId)?.summary).toBe("Running focused reconnect tests");
+		expect(group.tips.join("\n")).toContain("summary");
+		expect(group.tips.join("\n")).toContain("flush");
+
+		const org = runtime.getPublicOrgSnapshot();
+		expect(org.agents.find((agent) => agent.id === childId)?.summary).toBe("Running focused reconnect tests");
 	});
 
 	it("update_child_agent lets the direct parent control a running child hub executor", async () => {

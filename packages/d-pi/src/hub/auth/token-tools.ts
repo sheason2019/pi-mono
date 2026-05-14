@@ -17,6 +17,26 @@ const createAgentTokenSchema = Type.Object(
 			minLength: 1,
 			description: "Concrete reason this user or audience needs access.",
 		}),
+		scopeMode: Type.Optional(
+			Type.Union(
+				[Type.Literal("subtree"), Type.Literal("self"), Type.Literal("direct_children"), Type.Literal("explicit")],
+				{
+					description:
+						"Optional token scope mode. Defaults to subtree for this agent. Use self for a single guest agent token.",
+				},
+			),
+		),
+		scopeAgentId: Type.Optional(
+			Type.String({
+				minLength: 1,
+				description: "Scope root agent id. Defaults to the calling agent id.",
+			}),
+		),
+		agentIds: Type.Optional(
+			Type.Array(Type.String({ minLength: 1 }), {
+				description: 'Allowed agent ids when scopeMode is "explicit".',
+			}),
+		),
 	},
 	{ additionalProperties: false },
 );
@@ -45,7 +65,7 @@ export function createAgentTokenToolDefinitions(
 			name: "create_agent_token",
 			label: "create_agent_token",
 			description:
-				"Create a named access token scoped to this agent and its descendants. Always identify the real user or audience and access purpose. The plaintext token is returned once and persisted in the hub auth registry.",
+				"Create a named access token scoped to this agent or an allowed descendant scope. Always identify the real user or audience and access purpose. The plaintext token is returned once and persisted in the hub auth registry.",
 			parameters: createAgentTokenSchema,
 			async execute(_id, params) {
 				const text = await getHost().createAgentTokenText(callerAgentId, params);

@@ -2,6 +2,7 @@ import { io, type Socket } from "socket.io-client";
 import type {
 	ActionAck,
 	ClientToServerEvents,
+	GuestAgentMessagePayload,
 	McpRuntimeStatus,
 	PeerConfigAck,
 	PeerConfigPayload,
@@ -44,6 +45,7 @@ export interface SocketPeerClientOptions {
 		payload: ToolCallRequestPayload,
 		socket: Socket<ServerToClientEvents, ClientToServerEvents>,
 	) => Promise<void> | void;
+	onGuestAgentMessage?: (payload: GuestAgentMessagePayload) => Promise<void> | void;
 }
 
 type AckedEventPayloads = {
@@ -412,6 +414,10 @@ export class SocketPeerClient {
 		socket.on("session:crdt_sync", (payload) => {
 			const message = toUint8Array(payload.message);
 			this.enqueueCrdtSyncMessage(socket, message, payload.format);
+		});
+
+		socket.on("guest:agent_message", async (payload) => {
+			await this.options.onGuestAgentMessage?.(payload);
 		});
 
 		socket.on("disconnect", (reason) => {

@@ -1,6 +1,11 @@
 import type { HubQueuedInputMessage, HubRunEndReason, HubRunTiming } from "./session-snapshot.js";
 
-export type HubSessionEventType = "snapshot_updated" | "run_state_changed" | "queue_changed" | "error";
+export type HubSessionEventType =
+	| "snapshot_updated"
+	| "run_state_changed"
+	| "queue_changed"
+	| "summary_changed"
+	| "error";
 
 export interface HubSessionEventBase {
 	seq: number;
@@ -29,6 +34,11 @@ export interface HubSessionQueueChangedEvent extends HubSessionEventBase {
 	messages: HubQueuedInputMessage[];
 }
 
+export interface HubSessionSummaryChangedEvent extends HubSessionEventBase {
+	type: "summary_changed";
+	summary?: string;
+}
+
 export interface HubSessionErrorEvent extends HubSessionEventBase {
 	type: "error";
 	message: string;
@@ -38,4 +48,5 @@ export type HubSessionEvent =
 	| HubSessionSnapshotUpdatedEvent
 	| HubSessionRunStateChangedEvent
 	| HubSessionQueueChangedEvent
+	| HubSessionSummaryChangedEvent
 	| HubSessionErrorEvent;

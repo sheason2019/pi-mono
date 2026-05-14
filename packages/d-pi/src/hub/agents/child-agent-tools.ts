@@ -93,6 +93,14 @@ const createTemporaryChildSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+const createGuestAgentSchema = Type.Object(
+	{
+		name: Type.Optional(Type.String({ description: "Display name for the guest agent." })),
+		description: Type.Optional(Type.String({ description: "Short description of the external ACP guest agent." })),
+	},
+	{ additionalProperties: false },
+);
+
 const childLifecycleSchema = Type.Object(
 	{
 		agentId: Type.String({ minLength: 1, description: "Target child agent id." }),
@@ -199,6 +207,7 @@ export type ForkChildToolInput = {
 	executors?: Static<typeof nodeContainerExecutorSchema>[];
 };
 export type CreateChildToolInput = Static<typeof createChildSchema>;
+export type CreateGuestAgentToolInput = Static<typeof createGuestAgentSchema>;
 export type CreateTemporaryChildToolInput = Static<typeof createTemporaryChildSchema>;
 export type UpdateChildToolInput = Static<typeof updateChildSchema>;
 export type RenameChildToolInput = Static<typeof renameChildSchema>;
@@ -214,6 +223,7 @@ export type ListMemoryToolInput = Static<typeof listMemorySchema>;
  */
 export interface ChildAgentToolHost {
 	createChildAgent(callerAgentId: string, input: CreateChildToolInput): Promise<string>;
+	createGuestAgent(callerAgentId: string, input: CreateGuestAgentToolInput): Promise<string>;
 	createTemporaryChildAgent(callerAgentId: string, input: CreateTemporaryChildToolInput): Promise<string>;
 	updateChildAgent(callerAgentId: string, input: UpdateChildToolInput): Promise<string>;
 	renameChildAgent(callerAgentId: string, input: RenameChildToolInput): Promise<string>;
@@ -237,6 +247,17 @@ export function createChildAgentToolDefinitions(
 			parameters: createChildSchema,
 			async execute(_id, params) {
 				const text = await getHost().createChildAgent(callerAgentId, params);
+				return { content: [{ type: "text" as const, text }], details: null };
+			},
+		}),
+		defineTool({
+			name: "create_guest_agent",
+			label: "create_guest_agent",
+			description:
+				"Create an explicit guest agent for an external ACP agent. The guest is restricted to group inspection and agent-to-agent messaging.",
+			parameters: createGuestAgentSchema,
+			async execute(_id, params) {
+				const text = await getHost().createGuestAgent(callerAgentId, params);
 				return { content: [{ type: "text" as const, text }], details: null };
 			},
 		}),

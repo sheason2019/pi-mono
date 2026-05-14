@@ -50,6 +50,7 @@ export interface RemoteInteractiveRuntimeBridge {
 
 export function createRemoteInteractiveController(
 	runtime: RemoteInteractiveRuntimeBridge,
+	capabilityOverrides: Partial<RemoteInteractiveCapabilities> = {},
 ): RemoteInteractiveController {
 	const capabilities: RemoteInteractiveCapabilities = {
 		supportsCompact: true,
@@ -60,6 +61,7 @@ export function createRemoteInteractiveController(
 		supportsSessionResume: false,
 		supportsSessionFork: false,
 		supportsSessionClone: false,
+		...capabilityOverrides,
 	};
 	return {
 		getView: () =>

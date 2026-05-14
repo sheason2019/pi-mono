@@ -52,6 +52,24 @@ describe("peer command parsing", () => {
 		expect(names).toEqual(["agents", "settings", "group", "session", "source", "mcp", "skills"]);
 	});
 
+	it("filters guest mode commands down to agent and group inspection", () => {
+		const names = getVisiblePeerCommands(
+			createCapabilities({
+				supportsModelSelection: false,
+				supportsAgentSwitching: false,
+				supportsCompact: false,
+				supportsReload: false,
+				supportsSettings: false,
+				supportsSessionDetails: false,
+				supportsSources: false,
+				supportsMcp: false,
+				supportsSkills: false,
+			}),
+		).map((command) => command.name);
+
+		expect(names).toEqual(["group"]);
+	});
+
 	it("parses model switching with explicit provider and model id", () => {
 		expect(parsePeerCommand("/model openai/gpt-4.1")).toEqual({
 			kind: "set_model",

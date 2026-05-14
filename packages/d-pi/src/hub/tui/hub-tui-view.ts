@@ -5,7 +5,7 @@ export interface HubTuiAgentView {
 	id: string;
 	name?: string;
 	description?: string;
-	kind: "root" | "child";
+	kind: "root" | "child" | "guest";
 	isRunning: boolean;
 	hydrationStatus?: "running" | "loading" | "not_hydrated" | "error";
 	peerCount: number;

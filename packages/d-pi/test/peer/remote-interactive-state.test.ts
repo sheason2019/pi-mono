@@ -199,6 +199,7 @@ describe("remote interactive state", () => {
 		const childAgent = createHubAgentView("child-a", "anthropic", "claude-sonnet-4", {
 			parentId: "root",
 			name: "Child A",
+			summary: "Running reconnect tests",
 			isRunning: true,
 		});
 		const app: PeerAppSnapshot = {
@@ -229,7 +230,11 @@ describe("remote interactive state", () => {
 
 		expect(view.agents).toEqual([
 			expect.objectContaining({ id: "root", model: { provider: "openai", modelId: "gpt-4.1" } }),
-			expect.objectContaining({ id: "child-a", model: { provider: "anthropic", modelId: "claude-sonnet-4" } }),
+			expect.objectContaining({
+				id: "child-a",
+				summary: "Running reconnect tests",
+				model: { provider: "anthropic", modelId: "claude-sonnet-4" },
+			}),
 		]);
 	});
 
@@ -423,12 +428,13 @@ function createHubAgentView(
 	agentId: string,
 	provider: string,
 	modelId: string,
-	options: { parentId?: string; name?: string; isRunning?: boolean } = {},
+	options: { parentId?: string; name?: string; summary?: string; isRunning?: boolean } = {},
 ): HubAgentViewModel {
 	return {
 		agentId,
 		...(options.parentId === undefined ? {} : { parentId: options.parentId }),
 		...(options.name === undefined ? {} : { name: options.name }),
+		...(options.summary === undefined ? {} : { summary: options.summary }),
 		status: { isRunning: options.isRunning ?? false },
 		queue: { messages: [], size: 0 },
 		context: {

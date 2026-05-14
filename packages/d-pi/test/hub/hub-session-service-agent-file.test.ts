@@ -142,6 +142,29 @@ describe("HubSessionService.openAgent and getAgentSessionFile", () => {
 		expect(timingEntry?.data).toMatchObject({ durationMs: 37_000 });
 	});
 
+	it("persists the current agent summary in the session file", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "pi-hub-agent-summary-"));
+		tempDirs.push(cwd);
+		initializeWorkspace(cwd);
+		const agentPath = getAgentSessionFile(cwd, "summary-agent");
+		mkdirSync(join(cwd, ".pi-hub", "agents"), { recursive: true });
+		writeFileSync(agentPath, `${headerLine("summary-session", cwd)}\n`, "utf8");
+		const svc = HubSessionService.openAgent(cwd, agentPath);
+
+		svc.updateSummary("Reviewing the websocket reconnect bug");
+
+		expect(svc.getSnapshot().summary).toBe("Reviewing the websocket reconnect bug");
+		const summaryEntry = svc
+			.getSnapshot()
+			.entries.find(
+				(entry): entry is CustomEntry => entry.type === "custom" && entry.customType === "agent_summary",
+			);
+		expect(summaryEntry?.data).toEqual({ summary: "Reviewing the websocket reconnect bug" });
+
+		const reopened = HubSessionService.openAgent(cwd, agentPath);
+		expect(reopened.getSnapshot().summary).toBe("Reviewing the websocket reconnect bug");
+	});
+
 	it("records interrupted run timing without overwriting idle duration", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "pi-hub-run-interrupted-"));
 		tempDirs.push(cwd);

@@ -1,9 +1,22 @@
-import type { PeerRuntime } from "../runtime/peer-runtime.js";
+import type { PeerAppState } from "../state/peer-app-state.js";
+import type { PeerUiState } from "../state/peer-ui-state.js";
 import { ForkedInteractiveMode } from "./forked/interactive-mode.js";
-import { createRemoteInteractiveController } from "./interactive/remote-interactive-controller.js";
+import type { RemoteInteractiveCapabilities } from "./interactive/remote-interactive-capabilities.js";
+import {
+	createRemoteInteractiveController,
+	type RemoteInteractiveRuntimeBridge,
+} from "./interactive/remote-interactive-controller.js";
+
+export interface PeerInteractiveRuntime extends RemoteInteractiveRuntimeBridge {
+	appState: PeerAppState;
+	uiState: PeerUiState;
+	start(): Promise<void>;
+	stop(): Promise<void>;
+}
 
 export interface PeerInteractiveModeOptions {
 	themeName?: string;
+	capabilities?: Partial<RemoteInteractiveCapabilities>;
 }
 
 export class PeerInteractiveMode {
@@ -11,10 +24,10 @@ export class PeerInteractiveMode {
 	private readonly mode: ForkedInteractiveMode;
 
 	constructor(
-		private readonly runtime: PeerRuntime,
+		private readonly runtime: PeerInteractiveRuntime,
 		options: PeerInteractiveModeOptions = {},
 	) {
-		this.controller = createRemoteInteractiveController(this.runtime);
+		this.controller = createRemoteInteractiveController(this.runtime, options.capabilities);
 		this.mode = new ForkedInteractiveMode(
 			{
 				peerId: this.runtime.hello.peerId,

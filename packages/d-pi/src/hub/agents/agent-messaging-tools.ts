@@ -15,6 +15,11 @@ export interface AgentMessagingToolHost {
 	tryGetAgentRuntime(agentId: string): AgentMessagingTargetRuntime | undefined;
 	ensureAgentStarted?: (agentId: string, reason?: string) => Promise<AgentMessagingTargetRuntime | undefined>;
 	getAllMessagingAgentIds(): readonly string[];
+	deliverMessageToGuest?: (
+		senderAgentId: string,
+		targetAgentId: string,
+		message: string,
+	) => Promise<boolean> | boolean;
 }
 
 const sendSchema = Type.Object(
@@ -89,9 +94,11 @@ function jsonText(obj: unknown): { content: Array<{ type: "text"; text: string }
 
 async function resolveReadyTargets(
 	host: AgentMessagingToolHost,
+	senderAgentId: string,
 	targetIds: readonly string[],
-): Promise<Array<{ id: string; adapter: HubAgentAdapter }> | { error: unknown }> {
-	const ready: Array<{ id: string; adapter: HubAgentAdapter }> = [];
+	message: string,
+): Promise<Array<{ id: string; adapter?: HubAgentAdapter }> | { error: unknown }> {
+	const ready: Array<{ id: string; adapter?: HubAgentAdapter }> = [];
 	for (const id of targetIds) {
 		const rt = (await host.ensureAgentStarted?.(id, "agent_message")) ?? host.tryGetAgentRuntime(id);
 		if (!rt) {
@@ -99,6 +106,10 @@ async function resolveReadyTargets(
 		}
 		const adapter = rt.agentAdapter;
 		if (!adapter) {
+			if ((await host.deliverMessageToGuest?.(senderAgentId, id, message)) === true) {
+				ready.push({ id });
+				continue;
+			}
 			return {
 				error: {
 					ok: false,
@@ -144,18 +155,21 @@ export function createAgentMessagingToolDefinitions(
 						unknown,
 					});
 				}
-				const ready = await resolveReadyTargets(host, targetIds);
+				const ready = await resolveReadyTargets(host, senderAgentId, targetIds, message);
 				if (!Array.isArray(ready)) {
 					return jsonText(ready.error);
 				}
 				for (const target of ready) {
-					await target.adapter.enqueueFromAgent(senderAgentId, message);
+					await target.adapter?.enqueueFromAgent(senderAgentId, message);
 				}
 				if (params.flush !== true) {
 					return jsonText({ ok: true, queued: ready.map((target) => target.id) });
 				}
 				const flush = [];
 				for (const target of ready) {
+					if (!target.adapter) {
+						continue;
+					}
 					const result = await target.adapter.flushInputQueue();
 					flush.push({ agentId: target.id, ...result });
 				}
@@ -180,12 +194,12 @@ export function createAgentMessagingToolDefinitions(
 						message: "no other agents to receive broadcast",
 					});
 				}
-				const ready = await resolveReadyTargets(host, recipients);
+				const ready = await resolveReadyTargets(host, senderAgentId, recipients, message);
 				if (!Array.isArray(ready)) {
 					return jsonText(ready.error);
 				}
 				for (const target of ready) {
-					await target.adapter.enqueueFromAgent(senderAgentId, message);
+					await target.adapter?.enqueueFromAgent(senderAgentId, message);
 				}
 				return jsonText({ ok: true, queued: ready.map((target) => target.id) });
 			},

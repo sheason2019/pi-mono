@@ -127,7 +127,10 @@ function buildSummary(agent: RemoteInteractiveGroupAgentView, rowWidth: number, 
 		return "";
 	}
 	const suffix = agent.messageCount === 1 ? "message" : "messages";
-	return theme.fg("muted", truncateToWidth(`${agent.messageCount} ${suffix}`, maxSummary, ""));
+	const summary = agent.summary
+		? `${agent.summary} · ${agent.messageCount} ${suffix}`
+		: `${agent.messageCount} ${suffix}`;
+	return theme.fg("muted", truncateToWidth(summary, maxSummary, ""));
 }
 
 function computeNameColumnWidth(agents: RemoteInteractiveGroupAgentView[], width: number): number {

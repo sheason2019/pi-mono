@@ -61,8 +61,8 @@ describe("SocketHubServer fanout", () => {
 					createdByAgentId: MAIN_AGENT_ID,
 					root: true,
 				}),
-				isAgentInScope: (scopeRootAgentId, targetAgentId) =>
-					scopeRootAgentId === MAIN_AGENT_ID && targetAgentId === MAIN_AGENT_ID,
+				isAgentInScope: (identity, targetAgentId) =>
+					identity.scopeRootAgentId === MAIN_AGENT_ID && targetAgentId === MAIN_AGENT_ID,
 				getHttpSessionService: () => {
 					throw new Error("not used");
 				},
@@ -126,8 +126,8 @@ describe("SocketHubServer fanout", () => {
 					createdByAgentId: MAIN_AGENT_ID,
 					root: true,
 				}),
-				isAgentInScope: (scopeRootAgentId, targetAgentId) =>
-					scopeRootAgentId === MAIN_AGENT_ID && targetAgentId === MAIN_AGENT_ID,
+				isAgentInScope: (identity, targetAgentId) =>
+					identity.scopeRootAgentId === MAIN_AGENT_ID && targetAgentId === MAIN_AGENT_ID,
 				getHttpSessionService: () => {
 					throw new Error("not used");
 				},
@@ -204,8 +204,9 @@ describe("SocketHubServer fanout", () => {
 				createdByAgentId: MAIN_AGENT_ID,
 				root: true,
 			}),
-			isAgentInScope: (scopeRootAgentId, targetAgentId) =>
-				scopeRootAgentId === MAIN_AGENT_ID && (targetAgentId === MAIN_AGENT_ID || targetAgentId === childAgentId),
+			isAgentInScope: (identity, targetAgentId) =>
+				identity.scopeRootAgentId === MAIN_AGENT_ID &&
+				(targetAgentId === MAIN_AGENT_ID || targetAgentId === childAgentId),
 			getHttpSessionService: () => {
 				throw new Error("not used");
 			},

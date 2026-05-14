@@ -118,8 +118,9 @@ export class HubAgentRuntime {
 			resolvePeer: (peerId) => options.resolvePeerForTool?.(this.record.id, peerId) ?? this.peerRegistry.get(peerId),
 		});
 		this.getChildAgentHost = options.getChildAgentHost;
+		const isGuest = options.record.kind === "guest";
 		const childManagementTools =
-			options.getChildAgentHost != null
+			!isGuest && options.getChildAgentHost != null
 				? createChildAgentToolDefinitions(options.getChildAgentHost, options.record.id)
 				: [];
 		const agentMessagingTools =
@@ -128,29 +129,32 @@ export class HubAgentRuntime {
 				: [];
 		const groupTools =
 			options.getGroupHost != null ? createGroupToolDefinitions(options.getGroupHost, options.record.id) : [];
+		const allowedGroupTools = isGuest ? groupTools.filter((tool) => tool.name === "group") : groupTools;
 		const resourceStatusTool =
-			options.getResourceStatusHost != null
+			!isGuest && options.getResourceStatusHost != null
 				? [createResourceStatusToolDefinition(options.getResourceStatusHost, options.record.id)]
 				: [];
 		const agentTokenTools =
-			options.getAgentTokenHost != null
+			!isGuest && options.getAgentTokenHost != null
 				? createAgentTokenToolDefinitions(options.getAgentTokenHost, options.record.id)
 				: [];
 		const reloadConfigTool = createReloadConfigToolDefinition({
 			agentId: options.record.id,
 			getAdapter: () => this.agentAdapter,
 		});
+		const baseAgentTools = isGuest ? [] : [reloadConfigTool];
 		this.tools = createHubTools({
 			cwd: options.cwd,
 			agentId: options.record.id,
 			peerRegistry: this.peerRegistry,
 			peerToolBridge: this.peerToolBridge,
 			allowHostExecutor: () => this.record.hubExecutor !== "disabled",
+			includePeerTools: !isGuest,
 			sharedTools: options.sharedTools,
 			agentTools: [
-				reloadConfigTool,
+				...baseAgentTools,
 				...childManagementTools,
-				...groupTools,
+				...allowedGroupTools,
 				...resourceStatusTool,
 				...agentTokenTools,
 				...agentMessagingTools,

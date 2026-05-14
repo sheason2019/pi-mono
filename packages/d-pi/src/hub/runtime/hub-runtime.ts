@@ -14,6 +14,7 @@ import {
 import type {
 	ChildAgentToolHost,
 	CreateChildToolInput,
+	CreateGuestAgentToolInput,
 	CreateTemporaryChildToolInput,
 	ForkChildToolInput,
 	ListMemoryToolInput,
@@ -25,12 +26,16 @@ import type {
 	StopChildToolInput,
 	UpdateChildToolInput,
 } from "../agents/child-agent-tools.js";
-import type { GroupToolHost, UpdateAgentDescriptionToolInput } from "../agents/group-tools.js";
+import type {
+	GroupToolHost,
+	UpdateAgentDescriptionToolInput,
+	UpdateAgentSummaryToolInput,
+} from "../agents/group-tools.js";
 import { HubAgentRuntime } from "../agents/hub-agent-runtime.js";
 import type { ResourceStatusToolHost } from "../agents/resource-status-tool.js";
 import type { AgentExecutorConfig, AgentRecord } from "../agents/types.js";
 import { ROOT_AGENT_ID } from "../agents/types.js";
-import { HubAuthTokenStore } from "../auth/token-store.js";
+import { type HubAuthTokenScope, HubAuthTokenStore, isAuthIdentityAllowedForAgent } from "../auth/token-store.js";
 import type { AgentTokenToolHost, CreateAgentTokenToolInput, RevokeAgentTokenToolInput } from "../auth/token-tools.js";
 import { getListenHost, getListenPort, getWorkspaceDir } from "../config.js";
 import { ConfigLayerRegistry } from "../config-aggregation/config-layer-registry.js";
@@ -263,6 +268,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 					kind: record.kind,
 					lifecycle: record.lifecycle,
 					...(record.name === undefined ? {} : { name: record.name }),
+					...(snapshot?.summary === undefined ? {} : { summary: snapshot.summary }),
 					activationStatus,
 					isRunning: snapshot?.isRunning ?? false,
 					peerCount: runtime?.peerRegistry.size() ?? 0,
@@ -284,6 +290,13 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 			.getAll()
 			.map((record) => record.id)
 			.filter((agentId) => agentId === ROOT_AGENT_ID || !this.manuallyStoppedAgentIds.has(agentId));
+	}
+
+	deliverMessageToGuest(senderAgentId: string, targetAgentId: string, message: string): boolean {
+		if (this.agentRegistry.get(targetAgentId)?.kind !== "guest") {
+			return false;
+		}
+		return this.socketServer.deliverGuestAgentMessage(senderAgentId, targetAgentId, message) > 0;
 	}
 
 	/**
@@ -373,8 +386,15 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 			},
 			getPublicOrgSnapshot: () => hubRef.v!.getPublicOrgSnapshot(),
 			authenticateToken: (token) => authTokenStore.authenticate(token),
-			isAgentInScope: (scopeRootAgentId, targetAgentId) =>
-				agentRegistry.isInSubtree(scopeRootAgentId, targetAgentId),
+			isAgentInScope: (identity, targetAgentId) =>
+				isAuthIdentityAllowedForAgent(
+					identity,
+					targetAgentId,
+					(scopeRootAgentId, scopedTargetAgentId) =>
+						agentRegistry.isInSubtree(scopeRootAgentId, scopedTargetAgentId),
+					(parentAgentId, scopedTargetAgentId) =>
+						agentRegistry.get(scopedTargetAgentId)?.parentId === parentAgentId,
+				),
 			getHttpSessionService: () => hubRef.v!.getRootAgentRuntime().sessionService,
 			subscribeAllAgentSessionEvents: (onEvent) => {
 				const h = hubRef.v;
@@ -722,6 +742,15 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 
 	private createChildHubAgentRuntime(rec: AgentRecord): HubAgentRuntime {
 		const childSession = HubSessionService.openAgent(this.cwd, rec.sessionFile);
+		const mcp =
+			rec.kind === "guest"
+				? undefined
+				: {
+						configPath: getChildAgentMcpConfigPath(this.cwd, rec.id),
+						configRoot: () =>
+							mergeConfigLayers(this.buildConfigLayersForAgent(rec.id, getChildAgentDir(this.cwd, rec.id))).mcp,
+						createClient: this.createMcpClient,
+					};
 		return new HubAgentRuntime({
 			cwd: this.cwd,
 			agentDir: getChildAgentDir(this.cwd, rec.id),
@@ -729,12 +758,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 			record: rec,
 			sessionService: childSession,
 			socketServer: this.socketServer,
-			mcp: {
-				configPath: getChildAgentMcpConfigPath(this.cwd, rec.id),
-				configRoot: () =>
-					mergeConfigLayers(this.buildConfigLayersForAgent(rec.id, getChildAgentDir(this.cwd, rec.id))).mcp,
-				createClient: this.createMcpClient,
-			},
+			mcp,
 			logs: this.logs,
 			resolvePeerForTool: (callerAgentId, peerId) => this.resolvePeerForTool(callerAgentId, peerId),
 			beforeInputQueueDrain: () => this.applyPendingPeerConfigBeforeInput(rec.id),
@@ -755,7 +779,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 			return existing;
 		}
 		const record = this.agentRegistry.get(agentId);
-		if (!record || record.kind !== "child") {
+		if (!record || (record.kind !== "child" && record.kind !== "guest")) {
 			return undefined;
 		}
 		const startedAt = Date.now();
@@ -765,12 +789,46 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 		this.wireMemoryIndexForAgent(record.id, child);
 		this.wireSessionFanoutForNewAgent(record.id, child);
 		this.wireLiveEventsForAgent(record.id, child);
+		this.refreshAgentListViews();
 		this.log("info", "hub startup timing", {
 			phase: "child_session_open",
 			agentId: record.id,
 			durationMs: Date.now() - startedAt,
 		});
 		return child;
+	}
+
+	async createGuestAgent(callerAgentId: string, input: CreateGuestAgentToolInput): Promise<string> {
+		const parent = this.agentRegistry.require(callerAgentId);
+		const record = this.agentRegistry.createGuestResolvingSessionPath({
+			parentId: parent.id,
+			name: input.name,
+			description: input.description,
+			createdBy: parent.id,
+			lifecycle: "persistent",
+		});
+		initializeChildAgentDirectory(this.cwd, record.id);
+		const paths = assertWorkspaceInitialized(this.cwd);
+		const sm = SessionManager.open(record.sessionFile, paths.workspaceDir, this.cwd);
+		HubRuntime.materializeSessionManagerToDisk(sm, record.sessionFile);
+		this.agentRegistry.save();
+		this.ensureAgentRuntimeRegistered(record.id);
+		this.refreshAgentListViews();
+		return JSON.stringify(
+			{
+				ok: true,
+				guestId: record.id,
+				kind: record.kind,
+				sessionFile: record.sessionFile,
+				peerConnectCommand: this.createGuestAcpConnectCommand(record.id),
+				recommendedTokenScope: {
+					scopeMode: "self",
+					scopeAgentId: record.id,
+				},
+			},
+			null,
+			2,
+		);
 	}
 
 	async ensureAgentStarted(agentId: string, reason: string = "on_demand"): Promise<HubAgentRuntime | undefined> {
@@ -783,6 +841,9 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 		}
 		if (this.manuallyStoppedAgentIds.has(agentId) && reason !== "explicit_start" && reason !== "tool_start") {
 			return undefined;
+		}
+		if (this.agentRegistry.get(agentId)?.kind === "guest") {
+			return this.ensureAgentRuntimeRegistered(agentId);
 		}
 		const existingInFlight = this.childStartInFlightByAgentId.get(agentId);
 		if (existingInFlight) {
@@ -976,6 +1037,12 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 		const host = getListenHost();
 		const connectHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
 		return `d-pi peer --hub http://${connectHost}:${getListenPort()} --agent ${agentId}`;
+	}
+
+	private createGuestAcpConnectCommand(agentId: string): string {
+		const host = getListenHost();
+		const connectHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+		return `d-pi guest acp --hub http://${connectHost}:${getListenPort()} --agent ${agentId}`;
 	}
 
 	private static tryUnlinkFile(path: string): void {
@@ -1404,6 +1471,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 				parentId: record.parentId,
 				name: record.name,
 				description: record.description,
+				summary: snapshot?.summary,
 				lifecycle: record.lifecycle,
 				reportResult: record.reportResult,
 				spawnMode: record.spawnMode,
@@ -1444,6 +1512,8 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 						"peerCount is connected d-pi peer client count only. Browser Web UI host connections are not counted because they are remote UIs, not tool executors. peerCount=0 does not mean the agent is offline, unavailable, or unable to receive agent messages.",
 					"agents.isRunning": "Whether the agent is currently processing a turn.",
 					"agents.isWorking": "Alias of agents.isRunning for compatibility with older prompts.",
+					"agents.summary":
+						"Short-lived current work summary set by update_agent_summary. Check this before deciding whether an urgent send_message_to_agent call should use flush=true.",
 					"executors.peerId": hostExecutorEnabled
 						? 'Tool executor id for routed peer tools. Use peer-id "host" to run tools on the D-Pi hub host workspace. Browser Web UI host connections are not executor peerIds.'
 						: "Tool executor id for routed peer tools. The D-Pi hub host executor is disabled for this agent. Browser Web UI host connections are not executor peerIds.",
@@ -1455,8 +1525,9 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 						? ['Use peer-id "host" to run routed tools on the D-Pi hub host workspace.']
 						: []),
 					"Use send_message_to_agent to send targeted messages to one or more other agents.",
+					"Before using send_message_to_agent with flush=true, inspect the target agent summary and interrupt only when the message is urgent enough.",
 					"Use broadcast_message_to_agents when every other agent should receive the same note.",
-					"Keep child agent descriptions current so group discovery stays useful.",
+					"Keep update_agent_summary current while working, and keep child agent descriptions current for long-term capability discovery.",
 				],
 			},
 			null,
@@ -1556,6 +1627,25 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 				ok: true,
 				agentId: target.id,
 				description: input.description,
+			},
+			null,
+			2,
+		);
+	}
+
+	async updateAgentSummaryText(callerAgentId: string, input: UpdateAgentSummaryToolInput): Promise<string> {
+		this.agentRegistry.require(callerAgentId);
+		const runtime = this.tryGetAgentRuntime(callerAgentId);
+		if (!runtime) {
+			throw new Error(`update_agent_summary: agent runtime not found: ${callerAgentId}`);
+		}
+		runtime.sessionService.updateSummary(input.summary);
+		const summary = runtime.sessionService.getSnapshot().summary;
+		return JSON.stringify(
+			{
+				ok: true,
+				agentId: callerAgentId,
+				...(summary === undefined ? {} : { summary }),
 			},
 			null,
 			2,
@@ -1672,12 +1762,32 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 
 	async createAgentTokenText(callerAgentId: string, input: CreateAgentTokenToolInput): Promise<string> {
 		const caller = this.agentRegistry.require(callerAgentId);
+		const scopeRootAgentId = input.scopeAgentId?.trim() || caller.id;
+		this.assertAgentInSubtree(caller.id, scopeRootAgentId, "create_agent_token");
+		const scopeMode = input.scopeMode ?? "subtree";
+		const scope: HubAuthTokenScope = {
+			mode: scopeMode,
+			rootAgentId: scopeRootAgentId,
+		};
+		if (scopeMode === "explicit") {
+			const agentIds = (input.agentIds ?? [])
+				.map((agentId) => agentId.trim())
+				.filter((agentId) => agentId.length > 0);
+			if (agentIds.length === 0) {
+				throw new Error('create_agent_token: agentIds is required when scopeMode is "explicit".');
+			}
+			for (const agentId of agentIds) {
+				this.assertAgentInSubtree(caller.id, agentId, "create_agent_token");
+			}
+			scope.agentIds = [...new Set(agentIds)];
+		}
 		const created = this.authTokenStore.createScopedToken({
 			name: input.name.trim(),
 			description: input.description.trim(),
 			user: input.user.trim(),
 			purpose: input.purpose.trim(),
-			scopeRootAgentId: caller.id,
+			scopeRootAgentId,
+			scope,
 			createdByAgentId: caller.id,
 		});
 		return JSON.stringify(
@@ -1690,6 +1800,7 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 				user: created.record.user,
 				purpose: created.record.purpose,
 				scopeRootAgentId: created.record.scopeRootAgentId,
+				scope: created.record.scope,
 				createdByAgentId: created.record.createdByAgentId,
 				note: "This token is shown in this response and stored in the hub auth registry. Store it securely.",
 			},

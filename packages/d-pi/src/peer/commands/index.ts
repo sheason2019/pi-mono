@@ -38,16 +38,42 @@ export type PeerCommandParseResult =
 	| { kind: "invalid"; commandName: string; message: string };
 
 export function getVisiblePeerCommands(
-	capabilities: Pick<RemoteInteractiveCapabilities, "supportsCompact" | "supportsReload" | "supportsModelSelection">,
+	capabilities: Pick<
+		RemoteInteractiveCapabilities,
+		| "supportsCompact"
+		| "supportsReload"
+		| "supportsModelSelection"
+		| "supportsAgentSwitching"
+		| "supportsSettings"
+		| "supportsGroup"
+		| "supportsSessionDetails"
+		| "supportsSources"
+		| "supportsMcp"
+		| "supportsSkills"
+	>,
 ): readonly VisiblePeerCommand[] {
 	return VISIBLE_PEER_COMMANDS.filter((command) => {
 		switch (command.name) {
 			case "model":
 				return capabilities.supportsModelSelection;
+			case "agents":
+				return capabilities.supportsAgentSwitching !== false;
+			case "settings":
+				return capabilities.supportsSettings !== false;
 			case "compact":
 				return capabilities.supportsCompact;
 			case "reload":
 				return capabilities.supportsReload;
+			case "group":
+				return capabilities.supportsGroup !== false;
+			case "session":
+				return capabilities.supportsSessionDetails !== false;
+			case "source":
+				return capabilities.supportsSources !== false;
+			case "mcp":
+				return capabilities.supportsMcp !== false;
+			case "skills":
+				return capabilities.supportsSkills !== false;
 			default:
 				return true;
 		}

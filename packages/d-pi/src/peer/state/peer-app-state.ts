@@ -41,6 +41,8 @@ export class PeerAppState {
 	private view: HubViewDocumentState | undefined;
 	private selectedAgent: HubAgentViewModel | undefined;
 	private crdtLive: PeerLiveSnapshot | undefined;
+	private localSelectedAgent: HubAgentViewModel | undefined;
+	private localLive: PeerLiveSnapshot | undefined;
 	private readonly imageCache = new PeerImageCache();
 	private peers: RegisteredPeer[] = [];
 	private readonly listeners = new Set<(snapshot: PeerAppSnapshot) => void>();
@@ -60,6 +62,8 @@ export class PeerAppState {
 		this.view = undefined;
 		this.selectedAgent = undefined;
 		this.crdtLive = undefined;
+		this.localSelectedAgent = undefined;
+		this.localLive = undefined;
 		this.peers = [];
 		this.emit();
 	}
@@ -106,10 +110,16 @@ export class PeerAppState {
 		return {
 			welcome: this.welcome,
 			view: this.view,
-			selectedAgent: this.selectedAgent,
-			live: this.imageCache.hydrate(this.crdtLive ?? { toolExecutions: [] }) as PeerLiveSnapshot,
+			selectedAgent: this.localSelectedAgent ?? this.selectedAgent,
+			live: this.imageCache.hydrate(this.localLive ?? this.crdtLive ?? { toolExecutions: [] }) as PeerLiveSnapshot,
 			peers: [...this.peers],
 		};
+	}
+
+	applyLocalAgentProjection(agent: HubAgentViewModel, live: PeerLiveSnapshot): void {
+		this.localSelectedAgent = agent;
+		this.localLive = live;
+		this.emit();
 	}
 
 	isReady(): boolean {

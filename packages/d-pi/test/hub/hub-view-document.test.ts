@@ -76,7 +76,7 @@ function createDeterministicText(length: number): string {
 describe("HubViewDocument", () => {
 	it("syncs the hub-owned session view to a peer via Automerge messages", () => {
 		const hub = new HubViewDocument();
-		hub.updateSession(createSnapshot("sess-a", false), "main");
+		hub.updateSession({ ...createSnapshot("sess-a", false), summary: "triaging build failure" }, "main");
 
 		let peerDoc = Automerge.init<HubViewDocumentState>();
 		let peerSync = Automerge.initSyncState();
@@ -85,10 +85,12 @@ describe("HubViewDocument", () => {
 		[hubSync, peerDoc, peerSync] = exchange(hub, hubSync, peerDoc, peerSync);
 		expect(peerDoc.agentsById.main?.sessionId).toBe("sess-a");
 		expect(peerDoc.agentsById.main?.status.isRunning).toBe(false);
+		expect(peerDoc.agentsById.main?.summary).toBe("triaging build failure");
 
 		hub.updateSession(createSnapshot("sess-a", true), "main");
 		[hubSync, peerDoc, peerSync] = exchange(hub, hubSync, peerDoc, peerSync);
 		expect(peerDoc.agentsById.main?.status.isRunning).toBe(true);
+		expect(peerDoc.agentsById.main?.summary).toBeUndefined();
 	});
 
 	it("can reset to the current session state without carrying old live view history", () => {

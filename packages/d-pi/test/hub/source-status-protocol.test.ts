@@ -158,8 +158,8 @@ describe("session:get_sources protocol", () => {
 				createdByAgentId: "root",
 				root: true,
 			}),
-			isAgentInScope: (scopeRootAgentId, targetAgentId) =>
-				scopeRootAgentId === "root" && (targetAgentId === "root" || targetAgentId === "child-a"),
+			isAgentInScope: (identity, targetAgentId) =>
+				identity.scopeRootAgentId === "root" && (targetAgentId === "root" || targetAgentId === "child-a"),
 			getHttpSessionService: () => bindings.root!.sessionService,
 			subscribeAllAgentSessionEvents: () => () => {},
 			getSourceStatuses: (agentId) => sampleSources.filter((source) => source.agentId === agentId),

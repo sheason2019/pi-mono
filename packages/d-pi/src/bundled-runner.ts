@@ -1,5 +1,6 @@
 import { setBedrockProviderModule } from "@earendil-works/pi-ai";
 import { bedrockProviderModule } from "@earendil-works/pi-ai/bedrock-provider";
+import { runPiGuestCli } from "./guest/cli.js";
 import { runPiHubCli } from "./hub/cli.js";
 import { HUB_PROTOCOL_VERSION } from "./hub/transport/protocol.js";
 import { getDPiHelpText, resolveDPiCommand } from "./index.js";
@@ -52,6 +53,9 @@ export async function runBundledDPiCli(args: string[] = process.argv.slice(2)): 
 	try {
 		if (resolved.subcommand === "hub") {
 			return await runPiHubCli(resolved.args);
+		}
+		if (resolved.subcommand === "guest") {
+			return await runPiGuestCli(resolved.args);
 		}
 		return await runPiPeerCli(resolved.args);
 	} finally {

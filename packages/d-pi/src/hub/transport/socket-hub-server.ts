@@ -103,7 +103,7 @@ function getAuthMessageSourceMetadata(identity: HubAuthIdentity | undefined) {
 	};
 }
 
-type SocketClientKind = "peer" | "host";
+type SocketClientKind = "peer" | "host" | "guest";
 
 function getDefaultHostAgentIdForIdentity(identity: HubAuthIdentity): string {
 	return identity.createdByAgentId || identity.scopeRootAgentId || ROOT_AGENT_ID;
@@ -134,7 +134,7 @@ export interface HubAgentSocketBinding {
 
 export interface HubAgentSocketMetadata {
 	parentId?: string;
-	kind?: "root" | "child";
+	kind?: "root" | "child" | "guest";
 	lifecycle?: "persistent" | "temporary";
 	name?: string;
 	description?: string;
@@ -282,6 +282,7 @@ function createFallbackPublicOrgSnapshot(deps: SocketHubServerDeps): PublicOrgSn
 				...(metadata?.kind === undefined ? {} : { kind: metadata.kind }),
 				...(metadata?.lifecycle === undefined ? {} : { lifecycle: metadata.lifecycle }),
 				...(metadata?.name === undefined ? {} : { name: metadata.name }),
+				...(snapshot?.summary === undefined ? {} : { summary: snapshot.summary }),
 				activationStatus,
 				isRunning: snapshot?.isRunning ?? false,
 				peerCount: runtime?.peerRegistry.size() ?? 0,
@@ -350,7 +351,7 @@ export interface SocketHubServerDeps {
 	getAgentMetadata?: (agentId: string) => HubAgentSocketMetadata | undefined;
 	getPublicOrgSnapshot?: () => PublicOrgSnapshot;
 	authenticateToken: (token: string) => HubAuthIdentity | undefined | Promise<HubAuthIdentity | undefined>;
-	isAgentInScope: (scopeRootAgentId: string, targetAgentId: string) => boolean;
+	isAgentInScope: (identity: HubAuthIdentity, targetAgentId: string) => boolean;
 	getHttpSessionService: () => HubSessionService;
 	/** Subscribe to all agents' `HubSessionService` event streams and update the CRDT view model. */
 	subscribeAllAgentSessionEvents: (onEvent: (agentId: string, event: HubSessionEvent) => void) => () => void;
@@ -615,6 +616,28 @@ export class SocketHubServer {
 		return count;
 	}
 
+	deliverGuestAgentMessage(fromAgentId: string, toAgentId: string, message: string): number {
+		const target = this.deps.getAgentRuntime(toAgentId);
+		if (!target) {
+			return 0;
+		}
+		let delivered = 0;
+		const sentAt = new Date().toISOString();
+		for (const peer of target.peerRegistry.list()) {
+			if (this.socketClientKinds.get(peer.socketId) !== "guest") {
+				continue;
+			}
+			this.io?.sockets.sockets.get(peer.socketId)?.emit("guest:agent_message", {
+				fromAgentId,
+				toAgentId,
+				message,
+				sentAt,
+			});
+			delivered += 1;
+		}
+		return delivered;
+	}
+
 	initializeViewDocumentsForAgents(agentIds: string[]): void {
 		for (const agentId of agentIds) {
 			this.initializeViewDocumentForAgent(agentId, { syncAgentList: false });
@@ -684,7 +707,8 @@ export class SocketHubServer {
 				}
 				const requestedAgentId =
 					typeof payload.agentId === "string" && payload.agentId.trim() ? payload.agentId.trim() : undefined;
-				const clientKind: SocketClientKind = payload.clientKind === "host" ? "host" : "peer";
+				const clientKind: SocketClientKind =
+					payload.clientKind === "host" ? "host" : payload.clientKind === "guest" ? "guest" : "peer";
 				if (typeof payload.token !== "string" || payload.token.trim().length === 0) {
 					ack({ ok: false, error: "Authentication token is required." });
 					return;
@@ -708,7 +732,16 @@ export class SocketHubServer {
 					ack({ ok: false, error: `Unknown agent id: ${effective}` });
 					return;
 				}
-				if (!this.deps.isAgentInScope(identity.scopeRootAgentId, effective)) {
+				const effectiveKind = this.deps.getAgentMetadata?.(effective)?.kind;
+				if (clientKind === "guest" && effectiveKind !== "guest") {
+					ack({ ok: false, error: `Guest clients can only bind guest agent ids: ${effective}` });
+					return;
+				}
+				if (clientKind !== "guest" && effectiveKind === "guest") {
+					ack({ ok: false, error: `Guest agent ids require clientKind "guest": ${effective}` });
+					return;
+				}
+				if (!this.deps.isAgentInScope(identity, effective)) {
 					ack({ ok: false, error: `Token scope does not allow access to agent id: ${effective}` });
 					return;
 				}
@@ -756,6 +789,9 @@ export class SocketHubServer {
 					identity,
 					scopeRootAgentId: identity.scopeRootAgentId,
 				});
+				if (clientKind === "guest") {
+					this.resetCrdtSyncForSocket(effective, socket);
+				}
 
 				if (replacedSocketId) {
 					this.io?.sockets.sockets.get(replacedSocketId)?.disconnect(true);
@@ -1154,7 +1190,7 @@ export class SocketHubServer {
 		try {
 			const targets: Array<{ agentId: string; adapter: HubAgentAdapter }> = [];
 			for (const agentId of targetAgentIds) {
-				if (!this.deps.isAgentInScope(identity.scopeRootAgentId, agentId)) {
+				if (!this.deps.isAgentInScope(identity, agentId)) {
 					ack({ ok: false, error: `Token scope does not allow source message target: ${agentId}` });
 					return;
 				}
@@ -1324,6 +1360,7 @@ export class SocketHubServer {
 			view.syncAgentList(agentIds);
 			for (const agentId of agentIds) {
 				this.updateAgentMetadataInView(agentId, view);
+				this.updateAgentSummaryInView(agentId, view);
 			}
 		}
 	}
@@ -1334,6 +1371,10 @@ export class SocketHubServer {
 			return;
 		}
 		view.updateAgentMetadata(agentId, metadata);
+	}
+
+	private updateAgentSummaryInView(agentId: string, view: HubViewDocument): void {
+		view.updateAgentSummary(agentId, this.deps.getAgentRuntime(agentId)?.sessionService.getSnapshot().summary);
 	}
 
 	private scheduleCrdtFanoutForAllAgents(): void {
@@ -1466,7 +1507,7 @@ export class SocketHubServer {
 			return;
 		}
 		const targetViewAgentIds =
-			event.type === "run_state_changed"
+			event.type === "run_state_changed" || event.type === "summary_changed"
 				? [...this.viewDocuments.keys()]
 				: this.getBoundSessionEventViewAgentIds(agentId);
 		if (targetViewAgentIds.length === 0) {
@@ -1649,7 +1690,7 @@ export class SocketHubServer {
 		ack: (response: ActionAck) => void,
 	):
 		| { bound: HubAgentSocketBinding; clientKind: "host"; hostId: string }
-		| { bound: HubAgentSocketBinding; clientKind: "peer"; peer: RegisteredPeer }
+		| { bound: HubAgentSocketBinding; clientKind: "peer" | "guest"; peer: RegisteredPeer }
 		| undefined {
 		const bound = this.getBoundRuntime(socket);
 		if (!bound) {
@@ -1944,8 +1985,8 @@ export function createMainOnlySocketHubServer(
 						root: true,
 					}
 				: undefined,
-		isAgentInScope: (scopeRootAgentId, targetAgentId) =>
-			scopeRootAgentId === ROOT_AGENT_ID && targetAgentId === ROOT_AGENT_ID,
+		isAgentInScope: (identity, targetAgentId) =>
+			identity.scopeRootAgentId === ROOT_AGENT_ID && targetAgentId === ROOT_AGENT_ID,
 		getHttpSessionService: () => sessionService,
 		subscribeAllAgentSessionEvents: (onEvent) => {
 			return sessionService.subscribe((event) => onEvent(ROOT_AGENT_ID, event));

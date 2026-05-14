@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { HubAuthTokenStore } from "../../src/hub/auth/token-store.js";
+import { HubAuthTokenStore, isAuthIdentityAllowedForAgent } from "../../src/hub/auth/token-store.js";
 import { getAuthConfigPath, getLocalPiDir } from "../../src/hub/config.js";
 
 const tempDirs: string[] = [];
@@ -64,10 +64,93 @@ describe("HubAuthTokenStore", () => {
 			user: "Li Xujie",
 			purpose: "Temporary Web UI guest access for code review.",
 			scopeRootAgentId: "child-a",
+			scope: { mode: "subtree", rootAgentId: "child-a" },
 			createdByAgentId: "child-a",
 			root: false,
 		});
 		expect(readFileSync(getAuthConfigPath(cwd), "utf8")).toContain(created.token);
+	});
+
+	it("persists explicit self scopes for scoped tokens", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "d-pi-auth-self-scope-"));
+		tempDirs.push(cwd);
+		const store = HubAuthTokenStore.open(cwd);
+		store.ensureRootToken();
+		const input: Parameters<HubAuthTokenStore["createScopedToken"]>[0] & {
+			scope: { mode: "self"; rootAgentId: string };
+		} = {
+			name: "guest token",
+			description: "Guest access for guest-a",
+			user: "Guest User",
+			purpose: "Connect ACP guest.",
+			scopeRootAgentId: "guest-a",
+			createdByAgentId: "child-a",
+			scope: { mode: "self", rootAgentId: "guest-a" },
+		};
+
+		const created = store.createScopedToken(input);
+		const identity = HubAuthTokenStore.open(cwd).authenticate(created.token);
+
+		expect(identity).toMatchObject({
+			scopeRootAgentId: "guest-a",
+			scope: { mode: "self", rootAgentId: "guest-a" },
+		});
+		expect(
+			isAuthIdentityAllowedForAgent(identity!, "guest-a", (scopeRootAgentId, targetAgentId) => {
+				return scopeRootAgentId === targetAgentId;
+			}),
+		).toBe(true);
+		expect(isAuthIdentityAllowedForAgent(identity!, "guest-child", () => true)).toBe(false);
+	});
+
+	it("treats legacy scopeRootAgentId-only tokens as subtree scopes", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "d-pi-auth-legacy-scope-"));
+		tempDirs.push(cwd);
+		const store = HubAuthTokenStore.open(cwd);
+		store.ensureRootToken();
+		const created = store.createScopedToken({
+			name: "legacy compatible",
+			description: "Legacy subtree access",
+			user: "Child User",
+			purpose: "Child subtree access.",
+			scopeRootAgentId: "child-a",
+			createdByAgentId: "child-a",
+		});
+
+		const identity = HubAuthTokenStore.open(cwd).authenticate(created.token);
+
+		expect(identity).toMatchObject({
+			scopeRootAgentId: "child-a",
+			scope: { mode: "subtree", rootAgentId: "child-a" },
+		});
+		expect(
+			isAuthIdentityAllowedForAgent(identity!, "child-grandchild", (scopeRootAgentId, targetAgentId) => {
+				return scopeRootAgentId === "child-a" && targetAgentId === "child-grandchild";
+			}),
+		).toBe(true);
+	});
+
+	it("revokes explicit-scope tokens that reference removed agents", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "d-pi-auth-revoke-explicit-"));
+		tempDirs.push(cwd);
+		const store = HubAuthTokenStore.open(cwd);
+		store.ensureRootToken();
+		const created = store.createScopedToken({
+			name: "explicit guest token",
+			description: "Explicit guest access",
+			user: "Guest",
+			purpose: "Connect ACP guest.",
+			scopeRootAgentId: "child-a",
+			createdByAgentId: "child-a",
+			scope: { mode: "explicit", rootAgentId: "child-a", agentIds: ["guest-a", "guest-b"] },
+		});
+
+		const revoked = store.revokeTokensScopedTo(["guest-a"]);
+
+		expect(revoked).toHaveLength(1);
+		expect(revoked[0]?.id).toBe(created.record.id);
+		expect(store.authenticate(created.token)).toBeUndefined();
+		expect(HubAuthTokenStore.open(cwd).authenticate(created.token)).toBeUndefined();
 	});
 
 	it("revokes scoped tokens from memory and disk", () => {

@@ -109,6 +109,7 @@ export { LIVE_RENDER_EVENT_TYPES } from "./transport/live-events.js";
 export type {
 	ActionAck,
 	ClientToServerEvents,
+	GuestAgentMessagePayload,
 	HubSkillDiagnostic,
 	HubSkillInfo,
 	HubWelcomePayload,

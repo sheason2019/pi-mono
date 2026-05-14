@@ -2,7 +2,7 @@ export const ROOT_AGENT_ID = "root";
 /** @deprecated Use ROOT_AGENT_ID. Kept only for transitional imports. */
 export const MAIN_AGENT_ID = ROOT_AGENT_ID;
 
-export type AgentKind = "root" | "child";
+export type AgentKind = "root" | "child" | "guest";
 export type AgentSpawnMode = "fork" | "spawn";
 export type AgentLifecycle = "persistent" | "temporary";
 export type HubExecutorPolicy = "enabled" | "disabled";
@@ -56,4 +56,14 @@ export interface CreateChildAgentRecordInput {
 	reportResult?: boolean;
 	hubExecutor?: HubExecutorPolicy;
 	executors?: AgentExecutorConfig[];
+}
+
+export interface CreateGuestAgentRecordInput {
+	id?: string;
+	parentId: string;
+	name?: string;
+	description?: string;
+	sessionFile: string;
+	createdBy?: string;
+	lifecycle?: AgentLifecycle;
 }

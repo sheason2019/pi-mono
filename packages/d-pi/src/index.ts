@@ -1,4 +1,4 @@
-export type DPiSubcommand = "hub" | "peer";
+export type DPiSubcommand = "hub" | "peer" | "guest";
 
 export interface ResolvedDPiCommand {
 	subcommand: DPiSubcommand;
@@ -7,7 +7,7 @@ export interface ResolvedDPiCommand {
 }
 
 function isSubcommand(value: string | undefined): value is DPiSubcommand {
-	return value === "hub" || value === "peer";
+	return value === "hub" || value === "peer" || value === "guest";
 }
 
 export function getDPiHelpText(appName = "d-pi"): string {
@@ -19,11 +19,13 @@ Usage:
 Examples:
   ${appName} hub serve
   ${appName} peer --hub http://127.0.0.1:4317
+  ${appName} guest acp --agent claude-guest -- claude acp
   ${appName} --version
 
 Commands:
   hub      Run the D-Pi hub with the remaining arguments
   peer     Run the D-Pi peer with the remaining arguments
+  guest    Run a restricted D-Pi guest bridge, including ACP clients
   version  Show D-Pi version and hub protocol version (also: --version, -v)
   help     Show this help
 `;

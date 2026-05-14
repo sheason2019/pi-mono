@@ -11,7 +11,7 @@ export interface HubWelcomePayload {
 	peerId: string;
 	/** Hub agent this peer is bound to (immutable after `peer:hello` ack), e.g. `root` or a child id. */
 	agentId: string;
-	clientKind?: "peer" | "host";
+	clientKind?: "peer" | "host" | "guest";
 	hubVersion: string;
 	protocolVersion: number;
 	toolNames: string[];
@@ -43,9 +43,10 @@ export interface PublicOrgAgentModel {
 export interface PublicOrgAgent {
 	id: string;
 	parentId?: string;
-	kind?: "root" | "child";
+	kind?: "root" | "child" | "guest";
 	lifecycle?: "persistent" | "temporary";
 	name?: string;
+	summary?: string;
 	activationStatus: PublicAgentActivationStatus;
 	isRunning: boolean;
 	peerCount: number;
@@ -73,6 +74,13 @@ export interface SourceMessagePayload {
 	sourceName: string;
 	text: string;
 	agentId?: string;
+}
+
+export interface GuestAgentMessagePayload {
+	fromAgentId: string;
+	toAgentId: string;
+	message: string;
+	sentAt: string;
 }
 
 export interface SessionAbortPayload {}
@@ -228,6 +236,7 @@ export interface ClientToServerEvents {
 
 export interface ServerToClientEvents {
 	"hub:welcome": (payload: HubWelcomePayload) => void;
+	"guest:agent_message": (payload: GuestAgentMessagePayload) => void;
 	"session:crdt_sync": (payload: SessionCrdtSyncPayload) => void;
 	"tool:call_request": (payload: ToolCallRequestPayload) => void;
 }

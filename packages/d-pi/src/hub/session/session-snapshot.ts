@@ -17,6 +17,7 @@ export interface HubRunTiming {
 }
 
 export const HUB_RUN_TIMING_CUSTOM_TYPE = "run_timing";
+export const HUB_AGENT_SUMMARY_CUSTOM_TYPE = "agent_summary";
 
 export interface HubSessionSnapshot {
 	header: SessionHeader;
@@ -31,6 +32,7 @@ export interface HubSessionSnapshot {
 	contextUsage?: ContextUsage;
 	lastError?: string;
 	diagnostics: string[];
+	summary?: string;
 	runStartedAt?: string;
 	lastRunStartedAt?: string;
 	lastRunEndedAt?: string;

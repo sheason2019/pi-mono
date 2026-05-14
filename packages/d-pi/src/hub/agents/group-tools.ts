@@ -19,12 +19,24 @@ const updateAgentDescriptionSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+const updateAgentSummarySchema = Type.Object(
+	{
+		summary: Type.String({
+			description:
+				"Current short-lived work summary for this agent. During batch work, use this as a progress field. Use an empty string to clear it when idle.",
+		}),
+	},
+	{ additionalProperties: false },
+);
+
 export type GroupToolInput = Static<typeof groupSchema>;
 export type UpdateAgentDescriptionToolInput = Static<typeof updateAgentDescriptionSchema>;
+export type UpdateAgentSummaryToolInput = Static<typeof updateAgentSummarySchema>;
 
 export interface GroupToolHost {
 	groupText(callerAgentId: string): Promise<string>;
 	updateAgentDescriptionText(callerAgentId: string, input: UpdateAgentDescriptionToolInput): Promise<string>;
+	updateAgentSummaryText(callerAgentId: string, input: UpdateAgentSummaryToolInput): Promise<string>;
 }
 
 export function createGroupToolDefinitions(getHost: () => GroupToolHost, callerAgentId: string): ToolDefinition[] {
@@ -43,6 +55,24 @@ export function createGroupToolDefinitions(getHost: () => GroupToolHost, callerA
 			parameters: groupSchema,
 			async execute() {
 				const text = await getHost().groupText(callerAgentId);
+				return { content: [{ type: "text" as const, text }], details: null };
+			},
+		}),
+		defineTool({
+			name: "update_agent_summary",
+			label: "update_agent_summary",
+			description:
+				"Update your own current work summary so other agents can decide whether to send urgent messages with flush=true. During batch work, use this as a progress field. This is short-lived status, not long-term capability description.",
+			promptSnippet:
+				"Keep update_agent_summary current while working; for batch tasks, use it as a concise progress field.",
+			promptGuidelines: [
+				"Call update_agent_summary when starting meaningful work, when switching focus, and when making progress through a batch.",
+				'For batch work, write progress such as "processing 3/12: validating socket fanout tests" so other agents can decide whether an urgent message should interrupt with flush=true.',
+				"Clear the summary with an empty string when you are idle or the work is complete.",
+			],
+			parameters: updateAgentSummarySchema,
+			async execute(_id, params) {
+				const text = await getHost().updateAgentSummaryText(callerAgentId, params);
 				return { content: [{ type: "text" as const, text }], details: null };
 			},
 		}),

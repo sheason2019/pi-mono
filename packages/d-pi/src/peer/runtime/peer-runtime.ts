@@ -30,12 +30,14 @@ export interface CreatePeerRuntimeOptions {
 	peerId?: string;
 	displayName?: string;
 	version: string;
+	clientKind?: "peer" | "guest";
 	executorEnabled?: boolean;
 	tools?: string[];
 	cwd?: string;
 	agentDir?: string;
 	onHandshakeLog?: SocketPeerClientOptions["onHandshakeLog"];
 	onToolCallRequest?: SocketPeerClientOptions["onToolCallRequest"];
+	onGuestAgentMessage?: SocketPeerClientOptions["onGuestAgentMessage"];
 }
 
 function isSourceResourceNotFoundError(error: unknown): boolean {
@@ -62,7 +64,7 @@ export class PeerRuntime {
 		this.agentDir = agentDir;
 		const configSnapshot = collectPeerConfigSnapshot({ cwd, agentDir });
 		this.configSnapshot = configSnapshot;
-		const executorEnabled = options.executorEnabled !== false;
+		const executorEnabled = options.clientKind === "guest" ? false : options.executorEnabled !== false;
 		this.baseTools = executorEnabled
 			? (options.tools ?? ["read", "write", "edit", "bash", "grep", "find", "ls"])
 			: [];
@@ -71,6 +73,7 @@ export class PeerRuntime {
 			...(options.agentId !== undefined && options.agentId !== "" ? { agentId: options.agentId } : {}),
 			token: options.token ?? "",
 			protocolVersion: HUB_PROTOCOL_VERSION,
+			...(options.clientKind !== undefined ? { clientKind: options.clientKind } : {}),
 			displayName: options.displayName,
 			version: options.version,
 			platform: process.platform,
@@ -88,6 +91,7 @@ export class PeerRuntime {
 			appState: this.appState,
 			uiState: this.uiState,
 			onHandshakeLog: options.onHandshakeLog,
+			onGuestAgentMessage: options.onGuestAgentMessage,
 			onToolCallRequest:
 				options.onToolCallRequest ??
 				(async (payload, socket) => {
@@ -118,9 +122,13 @@ export class PeerRuntime {
 			}
 			const config = this.createPeerConfigPayload();
 			await this.client.connect();
-			await this.client.uploadConfig(config);
+			if (this.hello.clientKind !== "guest") {
+				await this.client.uploadConfig(config);
+			}
 			await this.client.waitForInitialSync();
-			await this.peerSourceRuntime.start();
+			if (this.hello.clientKind !== "guest") {
+				await this.peerSourceRuntime.start();
+			}
 		} catch (error) {
 			if (peerMcpStarted) {
 				await this.peerMcpRuntime.stop().catch(() => {});

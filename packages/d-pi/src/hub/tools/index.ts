@@ -15,14 +15,17 @@ export interface CreateHubToolsOptions {
 	/** Additional tools scoped to a single agent. */
 	agentTools?: ToolDefinition[];
 	allowHostExecutor?: boolean | (() => boolean);
+	includePeerTools?: boolean;
 }
 
 export function createHubTools(options: CreateHubToolsOptions): ToolDefinition[] {
 	const { cwd, peerToolBridge, sharedTools, agentTools, allowHostExecutor } = options;
-	return [
-		...createPeerToolDefinitions(cwd, peerToolBridge, { allowHostExecutor }),
-		createPeerMcpRouterToolDefinition(peerToolBridge),
-		...(sharedTools ?? []),
-		...(agentTools ?? []),
-	];
+	const peerTools =
+		options.includePeerTools === false
+			? []
+			: [
+					...createPeerToolDefinitions(cwd, peerToolBridge, { allowHostExecutor }),
+					createPeerMcpRouterToolDefinition(peerToolBridge),
+				];
+	return [...peerTools, ...(sharedTools ?? []), ...(agentTools ?? [])];
 }
