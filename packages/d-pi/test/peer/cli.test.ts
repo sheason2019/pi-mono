@@ -9,11 +9,18 @@ vi.mock("../../src/peer/commands/send-message.js", () => ({
 import { runPiPeerCli } from "../../src/peer/cli.js";
 
 describe("d-pi peer CLI runner", () => {
-	it("prints the one-shot assistant response", async () => {
+	it("prints only the one-shot assistant response to stdout", async () => {
 		sendOneShotPeerMessage.mockResolvedValueOnce("assistant answer");
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 		try {
 			await expect(runPiPeerCli(["--hub", "http://hub", "--agent", "writer", "-p", "hello"])).resolves.toBe(0);
+			expect(sendOneShotPeerMessage).toHaveBeenCalledWith(
+				expect.not.objectContaining({
+					onHandshakeLog: expect.any(Function),
+				}),
+			);
 			expect(sendOneShotPeerMessage).toHaveBeenCalledWith(
 				expect.objectContaining({
 					hubUrl: "http://hub",
@@ -22,9 +29,13 @@ describe("d-pi peer CLI runner", () => {
 					noResponse: undefined,
 				}),
 			);
-			expect(log).toHaveBeenCalledWith("assistant answer");
+			expect(stdout).toHaveBeenCalledWith("assistant answer\n");
+			expect(log).not.toHaveBeenCalled();
+			expect(error).not.toHaveBeenCalled();
 		} finally {
 			log.mockRestore();
+			error.mockRestore();
+			stdout.mockRestore();
 		}
 	});
 

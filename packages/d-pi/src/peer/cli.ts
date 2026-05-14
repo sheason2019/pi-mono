@@ -30,12 +30,9 @@ export async function runPiPeerCli(args: string[] = process.argv.slice(2)): Prom
 			message: options.message,
 			noResponse: options.noResponse,
 			version: VERSION,
-			onHandshakeLog: (message) => {
-				console.error(`[d-pi peer] ${message}`);
-			},
 		});
 		if (response !== undefined) {
-			console.log(response);
+			process.stdout.write(`${response}\n`);
 		}
 		return 0;
 	}

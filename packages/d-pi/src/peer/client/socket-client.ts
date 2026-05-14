@@ -39,6 +39,7 @@ export interface SocketPeerClientOptions {
 	reconnectDelayMs?: number;
 	handshakeStageTimeoutMs?: number;
 	onHandshakeLog?: (message: string) => void;
+	reconnection?: boolean;
 	onToolCallRequest?: (
 		payload: ToolCallRequestPayload,
 		socket: Socket<ServerToClientEvents, ClientToServerEvents>,
@@ -91,7 +92,7 @@ export class SocketPeerClient {
 			transports: ["websocket", "polling"],
 			tryAllTransports: true,
 			timeout: handshakeStageTimeoutMs + 1000,
-			reconnection: true,
+			reconnection: this.options.reconnection ?? true,
 			reconnectionDelay: this.options.reconnectDelayMs ?? 5000,
 			reconnectionDelayMax: this.options.reconnectDelayMs ?? 5000,
 		});
@@ -266,7 +267,11 @@ export class SocketPeerClient {
 
 	async disconnect(): Promise<void> {
 		this.manualDisconnect = true;
-		this.socket?.disconnect();
+		const socket = this.socket;
+		socket?.removeAllListeners();
+		socket?.io.removeAllListeners();
+		socket?.disconnect();
+		socket?.close();
 		this.socket = undefined;
 		this.initialCrdtSynced = false;
 		this.clearPendingCrdtSyncMessages();

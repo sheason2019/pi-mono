@@ -54,6 +54,7 @@ export async function sendOneShotPeerMessage(options: SendOneShotPeerMessageOpti
 		appState,
 		uiState,
 		onHandshakeLog: options.onHandshakeLog,
+		reconnection: false,
 	});
 
 	try {
