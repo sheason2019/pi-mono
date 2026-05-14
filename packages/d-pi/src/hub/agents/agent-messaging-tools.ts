@@ -28,14 +28,13 @@ const sendSchema = Type.Object(
 			Type.String({ minLength: 1, description: "Single target agent id." }),
 			Type.Array(Type.String({ minLength: 1 }), {
 				minItems: 1,
-				description: "One or more target agent ids (duplicates removed).",
+				description: "Target agent ids (deduplicated).",
 			}),
 		]),
 		message: Type.String({ minLength: 1, description: "Message text to deliver to each target." }),
 		flush: Type.Optional(
 			Type.Boolean({
-				description:
-					"When true, immediately flush each target agent queue. This interrupts a currently running target turn before delivering the queued message.",
+				description: "Interrupt running target turn to deliver immediately.",
 			}),
 		),
 	},

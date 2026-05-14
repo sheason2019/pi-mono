@@ -2,12 +2,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
 
-const inheritedResourceSelectionSchema = Type.Union([
-	Type.Literal(true, { description: "Inherit every host resource of this type." }),
-	Type.Array(Type.String({ minLength: 1 }), {
-		description: "Names of host resources to inherit. Names are matched before hub namespacing.",
-	}),
-]);
+const inheritedResourceSelectionSchema = Type.Union([Type.Literal(true), Type.Array(Type.String({ minLength: 1 }))]);
 
 const childExtendsSchema = Type.Object(
 	{
@@ -16,24 +11,20 @@ const childExtendsSchema = Type.Object(
 	},
 	{
 		additionalProperties: false,
-		description: "Only valid for child agents. Explicitly inherit selected stateful resources from the host agent.",
 	},
 );
 
 const hubExecutorSchema = Type.Union([Type.Literal("enabled"), Type.Literal("disabled")], {
-	description: 'Whether this child may use the hub host executor via peer-id "host".',
+	description: "Host executor policy.",
 });
 
 const nodeContainerExecutorSchema = Type.Object(
 	{
-		id: Type.String({ minLength: 1, description: "Stable executor config id." }),
+		id: Type.String({ minLength: 1 }),
 		type: Type.Literal("node-container"),
-		peerId: Type.String({ minLength: 1, description: "Peer id used by the containerized d-pi peer." }),
-		image: Type.Optional(Type.String({ minLength: 1, description: "Docker image. Defaults to node:22." })),
-		command: Type.Array(Type.String(), {
-			minItems: 1,
-			description: 'Command executed inside the container, for example ["npx", "d-pi", "peer"].',
-		}),
+		peerId: Type.String({ minLength: 1 }),
+		image: Type.Optional(Type.String({ minLength: 1 })),
+		command: Type.Array(Type.String(), { minItems: 1 }),
 		env: Type.Optional(Type.Record(Type.String(), Type.String())),
 		workdir: Type.Optional(Type.String({ minLength: 1 })),
 		containerName: Type.Optional(Type.String({ minLength: 1 })),
@@ -44,30 +35,28 @@ const nodeContainerExecutorSchema = Type.Object(
 const createChildSchema = Type.Object(
 	{
 		mode: Type.Union([Type.Literal("spawn"), Type.Literal("fork")], {
-			description: '"spawn" starts a blank child session; "fork" branches from the current agent session.',
+			description: "spawn: blank session; fork: branch from current.",
 		}),
-		name: Type.Optional(Type.String({ description: "Display name for the child agent." })),
-		description: Type.Optional(Type.String({ description: "Short description of the child." })),
+		name: Type.Optional(Type.String({ description: "Display name." })),
+		description: Type.Optional(Type.String({ description: "Short description." })),
 		background: Type.Optional(
 			Type.String({
 				minLength: 1,
-				description: 'Required when mode="spawn". Stored as a visible user message in the new child session.',
+				description: "Initial user message for spawn mode.",
 			}),
 		),
-		instructions: Type.Optional(Type.String({ description: 'Optional user message appended when mode="fork".' })),
+		instructions: Type.Optional(Type.String({ description: "User message for fork mode." })),
 		extends: Type.Optional(childExtendsSchema),
 		hubExecutor: Type.Optional(hubExecutorSchema),
 		executors: Type.Optional(Type.Array(nodeContainerExecutorSchema)),
 		temporary: Type.Optional(
 			Type.Boolean({
-				description:
-					"When true, create a temporary child that runs the requested task once, optionally reports back, then is removed after it becomes idle.",
+				description: "Create a temporary child that self-destructs after completing its task.",
 			}),
 		),
 		reportResult: Type.Optional(
 			Type.Boolean({
-				description:
-					"For temporary children only. Defaults to true; when false, skip reporting the final assistant text back to the parent before deletion.",
+				description: "For temporary children. Default true; set false to skip result reporting.",
 			}),
 		),
 	},
@@ -76,17 +65,16 @@ const createChildSchema = Type.Object(
 
 const createTemporaryChildSchema = Type.Object(
 	{
-		name: Type.Optional(Type.String({ description: "Display name for the temporary child agent." })),
-		description: Type.Optional(Type.String({ description: "Short description of the temporary child task." })),
+		name: Type.Optional(Type.String({ description: "Display name for the temporary child." })),
+		description: Type.Optional(Type.String({ description: "Short description of the task." })),
 		background: Type.String({
 			minLength: 1,
-			description: "Task/background message for the temporary child. It is stored as the initial user message.",
+			description: "Initial user message.",
 		}),
 		extends: Type.Optional(childExtendsSchema),
 		reportResult: Type.Optional(
 			Type.Boolean({
-				description:
-					"Defaults to true; when false, skip reporting the final assistant text back to the parent before deletion.",
+				description: "Default true; set false to skip result reporting.",
 			}),
 		),
 	},
@@ -111,8 +99,8 @@ const childLifecycleSchema = Type.Object(
 const updateChildSchema = Type.Object(
 	{
 		agentId: Type.String({ minLength: 1, description: "Target child agent id." }),
-		name: Type.Optional(Type.String({ description: "Updated display name for the child agent." })),
-		description: Type.Optional(Type.String({ description: "Updated short description of the child agent." })),
+		name: Type.Optional(Type.String({ description: "Updated display name." })),
+		description: Type.Optional(Type.String({ description: "Updated description." })),
 		hubExecutor: Type.Optional(hubExecutorSchema),
 		executors: Type.Optional(Type.Array(nodeContainerExecutorSchema)),
 	},
@@ -124,7 +112,7 @@ const renameChildSchema = Type.Object(
 		agentId: Type.String({ minLength: 1, description: "Current child agent id." }),
 		newAgentId: Type.String({
 			minLength: 1,
-			description: "New child agent id. It is normalized with the same id rules used when creating child agents.",
+			description: "New agent id (normalized).",
 		}),
 	},
 	{ additionalProperties: false },
@@ -135,8 +123,7 @@ const removeChildSchema = Type.Object(
 		agentId: Type.String({ minLength: 1, description: "Target child agent id." }),
 		deleteFiles: Type.Optional(
 			Type.Boolean({
-				description:
-					"When true, delete the child agent directory after removing the registry entry. Defaults to false.",
+				description: "Delete agent directory. Default false.",
 			}),
 		),
 	},
@@ -145,18 +132,18 @@ const removeChildSchema = Type.Object(
 
 const searchMemorySchema = Type.Object(
 	{
-		query: Type.String({ minLength: 1, description: "Search query for historical session memory." }),
-		agentId: Type.Optional(Type.String({ minLength: 1, description: "Optional target agent id to search." })),
+		query: Type.String({ minLength: 1, description: "Search query." }),
+		agentId: Type.Optional(Type.String({ minLength: 1, description: "Target agent id." })),
 		limit: Type.Optional(
 			Type.Number({
 				minimum: 1,
 				maximum: 100,
-				description: "Max number of memory hits to return.",
+				description: "Max hits to return.",
 			}),
 		),
 		includeToolResults: Type.Optional(
 			Type.Boolean({
-				description: "When false, omits tool-result messages and assistant tool-call messages.",
+				description: "Include tool results. Default true.",
 			}),
 		),
 	},
@@ -167,20 +154,20 @@ const listMemorySchema = Type.Object(
 	{
 		memoryIds: Type.Array(Type.String({ minLength: 1 }), {
 			minItems: 1,
-			description: "Memory ids returned by search_memory.",
+			description: "Ids from search_memory.",
 		}),
 		contextBefore: Type.Optional(
 			Type.Number({
 				minimum: 0,
 				maximum: 20,
-				description: "Number of memory entries to include before each hit in the same session.",
+				description: "Entries before each hit.",
 			}),
 		),
 		contextAfter: Type.Optional(
 			Type.Number({
 				minimum: 0,
 				maximum: 20,
-				description: "Number of memory entries to include after each hit in the same session.",
+				description: "Entries after each hit.",
 			}),
 		),
 	},
@@ -297,8 +284,7 @@ export function createChildAgentToolDefinitions(
 		defineTool({
 			name: "stop_child_agent",
 			label: "stop_child_agent",
-			description:
-				"Stop a running child agent like `docker stop`: disconnect its peers and stop its runtime, while keeping its registry entry and .child-agent files so it can be started again.",
+			description: "Stop a running child agent (keeps registry for restart).",
 			parameters: childLifecycleSchema,
 			async execute(_id, params) {
 				const text = await getHost().stopChildAgent(callerAgentId, params);
@@ -308,8 +294,7 @@ export function createChildAgentToolDefinitions(
 		defineTool({
 			name: "start_child_agent",
 			label: "start_child_agent",
-			description:
-				"Start a stopped child agent like `docker start`: create and start a runtime for an existing child registry entry.",
+			description: "Start a stopped child agent from an existing registry entry.",
 			parameters: childLifecycleSchema,
 			async execute(_id, params) {
 				const text = await getHost().startChildAgent(callerAgentId, params);
@@ -320,7 +305,7 @@ export function createChildAgentToolDefinitions(
 			name: "remove_child_agent",
 			label: "remove_child_agent",
 			description:
-				"Remove a child agent like `docker rm`: stop it if needed, remove it from the registry, and optionally delete its .child-agent files with deleteFiles=true.",
+				"Remove a child agent: stop it if needed, remove from registry, optionally delete files with deleteFiles=true.",
 			parameters: removeChildSchema,
 			async execute(_id, params) {
 				const text = await getHost().removeChildAgent(callerAgentId, params);

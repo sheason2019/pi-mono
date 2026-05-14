@@ -4,7 +4,7 @@ export const PEER_ID_FIELD = "peer-id";
 
 export const peerRouteSchema = Type.Object({
 	[PEER_ID_FIELD]: Type.String({
-		description: 'ID of the executor for this tool call. Use "host" for the pi-hub host or a peer-id from group.',
+		description: 'Executor id. Use "host" for pi-hub or peer-id from group.',
 	}),
 });
 

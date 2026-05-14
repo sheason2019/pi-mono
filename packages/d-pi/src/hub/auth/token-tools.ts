@@ -7,34 +7,33 @@ const createAgentTokenSchema = Type.Object(
 		name: Type.String({ minLength: 1, description: "Human-readable token name." }),
 		description: Type.String({
 			minLength: 1,
-			description: "Short purpose and audience description for this token.",
+			description: "Token purpose.",
 		}),
 		user: Type.String({
 			minLength: 1,
-			description: "Real user, guest, service, or audience that will use this token.",
+			description: "User or audience.",
 		}),
 		purpose: Type.String({
 			minLength: 1,
-			description: "Concrete reason this user or audience needs access.",
+			description: "Access reason.",
 		}),
 		scopeMode: Type.Optional(
 			Type.Union(
 				[Type.Literal("subtree"), Type.Literal("self"), Type.Literal("direct_children"), Type.Literal("explicit")],
 				{
-					description:
-						"Optional token scope mode. Defaults to subtree for this agent. Use self for a single guest agent token.",
+					description: "Scope mode. Default subtree.",
 				},
 			),
 		),
 		scopeAgentId: Type.Optional(
 			Type.String({
 				minLength: 1,
-				description: "Scope root agent id. Defaults to the calling agent id.",
+				description: "Scope root. Default: calling agent.",
 			}),
 		),
 		agentIds: Type.Optional(
 			Type.Array(Type.String({ minLength: 1 }), {
-				description: 'Allowed agent ids when scopeMode is "explicit".',
+				description: "Ids for explicit scope.",
 			}),
 		),
 	},

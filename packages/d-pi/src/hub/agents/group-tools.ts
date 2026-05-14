@@ -9,11 +9,11 @@ const updateAgentDescriptionSchema = Type.Object(
 		agentId: Type.Optional(
 			Type.String({
 				minLength: 1,
-				description: "Target child agent id. Child agents may omit this to update their own description.",
+				description: "Target agent id. Omit to update self.",
 			}),
 		),
 		description: Type.String({
-			description: "Concise summary of this child agent's role, current responsibilities, and useful capabilities.",
+			description: "Role, responsibilities, and capabilities.",
 		}),
 	},
 	{ additionalProperties: false },
@@ -22,8 +22,7 @@ const updateAgentDescriptionSchema = Type.Object(
 const updateAgentSummarySchema = Type.Object(
 	{
 		summary: Type.String({
-			description:
-				"Current short-lived work summary for this agent. During batch work, use this as a progress field. Use an empty string to clear it when idle.",
+			description: "Short-lived work summary. Clear when idle.",
 		}),
 	},
 	{ additionalProperties: false },
