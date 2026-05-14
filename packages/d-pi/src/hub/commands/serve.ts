@@ -3,19 +3,31 @@ import { HubRuntime } from "../runtime/hub-runtime.js";
 import { HUB_PROTOCOL_VERSION } from "../transport/protocol.js";
 import { HubHeadlessMode } from "../tui/hub-headless-mode.js";
 import { type HubLogEntry, HubLogStore } from "../tui/hub-log.js";
-import { type HubServeMode, HubTuiMode, type HubTuiModeDeps } from "../tui/hub-tui-mode.js";
+import type { HubServeMode, HubTuiModeDeps } from "../tui/hub-tui-mode.js";
 import type { HubTuiStatusCounts, HubTuiViewModel } from "../tui/hub-tui-view.js";
 import { WorkspaceNotInitializedError } from "../workspace.js";
 
 export interface RunServeOptions {
 	allowHubNoModel?: boolean;
-	panel?: boolean;
-	createMode?: (deps: HubTuiModeDeps) => HubServeMode;
 	createHeadlessMode?: (deps: HubTuiModeDeps) => HubServeMode;
 }
 
-export function parseHubServeArgs(args: string[]): Pick<RunServeOptions, "allowHubNoModel" | "panel"> {
-	return { allowHubNoModel: args.includes("--allow-hub-no-model"), panel: args.includes("--panel") };
+export function parseHubServeArgs(args: string[]): Pick<RunServeOptions, "allowHubNoModel"> {
+	return { allowHubNoModel: args.includes("--allow-hub-no-model") };
+}
+
+function logPhase(
+	logs: HubLogStore,
+	message: string,
+	details?: Record<string, string | number | boolean | null>,
+): void {
+	const line = details
+		? `${message} (${Object.entries(details)
+				.map(([k, v]) => `${k}=${v}`)
+				.join(", ")})`
+		: message;
+	console.log(`[d-pi hub] ${line}`);
+	logs.info(message, details);
 }
 
 function buildHubServeView(
@@ -74,20 +86,33 @@ function countRuntimeStatuses(statuses: Array<{ status: keyof HubTuiStatusCounts
 
 export async function runServe(cwd: string = process.cwd(), options: RunServeOptions = {}): Promise<number> {
 	try {
+		const overallStart = Date.now();
 		const logs = HubLogStore.openWorkspace(cwd);
-		logs.info(`hub ${VERSION} 启动中 (protocol v${HUB_PROTOCOL_VERSION})`);
-		logs.info(`Node.js ${process.version} on ${process.platform}/${process.arch}`);
+		logPhase(logs, "hub启动: 初始化日志", { version: VERSION, protocolVersion: HUB_PROTOCOL_VERSION });
+		logPhase(logs, "Node.js运行时", { version: process.version, platform: process.platform, arch: process.arch });
+
+		logPhase(logs, "hub启动: 初始化运行时");
 		const runtimeOpenStartedAt = Date.now();
 		const runtime = HubRuntime.open(cwd, { logs });
-		logs.info("hub startup timing", { phase: "runtime_open", durationMs: Date.now() - runtimeOpenStartedAt });
-		let mode: HubServeMode | undefined;
+		logPhase(logs, "hub startup timing", { phase: "runtime_open", durationMs: Date.now() - runtimeOpenStartedAt });
+
+		logPhase(logs, "hub启动: 初始化智能体适配器");
 		const adapterStartStartedAt = Date.now();
 		const adapter = await runtime.initializeAgentAdapter();
-		logs.info("hub startup timing", {
+		const adapterDuration = Date.now() - adapterStartStartedAt;
+		logPhase(logs, "hub startup timing", {
 			phase: "initialize_agent_adapter",
-			durationMs: Date.now() - adapterStartStartedAt,
+			durationMs: adapterDuration,
 		});
+
+		logPhase(logs, "hub启动: 检查可用模型");
+		const modelsStartedAt = Date.now();
 		const availableModels = await adapter.getAvailableModels();
+		logPhase(logs, "hub startup timing", {
+			phase: "check_available_models",
+			durationMs: Date.now() - modelsStartedAt,
+			models: availableModels.length,
+		});
 		if (availableModels.length === 0 && !options.allowHubNoModel) {
 			const message =
 				"Hub has no available models. Configure at least one hub-side model or pass --allow-hub-no-model to start anyway.";
@@ -96,34 +121,44 @@ export async function runServe(cwd: string = process.cwd(), options: RunServeOpt
 			await runtime.stop();
 			return 1;
 		}
+
+		logPhase(logs, "hub启动: 监听Socket");
 		const socketStartStartedAt = Date.now();
 		const address = await runtime.start();
-		logs.info("hub startup timing", { phase: "runtime_start", durationMs: Date.now() - socketStartStartedAt });
-		logs.info(`hub ${VERSION} 已监听 http://${address.host}:${address.port}`);
+		const socketDuration = Date.now() - socketStartStartedAt;
+		logPhase(logs, "hub startup timing", { phase: "runtime_start", durationMs: socketDuration });
+		logPhase(logs, `hub已监听 ${`http://${address.host}:${address.port}`}`, {
+			host: address.host,
+			port: address.port,
+		});
 		if (runtime.rootTokenForDisplay) {
-			logs.warning(`Root token: ${runtime.rootTokenForDisplay}`);
-			logs.warning("Root token is shown once; store it securely.");
+			console.warn(`[d-pi hub] Root token: ${runtime.rootTokenForDisplay}`);
+			console.warn("[d-pi hub] Root token is shown once; store it securely.");
 		}
 		for (const record of runtime.getAgentRecords()) {
 			const status = runtime.getAgentHydrationStatus(record.id);
-			logs.info(`${record.id} agent ${status === "running" ? "已启动" : "等待后台加载"}`);
+			logPhase(logs, `${record.id} agent ${status === "running" ? "已启动" : "等待后台加载"}`);
 		}
 		if (adapter.diagnostics.length > 0) {
-			logs.warning(`root agent 诊断信息 ${adapter.diagnostics.length} 条`);
+			logPhase(logs, "root agent 诊断信息", { diagnostics: adapter.diagnostics.length });
 		}
+
+		let mode: HubServeMode | undefined;
 		try {
-			const createMode = options.panel
-				? (options.createMode ?? ((deps) => new HubTuiMode(deps)))
-				: (options.createHeadlessMode ?? ((deps) => new HubHeadlessMode(deps)));
-			mode = createMode({
+			logPhase(logs, "hub启动: 进入服务模式");
+			const modeStartedAt = Date.now();
+			const factory = options.createHeadlessMode ?? ((deps) => new HubHeadlessMode(deps));
+			mode = factory({
 				getView: () => buildHubServeView(runtime, address, logs),
 				subscribe: (listener) => {
 					return runtime.subscribeAllSessionServiceEvents((_agentId) => listener());
 				},
 			});
+			logPhase(logs, "hub startup timing", { phase: "mode_create", durationMs: Date.now() - modeStartedAt });
+			logPhase(logs, "hub startup timing", { phase: "overall_startup", durationMs: Date.now() - overallStart });
 			return await mode.run();
 		} finally {
-			logs.info("hub 正在停止");
+			console.log("[d-pi hub] 正在停止...");
 			await mode?.stop();
 			await runtime.stop();
 		}

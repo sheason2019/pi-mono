@@ -7,7 +7,7 @@ describe("pi-hub CLI runner", () => {
 		try {
 			await expect(runPiHubCli(["help"])).resolves.toBe(0);
 			expect(log).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
-			expect(log).toHaveBeenCalledWith(expect.stringContaining("serve --panel"));
+			expect(log).toHaveBeenCalledWith(expect.stringContaining("serve"));
 		} finally {
 			log.mockRestore();
 		}

@@ -35,14 +35,6 @@ const LEVEL_LABELS: Record<HubLogLevel, string> = {
 	error: "错误",
 };
 
-const LEVEL_COLORS: Record<HubLogLevel, string> = {
-	info: "\u001b[36m",
-	warning: "\u001b[33m",
-	error: "\u001b[31m",
-};
-
-const ANSI_RESET = "\u001b[0m";
-
 const MESSAGE_LABELS: Record<string, string> = {
 	"agent error": "智能体错误",
 	"assistant first delta timing": "首个助手增量耗时",
@@ -144,24 +136,6 @@ export function formatHubLogEntry(entry: HubLogEntry): string {
 	return details ? `${base}: ${details}` : base;
 }
 
-export interface FormatHubLogEntryForTuiOptions {
-	color?: boolean;
-}
-
-export function formatHubLogEntryForTui(entry: HubLogEntry, options: FormatHubLogEntryForTuiOptions = {}): string {
-	const d = new Date(entry.timestamp);
-	const plainTime = `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
-	const time = options.color ? `\u001b[90m${plainTime}${ANSI_RESET}` : plainTime;
-	const label = LEVEL_LABELS[entry.level];
-	const level = options.color ? `${LEVEL_COLORS[entry.level]}${label}${ANSI_RESET}` : label;
-	const base = `${time} ${level} ${formatHubLogMessage(entry.message)}`;
-	if (entry.details === undefined) {
-		return base;
-	}
-	const details = formatHubLogDetailsMultiline(entry.details);
-	return details.length > 0 ? `${base}\n${details}` : base;
-}
-
 function formatHubLogMessage(message: string): string {
 	return MESSAGE_LABELS[message] ?? message;
 }
@@ -176,23 +150,6 @@ function formatHubLogDetails(details: HubLogEntry["details"]): string | undefine
 	return Object.entries(details)
 		.map(([key, value]) => `${formatHubLogDetailKey(key)}=${formatHubLogDetailValue(key, value)}`)
 		.join(" ");
-}
-
-function formatHubLogDetailsMultiline(details: HubLogEntry["details"]): string {
-	if (details === undefined) {
-		return "";
-	}
-	if (typeof details === "string") {
-		return `  ${details}`;
-	}
-	const chunks = Object.entries(details).map(
-		([key, value]) => `${formatHubLogDetailKey(key)}=${formatHubLogDetailValue(key, value)}`,
-	);
-	const lines: string[] = [];
-	for (let i = 0; i < chunks.length; i += 3) {
-		lines.push(`  ${chunks.slice(i, i + 3).join("  ")}`);
-	}
-	return lines.join("\n");
 }
 
 function formatHubLogDetailKey(key: string): string {

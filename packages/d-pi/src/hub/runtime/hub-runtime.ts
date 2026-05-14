@@ -708,22 +708,28 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 		let mainStartAttempted = false;
 
 		try {
+			console.log("[d-pi hub] 启动MCP服务...");
 			const mcpStartedAt = Date.now();
 			await this.mcpHost.start();
+			const mcpDuration = Date.now() - mcpStartedAt;
+			console.log(`[d-pi hub] MCP服务已启动 (${mcpDuration}ms)`);
 			this.log("info", "hub startup timing", {
 				phase: "root_mcp",
 				agentId: ROOT_AGENT_ID,
-				durationMs: Date.now() - mcpStartedAt,
+				durationMs: mcpDuration,
 			});
 
+			console.log("[d-pi hub] 启动根智能体...");
 			mainStartAttempted = true;
 			const rootStartedAt = Date.now();
 			await main.start();
 			mainStartCompleted = true;
+			const rootDuration = Date.now() - rootStartedAt;
+			console.log(`[d-pi hub] 根智能体已启动 (${rootDuration}ms)`);
 			this.log("info", "hub startup timing", {
 				phase: "root_agent_start",
 				agentId: ROOT_AGENT_ID,
-				durationMs: Date.now() - rootStartedAt,
+				durationMs: rootDuration,
 			});
 			this.wireLiveEventsForAgent(ROOT_AGENT_ID, main);
 
