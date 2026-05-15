@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@sheason/pi-agent-core";
 import "@mariozechner/mini-lit/dist/MarkdownBlock.js";
 import type { AssistantMessage, ToolResultMessage } from "@sheason/pi-ai";
 import { html, LitElement, type TemplateResult } from "lit";

@@ -8,4 +8,5 @@ import { restoreSandboxEnv } from "./restore-sandbox-env.js";
 
 restoreSandboxEnv();
 
+await import("./register-bedrock.js");
 await import("../cli.js");

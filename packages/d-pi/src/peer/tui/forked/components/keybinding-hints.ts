@@ -1,4 +1,4 @@
-import { getKeybindings, type Keybinding, type KeyId } from "@earendil-works/pi-tui";
+import { getKeybindings, type Keybinding, type KeyId } from "@sheason/pi-tui";
 import { theme } from "../../components/index.js";
 import type { RemoteInteractiveCapabilities } from "../../interactive/remote-interactive-capabilities.js";
 

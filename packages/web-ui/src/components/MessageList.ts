@@ -1,4 +1,4 @@
-import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentTool } from "@sheason/pi-agent-core";
 import type {
 	AssistantMessage as AssistantMessageType,
 	ToolResultMessage as ToolResultMessageType,

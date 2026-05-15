@@ -1,5 +1,5 @@
 import { stripVTControlCharacters } from "node:util";
-import { setKeybindings } from "@earendil-works/pi-tui";
+import { setKeybindings } from "@sheason/pi-tui";
 import { describe, expect, it } from "vitest";
 import { initTheme, KeybindingsManager } from "../../src/peer/tui/components/index.js";
 import { ForkedFooterComponent } from "../../src/peer/tui/forked/components/footer.js";

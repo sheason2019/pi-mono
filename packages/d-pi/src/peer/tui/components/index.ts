@@ -1,5 +1,5 @@
-import type { MarkdownTheme } from "@earendil-works/pi-tui";
 import * as PiCodingAgent from "@sheason/pi-coding-agent";
+import type { MarkdownTheme } from "@sheason/pi-tui";
 
 export { KeybindingsManager } from "../keybindings.js";
 

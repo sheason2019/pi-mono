@@ -17,9 +17,9 @@ export default defineConfig({
 		alias: [
 			{ find: /^@sheason\/pi-ai$/, replacement: aiSrcIndex },
 			{ find: /^@sheason\/pi-ai\/oauth$/, replacement: aiSrcOAuth },
-			{ find: /^@earendil-works\/pi-agent-core$/, replacement: agentSrcIndex },
+			{ find: /^@sheason\/pi-agent-core$/, replacement: agentSrcIndex },
 			{ find: /^@sheason\/pi-coding-agent$/, replacement: codingAgentSrcIndex },
-			{ find: /^@earendil-works\/pi-tui$/, replacement: tuiSrcIndex },
+			{ find: /^@sheason\/pi-tui$/, replacement: tuiSrcIndex },
 			{ find: /^@mariozechner\/pi-agent-core$/, replacement: agentSrcIndex },
 			{ find: /^@mariozechner\/pi-tui$/, replacement: tuiSrcIndex },
 		],

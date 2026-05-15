@@ -14,18 +14,7 @@ import type {
 	AgentToolUpdateCallback,
 	ThinkingLevel,
 	ToolExecutionMode,
-} from "@earendil-works/pi-agent-core";
-import type {
-	AutocompleteItem,
-	AutocompleteProvider,
-	Component,
-	EditorComponent,
-	EditorTheme,
-	KeyId,
-	OverlayHandle,
-	OverlayOptions,
-	TUI,
-} from "@earendil-works/pi-tui";
+} from "@sheason/pi-agent-core";
 import type {
 	Api,
 	AssistantMessageEvent,
@@ -39,6 +28,17 @@ import type {
 	TextContent,
 	ToolResultMessage,
 } from "@sheason/pi-ai";
+import type {
+	AutocompleteItem,
+	AutocompleteProvider,
+	Component,
+	EditorComponent,
+	EditorTheme,
+	KeyId,
+	OverlayHandle,
+	OverlayOptions,
+	TUI,
+} from "@sheason/pi-tui";
 import type { Static, TSchema } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.js";
 import type { BashResult } from "../bash-executor.js";

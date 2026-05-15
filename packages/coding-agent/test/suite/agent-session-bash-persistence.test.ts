@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool } from "@sheason/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall } from "@sheason/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";

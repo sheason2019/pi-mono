@@ -1,5 +1,5 @@
 import * as Automerge from "@automerge/automerge";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@sheason/pi-agent-core";
 import type { AssistantMessage } from "@sheason/pi-ai";
 import type { AgentToolResult, SessionEntry } from "@sheason/pi-coding-agent";
 import type { RegisteredPeer } from "../peers/peer-types.js";

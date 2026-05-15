@@ -6,8 +6,8 @@
 		"moduleResolution": "bundler",
 		"paths": {
 			"*": ["./*"],
-			"@earendil-works/pi-agent-core": ["../agent/src/index.ts"],
-			"@earendil-works/pi-web-ui": ["../web-ui/src/index.ts"]
+			"@sheason/pi-agent-core": ["../agent/src/index.ts"],
+			"@sheason/pi-web-ui": ["../web-ui/src/index.ts"]
 		},
 		"strict": true,
 		"skipLibCheck": true,

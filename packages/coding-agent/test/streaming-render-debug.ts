@@ -4,8 +4,8 @@
  * Run with: npx tsx test/streaming-render-debug.ts
  */
 
-import { ProcessTerminal, TUI } from "@earendil-works/pi-tui";
 import type { AssistantMessage } from "@sheason/pi-ai";
+import { ProcessTerminal, TUI } from "@sheason/pi-tui";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";

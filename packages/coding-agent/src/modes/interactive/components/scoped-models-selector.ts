@@ -1,3 +1,4 @@
+import type { Model } from "@sheason/pi-ai";
 import {
 	Container,
 	type Focusable,
@@ -8,8 +9,7 @@ import {
 	matchesKey,
 	Spacer,
 	Text,
-} from "@earendil-works/pi-tui";
-import type { Model } from "@sheason/pi-ai";
+} from "@sheason/pi-tui";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 import { keyText } from "./keybinding-hints.js";

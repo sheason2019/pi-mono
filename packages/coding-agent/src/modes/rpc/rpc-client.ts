@@ -5,7 +5,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import type { AgentEvent, AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentMessage, ThinkingLevel } from "@sheason/pi-agent-core";
 import type { ImageContent } from "@sheason/pi-ai";
 import type { SessionStats } from "../../core/agent-session.js";
 import type { BashResult } from "../../core/bash-executor.js";

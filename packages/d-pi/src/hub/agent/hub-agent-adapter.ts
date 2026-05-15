@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, ThinkingLevel } from "@sheason/pi-agent-core";
 import type { Api, Model } from "@sheason/pi-ai";
 import {
 	type AgentSessionEvent,

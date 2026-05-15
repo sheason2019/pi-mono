@@ -5,7 +5,7 @@
  * and provides a transformer to convert them to LLM-compatible messages.
  */
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@sheason/pi-agent-core";
 import type { ImageContent, Message, TextContent } from "@sheason/pi-ai";
 
 export const COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
@@ -78,7 +78,7 @@ export interface ArtifactMessage {
 }
 
 // Extend CustomAgentMessages via declaration merging
-declare module "@earendil-works/pi-agent-core" {
+declare module "@sheason/pi-agent-core" {
 	interface CustomAgentMessages {
 		bashExecution: BashExecutionMessage;
 		custom: CustomMessage;

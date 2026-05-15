@@ -13,7 +13,7 @@ import type { Attachment } from "../utils/attachment-utils.js";
 import { formatUsage } from "../utils/format.js";
 import { i18n } from "../utils/i18n.js";
 import "./ThinkingBlock.js";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool } from "@sheason/pi-agent-core";
 
 export type UserMessageWithAttachments = {
 	role: "user-with-attachments";
@@ -32,7 +32,7 @@ export interface ArtifactMessage {
 	timestamp: string;
 }
 
-declare module "@earendil-works/pi-agent-core" {
+declare module "@sheason/pi-agent-core" {
 	interface CustomAgentMessages {
 		"user-with-attachments": UserMessageWithAttachments;
 		artifact: ArtifactMessage;
@@ -296,7 +296,7 @@ export class AbortedMessage extends LitElement {
 // Default Message Transformer
 // ============================================================================
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@sheason/pi-agent-core";
 import type { Message } from "@sheason/pi-ai";
 
 /**

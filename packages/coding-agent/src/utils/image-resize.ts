@@ -1,5 +1,5 @@
-import { getImageDimensions } from "@earendil-works/pi-tui";
 import type { ImageContent } from "@sheason/pi-ai";
+import { getImageDimensions } from "@sheason/pi-tui";
 import { applyExifOrientation } from "./exif-orientation.js";
 import { loadPhoton } from "./photon.js";
 

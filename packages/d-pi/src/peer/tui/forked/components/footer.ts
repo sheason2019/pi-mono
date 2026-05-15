@@ -1,4 +1,4 @@
-import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { type Component, truncateToWidth, visibleWidth } from "@sheason/pi-tui";
 import { theme } from "../../components/index.js";
 import type { RemoteInteractiveView } from "../../interactive/remote-interactive-view.js";
 import { keyText } from "./keybinding-hints.js";

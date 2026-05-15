@@ -1,4 +1,4 @@
-import { type Component, type Focusable, SelectList, truncateToWidth } from "@earendil-works/pi-tui";
+import { type Component, type Focusable, SelectList, truncateToWidth } from "@sheason/pi-tui";
 import type { McpRuntimeStatus } from "../../../../hub/index.js";
 import { theme } from "../../components/index.js";
 import { getForkedSelectListTheme, renderForkedPanelBorder } from "./selector-themes.js";

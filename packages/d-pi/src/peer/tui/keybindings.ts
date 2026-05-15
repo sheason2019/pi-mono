@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Keybinding, KeybindingDefinitions, KeybindingsConfig, KeyId } from "@earendil-works/pi-tui";
 import * as PiCodingAgent from "@sheason/pi-coding-agent";
+import type { Keybinding, KeybindingDefinitions, KeybindingsConfig, KeyId } from "@sheason/pi-tui";
 
-declare module "@earendil-works/pi-tui" {
+declare module "@sheason/pi-tui" {
 	interface Keybindings {
 		"app.connection.retry": true;
 	}

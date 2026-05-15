@@ -8,9 +8,9 @@
  * Token stats come from ctx.sessionManager/ctx.model (already accessible).
  */
 
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { AssistantMessage } from "@sheason/pi-ai";
 import type { ExtensionAPI } from "@sheason/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@sheason/pi-tui";
 
 export default function (pi: ExtensionAPI) {
 	let enabled = false;

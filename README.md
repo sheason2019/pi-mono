@@ -21,7 +21,7 @@
 This is the home of the pi agent harness project including our self extensible coding agent.
 
 * **[@sheason/pi-coding-agent](packages/coding-agent)**: Interactive coding agent CLI
-* **[@earendil-works/pi-agent-core](packages/agent)**: Agent runtime with tool calling and state management
+* **[@sheason/pi-agent-core](packages/agent)**: Agent runtime with tool calling and state management
 * **[@sheason/pi-ai](packages/ai)**: Unified multi-provider LLM API (OpenAI, Anthropic, Google, …)
 
 To learn more about pi:
@@ -50,10 +50,10 @@ I regularly publish my own `pi-mono` work sessions here:
 | Package | Description |
 |---------|-------------|
 | **[@sheason/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
+| **[@sheason/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
 | **[@sheason/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
-| **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
-| **[@earendil-works/pi-web-ui](packages/web-ui)** | Web components for AI chat interfaces |
+| **[@sheason/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
+| **[@sheason/pi-web-ui](packages/web-ui)** | Web components for AI chat interfaces |
 
 For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
 

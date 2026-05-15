@@ -1,5 +1,6 @@
 import "@mariozechner/mini-lit/dist/ThemeToggle.js";
-import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
+import { Agent, type AgentMessage } from "@sheason/pi-agent-core";
+import { getModel, type TextContent } from "@sheason/pi-ai";
 import {
 	type AgentState,
 	ApiKeyPromptDialog,
@@ -17,8 +18,7 @@ import {
 	SettingsDialog,
 	SettingsStore,
 	setAppStorage,
-} from "@earendil-works/pi-web-ui";
-import { getModel, type TextContent } from "@sheason/pi-ai";
+} from "@sheason/pi-web-ui";
 import { html, render } from "lit";
 import { Bell, History, Plus, Settings } from "lucide";
 import "./app.css";
@@ -349,7 +349,7 @@ const renderApp = () => {
 								agent.steer(
 									createSystemNotification(
 										"This is a custom message! It appears in the UI but is never sent to the LLM.",
-									),
+									) as unknown as Parameters<typeof agent.steer>[0],
 								);
 							}
 						},

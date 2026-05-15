@@ -110,8 +110,26 @@ let bedrockProviderModulePromise:
 	| Promise<LazyProviderModule<"bedrock-converse-stream", BedrockOptions, SimpleStreamOptions>>
 	| undefined;
 
-/** Indirection to prevent bundlers from tracing the dynamic import at build time. */
+interface BedrockProviderModule {
+	streamBedrock: (
+		model: Model<"bedrock-converse-stream">,
+		context: Context,
+		options?: BedrockOptions,
+	) => AsyncIterable<AssistantMessageEvent>;
+	streamSimpleBedrock: (
+		model: Model<"bedrock-converse-stream">,
+		context: Context,
+		options?: SimpleStreamOptions,
+	) => AsyncIterable<AssistantMessageEvent>;
+}
+
 const importNodeOnlyProvider = (specifier: string): Promise<unknown> => import(specifier);
+
+let bedrockProviderModuleOverride: BedrockProviderModule | undefined;
+
+export function setBedrockProviderModule(module: BedrockProviderModule): void {
+	bedrockProviderModuleOverride = module;
+}
 
 function forwardStream(target: AssistantMessageEventStream, source: AsyncIterable<AssistantMessageEvent>): void {
 	(async () => {
@@ -307,8 +325,14 @@ function loadOpenAIResponsesProviderModule(): Promise<
 function loadBedrockProviderModule(): Promise<
 	LazyProviderModule<"bedrock-converse-stream", BedrockOptions, SimpleStreamOptions>
 > {
+	if (bedrockProviderModuleOverride) {
+		return Promise.resolve({
+			stream: bedrockProviderModuleOverride.streamBedrock,
+			streamSimple: bedrockProviderModuleOverride.streamSimpleBedrock,
+		});
+	}
 	bedrockProviderModulePromise ||= importNodeOnlyProvider("./amazon-bedrock.js").then((module: unknown) => {
-		const provider = module as typeof import("./amazon-bedrock.js");
+		const provider = module as BedrockProviderModule;
 		return {
 			stream: provider.streamBedrock,
 			streamSimple: provider.streamSimpleBedrock,

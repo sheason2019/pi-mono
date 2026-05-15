@@ -1,4 +1,4 @@
-import type { SelectListTheme, SettingsListTheme } from "@earendil-works/pi-tui";
+import type { SelectListTheme, SettingsListTheme } from "@sheason/pi-tui";
 import { theme } from "../../components/index.js";
 
 export function getForkedSelectListTheme(): SelectListTheme {

@@ -652,5 +652,5 @@ MIT
 ## See Also
 
 - [@sheason/pi-ai](https://www.npmjs.com/package/@sheason/pi-ai): Core LLM toolkit
-- [@earendil-works/pi-agent-core](https://www.npmjs.com/package/@earendil-works/pi-agent-core): Agent framework
-- [@earendil-works/pi-tui](https://www.npmjs.com/package/@earendil-works/pi-tui): Terminal UI components
+- [@sheason/pi-agent-core](https://www.npmjs.com/package/@sheason/pi-agent-core): Agent framework
+- [@sheason/pi-tui](https://www.npmjs.com/package/@sheason/pi-tui): Terminal UI components

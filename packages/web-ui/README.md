@@ -1,6 +1,6 @@
-# @earendil-works/pi-web-ui
+# @sheason/pi-web-ui
 
-Reusable web UI components for building AI chat interfaces powered by [@sheason/pi-ai](../ai) and [@earendil-works/pi-agent-core](../agent).
+Reusable web UI components for building AI chat interfaces powered by [@sheason/pi-ai](../ai) and [@sheason/pi-agent-core](../agent).
 
 Built with [mini-lit](https://github.com/badlogic/mini-lit) web components and Tailwind CSS v4.
 
@@ -17,7 +17,7 @@ Built with [mini-lit](https://github.com/badlogic/mini-lit) web components and T
 ## Installation
 
 ```bash
-npm install @earendil-works/pi-web-ui @earendil-works/pi-agent-core @sheason/pi-ai
+npm install @sheason/pi-web-ui @sheason/pi-agent-core @sheason/pi-ai
 ```
 
 ## Quick Start
@@ -25,7 +25,7 @@ npm install @earendil-works/pi-web-ui @earendil-works/pi-agent-core @sheason/pi-
 See the [example](./example) directory for a complete working application.
 
 ```typescript
-import { Agent } from '@earendil-works/pi-agent-core';
+import { Agent } from '@sheason/pi-agent-core';
 import { getModel } from '@sheason/pi-ai';
 import {
   ChatPanel,
@@ -37,8 +37,8 @@ import {
   setAppStorage,
   defaultConvertToLlm,
   ApiKeyPromptDialog,
-} from '@earendil-works/pi-web-ui';
-import '@earendil-works/pi-web-ui/app.css';
+} from '@sheason/pi-web-ui';
+import '@sheason/pi-web-ui/app.css';
 
 // Set up storage
 const settings = new SettingsStore();
@@ -169,7 +169,7 @@ Properties:
 ### Agent (from pi-agent-core)
 
 ```typescript
-import { Agent } from '@earendil-works/pi-agent-core';
+import { Agent } from '@sheason/pi-agent-core';
 
 const agent = new Agent({
   initialState: {
@@ -259,7 +259,7 @@ interface SystemNotification {
   timestamp: string;
 }
 
-declare module '@earendil-works/pi-agent-core' {
+declare module '@sheason/pi-agent-core' {
   interface CustomAgentMessages {
     'system-notification': SystemNotification;
   }
@@ -287,7 +287,7 @@ function myConvertToLlm(messages: AgentMessage[]): Message[] {
 `convertToLlm` transforms app messages to LLM-compatible format:
 
 ```typescript
-import { defaultConvertToLlm, convertAttachments } from '@earendil-works/pi-web-ui';
+import { defaultConvertToLlm, convertAttachments } from '@sheason/pi-web-ui';
 
 // defaultConvertToLlm handles:
 // - UserMessageWithAttachments → user message with image/text content blocks
@@ -302,7 +302,7 @@ import { defaultConvertToLlm, convertAttachments } from '@earendil-works/pi-web-
 Execute JavaScript in a sandboxed browser environment:
 
 ```typescript
-import { createJavaScriptReplTool } from '@earendil-works/pi-web-ui';
+import { createJavaScriptReplTool } from '@sheason/pi-web-ui';
 
 const replTool = createJavaScriptReplTool();
 
@@ -320,7 +320,7 @@ agent.state.tools = [replTool];
 Extract text from documents at URLs:
 
 ```typescript
-import { createExtractDocumentTool } from '@earendil-works/pi-web-ui';
+import { createExtractDocumentTool } from '@sheason/pi-web-ui';
 
 const extractTool = createExtractDocumentTool();
 extractTool.corsProxyUrl = 'https://corsproxy.io/?';
@@ -343,7 +343,7 @@ agent.state.tools = [artifactsPanel.tool];
 ### Custom Tool Renderers
 
 ```typescript
-import { registerToolRenderer, type ToolRenderer } from '@earendil-works/pi-web-ui';
+import { registerToolRenderer, type ToolRenderer } from '@sheason/pi-web-ui';
 
 const myRenderer: ToolRenderer = {
   render(params, result, isStreaming) {
@@ -371,7 +371,7 @@ import {
   CustomProvidersStore,
   setAppStorage,
   getAppStorage,
-} from '@earendil-works/pi-web-ui';
+} from '@sheason/pi-web-ui';
 
 // Create stores
 const settings = new SettingsStore();
@@ -466,7 +466,7 @@ const all = await storage.customProviders.getAll();
 Load and process files:
 
 ```typescript
-import { loadAttachment, type Attachment } from '@earendil-works/pi-web-ui';
+import { loadAttachment, type Attachment } from '@sheason/pi-web-ui';
 
 // From File input
 const file = inputElement.files[0];
@@ -498,7 +498,7 @@ Supported formats: PDF, DOCX, XLSX, PPTX, images, text files.
 For browser environments with CORS restrictions:
 
 ```typescript
-import { createStreamFn, shouldUseProxyForProvider, isCorsError } from '@earendil-works/pi-web-ui';
+import { createStreamFn, shouldUseProxyForProvider, isCorsError } from '@sheason/pi-web-ui';
 
 // AgentInterface auto-configures proxy from settings
 // For manual setup:
@@ -517,7 +517,7 @@ agent.streamFn = createStreamFn(async () => {
 ### SettingsDialog
 
 ```typescript
-import { SettingsDialog, ProvidersModelsTab, ProxyTab, ApiKeysTab } from '@earendil-works/pi-web-ui';
+import { SettingsDialog, ProvidersModelsTab, ProxyTab, ApiKeysTab } from '@sheason/pi-web-ui';
 
 SettingsDialog.open([
   new ProvidersModelsTab(), // Custom providers + model list
@@ -529,7 +529,7 @@ SettingsDialog.open([
 ### SessionListDialog
 
 ```typescript
-import { SessionListDialog } from '@earendil-works/pi-web-ui';
+import { SessionListDialog } from '@sheason/pi-web-ui';
 
 SessionListDialog.open(
   async (sessionId) => { /* load session */ },
@@ -540,7 +540,7 @@ SessionListDialog.open(
 ### ApiKeyPromptDialog
 
 ```typescript
-import { ApiKeyPromptDialog } from '@earendil-works/pi-web-ui';
+import { ApiKeyPromptDialog } from '@sheason/pi-web-ui';
 
 const success = await ApiKeyPromptDialog.prompt('anthropic');
 ```
@@ -548,7 +548,7 @@ const success = await ApiKeyPromptDialog.prompt('anthropic');
 ### ModelSelector
 
 ```typescript
-import { ModelSelector } from '@earendil-works/pi-web-ui';
+import { ModelSelector } from '@sheason/pi-web-ui';
 
 ModelSelector.open(currentModel, (selectedModel) => {
   agent.state.model = selectedModel;
@@ -560,7 +560,7 @@ ModelSelector.open(currentModel, (selectedModel) => {
 Import the pre-built CSS:
 
 ```typescript
-import '@earendil-works/pi-web-ui/app.css';
+import '@sheason/pi-web-ui/app.css';
 ```
 
 Or use Tailwind with custom config:
@@ -575,7 +575,7 @@ Or use Tailwind with custom config:
 ## Internationalization
 
 ```typescript
-import { i18n, setLanguage, translations } from '@earendil-works/pi-web-ui';
+import { i18n, setLanguage, translations } from '@sheason/pi-web-ui';
 
 // Add translations
 translations.de = {

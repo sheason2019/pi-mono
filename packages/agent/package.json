@@ -1,5 +1,5 @@
 {
-	"name": "@earendil-works/pi-agent-core",
+	"name": "@sheason/pi-agent-core",
 	"version": "0.74.1",
 	"description": "General-purpose agent with transport abstraction, state management, and attachment support",
 	"type": "module",

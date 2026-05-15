@@ -1,5 +1,5 @@
-import { Container, Markdown, type MarkdownTheme, Spacer, Text } from "@earendil-works/pi-tui";
 import type { AssistantMessage } from "@sheason/pi-ai";
+import { Container, Markdown, type MarkdownTheme, Spacer, Text } from "@sheason/pi-tui";
 import { getMarkdownTheme, theme } from "../theme/theme.js";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";

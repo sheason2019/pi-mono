@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@sheason/pi-agent-core";
 import type { AssistantMessage, Usage } from "@sheason/pi-ai";
 import { getModel } from "@sheason/pi-ai";
 import { readFileSync } from "fs";

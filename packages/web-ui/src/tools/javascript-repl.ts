@@ -1,5 +1,5 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { i18n } from "@mariozechner/mini-lit";
+import type { AgentTool } from "@sheason/pi-agent-core";
 import type { ToolResultMessage } from "@sheason/pi-ai";
 import { html } from "lit";
 import { createRef, ref } from "lit/directives/ref.js";

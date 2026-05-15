@@ -1,4 +1,4 @@
-import type { AgentTool, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentTool, ThinkingLevel } from "@sheason/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, type Model } from "@sheason/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";

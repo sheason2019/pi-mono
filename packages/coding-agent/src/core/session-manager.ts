@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@sheason/pi-agent-core";
 import type { ImageContent, Message, TextContent } from "@sheason/pi-ai";
 import { randomUUID } from "crypto";
 import {

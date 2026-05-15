@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ProcessTerminal, resetCapabilitiesCache, setCapabilities } from "@earendil-works/pi-tui";
+import { ProcessTerminal, resetCapabilitiesCache, setCapabilities } from "@sheason/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HubSkillInfo, McpRuntimeStatus, SourceRuntimeStatus } from "../../src/hub/index.js";
 import { initTheme } from "../../src/peer/tui/components/index.js";

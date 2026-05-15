@@ -1,17 +1,8 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { createPublishPackageJson, writePublishPackage } from "../scripts/write-publish-package.mjs";
+import { describe, expect, it } from "vitest";
 
 const packageRoot = join(import.meta.dirname, "..");
-const tempDirs: string[] = [];
-
-afterEach(() => {
-	for (const dir of tempDirs.splice(0)) {
-		rmSync(dir, { recursive: true, force: true });
-	}
-});
 
 function readSourceFiles(dir: string): string[] {
 	const files: string[] = [];
@@ -37,10 +28,12 @@ describe("d-pi package distribution", () => {
 			main?: string;
 			private?: boolean;
 			scripts?: Record<string, string>;
+			type?: string;
 			types?: string;
 		};
 
-		expect(pkg.private).toBe(true);
+		expect(pkg.private).toBeFalsy();
+		expect(pkg.type).toBe("module");
 		expect(pkg.main).toBeUndefined();
 		expect(pkg.types).toBeUndefined();
 		expect(pkg.devDependencies ?? {}).not.toHaveProperty("@rspack/core");
@@ -50,35 +43,12 @@ describe("d-pi package distribution", () => {
 		expect(pkg.scripts?.build).toContain("tsgo -p tsconfig.build.json");
 		expect(pkg.scripts?.build).toContain("chmod +x dist/cli.js");
 		expect(pkg.scripts?.build).toContain("copy-assets");
-		expect(pkg.scripts?.build).toContain("write-publish-package.mjs");
+		expect(pkg.scripts?.build).not.toContain("write-publish-package.mjs");
 		expect(pkg.scripts?.["build:deps"]).toContain("npm --prefix ../tui run build");
 		expect(pkg.scripts?.["build:deps"]).toContain("npm --prefix ../ai run build");
 		expect(pkg.scripts?.["build:deps"]).toContain("npm --prefix ../coding-agent run build");
-		expect(pkg.scripts?.["publish:dry"]).toContain("cd dist && npm pack --dry-run");
-		expect(pkg.scripts?.["publish:dist"]).toContain("cd dist && npm publish --access public");
-	});
-
-	it("generates a publish manifest for the dist package", () => {
-		const sourcePackage = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
-		const manifest = createPublishPackageJson(sourcePackage);
-
-		expect(manifest.name).toBe("@sheason/d-pi");
-		expect(manifest.type).toBe("module");
-		expect(manifest.bin).toEqual({ "d-pi": "cli.js" });
-		expect(manifest.private).toBeUndefined();
-		expect(manifest.dependencies).toHaveProperty("@sheason/pi-ai");
-		expect(manifest.dependencies).toHaveProperty("@sheason/pi-coding-agent");
-		expect(manifest.dependencies).toHaveProperty("@earendil-works/pi-agent-core");
-		expect(manifest.dependencies).toHaveProperty("@earendil-works/pi-tui");
-		expect(manifest.devDependencies).toBeUndefined();
-		expect(manifest.scripts).toBeUndefined();
-		expect(manifest.files).toBeUndefined();
-
-		const distDir = mkdtempSync(join(tmpdir(), "d-pi-publish-dist-"));
-		tempDirs.push(distDir);
-		writePublishPackage({ packageRoot, distDir });
-		const written = JSON.parse(readFileSync(join(distDir, "package.json"), "utf8"));
-		expect(written).toEqual(manifest);
+		expect(pkg.scripts?.["publish:dry"]).toContain("npm pack --dry-run");
+		expect(pkg.scripts?.["publish:dist"]).toContain("npm publish --access public");
 	});
 
 	it("exposes upstream packages as runtime dependencies", () => {
@@ -88,8 +58,8 @@ describe("d-pi package distribution", () => {
 
 		expect(pkg.dependencies ?? {}).toHaveProperty("@sheason/pi-ai");
 		expect(pkg.dependencies ?? {}).toHaveProperty("@sheason/pi-coding-agent");
-		expect(pkg.dependencies ?? {}).toHaveProperty("@earendil-works/pi-agent-core");
-		expect(pkg.dependencies ?? {}).toHaveProperty("@earendil-works/pi-tui");
+		expect(pkg.dependencies ?? {}).toHaveProperty("@sheason/pi-agent-core");
+		expect(pkg.dependencies ?? {}).toHaveProperty("@sheason/pi-tui");
 	});
 
 	it("does not reference removed asset-only packages from source", () => {

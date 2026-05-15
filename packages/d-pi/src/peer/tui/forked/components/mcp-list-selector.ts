@@ -1,4 +1,4 @@
-import { type Component, type Focusable, getKeybindings, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { type Component, type Focusable, getKeybindings, truncateToWidth, visibleWidth } from "@sheason/pi-tui";
 import type { McpRuntimeStatus } from "../../../../hub/index.js";
 import { theme } from "../../components/index.js";
 import { renderForkedPanelBorder } from "./selector-themes.js";

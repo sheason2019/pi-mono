@@ -8,11 +8,11 @@ import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import * as _bundledPiAgentCore from "@earendil-works/pi-agent-core";
-import type { KeyId } from "@earendil-works/pi-tui";
-import * as _bundledPiTui from "@earendil-works/pi-tui";
+import * as _bundledPiAgentCore from "@sheason/pi-agent-core";
 import * as _bundledPiAi from "@sheason/pi-ai";
 import * as _bundledPiAiOauth from "@sheason/pi-ai/oauth";
+import type { KeyId } from "@sheason/pi-tui";
+import * as _bundledPiTui from "@sheason/pi-tui";
 import { createJiti } from "jiti";
 // Static imports of packages that extensions may use.
 // These MUST be static so Bun bundles them into the compiled binary.
@@ -48,11 +48,14 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 	"@sinclair/typebox": _bundledTypebox,
 	"@sinclair/typebox/compile": _bundledTypeboxCompile,
 	"@sinclair/typebox/value": _bundledTypeboxValue,
-	"@earendil-works/pi-agent-core": _bundledPiAgentCore,
-	"@earendil-works/pi-tui": _bundledPiTui,
+	"@sheason/pi-agent-core": _bundledPiAgentCore,
+	"@sheason/pi-tui": _bundledPiTui,
 	"@sheason/pi-ai": _bundledPiAi,
 	"@sheason/pi-ai/oauth": _bundledPiAiOauth,
 	"@sheason/pi-coding-agent": _bundledPiCodingAgent,
+	"@mariozechner/pi-ai": _bundledPiAi,
+	"@mariozechner/pi-ai/oauth": _bundledPiAiOauth,
+	"@mariozechner/pi-coding-agent": _bundledPiCodingAgent,
 	"@mariozechner/pi-agent-core": _bundledPiAgentCore,
 	"@mariozechner/pi-tui": _bundledPiTui,
 };
@@ -85,17 +88,20 @@ function getAliases(): Record<string, string> {
 	};
 
 	const piCodingAgentEntry = packageIndex;
-	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "@earendil-works/pi-agent-core");
-	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@earendil-works/pi-tui");
+	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "@sheason/pi-agent-core");
+	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@sheason/pi-tui");
 	const piAiEntry = resolveWorkspaceOrImport("ai/dist/index.js", "@sheason/pi-ai");
 	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "@sheason/pi-ai/oauth");
 
 	_aliases = {
 		"@sheason/pi-coding-agent": piCodingAgentEntry,
-		"@earendil-works/pi-agent-core": piAgentCoreEntry,
-		"@earendil-works/pi-tui": piTuiEntry,
+		"@sheason/pi-agent-core": piAgentCoreEntry,
+		"@sheason/pi-tui": piTuiEntry,
 		"@sheason/pi-ai": piAiEntry,
 		"@sheason/pi-ai/oauth": piAiOauthEntry,
+		"@mariozechner/pi-ai": piAiEntry,
+		"@mariozechner/pi-ai/oauth": piAiOauthEntry,
+		"@mariozechner/pi-coding-agent": piCodingAgentEntry,
 		"@mariozechner/pi-agent-core": piAgentCoreEntry,
 		"@mariozechner/pi-tui": piTuiEntry,
 		typebox: typeboxEntry,

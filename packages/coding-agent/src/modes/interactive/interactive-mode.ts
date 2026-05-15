@@ -7,7 +7,17 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@sheason/pi-agent-core";
+import {
+	type AssistantMessage,
+	getProviders,
+	type ImageContent,
+	type Message,
+	type Model,
+	type OAuthProviderId,
+	type OAuthSelectPrompt,
+	type TextContent,
+} from "@sheason/pi-ai";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -18,7 +28,7 @@ import type {
 	OverlayHandle,
 	OverlayOptions,
 	SlashCommand,
-} from "@earendil-works/pi-tui";
+} from "@sheason/pi-tui";
 import {
 	CombinedAutocompleteProvider,
 	type Component,
@@ -37,17 +47,7 @@ import {
 	TruncatedText,
 	TUI,
 	visibleWidth,
-} from "@earendil-works/pi-tui";
-import {
-	type AssistantMessage,
-	getProviders,
-	type ImageContent,
-	type Message,
-	type Model,
-	type OAuthProviderId,
-	type OAuthSelectPrompt,
-	type TextContent,
-} from "@sheason/pi-ai";
+} from "@sheason/pi-tui";
 import { spawn, spawnSync } from "child_process";
 import {
 	APP_NAME,

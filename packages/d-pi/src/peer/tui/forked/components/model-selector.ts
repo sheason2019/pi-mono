@@ -1,11 +1,4 @@
-import {
-	type Component,
-	type Focusable,
-	fuzzyFilter,
-	getKeybindings,
-	Input,
-	truncateToWidth,
-} from "@earendil-works/pi-tui";
+import { type Component, type Focusable, fuzzyFilter, getKeybindings, Input, truncateToWidth } from "@sheason/pi-tui";
 import { theme } from "../../components/index.js";
 import type { RemoteInteractiveSessionView } from "../../interactive/remote-interactive-view.js";
 import { renderForkedPanelBorder } from "./selector-themes.js";

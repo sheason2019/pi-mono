@@ -13,7 +13,7 @@
   "dependencies": {
     "@mariozechner/mini-lit": "^0.2.0",
     "@sheason/pi-ai": "file:../../ai",
-    "@earendil-works/pi-web-ui": "file:../",
+    "@sheason/pi-web-ui": "file:../",
     "lit": "^3.3.1",
     "lucide": "^0.544.0"
   },

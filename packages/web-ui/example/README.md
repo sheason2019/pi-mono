@@ -1,6 +1,6 @@
 # Pi Web UI - Example
 
-This is a minimal example showing how to use `@earendil-works/pi-web-ui` in a web application.
+This is a minimal example showing how to use `@sheason/pi-web-ui` in a web application.
 
 ## Setup
 

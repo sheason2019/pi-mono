@@ -1,4 +1,4 @@
-import { type Component, type Focusable, SelectList, truncateToWidth } from "@earendil-works/pi-tui";
+import { type Component, type Focusable, SelectList, truncateToWidth } from "@sheason/pi-tui";
 import { theme } from "../../components/index.js";
 import type { RemoteInteractiveSessionView } from "../../interactive/remote-interactive-view.js";
 import { getForkedSelectListTheme, renderForkedPanelBorder } from "./selector-themes.js";

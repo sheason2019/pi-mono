@@ -1,4 +1,4 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ThinkingLevel } from "@sheason/pi-agent-core";
 import type { Api, Model } from "@sheason/pi-ai";
 import type { AgentSessionServices, ToolDefinition } from "@sheason/pi-coding-agent";
 import { HubAgentAdapter } from "../agent/hub-agent-adapter.js";

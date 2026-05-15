@@ -11,7 +11,7 @@ import {
 	Text,
 	TruncatedText,
 	TUI,
-} from "@earendil-works/pi-tui";
+} from "@sheason/pi-tui";
 import type { MessageSource } from "../../../hub/agent/types.js";
 import type { HubSkillDiagnostic, HubSkillInfo, McpRuntimeStatus, SourceRuntimeStatus } from "../../../hub/index.js";
 import { type PeerCommandParseResult, parsePeerCommand } from "../../commands/index.js";
@@ -48,7 +48,7 @@ import { RemoteSourceListSelectorComponent } from "./components/source-list-sele
 
 const CONNECTION_RETRY_ACTION = "app.connection.retry" as Parameters<CustomEditor["onAction"]>[0];
 
-declare module "@earendil-works/pi-tui" {
+declare module "@sheason/pi-tui" {
 	interface Keybindings {
 		"app.connection.retry": true;
 	}

@@ -1,5 +1,5 @@
 import { basename, dirname } from "node:path";
-import { type Component, type Focusable, getKeybindings, truncateToWidth } from "@earendil-works/pi-tui";
+import { type Component, type Focusable, getKeybindings, truncateToWidth } from "@sheason/pi-tui";
 import type { HubSkillInfo } from "../../../../hub/index.js";
 import { theme } from "../../components/index.js";
 import { renderForkedPanelBorder } from "./selector-themes.js";
