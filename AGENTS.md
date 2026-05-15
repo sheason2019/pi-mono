@@ -175,24 +175,45 @@ Create provider file exporting:
 
 ## Releasing
 
-**Lockstep versioning**: All packages always share the same version number. Every release updates all packages together.
+### Versioning Scheme
 
-**Version semantics** (no major releases):
+This monorepo has two categories of packages with different versioning strategies:
 
-- `patch`: Bug fixes and new features
-- `minor`: API breaking changes
+**Upstream-forked packages** (pi-ai, pi-agent-core, pi-coding-agent, pi-tui, pi-web-ui):
+- Format: `<upstream-version>-sheason.<N>` (e.g., `0.74.1-sheason.0`, `0.74.1-sheason.1`)
+- The base version (`0.74.1`) matches the upstream release we forked from
+- The `-sheason.N` suffix is our independent iteration counter
+- When syncing a new upstream version, bump the base and reset the counter (e.g., `0.74.1-sheason.3` → `0.75.0-sheason.0`)
+- **NEVER use `npm version patch/minor/major` on these packages** — it strips the pre-release suffix and breaks the scheme
+- To bump the sheason counter, manually edit `version` in `package.json` and all dependency ranges referencing it
 
-### Steps
+**Self-developed packages** (d-pi, d-pi-web-ui):
+- Standard semver without pre-release suffix (e.g., `0.5.13`, `0.1.1`)
+- `npm version patch/minor/major` works normally for these
+
+### Publishing
+
+- Pre-release versions (`*-sheason.N`) should be published with `--tag sheason` to avoid polluting the `latest` tag:
+  ```bash
+  npm publish -ws --access public --tag sheason
+  ```
+- Dry run first:
+  ```bash
+  npm publish -ws --access public --tag sheason --dry-run
+  ```
+
+**IMPORTANT**: The existing `release.mjs` script does NOT support the sheason versioning scheme. Do NOT use `npm run release:patch/minor/major` — it will corrupt version numbers. Version bumps must be done manually until the script is updated.
+
+### Manual Release Steps
 
 1. **Update CHANGELOGs**: Ensure all changes since last release are documented in the `[Unreleased]` section of each affected package's CHANGELOG.md
-
-2. **Run release script**:
-   ```bash
-   npm run release:patch    # Fixes and additions
-   npm run release:minor    # API breaking changes
-   ```
-
-The script handles: version bump, CHANGELOG finalization, commit, tag, publish, and adding new `[Unreleased]` sections.
+2. **Bump versions**: Manually edit `version` fields in affected `package.json` files and all dependency ranges
+3. **Regenerate lockfile**: `rm package-lock.json && npm install`
+4. **Build and verify**: `cd packages/d-pi && npm run build`
+5. **Commit**: `git add <files> && git commit -m "chore: release v<version>"`
+6. **Tag**: `git tag v<version>`
+7. **Publish**: `npm publish -ws --access public --tag sheason`
+8. **Push**: `git push origin main && git push origin v<version>`
 
 ## **CRITICAL** Git Rules for Parallel Agents **CRITICAL**
 

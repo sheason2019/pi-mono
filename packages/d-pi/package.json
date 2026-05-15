@@ -1,6 +1,6 @@
 {
 	"name": "@sheason/d-pi",
-	"version": "0.5.13",
+	"version": "0.5.14",
 	"description": "Unified CLI entry point for D-Pi hub and peer",
 	"type": "module",
 	"bin": {
