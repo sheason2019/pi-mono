@@ -26,13 +26,13 @@
 	"dependencies": {
 		"@agentclientprotocol/sdk": "^0.21.0",
 		"@automerge/automerge": "^3.2.6",
-		"@sheason/pi-agent-core": "^0.74.1",
-		"@sheason/pi-tui": "^0.74.1",
+		"@sheason/pi-agent-core": "^0.74.1-sheason.0",
+		"@sheason/pi-tui": "^0.74.1-sheason.0",
 		"@libsql/client": "^0.17.3",
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"@node-rs/jieba": "^2.0.1",
-		"@sheason/pi-ai": "^0.74.1",
-		"@sheason/pi-coding-agent": "^0.74.1",
+		"@sheason/pi-ai": "^0.74.1-sheason.0",
+		"@sheason/pi-coding-agent": "^0.74.1-sheason.0",
 		"socket.io": "^4.8.3",
 		"socket.io-client": "^4.8.3",
 		"typebox": "^1.1.32"

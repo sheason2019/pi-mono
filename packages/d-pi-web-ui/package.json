@@ -14,8 +14,8 @@
 	"dependencies": {
 		"@automerge/automerge": "^3.2.6",
 		"@mariozechner/mini-lit": "^0.2.0",
-		"@sheason/pi-agent-core": "^0.74.1",
-		"@sheason/pi-web-ui": "^0.74.1",
+		"@sheason/pi-agent-core": "^0.74.1-sheason.0",
+		"@sheason/pi-web-ui": "^0.74.1-sheason.0",
 		"lit": "^3.3.1",
 		"socket.io-client": "^4.8.3"
 	},
