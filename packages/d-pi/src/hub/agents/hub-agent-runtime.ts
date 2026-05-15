@@ -21,7 +21,7 @@ import { type ChildAgentToolHost, createChildAgentToolDefinitions } from "./chil
 import { createGroupToolDefinitions, type GroupToolHost } from "./group-tools.js";
 import { createReloadConfigToolDefinition } from "./reload-config-tool.js";
 import { createResourceStatusToolDefinition, type ResourceStatusToolHost } from "./resource-status-tool.js";
-import type { AgentRecord } from "./types.js";
+import type { AgentModelRef, AgentRecord } from "./types.js";
 
 const START_ABORTED_MESSAGE = "HubAgentRuntime: start() aborted by stop()";
 const START_AFTER_STOP_MESSAGE = "HubAgentRuntime: cannot start() after stop()";
@@ -64,6 +64,8 @@ export interface HubAgentRuntimeOptions {
 	getAgentTokenHost?: () => AgentTokenToolHost;
 	/** Resolves executor peers visible to this agent's tree scope. */
 	resolvePeerForTool?: (callerAgentId: string, peerId: string) => RegisteredPeer | undefined;
+	/** Called when the agent's model selection changes, so the caller can persist it. */
+	persistModelRef?: (agentId: string, modelRef: AgentModelRef) => void;
 }
 
 /**
@@ -96,6 +98,7 @@ export class HubAgentRuntime {
 	private readonly prepareServices?: (services: AgentSessionServices) => Promise<void> | void;
 	private readonly beforeInputQueueDrain?: CreateHubAgentAdapterOptions["beforeInputQueueDrain"];
 	private readonly logs: HubLogSink | undefined;
+	private readonly persistModelRefCallback?: (agentId: string, modelRef: AgentModelRef) => void;
 	private readonly liveEventSubscribers = new Set<(event: LiveRenderEvent) => void>();
 	private readonly remoteMcpToolNames = new Set<string>();
 	private adapterLiveUnsub: (() => void) | undefined;
@@ -181,6 +184,7 @@ export class HubAgentRuntime {
 		this.prepareServices = options.prepareServices;
 		this.beforeInputQueueDrain = options.beforeInputQueueDrain;
 		this.logs = options.logs;
+		this.persistModelRefCallback = options.persistModelRef;
 	}
 
 	subscribeLiveEvents(listener: (event: LiveRenderEvent) => void): () => void {
@@ -236,6 +240,11 @@ export class HubAgentRuntime {
 			prepareServices: this.prepareServices,
 			beforeInputQueueDrain: this.beforeInputQueueDrain,
 			model: this.model,
+			persistedModel: this.record.model,
+			onModelChange:
+				this.record.kind !== "guest" && this.persistModelRefCallback
+					? (modelRef) => this.persistModelRefCallback!(this.record.id, modelRef)
+					: undefined,
 			thinkingLevel: this.thinkingLevel,
 			scopedModels: this.scopedModels,
 			refreshSources: this.refreshSources,

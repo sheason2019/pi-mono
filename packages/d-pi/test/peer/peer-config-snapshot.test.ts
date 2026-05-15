@@ -20,19 +20,18 @@ describe("collectPeerConfigSnapshot", () => {
 	it("collects peer global and cwd Pi config including auth and context files", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "peer-config-cwd-"));
 		const agentDir = mkdtempSync(join(tmpdir(), "peer-config-agent-"));
-		const globalDir = mkdtempSync(join(tmpdir(), "peer-config-global-"));
-		tempDirs.push(cwd, agentDir, globalDir);
+		tempDirs.push(cwd, agentDir);
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
 		writeJson(join(agentDir, "auth.json"), { demo: { type: "api_key", key: "secret" } });
 		writeJson(join(agentDir, "models.json"), { providers: { globalOnly: { models: [{ id: "g" }] } } });
 		writeJson(join(agentDir, "settings.json"), { defaultProvider: "globalOnly" });
-		writeJson(join(globalDir, "mcp.json"), {
+		writeJson(join(agentDir, "mcp.json"), {
 			servers: [{ name: "global-mcp", transport: "stdio", command: "node" }],
 		});
 		writeFileSync(join(agentDir, "AGENTS.md"), "global context", "utf8");
-		mkdirSync(join(globalDir, "skills", "global-skill"), { recursive: true });
+		mkdirSync(join(agentDir, "skills", "global-skill"), { recursive: true });
 		writeFileSync(
-			join(globalDir, "skills", "global-skill", "SKILL.md"),
+			join(agentDir, "skills", "global-skill", "SKILL.md"),
 			"---\nname: global-skill\ndescription: global skill\n---\n\nUse global skill.",
 			"utf8",
 		);
@@ -41,7 +40,7 @@ describe("collectPeerConfigSnapshot", () => {
 		writeJson(join(cwd, ".pi", "mcp.json"), { servers: [{ name: "cwd-mcp", transport: "stdio", command: "node" }] });
 		writeFileSync(join(cwd, "AGENTS.md"), "cwd context", "utf8");
 
-		const snapshot = collectPeerConfigSnapshot({ cwd, agentDir, globalDir, now: () => "2026-04-26T04:00:00.000Z" });
+		const snapshot = collectPeerConfigSnapshot({ cwd, agentDir, now: () => "2026-04-26T04:00:00.000Z" });
 
 		expect(snapshot.cwd).toBe(cwd);
 		expect(snapshot.global?.auth?.demo?.type).toBe("api_key");

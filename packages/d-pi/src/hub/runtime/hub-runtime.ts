@@ -446,6 +446,14 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 			logs: openOptions.logs,
 			resolvePeerForTool: (callerAgentId, peerId) => hubRef.v?.resolvePeerForTool(callerAgentId, peerId),
 			beforeInputQueueDrain: () => hubRef.v?.applyPendingPeerConfigBeforeInput(ROOT_AGENT_ID),
+			persistModelRef: (agentId, modelRef) => {
+				const hub = hubRef.v;
+				if (!hub) return;
+				const record = hub.agentRegistry.get(agentId);
+				if (!record) return;
+				hub.agentRegistry.update({ ...record, model: modelRef });
+				hub.agentRegistry.save();
+			},
 			refreshSources: async () => {
 				await sourceHost.start();
 			},
@@ -768,6 +776,12 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 			logs: this.logs,
 			resolvePeerForTool: (callerAgentId, peerId) => this.resolvePeerForTool(callerAgentId, peerId),
 			beforeInputQueueDrain: () => this.applyPendingPeerConfigBeforeInput(rec.id),
+			persistModelRef: (agentId, modelRef) => {
+				const record = this.agentRegistry.get(agentId);
+				if (!record) return;
+				this.agentRegistry.update({ ...record, model: modelRef });
+				this.agentRegistry.save();
+			},
 			refreshSources: async () => {
 				await this.sourceHost.start();
 			},
@@ -1720,6 +1734,9 @@ export class HubRuntime implements ChildAgentToolHost, GroupToolHost, ResourceSt
 		}
 		if (this.agentRuntimes.has(target.id)) {
 			throw new Error("rename_child_agent: child agent id can be changed only when the child must be stopped.");
+		}
+		if (!input.newAgentId) {
+			throw new Error("rename_child_agent: newAgentId is required.");
 		}
 		const newAgentId = this.agentRegistry.resolveNewChildAgentId(input.newAgentId);
 		const oldDir = getChildAgentDir(this.cwd, target.id);

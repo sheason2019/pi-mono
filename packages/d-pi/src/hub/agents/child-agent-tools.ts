@@ -96,36 +96,27 @@ const childLifecycleSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-const updateChildSchema = Type.Object(
+const modifyChildSchema = Type.Object(
 	{
+		action: Type.Union(
+			[
+				Type.Literal("update", { description: "Update child agent metadata and executor policy." }),
+				Type.Literal("rename", { description: "Rename a stopped child agent id." }),
+				Type.Literal("stop", { description: "Stop a running child agent (keeps registry for restart)." }),
+				Type.Literal("start", { description: "Start a stopped child agent." }),
+				Type.Literal("remove", { description: "Remove a child agent from registry, optionally delete files." }),
+			],
+			{ description: "The modification action to perform." },
+		),
 		agentId: Type.String({ minLength: 1, description: "Target child agent id." }),
-		name: Type.Optional(Type.String({ description: "Updated display name." })),
-		description: Type.Optional(Type.String({ description: "Updated description." })),
+		newAgentId: Type.Optional(
+			Type.String({ minLength: 1, description: "New agent id for rename action (normalized)." }),
+		),
+		name: Type.Optional(Type.String({ description: "Updated display name (update action)." })),
+		description: Type.Optional(Type.String({ description: "Updated description (update action)." })),
 		hubExecutor: Type.Optional(hubExecutorSchema),
 		executors: Type.Optional(Type.Array(nodeContainerExecutorSchema)),
-	},
-	{ additionalProperties: false },
-);
-
-const renameChildSchema = Type.Object(
-	{
-		agentId: Type.String({ minLength: 1, description: "Current child agent id." }),
-		newAgentId: Type.String({
-			minLength: 1,
-			description: "New agent id (normalized).",
-		}),
-	},
-	{ additionalProperties: false },
-);
-
-const removeChildSchema = Type.Object(
-	{
-		agentId: Type.String({ minLength: 1, description: "Target child agent id." }),
-		deleteFiles: Type.Optional(
-			Type.Boolean({
-				description: "Delete agent directory. Default false.",
-			}),
-		),
+		deleteFiles: Type.Optional(Type.Boolean({ description: "Delete agent directory on remove. Default false." })),
 	},
 	{ additionalProperties: false },
 );
@@ -196,11 +187,12 @@ export type ForkChildToolInput = {
 export type CreateChildToolInput = Static<typeof createChildSchema>;
 export type CreateGuestAgentToolInput = Static<typeof createGuestAgentSchema>;
 export type CreateTemporaryChildToolInput = Static<typeof createTemporaryChildSchema>;
-export type UpdateChildToolInput = Static<typeof updateChildSchema>;
-export type RenameChildToolInput = Static<typeof renameChildSchema>;
+export type UpdateChildToolInput = Static<typeof modifyChildSchema>;
+export type RenameChildToolInput = Static<typeof modifyChildSchema>;
 export type StopChildToolInput = Static<typeof childLifecycleSchema>;
 export type StartChildToolInput = Static<typeof childLifecycleSchema>;
-export type RemoveChildToolInput = Static<typeof removeChildSchema>;
+export type RemoveChildToolInput = { agentId: string; deleteFiles?: boolean };
+export type ModifyChildToolInput = Static<typeof modifyChildSchema>;
 export type SearchMemoryToolInput = Static<typeof searchMemorySchema>;
 export type ListMemoryToolInput = Static<typeof listMemorySchema>;
 
@@ -260,55 +252,34 @@ export function createChildAgentToolDefinitions(
 			},
 		}),
 		defineTool({
-			name: "update_child_agent",
-			label: "update_child_agent",
+			name: "modify_child_agent",
+			label: "modify_child_agent",
 			description:
-				"Update child agent metadata and parent-controlled executor policy. Direct parents may change hubExecutor at runtime; children cannot re-enable parent-disabled executors.",
-			parameters: updateChildSchema,
+				"Modify a child agent: update metadata, rename, stop, start, or remove. Use the action field to select the operation.",
+			parameters: modifyChildSchema,
 			async execute(_id, params) {
-				const text = await getHost().updateChildAgent(callerAgentId, params);
-				return { content: [{ type: "text" as const, text }], details: null };
-			},
-		}),
-		defineTool({
-			name: "rename_child_agent",
-			label: "rename_child_agent",
-			description:
-				"Rename a stopped direct child agent id. The direct parent must call this, the target child must be stopped, and descendant parent links are migrated.",
-			parameters: renameChildSchema,
-			async execute(_id, params) {
-				const text = await getHost().renameChildAgent(callerAgentId, params);
-				return { content: [{ type: "text" as const, text }], details: null };
-			},
-		}),
-		defineTool({
-			name: "stop_child_agent",
-			label: "stop_child_agent",
-			description: "Stop a running child agent (keeps registry for restart).",
-			parameters: childLifecycleSchema,
-			async execute(_id, params) {
-				const text = await getHost().stopChildAgent(callerAgentId, params);
-				return { content: [{ type: "text" as const, text }], details: null };
-			},
-		}),
-		defineTool({
-			name: "start_child_agent",
-			label: "start_child_agent",
-			description: "Start a stopped child agent from an existing registry entry.",
-			parameters: childLifecycleSchema,
-			async execute(_id, params) {
-				const text = await getHost().startChildAgent(callerAgentId, params);
-				return { content: [{ type: "text" as const, text }], details: null };
-			},
-		}),
-		defineTool({
-			name: "remove_child_agent",
-			label: "remove_child_agent",
-			description:
-				"Remove a child agent: stop it if needed, remove from registry, optionally delete files with deleteFiles=true.",
-			parameters: removeChildSchema,
-			async execute(_id, params) {
-				const text = await getHost().removeChildAgent(callerAgentId, params);
+				const host = getHost();
+				let text: string;
+				switch (params.action) {
+					case "update":
+						text = await host.updateChildAgent(callerAgentId, params);
+						break;
+					case "rename":
+						text = await host.renameChildAgent(callerAgentId, params);
+						break;
+					case "stop":
+						text = await host.stopChildAgent(callerAgentId, { agentId: params.agentId });
+						break;
+					case "start":
+						text = await host.startChildAgent(callerAgentId, { agentId: params.agentId });
+						break;
+					case "remove":
+						text = await host.removeChildAgent(callerAgentId, {
+							agentId: params.agentId,
+							deleteFiles: params.deleteFiles,
+						});
+						break;
+				}
 				return { content: [{ type: "text" as const, text }], details: null };
 			},
 		}),

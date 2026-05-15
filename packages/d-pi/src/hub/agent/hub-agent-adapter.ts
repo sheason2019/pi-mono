@@ -264,6 +264,7 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 	private readonly beforeInputQueueDrain?: CreateHubAgentAdapterOptions["beforeInputQueueDrain"];
 	private readonly agentId: string;
 	private readonly logs: CreateHubAgentAdapterOptions["logs"];
+	private readonly onModelChange?: CreateHubAgentAdapterOptions["onModelChange"];
 	private readonly sessionLogger: HubAgentSessionLogger;
 	private readonly unsubscribeSessionEvents: () => void;
 	private readonly liveEventListeners = new Set<(event: LiveRenderEvent) => void>();
@@ -290,6 +291,7 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 		beforeInputQueueDrain?: CreateHubAgentAdapterOptions["beforeInputQueueDrain"];
 		agentId: string;
 		logs?: CreateHubAgentAdapterOptions["logs"];
+		onModelChange?: CreateHubAgentAdapterOptions["onModelChange"];
 		tools: ToolDefinition[];
 		dynamicTools?: ToolDefinition[];
 	}) {
@@ -308,6 +310,7 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 		this.beforeInputQueueDrain = options.beforeInputQueueDrain;
 		this.agentId = options.agentId;
 		this.logs = options.logs;
+		this.onModelChange = options.onModelChange;
 		this.sessionLogger = new HubAgentSessionLogger({ agentId: options.agentId, logs: options.logs });
 
 		this.sessionService.bindAgentSession(this.session, {
@@ -375,10 +378,17 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 		services.resourceLoader = resourceLoader;
 		await options.prepareServices?.(services);
 		console.log("[d-pi hub] 创建智能体会话: 创建Agent会话");
+		let resolvedModel = options.model;
+		if (!resolvedModel && options.persistedModel) {
+			const found = services.modelRegistry.find(options.persistedModel.provider, options.persistedModel.modelId);
+			if (found) {
+				resolvedModel = found;
+			}
+		}
 		const created = await createAgentSessionFromServices({
 			services,
 			sessionManager: options.sessionService.getSessionManager(),
-			model: options.model,
+			model: resolvedModel,
 			thinkingLevel: options.thinkingLevel,
 			scopedModels: options.scopedModels,
 			customTools: dynamicTools,
@@ -409,6 +419,7 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 			beforeInputQueueDrain: options.beforeInputQueueDrain,
 			agentId: options.agentId ?? "root",
 			logs: options.logs,
+			onModelChange: options.onModelChange,
 		});
 		await adapter.refreshSessionOptions();
 		console.log("[d-pi hub] 创建智能体会话: 完成");
@@ -714,11 +725,15 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 
 	async setModel(model: Model<Api>): Promise<void> {
 		await this.session.setModel(model, { persistDefault: false });
+		this.onModelChange?.({ provider: model.provider, modelId: model.id });
 		this.sessionService.syncBoundAgentSession();
 	}
 
 	async cycleModel(direction: "forward" | "backward" = "forward"): Promise<ModelCycleResult | undefined> {
 		const result = await this.session.cycleModel(direction);
+		if (result) {
+			this.onModelChange?.({ provider: result.model.provider, modelId: result.model.id });
+		}
 		this.sessionService.syncBoundAgentSession();
 		return result;
 	}
@@ -763,7 +778,17 @@ export class HubAgentAdapter implements HubAgentAdapterApi {
 			return;
 		}
 		const refreshed = this.services.modelRegistry.find(current.provider, current.id);
-		if (!refreshed || refreshed === current) {
+		if (!refreshed) {
+			// Model no longer available — fall back to any available model
+			const available = this.services.modelRegistry.getAvailable();
+			if (available.length > 0) {
+				const fallback = available[0]!;
+				await this.session.setModel(fallback, { persistDefault: false });
+				this.onModelChange?.({ provider: fallback.provider, modelId: fallback.id });
+			}
+			return;
+		}
+		if (refreshed === current) {
 			return;
 		}
 		await this.session.setModel(refreshed, { persistDefault: false });

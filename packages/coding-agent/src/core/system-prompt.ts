@@ -39,12 +39,6 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	const resolvedCwd = cwd;
 	const promptCwd = resolvedCwd.replace(/\\/g, "/");
 
-	const now = new Date();
-	const year = now.getFullYear();
-	const month = String(now.getMonth() + 1).padStart(2, "0");
-	const day = String(now.getDate()).padStart(2, "0");
-	const date = `${year}-${month}-${day}`;
-
 	const appendSection = appendSystemPrompt ? `\n\n${appendSystemPrompt}` : "";
 
 	const contextFiles = providedContextFiles ?? [];
@@ -72,8 +66,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 			prompt += formatSkillsForPrompt(skills);
 		}
 
-		// Add date and working directory last
-		prompt += `\nCurrent date: ${date}`;
+		// Add working directory last
 		prompt += `\nCurrent working directory: ${promptCwd}`;
 
 		return prompt;
@@ -164,8 +157,7 @@ Pi documentation (read only when the user asks about pi itself, its SDK, extensi
 		prompt += formatSkillsForPrompt(skills);
 	}
 
-	// Add date and working directory last
-	prompt += `\nCurrent date: ${date}`;
+	// Add working directory last
 	prompt += `\nCurrent working directory: ${promptCwd}`;
 
 	return prompt;

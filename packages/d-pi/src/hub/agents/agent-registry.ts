@@ -232,6 +232,12 @@ function parseRegistryJson(raw: string, contextPath: string): AgentRegistryFile 
 		if (typeof rec.reportResult === "boolean") record.reportResult = rec.reportResult;
 		const executors = normalizeExecutors(rec.executors, `Agent "${id}"`);
 		if (executors !== undefined) record.executors = executors;
+		if (typeof rec.model === "object" && rec.model !== null) {
+			const m = rec.model as Record<string, unknown>;
+			if (typeof m.provider === "string" && typeof m.modelId === "string") {
+				record.model = { provider: m.provider, modelId: m.modelId };
+			}
+		}
 
 		agents.push(record);
 	}

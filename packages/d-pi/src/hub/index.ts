@@ -35,7 +35,13 @@ export {
 	VERSION,
 	WORKSPACE_DIR_NAME,
 } from "./config.js";
-export type { PeerConfigJsonLayers, PeerConfigSnapshot } from "./config-aggregation/types.js";
+export type {
+	PeerConfigJsonLayers,
+	PeerConfigSnapshot,
+	PeerExtensionSnapshot,
+	PeerPromptSnapshot,
+	PeerThemeSnapshot,
+} from "./config-aggregation/types.js";
 export { sanitizePeerConfigSnapshotForLog } from "./config-aggregation/types.js";
 export { McpHost } from "./mcp/mcp-host.js";
 export {

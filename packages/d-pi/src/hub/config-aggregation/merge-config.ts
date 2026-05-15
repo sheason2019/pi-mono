@@ -1,4 +1,11 @@
-import type { AuthStorageData, ConfigLayerSource, PeerConfigJsonLayers } from "./types.js";
+import type {
+	AuthStorageData,
+	ConfigLayerSource,
+	PeerConfigJsonLayers,
+	PeerExtensionSnapshot,
+	PeerPromptSnapshot,
+	PeerThemeSnapshot,
+} from "./types.js";
 
 export interface MergedConfigLayers {
 	auth: AuthStorageData;
@@ -6,6 +13,11 @@ export interface MergedConfigLayers {
 	settings: unknown;
 	mcp: unknown;
 	contextFiles: Array<{ path: string; content: string }>;
+	systemPrompt?: string;
+	appendSystemPrompt: string[];
+	prompts: PeerPromptSnapshot[];
+	themes: PeerThemeSnapshot[];
+	extensions: PeerExtensionSnapshot[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -88,6 +100,12 @@ export function mergeConfigLayers(layers: Array<PeerConfigJsonLayers | undefined
 	let settings: unknown = {};
 	let mcp: unknown = { servers: [] };
 	const contextFiles: Array<{ path: string; content: string }> = [];
+	const contextFilePaths = new Set<string>();
+	let systemPrompt: string | undefined;
+	const appendSystemPrompt: string[] = [];
+	const prompts: PeerPromptSnapshot[] = [];
+	const themes: PeerThemeSnapshot[] = [];
+	const extensions: PeerExtensionSnapshot[] = [];
 
 	for (const layer of layers) {
 		if (!layer) {
@@ -107,9 +125,29 @@ export function mergeConfigLayers(layers: Array<PeerConfigJsonLayers | undefined
 			mcp = mergeMcp(mcp, normalizedLayer.mcp);
 		}
 		if (normalizedLayer.contextFiles) {
-			contextFiles.push(...normalizedLayer.contextFiles);
+			for (const cf of normalizedLayer.contextFiles) {
+				if (!contextFilePaths.has(cf.path)) {
+					contextFiles.push(cf);
+					contextFilePaths.add(cf.path);
+				}
+			}
+		}
+		if (normalizedLayer.systemPrompt !== undefined) {
+			systemPrompt = normalizedLayer.systemPrompt;
+		}
+		if (normalizedLayer.appendSystemPrompt) {
+			appendSystemPrompt.push(...normalizedLayer.appendSystemPrompt);
+		}
+		if (normalizedLayer.prompts) {
+			prompts.push(...normalizedLayer.prompts);
+		}
+		if (normalizedLayer.themes) {
+			themes.push(...normalizedLayer.themes);
+		}
+		if (normalizedLayer.extensions) {
+			extensions.push(...normalizedLayer.extensions);
 		}
 	}
 
-	return { auth, models, settings, mcp, contextFiles };
+	return { auth, models, settings, mcp, contextFiles, systemPrompt, appendSystemPrompt, prompts, themes, extensions };
 }

@@ -53,8 +53,8 @@ export function materializeAggregatedModelsConfig(options: {
 function createReadOnlySettingsManager(settings: unknown): SettingsManager {
 	const content = JSON.stringify(settings && typeof settings === "object" ? settings : {});
 	return SettingsManager.fromStorage({
-		withLock(scope, fn) {
-			return fn(scope === "global" ? content : undefined);
+		withLock(_scope, fn) {
+			return fn(content);
 		},
 	});
 }
@@ -70,6 +70,9 @@ function safePathToken(value: string): string {
 
 interface MaterializedPeerResources {
 	metaSkill: Skill;
+	promptPaths: string[];
+	themePaths: string[];
+	extensionPaths: string[];
 }
 
 function materializePeerResources(
@@ -81,6 +84,9 @@ function materializePeerResources(
 	const metaDir = join(root, D_PI_PEER_RESOURCES_SKILL_NAME);
 	const metaFilePath = join(metaDir, "SKILL.md");
 	mkdirSync(metaDir, { recursive: true });
+	const promptPaths: string[] = [];
+	const themePaths: string[] = [];
+	const extensionPaths: string[] = [];
 	const lines = [
 		"---",
 		`name: ${D_PI_PEER_RESOURCES_SKILL_NAME}`,
@@ -101,12 +107,9 @@ function materializePeerResources(
 		}
 		const peerId = layer.source.peerId;
 		const peerToken = safePathToken(peerId);
-		if ((layer.contextFiles?.length ?? 0) > 0 || (layer.skills?.length ?? 0) > 0) {
+		if ((layer.skills?.length ?? 0) > 0) {
 			hasPeerResources = true;
 			lines.push(`## Peer ${peerId} (${layer.source.scope})`, "");
-		}
-		for (const contextFile of layer.contextFiles ?? []) {
-			lines.push(`### Context file: ${contextFile.path}`, "", "```text", contextFile.content, "```", "");
 		}
 		const skills = layer.skills ?? [];
 		for (let skillIndex = 0; skillIndex < skills.length; skillIndex += 1) {
@@ -121,6 +124,40 @@ function materializePeerResources(
 			if (skill.disableModelInvocation === true) {
 				lines.push("This skill is explicit-invocation only.", "");
 			}
+		}
+		for (let promptIndex = 0; promptIndex < (layer.prompts ?? []).length; promptIndex += 1) {
+			const prompt = layer.prompts![promptIndex]!;
+			const sourceKey = [peerId, layer.source.scope, prompt.filePath, prompt.name].join("\0");
+			const sourceToken = createHash("sha256").update(sourceKey).digest("hex").slice(0, 12);
+			const dir = join(root, "peers", peerToken, layer.source.scope, "prompts", sourceToken);
+			mkdirSync(dir, { recursive: true });
+			const filePath = join(dir, `${prompt.name}.md`);
+			writeFileSync(filePath, prompt.content, "utf8");
+			promptPaths.push(filePath);
+			lines.push(`### Prompt: ${prompt.name}`, "", `Location: ${filePath}`, "");
+		}
+		for (let themeIndex = 0; themeIndex < (layer.themes ?? []).length; themeIndex += 1) {
+			const theme = layer.themes![themeIndex]!;
+			const sourceKey = [peerId, layer.source.scope, theme.filePath, theme.name].join("\0");
+			const sourceToken = createHash("sha256").update(sourceKey).digest("hex").slice(0, 12);
+			const dir = join(root, "peers", peerToken, layer.source.scope, "themes", sourceToken);
+			mkdirSync(dir, { recursive: true });
+			const filePath = join(dir, `${theme.name}.json`);
+			writeFileSync(filePath, theme.content, "utf8");
+			themePaths.push(filePath);
+			lines.push(`### Theme: ${theme.name}`, "", `Location: ${filePath}`, "");
+		}
+		for (let extIndex = 0; extIndex < (layer.extensions ?? []).length; extIndex += 1) {
+			const ext = layer.extensions![extIndex]!;
+			const sourceKey = [peerId, layer.source.scope, ext.filePath, ext.name].join("\0");
+			const sourceToken = createHash("sha256").update(sourceKey).digest("hex").slice(0, 12);
+			const dir = join(root, "peers", peerToken, layer.source.scope, "extensions", sourceToken);
+			mkdirSync(dir, { recursive: true });
+			const extSuffix = ext.filePath.endsWith(".js") ? ".js" : ".ts";
+			const filePath = join(dir, `${ext.name}${extSuffix}`);
+			writeFileSync(filePath, ext.content, "utf8");
+			extensionPaths.push(filePath);
+			lines.push(`### Extension: ${ext.name}`, "", `Location: ${filePath}`, "");
 		}
 	}
 	if (!hasPeerResources) {
@@ -171,6 +208,9 @@ function materializePeerResources(
 			}),
 			disableModelInvocation: false,
 		},
+		promptPaths,
+		themePaths,
+		extensionPaths,
 	};
 }
 
@@ -178,11 +218,6 @@ export async function createAggregatedAgentSessionServices(
 	options: CreateAggregatedAgentSessionServicesOptions,
 ): Promise<AggregatedAgentSessionServices> {
 	const merged = mergeConfigLayers(options.layers);
-	const promptStableMerged = mergeConfigLayers(
-		options.layers.map((layer) =>
-			layer.source?.kind === "peer" ? { ...layer, skills: undefined, contextFiles: undefined } : layer,
-		),
-	);
 	const peerResources = materializePeerResources(options.cwd, options.layers, options.peerMcpSnapshots);
 	const mergedModelsFile = materializeAggregatedModelsConfig({
 		cwd: options.cwd,
@@ -209,18 +244,23 @@ export async function createAggregatedAgentSessionServices(
 					diagnostics: upstream.diagnostics,
 				};
 			},
-			...(promptStableMerged.contextFiles.length > 0
+			...(merged.contextFiles.length > 0
 				? {
-						agentsFilesOverride: (base: { agentsFiles: Array<{ path: string; content: string }> }) => ({
-							agentsFiles: [
-								...(upstreamAgentsFilesOverride
-									? upstreamAgentsFilesOverride(base).agentsFiles
-									: base.agentsFiles),
-								...promptStableMerged.contextFiles,
-							],
-						}),
+						agentsFilesOverride: (base: { agentsFiles: Array<{ path: string; content: string }> }) => {
+							const baseFiles = upstreamAgentsFilesOverride
+								? upstreamAgentsFilesOverride(base).agentsFiles
+								: base.agentsFiles;
+							const seenPaths = new Set(baseFiles.map((f) => f.path));
+							const additionalFiles = merged.contextFiles.filter((f) => !seenPaths.has(f.path));
+							return { agentsFiles: [...baseFiles, ...additionalFiles] };
+						},
 					}
 				: {}),
+			systemPromptOverride: (base) => base ?? merged.systemPrompt,
+			appendSystemPromptOverride: (base) => [...base, ...merged.appendSystemPrompt],
+			...(peerResources.promptPaths.length > 0 ? { additionalPromptTemplatePaths: peerResources.promptPaths } : {}),
+			...(peerResources.themePaths.length > 0 ? { additionalThemePaths: peerResources.themePaths } : {}),
+			...(peerResources.extensionPaths.length > 0 ? { additionalExtensionPaths: peerResources.extensionPaths } : {}),
 		},
 	});
 	return { services, mergedModelsFile };

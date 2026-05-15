@@ -21,6 +21,11 @@ export interface NodeContainerExecutorConfig {
 
 export type AgentExecutorConfig = NodeContainerExecutorConfig;
 
+export interface AgentModelRef {
+	provider: string;
+	modelId: string;
+}
+
 export interface AgentRecord {
 	id: string;
 	kind: AgentKind;
@@ -36,6 +41,7 @@ export interface AgentRecord {
 	reportResult?: boolean;
 	hubExecutor?: HubExecutorPolicy;
 	executors?: AgentExecutorConfig[];
+	model?: AgentModelRef;
 }
 
 export interface AgentRegistryFile {

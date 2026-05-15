@@ -14,6 +14,24 @@ export interface PeerSkillSnapshot {
 	disableModelInvocation?: boolean;
 }
 
+export interface PeerPromptSnapshot {
+	name: string;
+	content: string;
+	filePath: string;
+}
+
+export interface PeerThemeSnapshot {
+	name: string;
+	content: string;
+	filePath: string;
+}
+
+export interface PeerExtensionSnapshot {
+	name: string;
+	content: string;
+	filePath: string;
+}
+
 export interface PeerConfigJsonLayers {
 	source?: ConfigLayerSource;
 	auth?: AuthStorageData;
@@ -22,6 +40,11 @@ export interface PeerConfigJsonLayers {
 	mcp?: unknown;
 	skills?: PeerSkillSnapshot[];
 	contextFiles?: Array<{ path: string; content: string }>;
+	systemPrompt?: string;
+	appendSystemPrompt?: string[];
+	prompts?: PeerPromptSnapshot[];
+	themes?: PeerThemeSnapshot[];
+	extensions?: PeerExtensionSnapshot[];
 }
 
 export interface PeerConfigSnapshot {
