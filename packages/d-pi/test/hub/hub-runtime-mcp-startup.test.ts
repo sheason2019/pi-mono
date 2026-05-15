@@ -1,10 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { AuthStorage, createAgentSessionServices, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { fauxAssistantMessage, registerFauxProvider } from "@sheason/pi-ai";
+import type { ToolDefinition } from "@sheason/pi-coding-agent";
+import { AuthStorage, createAgentSessionServices, ModelRegistry } from "@sheason/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HubAgentAdapter } from "../../src/hub/agent/hub-agent-adapter.js";
 import type { McpClientHandle } from "../../src/hub/mcp/mcp-client.js";

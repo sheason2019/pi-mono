@@ -1,4 +1,4 @@
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@sheason/pi-coding-agent";
 import type { HubAuthIdentity } from "../auth/token-store.js";
 import type { McpRuntimeStatus } from "../mcp/types.js";
 import type { PeerConfigPayload, PeerHelloPayload } from "../peers/peer-types.js";

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type Server as HttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@sheason/pi-coding-agent";
 import { Server, type Socket } from "socket.io";
 import { D_PI_WEB_UI_DIST_DIR } from "../../runtime/bundle-env.js";
 import type { HubAgentAdapter } from "../agent/hub-agent-adapter.js";

@@ -1,10 +1,4 @@
-import {
-	type AssistantMessage,
-	type ImageContent,
-	type Model,
-	streamSimple,
-	type UserMessage,
-} from "@earendil-works/pi-ai";
+import { type AssistantMessage, type ImageContent, type Model, streamSimple, type UserMessage } from "@sheason/pi-ai";
 import { Agent, type QueueMode } from "../agent.js";
 import type { AgentEvent, AgentMessage, AgentTool, ThinkingLevel } from "../types.js";
 import { collectEntriesForBranchSummary, generateBranchSummary } from "./compaction/branch-summarization.js";

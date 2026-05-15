@@ -10,7 +10,7 @@ import {
 	ModelRegistry,
 	SettingsManager,
 	type Skill,
-} from "@earendil-works/pi-coding-agent";
+} from "@sheason/pi-coding-agent";
 import { getWorkspaceDir } from "../config.js";
 import { remoteMcpResourceToken } from "../mcp/remote-mcp-tools.js";
 import type { McpRuntimeStatus } from "../mcp/types.js";

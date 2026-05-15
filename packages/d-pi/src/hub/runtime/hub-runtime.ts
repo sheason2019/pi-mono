@@ -1,6 +1,6 @@
 import { existsSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { SessionManager, type SessionMessageEntry } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@sheason/pi-coding-agent";
+import { SessionManager, type SessionMessageEntry } from "@sheason/pi-coding-agent";
 import { VERSION } from "../../version.js";
 import { HubAgentAdapter } from "../agent/hub-agent-adapter.js";
 import type { CreateHubAgentAdapterOptions } from "../agent/types.js";

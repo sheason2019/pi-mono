@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@sheason/pi-coding-agent";
 import { Server } from "socket.io";
 import { describe, expect, it, vi } from "vitest";
 import type { HubAgentAdapter } from "../../src/hub/agent/hub-agent-adapter.js";

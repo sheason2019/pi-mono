@@ -5,17 +5,18 @@
 	"description": "Unified CLI entry point for D-Pi hub and peer",
 	"type": "module",
 	"bin": {
-		"d-pi": "dist/cli.cjs"
+		"d-pi": "dist/cli.js"
 	},
 	"files": [
 		"dist"
 	],
 	"scripts": {
 		"clean": "shx rm -rf dist",
-		"build": "npm run build:deps && npm run build:web-ui && rspack build --config rspack.config.mjs && shx chmod +x dist/cli.cjs && node scripts/write-publish-package.mjs",
+		"build": "npm run build:deps && npm run build:web-ui && tsgo -p tsconfig.build.json && shx chmod +x dist/cli.js && npm run copy-assets && node scripts/write-publish-package.mjs",
 		"build:deps": "npm --prefix ../tui run build && npm --prefix ../ai run build && npm --prefix ../agent run build && npm --prefix ../coding-agent run build",
 		"build:web-ui": "cd ../d-pi-web-ui && npm run build",
-		"dev": "rspack build --watch --config rspack.config.mjs",
+		"copy-assets": "shx mkdir -p dist/web-ui && shx cp -r ../d-pi-web-ui/dist/* dist/web-ui/ && shx mkdir -p dist/skills/pi-agent-config-editing && shx cp -r src/skills/pi-agent-config-editing/* dist/skills/pi-agent-config-editing/ && shx mkdir -p dist/skills/reproducing-real-bugs-with-e2e && shx cp -r src/skills/reproducing-real-bugs-with-e2e/* dist/skills/reproducing-real-bugs-with-e2e/ && shx mkdir -p dist/dist/modes/interactive/theme && shx cp -r ../coding-agent/dist/modes/interactive/theme/* dist/dist/modes/interactive/theme/ && shx mkdir -p dist/dist/core/export-html && shx cp -r ../coding-agent/dist/core/export-html/* dist/dist/core/export-html/",
+		"dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
 		"prepare:publish": "npm run clean && npm run build",
 		"pack:publish": "npm run prepare:publish && cd dist && npm pack",
 		"publish:dry": "npm run prepare:publish && cd dist && npm pack --dry-run",
@@ -25,22 +26,21 @@
 	},
 	"dependencies": {
 		"@agentclientprotocol/sdk": "^0.21.0",
-		"@libsql/client": "^0.17.3",
-		"@node-rs/jieba": "^2.0.1",
-		"socket.io-client": "^4.8.3"
-	},
-	"devDependencies": {
 		"@automerge/automerge": "^3.2.6",
 		"@earendil-works/pi-agent-core": "^0.74.1",
-		"@earendil-works/pi-ai": "^0.74.1",
-		"@earendil-works/pi-coding-agent": "^0.74.1",
 		"@earendil-works/pi-tui": "^0.74.1",
+		"@libsql/client": "^0.17.3",
 		"@modelcontextprotocol/sdk": "^1.29.0",
-		"@rspack/cli": "^2.0.2",
-		"@rspack/core": "^2.0.2",
-		"shx": "^0.4.0",
+		"@node-rs/jieba": "^2.0.1",
+		"@sheason/pi-ai": "^0.74.1",
+		"@sheason/pi-coding-agent": "^0.74.1",
 		"socket.io": "^4.8.3",
+		"socket.io-client": "^4.8.3",
 		"typebox": "^1.1.32"
+	},
+	"devDependencies": {
+		"shx": "^0.4.0",
+		"vitest": "^3.2.4"
 	},
 	"keywords": [
 		"pi",

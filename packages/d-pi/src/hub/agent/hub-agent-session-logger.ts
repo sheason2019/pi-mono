@@ -1,6 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { AssistantMessage } from "@sheason/pi-ai";
+import type { AgentSessionEvent } from "@sheason/pi-coding-agent";
 import type { HubLogDetails, HubLogSink } from "../tui/hub-log.js";
 
 export interface HubAgentSessionLoggerOptions {

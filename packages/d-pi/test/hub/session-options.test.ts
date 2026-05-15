@@ -1,4 +1,4 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { Model } from "@sheason/pi-ai";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_AVAILABLE_THINKING_LEVELS, serializeAvailableModels } from "../../src/hub/session/session-options.js";
 

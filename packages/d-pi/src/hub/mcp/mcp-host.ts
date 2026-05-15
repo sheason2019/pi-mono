@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@sheason/pi-coding-agent";
 import type { HubLogDetails, HubLogSink } from "../tui/hub-log.js";
 import { createMcpClient, type McpClientHandle } from "./mcp-client.js";
 import { parseMcpConfig, readMcpConfig } from "./mcp-config.js";

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import * as Automerge from "@automerge/automerge";
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@sheason/pi-coding-agent";
 import { type Socket as ClientSocket, io as ioClient } from "socket.io-client";
 import { describe, expect, it, vi } from "vitest";
 import type { HubAgentAdapter } from "../../src/hub/agent/hub-agent-adapter.js";

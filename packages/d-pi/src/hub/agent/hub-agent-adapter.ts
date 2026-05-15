@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@sheason/pi-ai";
 import {
 	type AgentSessionEvent,
 	type AgentSessionRuntimeDiagnostic,
@@ -18,7 +18,7 @@ import {
 	ModelRegistry,
 	type ResourceLoader,
 	type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+} from "@sheason/pi-coding-agent";
 import {
 	createAggregatedAgentSessionServices,
 	materializeAggregatedModelsConfig,

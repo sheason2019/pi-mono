@@ -1,5 +1,5 @@
 import { stripVTControlCharacters } from "node:util";
-import { initTheme } from "@earendil-works/pi-coding-agent";
+import { initTheme } from "@sheason/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { SourceRuntimeStatus } from "../../src/hub/index.js";
 import { RemoteSourceDetailSelectorComponent } from "../../src/peer/tui/forked/components/source-detail-selector.js";

@@ -7,7 +7,7 @@ import {
 	createReadToolDefinition,
 	createWriteToolDefinition,
 	type ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+} from "@sheason/pi-coding-agent";
 import type { Socket } from "socket.io-client";
 import type { ClientToServerEvents, ServerToClientEvents, ToolCallRequestPayload } from "../../hub/index.js";
 

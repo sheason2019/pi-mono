@@ -1,4 +1,4 @@
-import type { UserMessage } from "@earendil-works/pi-ai";
+import type { UserMessage } from "@sheason/pi-ai";
 import { type Socket as ClientSocket, io as ioClient } from "socket.io-client";
 import { describe, expect, it, vi } from "vitest";
 import { convertToLlm } from "../../../coding-agent/src/core/messages.js";

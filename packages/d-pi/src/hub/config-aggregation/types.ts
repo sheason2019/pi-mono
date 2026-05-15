@@ -1,4 +1,4 @@
-import type { AuthCredential } from "@earendil-works/pi-coding-agent";
+import type { AuthCredential } from "@sheason/pi-coding-agent";
 
 export type AuthStorageData = Record<string, AuthCredential>;
 

@@ -1,4 +1,4 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { Model } from "@sheason/pi-ai";
 
 export interface HubAvailableModel {
 	resourceId?: string;

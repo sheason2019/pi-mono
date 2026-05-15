@@ -1,8 +1,8 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createClient } from "@libsql/client";
+import { SessionManager } from "@sheason/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import { getMemoryDbFile } from "../../src/hub/config.js";
 import { MemoryStore } from "../../src/hub/memory/memory-store.js";

@@ -1,5 +1,5 @@
-import * as PiCodingAgent from "@earendil-works/pi-coding-agent";
 import type { MarkdownTheme } from "@earendil-works/pi-tui";
+import * as PiCodingAgent from "@sheason/pi-coding-agent";
 
 export { KeybindingsManager } from "../keybindings.js";
 
@@ -15,7 +15,7 @@ export {
 	initTheme,
 	ToolExecutionComponent,
 	type ToolExecutionOptions,
-} from "@earendil-works/pi-coding-agent";
+} from "@sheason/pi-coding-agent";
 
 export class UserMessageComponent extends PiCodingAgent.UserMessageComponent {
 	private readonly messageSource?: MessageSource;

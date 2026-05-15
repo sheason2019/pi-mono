@@ -1,6 +1,6 @@
 # @earendil-works/pi-agent-core
 
-Stateful agent with tool execution and event streaming. Built on `@earendil-works/pi-ai`.
+Stateful agent with tool execution and event streaming. Built on `@sheason/pi-ai`.
 
 ## Installation
 
@@ -12,7 +12,7 @@ npm install @earendil-works/pi-agent-core
 
 ```typescript
 import { Agent } from "@earendil-works/pi-agent-core";
-import { getModel } from "@earendil-works/pi-ai";
+import { getModel } from "@sheason/pi-ai";
 
 const agent = new Agent({
   initialState: {

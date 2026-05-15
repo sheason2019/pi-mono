@@ -4,7 +4,7 @@ import {
 	type SessionEntry,
 	type SessionHeader,
 	SessionManager,
-} from "@earendil-works/pi-coding-agent";
+} from "@sheason/pi-coding-agent";
 import { assertWorkspaceInitialized, getWorkspacePaths } from "../workspace.js";
 import type { HubSessionEvent } from "./session-events.js";
 import { DEFAULT_AVAILABLE_THINKING_LEVELS, type HubAvailableModel } from "./session-options.js";

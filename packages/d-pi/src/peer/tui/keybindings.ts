@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import * as PiCodingAgent from "@earendil-works/pi-coding-agent";
 import type { Keybinding, KeybindingDefinitions, KeybindingsConfig, KeyId } from "@earendil-works/pi-tui";
+import * as PiCodingAgent from "@sheason/pi-coding-agent";
 
 declare module "@earendil-works/pi-tui" {
 	interface Keybindings {

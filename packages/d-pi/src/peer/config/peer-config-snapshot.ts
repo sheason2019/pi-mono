@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { getAgentDir, loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, loadSkillsFromDir } from "@sheason/pi-coding-agent";
 import type {
 	PeerConfigJsonLayers,
 	PeerConfigSnapshot,

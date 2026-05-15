@@ -1,4 +1,4 @@
-import type { ResourceDiagnostic, ResourceLoader } from "@earendil-works/pi-coding-agent";
+import type { ResourceDiagnostic, ResourceLoader } from "@sheason/pi-coding-agent";
 
 export interface PeerResourceContribution {
 	peerId: string;

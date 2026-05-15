@@ -1,4 +1,4 @@
-import { createReadToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createReadToolDefinition } from "@sheason/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { createPeerToolSchema } from "../../src/hub/tools/peer-tool-schema.js";
 

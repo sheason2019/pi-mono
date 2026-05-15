@@ -7,7 +7,7 @@ import {
 	createReadToolDefinition,
 	createWriteToolDefinition,
 	type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+} from "@sheason/pi-coding-agent";
 import type { Static, TSchema } from "typebox";
 import { HOST_PEER_ID } from "./host-peer.js";
 import type { PeerToolBridge } from "./peer-tool-bridge.js";

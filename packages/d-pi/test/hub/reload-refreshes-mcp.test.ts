@@ -1,8 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Api, Model } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Api, Model } from "@sheason/pi-ai";
+import { fauxAssistantMessage, registerFauxProvider } from "@sheason/pi-ai";
 import {
 	type AgentSession,
 	type AgentSessionServices,
@@ -12,8 +13,7 @@ import {
 	type LoadExtensionsResult,
 	ModelRegistry,
 	type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+} from "@sheason/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HubAgentAdapter } from "../../src/hub/agent/hub-agent-adapter.js";
 import type { McpClientHandle } from "../../src/hub/mcp/mcp-client.js";

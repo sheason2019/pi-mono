@@ -15,15 +15,12 @@ export default defineConfig({
 	},
 	resolve: {
 		alias: [
-			{ find: /^@earendil-works\/pi-ai$/, replacement: aiSrcIndex },
-			{ find: /^@earendil-works\/pi-ai\/oauth$/, replacement: aiSrcOAuth },
+			{ find: /^@sheason\/pi-ai$/, replacement: aiSrcIndex },
+			{ find: /^@sheason\/pi-ai\/oauth$/, replacement: aiSrcOAuth },
 			{ find: /^@earendil-works\/pi-agent-core$/, replacement: agentSrcIndex },
-			{ find: /^@earendil-works\/pi-coding-agent$/, replacement: codingAgentSrcIndex },
+			{ find: /^@sheason\/pi-coding-agent$/, replacement: codingAgentSrcIndex },
 			{ find: /^@earendil-works\/pi-tui$/, replacement: tuiSrcIndex },
-			{ find: /^@mariozechner\/pi-ai$/, replacement: aiSrcIndex },
-			{ find: /^@mariozechner\/pi-ai\/oauth$/, replacement: aiSrcOAuth },
 			{ find: /^@mariozechner\/pi-agent-core$/, replacement: agentSrcIndex },
-			{ find: /^@mariozechner\/pi-coding-agent$/, replacement: codingAgentSrcIndex },
 			{ find: /^@mariozechner\/pi-tui$/, replacement: tuiSrcIndex },
 		],
 	},

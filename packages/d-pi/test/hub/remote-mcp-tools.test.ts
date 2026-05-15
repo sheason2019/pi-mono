@@ -1,4 +1,4 @@
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@sheason/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
 	createRemoteMcpToolDefinitions,

@@ -1,4 +1,4 @@
-import type { ContextUsage, SessionContext, SessionEntry, SessionHeader } from "@earendil-works/pi-coding-agent";
+import type { ContextUsage, SessionContext, SessionEntry, SessionHeader } from "@sheason/pi-coding-agent";
 import type { MessageSource } from "../agent/types.js";
 import type { HubAvailableModel } from "./session-options.js";
 

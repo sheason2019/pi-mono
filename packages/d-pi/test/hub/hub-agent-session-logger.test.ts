@@ -1,5 +1,5 @@
-import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { AssistantMessage } from "@sheason/pi-ai";
+import type { AgentSessionEvent } from "@sheason/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { HubAgentSessionLogger } from "../../src/hub/agent/hub-agent-session-logger.js";
 import type { HubLogSink } from "../../src/hub/tui/hub-log.js";

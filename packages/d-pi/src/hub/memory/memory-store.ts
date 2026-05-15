@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import type { SessionEntry, SessionMessageEntry } from "@earendil-works/pi-coding-agent";
 import { type Client, createClient, type InValue, type Row } from "@libsql/client";
+import type { SessionEntry, SessionMessageEntry } from "@sheason/pi-coding-agent";
 import { getMemoryDbFile, getWorkspaceDir } from "../config.js";
 import { MEMORY_SCHEMA_VERSION, type MemoryItem, type NewMemoryItem } from "./schema.js";
 import { buildFtsQuery, buildTokenizedMemoryText } from "./tokenizer.js";

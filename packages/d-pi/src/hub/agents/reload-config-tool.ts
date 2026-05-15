@@ -1,5 +1,5 @@
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@sheason/pi-coding-agent";
+import { defineTool } from "@sheason/pi-coding-agent";
 import { Type } from "typebox";
 import type { HubAgentAdapter } from "../agent/hub-agent-adapter.js";
 

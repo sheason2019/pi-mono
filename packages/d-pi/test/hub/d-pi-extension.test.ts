@@ -4,7 +4,7 @@ import type {
 	SessionBeforeCompactEvent,
 	SessionBeforeTreeEvent,
 	SessionEntry,
-} from "@earendil-works/pi-coding-agent";
+} from "@sheason/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import type { MessageSource } from "../../src/hub/agent/types.js";
 import {

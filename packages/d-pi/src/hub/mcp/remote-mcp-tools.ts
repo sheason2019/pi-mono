@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { defineTool, type ToolDefinition } from "@sheason/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Type } from "typebox";
 import type { PeerToolBridge } from "../tools/peer-tool-bridge.js";

@@ -11,7 +11,7 @@ import {
 	writeSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { type SessionHeader, SessionManager } from "@earendil-works/pi-coding-agent";
+import { type SessionHeader, SessionManager } from "@sheason/pi-coding-agent";
 import {
 	CHILD_AGENT_DIR_NAME,
 	getAgentsConfigPath,

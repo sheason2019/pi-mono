@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage } from "@sheason/pi-ai";
 import { HUB_PROTOCOL_VERSION, type HubAgentViewItem, type HubAgentViewModel } from "../../hub/index.js";
 import { SocketPeerClient, type SocketPeerClientOptions } from "../client/socket-client.js";
 import { type PeerAppSnapshot, PeerAppState } from "../state/peer-app-state.js";

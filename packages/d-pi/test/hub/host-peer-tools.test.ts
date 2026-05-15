@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ToolDefinition } from "@sheason/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MAIN_AGENT_ID } from "../../src/hub/agents/types.js";
 import { PeerRegistry } from "../../src/hub/peers/peer-registry.js";

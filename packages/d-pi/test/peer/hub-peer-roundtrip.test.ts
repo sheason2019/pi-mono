@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai";
-import { AuthStorage, createAgentSessionServices, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { fauxAssistantMessage, registerFauxProvider } from "@sheason/pi-ai";
+import { AuthStorage, createAgentSessionServices, ModelRegistry } from "@sheason/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { HubRuntime, initializeWorkspace } from "../../src/hub/index.js";
 import type { HubAgentViewModel } from "../../src/hub/session/hub-view-document.js";

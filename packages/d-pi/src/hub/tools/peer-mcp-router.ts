@@ -1,4 +1,4 @@
-import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { defineTool, type ToolDefinition } from "@sheason/pi-coding-agent";
 import { Type } from "typebox";
 import type { PeerToolBridge } from "./peer-tool-bridge.js";
 

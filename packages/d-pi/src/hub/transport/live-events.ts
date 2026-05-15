@@ -1,6 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { AssistantMessage } from "@sheason/pi-ai";
+import type { AgentToolResult } from "@sheason/pi-coding-agent";
 
 export const LIVE_RENDER_EVENT_TYPES = [
 	"message_start",

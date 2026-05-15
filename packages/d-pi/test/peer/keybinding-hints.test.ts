@@ -1,4 +1,4 @@
-import { initTheme } from "@earendil-works/pi-coding-agent";
+import { initTheme } from "@sheason/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { buildForkedStartupHelp } from "../../src/peer/tui/forked/components/keybinding-hints.js";
 import type { RemoteInteractiveCapabilities } from "../../src/peer/tui/interactive/remote-interactive-capabilities.js";

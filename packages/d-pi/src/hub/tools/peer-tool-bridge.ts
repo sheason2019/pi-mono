@@ -1,4 +1,4 @@
-import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, AgentToolUpdateCallback } from "@sheason/pi-coding-agent";
 import type { PeerRegistry } from "../peers/peer-registry.js";
 import type { RegisteredPeer } from "../peers/peer-types.js";
 import type { SocketHubServer } from "../transport/socket-hub-server.js";

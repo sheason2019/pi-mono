@@ -6,8 +6,8 @@
  */
 
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, Model, Usage } from "@earendil-works/pi-ai";
-import { completeSimple } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Model, Usage } from "@sheason/pi-ai";
+import { completeSimple } from "@sheason/pi-ai";
 import {
 	convertToLlm,
 	createBranchSummaryMessage,

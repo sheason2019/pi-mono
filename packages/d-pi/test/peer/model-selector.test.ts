@@ -1,6 +1,6 @@
 import { stripVTControlCharacters } from "node:util";
-import { initTheme } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER } from "@earendil-works/pi-tui";
+import { initTheme } from "@sheason/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { RemoteModelSelectorComponent } from "../../src/peer/tui/forked/components/model-selector.js";
 

@@ -1,4 +1,4 @@
-import type { ToolResultMessage } from "@earendil-works/pi-ai";
+import type { ToolResultMessage } from "@sheason/pi-ai";
 
 export type DPiToolCallStatus = "pending" | "success" | "error" | "aborted";
 

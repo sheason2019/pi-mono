@@ -6,7 +6,7 @@ import type {
 	SessionBeforeTreeEvent,
 	SessionEntry,
 	ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+} from "@sheason/pi-coding-agent";
 import { type MessageSource, messageSourceHeaderPrefix } from "../agent/types.js";
 
 type ResourceLoaderOptions = NonNullable<CreateAgentSessionServicesOptions["resourceLoaderOptions"]>;

@@ -1,5 +1,5 @@
 import { stripVTControlCharacters } from "node:util";
-import { initTheme } from "@earendil-works/pi-coding-agent";
+import { initTheme } from "@sheason/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { RemoteSettingsSelectorComponent } from "../../src/peer/tui/forked/components/settings-selector.js";
 

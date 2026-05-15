@@ -12,8 +12,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ToolDefinition } from "@sheason/pi-coding-agent";
+import { SessionManager } from "@sheason/pi-coding-agent";
 import { type Socket as ClientSocket, io as ioClient } from "socket.io-client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HubAgentAdapter } from "../../src/hub/agent/hub-agent-adapter.js";

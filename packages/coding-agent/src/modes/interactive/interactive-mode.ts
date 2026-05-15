@@ -8,16 +8,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import {
-	type AssistantMessage,
-	getProviders,
-	type ImageContent,
-	type Message,
-	type Model,
-	type OAuthProviderId,
-	type OAuthSelectPrompt,
-	type TextContent,
-} from "@earendil-works/pi-ai";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -48,6 +38,16 @@ import {
 	TUI,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
+import {
+	type AssistantMessage,
+	getProviders,
+	type ImageContent,
+	type Message,
+	type Model,
+	type OAuthProviderId,
+	type OAuthSelectPrompt,
+	type TextContent,
+} from "@sheason/pi-ai";
 import { spawn, spawnSync } from "child_process";
 import {
 	APP_NAME,

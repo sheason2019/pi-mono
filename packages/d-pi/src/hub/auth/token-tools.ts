@@ -1,5 +1,5 @@
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@sheason/pi-coding-agent";
+import { defineTool } from "@sheason/pi-coding-agent";
 import { type Static, Type } from "typebox";
 
 const createAgentTokenSchema = Type.Object(

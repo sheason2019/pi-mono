@@ -1,5 +1,5 @@
 import { stripVTControlCharacters } from "node:util";
-import { initTheme } from "@earendil-works/pi-coding-agent";
+import { initTheme } from "@sheason/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { McpRuntimeStatus } from "../../src/hub/index.js";
 import { RemoteMcpDetailSelectorComponent } from "../../src/peer/tui/forked/components/mcp-detail-selector.js";

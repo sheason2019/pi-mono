@@ -1,14 +1,14 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@sheason/pi-ai";
 import type {
 	AgentSession,
 	AgentSessionServices,
 	CompactionResult,
 	LoadExtensionsResult,
 	ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+} from "@sheason/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HubAgentAdapter } from "../../src/hub/agent/hub-agent-adapter.js";
 import type { PeerConfigJsonLayers } from "../../src/hub/config-aggregation/types.js";

@@ -1,6 +1,6 @@
 import type * as acp from "@agentclientprotocol/sdk";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { AssistantMessage } from "@sheason/pi-ai";
+import type { AgentToolResult } from "@sheason/pi-coding-agent";
 import type { GuestAgentMessagePayload, HubAgentViewItem, HubAgentViewModel } from "../hub/index.js";
 import type { PeerAppState, PeerLiveSnapshot, PeerLiveToolExecution } from "../peer/state/peer-app-state.js";
 

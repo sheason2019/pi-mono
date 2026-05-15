@@ -10,8 +10,9 @@ export function createPublishPackageJson(sourcePackage) {
 		name: sourcePackage.name,
 		version: sourcePackage.version,
 		description: sourcePackage.description,
+		type: "module",
 		bin: {
-			"d-pi": "cli.cjs",
+			"d-pi": "cli.js",
 		},
 		keywords: sourcePackage.keywords,
 		author: sourcePackage.author,

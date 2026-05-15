@@ -1,5 +1,5 @@
-import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { AgentSessionEvent, AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { AssistantMessage } from "@sheason/pi-ai";
+import type { AgentSessionEvent, AgentToolResult } from "@sheason/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
 	HubAgentAdapter,

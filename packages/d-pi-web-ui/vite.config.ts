@@ -55,7 +55,7 @@ export default defineConfig({
 				),
 			},
 			{ find: /^@earendil-works\/pi-agent-core$/, replacement: resolve(__dirname, "../agent/src/index.ts") },
-			{ find: /^@earendil-works\/pi-ai$/, replacement: resolve(__dirname, "../ai/src/index.ts") },
+			{ find: /^@sheason\/pi-ai$/, replacement: resolve(__dirname, "../ai/src/index.ts") },
 			{ find: /^@earendil-works\/pi-web-ui$/, replacement: resolve(__dirname, "../web-ui/src/index.ts") },
 		],
 	},

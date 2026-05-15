@@ -1,5 +1,3 @@
-import type { AgentToolResult, AgentToolUpdateCallback, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type {
 	CallToolResult,
@@ -8,6 +6,8 @@ import type {
 	ReadResourceResult,
 	Resource,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { AgentToolResult, AgentToolUpdateCallback, ExtensionContext } from "@sheason/pi-coding-agent";
+import { defineTool, type ToolDefinition } from "@sheason/pi-coding-agent";
 import type { Static, TSchema } from "typebox";
 import { Type } from "typebox";
 import { jsonSchemaToTypebox } from "./json-schema-to-typebox.js";

@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@sheason/pi-coding-agent";
 import {
 	HUB_PROTOCOL_VERSION,
 	type McpRuntimeStatus,

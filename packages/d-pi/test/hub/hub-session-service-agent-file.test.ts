@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentSession, CustomEntry, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, CustomEntry, SessionEntry } from "@sheason/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import { getSessionFile } from "../../src/hub/config.js";
 import { HubSessionService } from "../../src/hub/session/hub-session-service.js";

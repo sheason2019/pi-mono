@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@sheason/pi-coding-agent";
 import { Type } from "typebox";
 import { describe, expect, it, vi } from "vitest";
 import { mergePeerMcpConfig, PeerMcpRuntime, type PeerMcpRuntimeHost } from "../../src/peer/mcp/peer-mcp-runtime.js";

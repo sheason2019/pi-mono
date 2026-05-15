@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@sheason/pi-coding-agent";
 import type { PeerRegistry } from "../peers/peer-registry.js";
 import { createPeerMcpRouterToolDefinition } from "./peer-mcp-router.js";
 import type { PeerToolBridge } from "./peer-tool-bridge.js";

@@ -1,6 +1,6 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Api, Model } from "@earendil-works/pi-ai";
-import type { AgentSessionServices, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { Api, Model } from "@sheason/pi-ai";
+import type { AgentSessionServices, ToolDefinition } from "@sheason/pi-coding-agent";
 import { HubAgentAdapter } from "../agent/hub-agent-adapter.js";
 import type { CreateHubAgentAdapterOptions } from "../agent/types.js";
 import { type AgentTokenToolHost, createAgentTokenToolDefinitions } from "../auth/token-tools.js";

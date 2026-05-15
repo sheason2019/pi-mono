@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ToolDefinition } from "@sheason/pi-coding-agent";
 import {
 	McpHost,
 	type PeerConfigSnapshot,

@@ -1,5 +1,5 @@
-import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { AssistantMessage } from "@sheason/pi-ai";
+import type { AgentToolResult } from "@sheason/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { LIVE_RENDER_EVENT_TYPES, type LiveRenderEvent } from "../../src/hub/transport/live-events.js";
 

@@ -1,9 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { ToolDefinition } from "@sheason/pi-coding-agent";
+import { defineTool } from "@sheason/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type McpClientHandle, McpClientTimeoutError } from "../../src/hub/mcp/mcp-client.js";
 import { getMcpConfigPath } from "../../src/hub/mcp/mcp-config.js";

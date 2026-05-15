@@ -1,13 +1,9 @@
-import { setBedrockProviderModule } from "@earendil-works/pi-ai";
-import { bedrockProviderModule } from "@earendil-works/pi-ai/bedrock-provider";
 import { runPiGuestCli } from "./guest/cli.js";
 import { runPiHubCli } from "./hub/cli.js";
 import { HUB_PROTOCOL_VERSION } from "./hub/transport/protocol.js";
 import { getDPiHelpText, resolveDPiCommand } from "./index.js";
 import { runPiPeerCli } from "./peer/cli.js";
 import { VERSION } from "./version.js";
-
-setBedrockProviderModule(bedrockProviderModule);
 
 type EnvRestore = () => void;
 

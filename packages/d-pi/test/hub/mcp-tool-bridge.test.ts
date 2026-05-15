@@ -1,5 +1,5 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { ExtensionContext } from "@sheason/pi-coding-agent";
 import { Value } from "typebox/value";
 import { describe, expect, it, vi } from "vitest";
 import { jsonSchemaToTypebox } from "../../src/hub/mcp/json-schema-to-typebox.js";
