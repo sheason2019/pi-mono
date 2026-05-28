@@ -58,7 +58,15 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 
 	constructor(runtime: AgentSessionRuntime) {
 		this._runtime = runtime;
-		// Re-subscribe when the runtime replaces the session
+	}
+
+	/** Re-subscribe all proxy listeners to the current session and emit session_replaced */
+	resubscribe(reason: "new" | "resume" | "fork" = "new"): void {
+		this._resubscribe(reason);
+	}
+
+	/** Called by the host mode to wire up the rebindSession callback */
+	installRebindCallback(): void {
 		this._runtime.setRebindSession(async (_session, reason) => {
 			this._resubscribe(reason);
 		});
@@ -605,6 +613,7 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 					? session.scopedModels.map((sm) => `${sm.model.provider}/${sm.model.id}`)
 					: null,
 			enabledModelPatterns: session.settingsManager.getEnabledModels(),
+			extensionPaths: session.extensionRunner.getExtensionPaths(),
 		};
 	}
 }

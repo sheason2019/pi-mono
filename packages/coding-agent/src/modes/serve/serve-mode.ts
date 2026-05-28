@@ -105,17 +105,15 @@ function generateBanner(session: AgentSession): BannerData {
 		});
 	}
 
-	// Extensions — always show, even if empty (serve mode runs with --no-extensions)
+	// Extensions — tool registration and events work, UI calls degrade to no-ops
 	const extensions = rl.getExtensions().extensions;
-	loadedResources.push({
-		name: "Extensions",
-		compactList:
-			extensions.length > 0
-				? extensions.map((e) => e.path.split("/").pop() ?? e.path).join(", ")
-				: "disabled in serve mode (--no-extensions)",
-		expandedList:
-			extensions.length > 0 ? extensions.map((e) => e.path).join("\n") : "disabled in serve mode (--no-extensions)",
-	});
+	if (extensions.length > 0) {
+		loadedResources.push({
+			name: "Extensions",
+			compactList: extensions.map((e) => e.path.split("/").pop() ?? e.path).join(", "),
+			expandedList: extensions.map((e) => e.path).join("\n"),
+		});
+	}
 
 	// Themes (custom only)
 	const themes = rl.getThemes().themes.filter((t) => t.sourcePath);
@@ -189,13 +187,60 @@ export async function runServeMode(runtime: AgentSessionRuntime, options: ServeM
 
 	const server = new AgentHttpServer(proxy);
 
+	// Bind extensions — no UI context (hasUI() === false), tool registration
+	// and event subscriptions work normally. UI calls degrade to no-ops.
+	const rebindSession = async (): Promise<void> => {
+		const session = runtime.session;
+		await session.bindExtensions({
+			commandContextActions: {
+				waitForIdle: () => session.agent.waitForIdle(),
+				newSession: async (newSessionOptions) => runtime.newSession(newSessionOptions),
+				fork: async (entryId, forkOptions) => {
+					const result = await runtime.fork(entryId, forkOptions);
+					return { cancelled: result.cancelled };
+				},
+				navigateTree: async (targetId, navigateOptions) => {
+					const result = await session.navigateTree(targetId, {
+						summarize: navigateOptions?.summarize,
+						customInstructions: navigateOptions?.customInstructions,
+						replaceInstructions: navigateOptions?.replaceInstructions,
+						label: navigateOptions?.label,
+					});
+					return { cancelled: result.cancelled };
+				},
+				switchSession: async (sessionPath, switchOptions) => {
+					return runtime.switchSession(sessionPath, switchOptions);
+				},
+				reload: async () => {
+					await session.reload();
+				},
+			},
+			abortHandler: () => {
+				// No UI to reset in serve mode
+			},
+			onError: (err) => {
+				process.stderr.write(`[serve] Extension error (${err.extensionPath}): ${err.error}\n`);
+			},
+		});
+	};
+
 	// Set up beforeSessionInvalidate callback
 	runtime.setBeforeSessionInvalidate(() => {
 		// No UI to reset in serve mode
 	});
 
-	// Note: rebindSession is set by LocalAgentSessionProxy constructor
-	// to handle re-subscribing to the new session's events.
+	// Set up rebindSession — must call bindExtensions for each new session
+	// so extension event handlers (session_start, etc.) fire correctly.
+	// Also re-subscribe proxy listeners so SSE events keep flowing.
+	runtime.setRebindSession(async (session, reason) => {
+		proxy.resubscribe(reason);
+		await rebindSession();
+		// Update banner after session replacement
+		proxy.setBanner(generateBanner(session));
+	});
+
+	// Initial bind for the first session
+	await rebindSession();
 
 	await server.start(port);
 

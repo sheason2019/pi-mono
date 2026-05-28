@@ -201,6 +201,8 @@ export interface SessionStateSnapshot {
 	scopedModelIds: string[] | null;
 	/** Persisted enabled model patterns from settings */
 	enabledModelPatterns: string[] | undefined;
+	/** Extension paths loaded on the server — client can load the same extensions for UI */
+	extensionPaths: string[];
 }
 
 export interface AgentSessionProxy {

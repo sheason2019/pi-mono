@@ -331,6 +331,9 @@ export class InteractiveMode {
 	private extensionEditor: ExtensionEditorComponent | undefined = undefined;
 	private extensionTerminalInputUnsubscribers = new Set<() => void>();
 
+	// Client-side extension runner for connect mode (undefined in local mode)
+	private _clientExtensionRunner: ExtensionRunner | undefined = undefined;
+
 	// Extension widgets (components rendered above/below the editor)
 	private extensionWidgetsAbove = new Map<string, Component & { dispose?(): void }>();
 	private extensionWidgetsBelow = new Map<string, Component & { dispose?(): void }>();
@@ -868,7 +871,6 @@ export class InteractiveMode {
 		this.isInitialized = true;
 
 		// Initialize extensions first so resources are shown before messages
-		// In connect mode, skip extension binding and just subscribe to proxy events
 		if (this.runtimeHost) {
 			await this.rebindCurrentSession();
 		} else if (this.proxy) {
@@ -888,6 +890,8 @@ export class InteractiveMode {
 			}
 			// Set up autocomplete for connect mode with a reduced command set
 			this.setupConnectModeAutocomplete();
+			// Load client-side extensions for UI (shortcuts, widgets, status, etc.)
+			await this.bindConnectModeExtensions();
 		}
 
 		// Render initial messages AFTER showing loaded resources
@@ -1802,6 +1806,108 @@ export class InteractiveMode {
 		this.showStartupNoticesIfNeeded();
 	}
 
+	/**
+	 * Load and bind client-side extensions for connect mode.
+	 * Extensions run with a real UI context but stub session/model access.
+	 * Tool and event registrations are no-ops (handled by the server).
+	 */
+	private async bindConnectModeExtensions(): Promise<void> {
+		if (!this.proxy) return;
+
+		const snapshot = this.proxy.getSnapshot();
+		const extensionPaths = snapshot.extensionPaths;
+		if (!extensionPaths || extensionPaths.length === 0) return;
+
+		try {
+			const { loadExtensions } = await import("../../core/extensions/loader.ts");
+			const { ExtensionRunner } = await import("../../core/extensions/runner.ts");
+			const { createEventBus } = await import("../../core/event-bus.ts");
+
+			const cwd = snapshot.cwd || process.cwd();
+			const eventBus = createEventBus();
+			const result = await loadExtensions(extensionPaths, cwd, eventBus);
+
+			if (result.extensions.length === 0) return;
+
+			const runner = ExtensionRunner.createClientSide(result.extensions, result.runtime, cwd);
+
+			// Bind core actions — most are no-ops since the server handles them.
+			// Only UI-facing actions need real implementations.
+			runner.bindCore(
+				{
+					sendMessage: () => {},
+					sendUserMessage: () => {},
+					appendEntry: () => {},
+					setSessionName: () => {},
+					getSessionName: () => undefined,
+					setLabel: () => {},
+					getActiveTools: () => [],
+					getAllTools: () => [],
+					setActiveTools: () => {},
+					refreshTools: () => {},
+					getCommands: () => [],
+					setModel: () => Promise.resolve(false),
+					getThinkingLevel: () => "medium",
+					setThinkingLevel: () => {},
+				},
+				{
+					getModel: () => undefined,
+					isIdle: () => true,
+					getSignal: () => undefined,
+					abort: () => {
+						this.proxy!.abort();
+					},
+					hasPendingMessages: () => false,
+					shutdown: () => {
+						this.shutdownRequested = true;
+					},
+					getContextUsage: () => undefined,
+					compact: () => {},
+					getSystemPrompt: () => "",
+				},
+				{
+					registerProvider: () => {},
+					unregisterProvider: () => {},
+				},
+			);
+
+			// Bind command context — delegate to proxy
+			runner.bindCommandContext({
+				waitForIdle: () => Promise.resolve(),
+				newSession: async () => {
+					await this.proxy!.newSession();
+					return { cancelled: false };
+				},
+				fork: async () => {
+					await this.proxy!.fork();
+					return { cancelled: false };
+				},
+				navigateTree: async () => ({ cancelled: false }),
+				switchSession: async () => ({ cancelled: false }),
+				reload: async () => {
+					await this.proxy!.reload();
+				},
+			});
+
+			// Set the real UI context so extensions can interact with the TUI
+			const uiContext = this.createExtensionUIContext();
+			runner.setUIContext(uiContext);
+
+			// Set up extension shortcuts
+			this.setupExtensionShortcuts(runner);
+
+			this._clientExtensionRunner = runner;
+
+			// Emit session_start so extensions can initialize their UI
+			await runner.emit({ type: "session_start", reason: "startup" });
+		} catch (err) {
+			// Non-fatal: extensions are best-effort in connect mode
+			process.stderr.write(
+				`[connect] Failed to load client-side extensions: ${err instanceof Error ? err.message : String(err)}\n`,
+			);
+		}
+	}
+
 	private applyRuntimeSettings(): void {
 		configureHttpDispatcher(this.settingsManager!.getHttpIdleTimeoutMs());
 		this.footer.setSession(this.session!);
@@ -2061,6 +2167,11 @@ export class InteractiveMode {
 			this.loadingAnimation.setMessage(`${this.defaultWorkingMessage} (${keyText("app.interrupt")} to interrupt)`);
 		}
 		this.setHiddenThinkingLabel();
+		// Invalidate client-side extension runner (connect mode)
+		if (this._clientExtensionRunner) {
+			this._clientExtensionRunner.invalidate("Session replaced — extension context is stale");
+			this._clientExtensionRunner = undefined;
+		}
 	}
 
 	// Maximum total widget lines to prevent viewport overflow
@@ -2199,39 +2310,49 @@ export class InteractiveMode {
 	 * In connect mode (proxy set), returns a headless implementation that rejects interactive dialogs.
 	 */
 	private createExtensionUIContext(): ExtensionUIContext {
-		// Headless implementation for connect mode — interactive dialogs return defaults
+		// Connect mode: real UI for non-interactive operations, defaults for dialogs
 		if (this.proxy) {
 			return {
+				// Interactive dialogs — return defaults (no server-side session to support these)
 				select: () => Promise.resolve(undefined),
 				confirm: () => Promise.resolve(false),
 				input: () => Promise.resolve(undefined),
-				notify: () => {},
-				onTerminalInput: () => () => {},
-				setStatus: () => {},
-				setWorkingMessage: () => {},
-				setWorkingVisible: () => {},
-				setWorkingIndicator: () => {},
-				setHiddenThinkingLabel: () => {},
-				setWidget: () => {},
-				setFooter: () => {},
-				setHeader: () => {},
-				setTitle: () => {},
 				custom: () => Promise.resolve(undefined as any),
-				pasteToEditor: () => {},
-				setEditorText: () => {},
-				getEditorText: () => "",
 				editor: () => Promise.resolve(undefined),
-				addAutocompleteProvider: () => {},
-				setEditorComponent: () => {},
-				getEditorComponent: () => undefined,
+				// Non-interactive UI — real TUI implementations
+				notify: (message, type) => this.showExtensionNotify(message, type),
+				onTerminalInput: (handler) => this.addExtensionTerminalInputListener(handler),
+				setStatus: (key, text) => this.setExtensionStatus(key, text),
+				setWorkingMessage: (message) => {
+					this.workingMessage = message;
+					if (this.loadingAnimation) {
+						this.loadingAnimation.setMessage(message ?? this.defaultWorkingMessage);
+					}
+				},
+				setWorkingVisible: (visible) => this.setWorkingVisible(visible),
+				setWorkingIndicator: (options) => this.setWorkingIndicator(options),
+				setHiddenThinkingLabel: (label) => this.setHiddenThinkingLabel(label),
+				setWidget: (key, content, options) => this.setExtensionWidget(key, content, options),
+				setFooter: (factory) => this.setExtensionFooter(factory),
+				setHeader: (factory) => this.setExtensionHeader(factory),
+				setTitle: (title) => this.ui.terminal.setTitle(title),
+				pasteToEditor: (text) => this.editor.handleInput(`\x1b[200~${text}\x1b[201~`),
+				setEditorText: (text) => this.editor.setText(text),
+				getEditorText: () => this.editor.getExpandedText?.() ?? this.editor.getText(),
+				addAutocompleteProvider: (factory) => {
+					this.autocompleteProviderWrappers.push(factory);
+					this.setupAutocompleteProvider();
+				},
+				setEditorComponent: (factory) => this.setCustomEditorComponent(factory),
+				getEditorComponent: () => this.editorComponentFactory,
 				get theme() {
 					return theme;
 				},
 				getAllThemes: () => [],
 				getTheme: () => undefined,
 				setTheme: () => ({ success: false }),
-				getToolsExpanded: () => false,
-				setToolsExpanded: () => {},
+				getToolsExpanded: () => this.toolOutputExpanded,
+				setToolsExpanded: (expanded) => this.setToolsExpanded(expanded),
 			};
 		}
 
@@ -3288,11 +3409,15 @@ export class InteractiveMode {
 				this.statusContainer.clear();
 				this.streamingComponent = undefined;
 				this.streamingMessage = undefined;
+				// Reset extension UI and reload client-side extensions
+				this.resetExtensionUI();
 				// Update footer with new session state
 				const snapshot = this.proxy!.getSnapshot();
 				this.footer.setSnapshot(snapshot);
 				this.footerDataProvider.setCwd(snapshot.cwd);
 				this.footerDataProvider.setAvailableProviderCount(snapshot.availableProviderCount);
+				// Re-bind client-side extensions for the new session
+				void this.bindConnectModeExtensions();
 				// Render messages from the new session
 				this.renderInitialMessages();
 				// Show confirmation

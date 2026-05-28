@@ -263,6 +263,35 @@ export class ExtensionRunner {
 		this.modelRegistry = modelRegistry;
 	}
 
+	/** Create an ExtensionRunner for client-side (connect mode) use.
+	 *  Uses stub SessionManager and ModelRegistry since the real ones live on the server.
+	 *  Extension event handlers that access ctx.sessionManager or ctx.modelRegistry
+	 *  will get safe no-op implementations. */
+	static createClientSide(extensions: Extension[], runtime: ExtensionRuntime, cwd: string): ExtensionRunner {
+		const stubSessionManager = {
+			getCwd: () => cwd,
+			getSessionDir: () => "",
+			getSessionId: () => "",
+			getSessionFile: () => undefined,
+			getLeafId: () => null,
+			getLeafEntry: () => undefined,
+			getEntry: () => undefined,
+			getLabel: () => undefined,
+			getBranch: () => [],
+			getHeader: () => undefined,
+			getEntries: () => [],
+			getTree: () => [],
+			getSessionName: () => undefined,
+		} as unknown as SessionManager;
+		const stubModelRegistry = {
+			registerProvider: () => {},
+			unregisterProvider: () => {},
+			getAvailable: () => [],
+			find: () => undefined,
+		} as unknown as ModelRegistry;
+		return new ExtensionRunner(extensions, runtime, cwd, stubSessionManager, stubModelRegistry);
+	}
+
 	bindCore(
 		actions: ExtensionActions,
 		contextActions: ExtensionContextActions,

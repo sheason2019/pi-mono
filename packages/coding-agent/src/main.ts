@@ -566,10 +566,8 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 	time("createSessionManager");
 
-	// Serve mode runs without extensions (no UI to handle extension dialogs)
-	if (appMode === "serve") {
-		parsed.noExtensions = true;
-	}
+	// Extensions load normally in serve mode — tool registration and event
+	// subscriptions work without UI. UI calls degrade to no-ops via noOpUIContext.
 	const resolvedExtensionPaths = resolveCliPaths(cwd, parsed.extensions);
 	const resolvedSkillPaths = resolveCliPaths(cwd, parsed.skills);
 	const resolvedPromptTemplatePaths = resolveCliPaths(cwd, parsed.promptTemplates);
