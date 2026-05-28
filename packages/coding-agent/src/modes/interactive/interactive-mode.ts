@@ -59,6 +59,7 @@ import {
 	VERSION,
 } from "../../config.ts";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
+import type { AgentSessionProxy } from "../../core/agent-session-proxy.ts";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.ts";
 import type {
 	AutocompleteProviderFactory,
@@ -232,6 +233,8 @@ export interface InteractiveModeOptions {
 	initialMessages?: string[];
 	/** Force verbose startup (overrides quietStartup setting) */
 	verbose?: boolean;
+	/** Proxy for connect mode — when set, core operations go through the proxy instead of direct session */
+	proxy?: AgentSessionProxy;
 }
 
 export class InteractiveMode {
@@ -342,6 +345,9 @@ export class InteractiveMode {
 
 	private options: InteractiveModeOptions;
 
+	/** Proxy for connect mode — when set, core operations go through the proxy */
+	private readonly proxy: AgentSessionProxy | undefined;
+
 	// Convenience accessors
 	private get session(): AgentSession {
 		return this.runtimeHost.session;
@@ -359,15 +365,29 @@ export class InteractiveMode {
 	constructor(runtimeHost: AgentSessionRuntime, options: InteractiveModeOptions = {}) {
 		this.runtimeHost = runtimeHost;
 		this.options = options;
-		this.runtimeHost.setBeforeSessionInvalidate(() => {
-			this.resetExtensionUI();
-		});
-		this.runtimeHost.setRebindSession(async () => {
-			await this.rebindCurrentSession();
-		});
+		this.proxy = options.proxy;
+
+		// Only register runtime callbacks when NOT using proxy (connect mode)
+		if (!this.proxy) {
+			this.runtimeHost.setBeforeSessionInvalidate(() => {
+				this.resetExtensionUI();
+			});
+			this.runtimeHost.setRebindSession(async () => {
+				await this.rebindCurrentSession();
+			});
+		}
+
 		this.version = VERSION;
-		this.ui = new TUI(new ProcessTerminal(), this.settingsManager.getShowHardwareCursor());
-		this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
+
+		// In connect mode (proxy set), use defaults for UI setup since session/settingsManager
+		// are not available. In normal mode, read from settingsManager.
+		const showHardwareCursor = this.proxy ? false : this.settingsManager.getShowHardwareCursor();
+		const clearOnShrink = this.proxy ? true : this.settingsManager.getClearOnShrink();
+		const editorPaddingX = this.proxy ? 2 : this.settingsManager.getEditorPaddingX();
+		const autocompleteMaxVisible = this.proxy ? 8 : this.settingsManager.getAutocompleteMaxVisible();
+
+		this.ui = new TUI(new ProcessTerminal(), showHardwareCursor);
+		this.ui.setClearOnShrink(clearOnShrink);
 		this.headerContainer = new Container();
 		this.chatContainer = new Container();
 		this.pendingMessagesContainer = new Container();
@@ -376,8 +396,6 @@ export class InteractiveMode {
 		this.widgetContainerBelow = new Container();
 		this.keybindings = KeybindingsManager.create();
 		setKeybindings(this.keybindings);
-		const editorPaddingX = this.settingsManager.getEditorPaddingX();
-		const autocompleteMaxVisible = this.settingsManager.getAutocompleteMaxVisible();
 		this.defaultEditor = new CustomEditor(this.ui, getEditorTheme(), this.keybindings, {
 			paddingX: editorPaddingX,
 			autocompleteMaxVisible,
@@ -385,16 +403,20 @@ export class InteractiveMode {
 		this.editor = this.defaultEditor;
 		this.editorContainer = new Container();
 		this.editorContainer.addChild(this.editor as Component);
-		this.footerDataProvider = new FooterDataProvider(this.sessionManager.getCwd());
+		this.footerDataProvider = new FooterDataProvider(this.proxy ? process.cwd() : this.sessionManager.getCwd());
 		this.footer = new FooterComponent(this.session, this.footerDataProvider);
-		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
+		this.footer.setAutoCompactEnabled(this.proxy ? false : this.session.autoCompactionEnabled);
 
 		// Load hide thinking block setting
-		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
+		this.hideThinkingBlock = this.proxy ? false : this.settingsManager.getHideThinkingBlock();
 
 		// Register themes from resource loader and initialize
-		setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
-		initTheme(this.settingsManager.getTheme(), true);
+		if (!this.proxy) {
+			setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
+			initTheme(this.settingsManager.getTheme(), true);
+		} else {
+			initTheme("dark", true);
+		}
 	}
 
 	private getAutocompleteSourceTag(sourceInfo?: SourceInfo): string | undefined {
@@ -758,17 +780,23 @@ export class InteractiveMode {
 		// Process initial messages
 		if (initialMessage) {
 			try {
-				await this.session.prompt(initialMessage, { images: initialImages });
+				if (this.proxy) {
+					// Proxy uses a different image format; convert or skip images
+					await this.proxy.prompt(initialMessage);
+				} else {
+					await this.session.prompt(initialMessage, { images: initialImages });
+				}
 			} catch (error: unknown) {
 				const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 				this.showError(errorMessage);
 			}
 		}
 
+		const cmdTarget = this.proxy ?? this.session;
 		if (initialMessages) {
 			for (const message of initialMessages) {
 				try {
-					await this.session.prompt(message);
+					await cmdTarget.prompt(message);
 				} catch (error: unknown) {
 					const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 					this.showError(errorMessage);
@@ -780,7 +808,7 @@ export class InteractiveMode {
 		while (true) {
 			const userInput = await this.getUserInput();
 			try {
-				await this.session.prompt(userInput);
+				await cmdTarget.prompt(userInput);
 			} catch (error: unknown) {
 				const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 				this.showError(errorMessage);
@@ -1960,8 +1988,46 @@ export class InteractiveMode {
 
 	/**
 	 * Create the ExtensionUIContext for extensions.
+	 * In connect mode (proxy set), returns a headless implementation that rejects interactive dialogs.
 	 */
 	private createExtensionUIContext(): ExtensionUIContext {
+		// Headless implementation for connect mode — interactive dialogs are not supported remotely
+		if (this.proxy) {
+			const notSupported = () => Promise.reject(new Error("Not supported in connect mode"));
+			return {
+				select: () => notSupported(),
+				confirm: () => notSupported(),
+				input: () => notSupported(),
+				notify: () => {},
+				onTerminalInput: () => () => {},
+				setStatus: () => {},
+				setWorkingMessage: () => {},
+				setWorkingVisible: () => {},
+				setWorkingIndicator: () => {},
+				setHiddenThinkingLabel: () => {},
+				setWidget: () => {},
+				setFooter: () => {},
+				setHeader: () => {},
+				setTitle: () => {},
+				custom: () => notSupported(),
+				pasteToEditor: () => {},
+				setEditorText: () => {},
+				getEditorText: () => "",
+				editor: () => notSupported(),
+				addAutocompleteProvider: () => {},
+				setEditorComponent: () => {},
+				getEditorComponent: () => undefined,
+				get theme() {
+					return theme;
+				},
+				getAllThemes: () => [],
+				getTheme: () => undefined,
+				setTheme: () => ({ success: false, error: "Not supported in connect mode" }),
+				getToolsExpanded: () => false,
+				setToolsExpanded: () => {},
+			};
+		}
+
 		return {
 			select: (title, options, opts) => this.showExtensionSelector(title, options, opts),
 			confirm: (title, message, opts) => this.showExtensionConfirm(title, message, opts),
@@ -2625,7 +2691,11 @@ export class InteractiveMode {
 			if (this.session.isStreaming) {
 				this.editor.addToHistory?.(text);
 				this.editor.setText("");
-				await this.session.prompt(text, { streamingBehavior: "steer" });
+				if (this.proxy) {
+					this.proxy.steer(text);
+				} else {
+					await this.session.prompt(text, { streamingBehavior: "steer" });
+				}
 				this.updatePendingMessagesDisplay();
 				this.ui.requestRender();
 				return;
@@ -2643,7 +2713,8 @@ export class InteractiveMode {
 	}
 
 	private subscribeToAgent(): void {
-		this.unsubscribe = this.session.subscribe(async (event) => {
+		const eventSource = this.proxy ?? this.session;
+		this.unsubscribe = eventSource.subscribe(async (event) => {
 			await this.handleEvent(event);
 		});
 	}
@@ -3413,7 +3484,11 @@ export class InteractiveMode {
 		if (this.session.isStreaming) {
 			this.editor.addToHistory?.(text);
 			this.editor.setText("");
-			await this.session.prompt(text, { streamingBehavior: "followUp" });
+			if (this.proxy) {
+				this.proxy.followUp(text);
+			} else {
+				await this.session.prompt(text, { streamingBehavior: "followUp" });
+			}
 			this.updatePendingMessagesDisplay();
 			this.ui.requestRender();
 		}
@@ -3695,7 +3770,7 @@ export class InteractiveMode {
 		if (allQueued.length === 0) {
 			this.updatePendingMessagesDisplay();
 			if (options?.abort) {
-				this.agent.abort();
+				(this.proxy ?? this.session).abort();
 			}
 			return 0;
 		}
@@ -3705,7 +3780,7 @@ export class InteractiveMode {
 		this.editor.setText(combinedText);
 		this.updatePendingMessagesDisplay();
 		if (options?.abort) {
-			this.agent.abort();
+			(this.proxy ?? this.session).abort();
 		}
 		return allQueued.length;
 	}
