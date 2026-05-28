@@ -59,7 +59,7 @@ import {
 	VERSION,
 } from "../../config.ts";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
-import type { AgentSessionProxy } from "../../core/agent-session-proxy.ts";
+import type { AgentSessionProxy, BannerData } from "../../core/agent-session-proxy.ts";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.ts";
 import type {
 	AutocompleteProviderFactory,
@@ -235,6 +235,8 @@ export interface InteractiveModeOptions {
 	verbose?: boolean;
 	/** Proxy for connect mode — when set, core operations go through the proxy instead of direct session */
 	proxy?: AgentSessionProxy;
+	/** Banner data from server (connect mode) — used to render the startup header */
+	banner?: BannerData;
 }
 
 export class InteractiveMode {
@@ -346,38 +348,39 @@ export class InteractiveMode {
 	private options: InteractiveModeOptions;
 
 	/** Proxy for connect mode — when set, core operations go through the proxy */
-	private readonly proxy: AgentSessionProxy | undefined;
+	private proxy: AgentSessionProxy | undefined;
 
-	// Convenience accessors — only valid when runtimeHost is set (i.e., not in connect mode)
-	private get session(): AgentSession {
-		if (!this.runtimeHost) throw new Error("session not available in connect mode");
-		return this.runtimeHost.session;
+	/** Set the proxy after construction (used by connect mode for late binding) */
+	setProxy(proxy: AgentSessionProxy): void {
+		this.proxy = proxy;
+	}
+
+	// Convenience accessors — return undefined when runtimeHost is not set (connect mode)
+	private get session(): AgentSession | undefined {
+		return this.runtimeHost?.session;
 	}
 	private get agent() {
-		if (!this.runtimeHost) throw new Error("agent not available in connect mode");
-		return this.session.agent;
+		return this.session?.agent;
 	}
 	private get sessionManager() {
-		if (!this.runtimeHost) throw new Error("sessionManager not available in connect mode");
-		return this.session.sessionManager;
+		return this.session?.sessionManager;
 	}
 	private get settingsManager() {
-		if (!this.runtimeHost) throw new Error("settingsManager not available in connect mode");
-		return this.session.settingsManager;
+		return this.session?.settingsManager;
 	}
 
 	// Safe accessors that return defaults in connect mode
 	private get showTerminalProgress(): boolean {
-		return this.runtimeHost ? this.settingsManager.getShowTerminalProgress() : false;
+		return this.runtimeHost ? this.settingsManager!.getShowTerminalProgress() : false;
 	}
 	private get showImages(): boolean {
-		return this.runtimeHost ? this.settingsManager.getShowImages() : false;
+		return this.runtimeHost ? this.settingsManager!.getShowImages() : false;
 	}
 	private get imageWidthCells(): number {
-		return this.runtimeHost ? this.settingsManager.getImageWidthCells() : 80;
+		return this.runtimeHost ? this.settingsManager!.getImageWidthCells() : 80;
 	}
 	private get currentCwd(): string {
-		return this.runtimeHost ? this.sessionManager.getCwd() : process.cwd();
+		return this.runtimeHost ? this.sessionManager!.getCwd() : process.cwd();
 	}
 
 	constructor(runtimeHost: AgentSessionRuntime | undefined, options: InteractiveModeOptions = {}) {
@@ -399,10 +402,10 @@ export class InteractiveMode {
 
 		// In connect mode (proxy set), use defaults for UI setup since session/settingsManager
 		// are not available. In normal mode, read from settingsManager.
-		const showHardwareCursor = this.runtimeHost ? this.settingsManager.getShowHardwareCursor() : false;
-		const clearOnShrink = this.runtimeHost ? this.settingsManager.getClearOnShrink() : true;
-		const editorPaddingX = this.runtimeHost ? this.settingsManager.getEditorPaddingX() : 2;
-		const autocompleteMaxVisible = this.runtimeHost ? this.settingsManager.getAutocompleteMaxVisible() : 8;
+		const showHardwareCursor = this.runtimeHost ? this.settingsManager!.getShowHardwareCursor() : false;
+		const clearOnShrink = this.runtimeHost ? this.settingsManager!.getClearOnShrink() : true;
+		const editorPaddingX = this.runtimeHost ? this.settingsManager!.getEditorPaddingX() : 2;
+		const autocompleteMaxVisible = this.runtimeHost ? this.settingsManager!.getAutocompleteMaxVisible() : 8;
 
 		this.ui = new TUI(new ProcessTerminal(), showHardwareCursor);
 		this.ui.setClearOnShrink(clearOnShrink);
@@ -421,17 +424,19 @@ export class InteractiveMode {
 		this.editor = this.defaultEditor;
 		this.editorContainer = new Container();
 		this.editorContainer.addChild(this.editor as Component);
-		this.footerDataProvider = new FooterDataProvider(this.runtimeHost ? this.sessionManager.getCwd() : process.cwd());
-		this.footer = new FooterComponent(this.runtimeHost ? this.session : undefined, this.footerDataProvider);
-		this.footer.setAutoCompactEnabled(this.runtimeHost ? this.session.autoCompactionEnabled : false);
+		this.footerDataProvider = new FooterDataProvider(
+			this.runtimeHost ? this.sessionManager!.getCwd() : process.cwd(),
+		);
+		this.footer = new FooterComponent(this.runtimeHost ? this.session! : undefined, this.footerDataProvider);
+		this.footer.setAutoCompactEnabled(this.runtimeHost ? this.session!.autoCompactionEnabled : false);
 
 		// Load hide thinking block setting
-		this.hideThinkingBlock = this.runtimeHost ? this.settingsManager.getHideThinkingBlock() : false;
+		this.hideThinkingBlock = this.runtimeHost ? this.settingsManager!.getHideThinkingBlock() : false;
 
 		// Register themes from resource loader and initialize
 		if (this.runtimeHost) {
-			setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
-			initTheme(this.settingsManager.getTheme(), true);
+			setRegisteredThemes(this.session!.resourceLoader.getThemes().themes);
+			initTheme(this.settingsManager!.getTheme(), true);
 		} else {
 			initTheme("dark", true);
 		}
@@ -497,9 +502,9 @@ export class InteractiveMode {
 			modelCommand.getArgumentCompletions = (prefix: string): AutocompleteItem[] | null => {
 				// Get available models (scoped or from registry)
 				const models =
-					this.session.scopedModels.length > 0
-						? this.session.scopedModels.map((s) => s.model)
-						: this.session.modelRegistry.getAvailable();
+					this.session!.scopedModels.length > 0
+						? this.session!.scopedModels.map((s) => s.model)
+						: this.session!.modelRegistry.getAvailable();
 
 				if (models.length === 0) return null;
 
@@ -524,7 +529,7 @@ export class InteractiveMode {
 		}
 
 		// Convert prompt templates to SlashCommand format for autocomplete
-		const templateCommands: SlashCommand[] = this.session.promptTemplates.map((cmd) => ({
+		const templateCommands: SlashCommand[] = this.session!.promptTemplates.map((cmd) => ({
 			name: cmd.name,
 			description: this.prefixAutocompleteDescription(cmd.description, cmd.sourceInfo),
 			...(cmd.argumentHint && { argumentHint: cmd.argumentHint }),
@@ -532,8 +537,7 @@ export class InteractiveMode {
 
 		// Convert extension commands to SlashCommand format
 		const builtinCommandNames = new Set(slashCommands.map((c) => c.name));
-		const extensionCommands: SlashCommand[] = this.session.extensionRunner
-			.getRegisteredCommands()
+		const extensionCommands: SlashCommand[] = this.session!.extensionRunner.getRegisteredCommands()
 			.filter((cmd) => !builtinCommandNames.has(cmd.name))
 			.map((cmd) => ({
 				name: cmd.invocationName,
@@ -544,8 +548,8 @@ export class InteractiveMode {
 		// Build skill commands from session.skills (if enabled)
 		this.skillCommands.clear();
 		const skillCommandList: SlashCommand[] = [];
-		if (this.settingsManager.getEnableSkillCommands()) {
-			for (const skill of this.session.resourceLoader.getSkills().skills) {
+		if (this.settingsManager!.getEnableSkillCommands()) {
+			for (const skill of this.session!.resourceLoader.getSkills().skills) {
 				const commandName = `skill:${skill.name}`;
 				this.skillCommands.set(commandName, skill.filePath);
 				skillCommandList.push({
@@ -557,7 +561,7 @@ export class InteractiveMode {
 
 		return new CombinedAutocompleteProvider(
 			[...slashCommands, ...templateCommands, ...extensionCommands, ...skillCommandList],
-			this.sessionManager.getCwd(),
+			this.sessionManager!.getCwd(),
 			this.fdPath,
 		);
 	}
@@ -589,7 +593,7 @@ export class InteractiveMode {
 			this.chatContainer.addChild(new Spacer(1));
 		}
 		this.chatContainer.addChild(new DynamicBorder());
-		if (this.settingsManager.getCollapseChangelog()) {
+		if (this.settingsManager!.getCollapseChangelog()) {
 			const versionMatch = this.changelogMarkdown.match(/##\s+\[?(\d+\.\d+\.\d+)\]?/);
 			const latestVersion = versionMatch ? versionMatch[1] : this.version;
 			const condensedText = `Updated to v${latestVersion}. Use ${theme.bold("/changelog")} to view full changelog.`;
@@ -623,15 +627,13 @@ export class InteractiveMode {
 
 		if (
 			this.runtimeHost &&
-			this.session.scopedModels.length > 0 &&
-			(this.options.verbose || !this.settingsManager.getQuietStartup())
+			this.session!.scopedModels.length > 0 &&
+			(this.options.verbose || !this.settingsManager!.getQuietStartup())
 		) {
-			const modelList = this.session.scopedModels
-				.map((sm) => {
-					const thinkingStr = sm.thinkingLevel ? `:${sm.thinkingLevel}` : "";
-					return `${sm.model.id}${thinkingStr}`;
-				})
-				.join(", ");
+			const modelList = this.session!.scopedModels.map((sm) => {
+				const thinkingStr = sm.thinkingLevel ? `:${sm.thinkingLevel}` : "";
+				return `${sm.model.id}${thinkingStr}`;
+			}).join(", ");
 			const cycleKeys = this.keybindings.getKeys("app.model.cycleForward");
 			const cycleHint =
 				cycleKeys.length > 0
@@ -645,56 +647,80 @@ export class InteractiveMode {
 
 		// Add header with keybindings from config (unless silenced)
 		// In connect mode, always show header since we don't have settingsManager
-		const showHeader = this.runtimeHost ? this.options.verbose || !this.settingsManager.getQuietStartup() : true;
+		const showHeader = this.runtimeHost ? this.options.verbose || !this.settingsManager!.getQuietStartup() : true;
 		if (showHeader) {
-			const logo = theme.bold(theme.fg("accent", APP_NAME)) + theme.fg("dim", ` v${this.version}`);
+			const bannerData = this.options.banner;
+			if (bannerData) {
+				// Connect mode: render banner from structured data sent by server
+				const logo =
+					theme.bold(theme.fg("accent", bannerData.appName)) + theme.fg("dim", ` v${bannerData.version}`);
+				const renderHint = (hint: { key: string; description: string }) =>
+					theme.fg("dim", hint.key) + theme.fg("muted", ` ${hint.description}`);
+				const expandedInstructions = bannerData.expandedHints.map(renderHint).join("\n");
+				const compactInstructions = bannerData.compactHints.map(renderHint).join(theme.fg("muted", " · "));
+				const compactOnboarding = theme.fg("dim", bannerData.compactOnboarding);
+				const onboarding = theme.fg("dim", bannerData.onboarding);
+				this.builtInHeader = new ExpandableText(
+					() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
+					() => `${logo}\n${expandedInstructions}\n\n${onboarding}`,
+					this.getStartupExpansionState(),
+					1,
+					0,
+				);
+			} else {
+				// Local mode: generate banner from keybindings + theme
+				const logo = theme.bold(theme.fg("accent", APP_NAME)) + theme.fg("dim", ` v${this.version}`);
 
-			// Build startup instructions using keybinding hint helpers
-			const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
+				// Build startup instructions using keybinding hint helpers
+				const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
 
-			const expandedInstructions = [
-				hint("app.interrupt", "to interrupt"),
-				hint("app.clear", "to clear"),
-				rawKeyHint(`${keyText("app.clear")} twice`, "to exit"),
-				hint("app.exit", "to exit (empty)"),
-				hint("app.suspend", "to suspend"),
-				keyHint("tui.editor.deleteToLineEnd", "to delete to end"),
-				hint("app.thinking.cycle", "to cycle thinking level"),
-				rawKeyHint(`${keyText("app.model.cycleForward")}/${keyText("app.model.cycleBackward")}`, "to cycle models"),
-				hint("app.model.select", "to select model"),
-				hint("app.tools.expand", "to expand tools"),
-				hint("app.thinking.toggle", "to expand thinking"),
-				hint("app.editor.external", "for external editor"),
-				rawKeyHint("/", "for commands"),
-				rawKeyHint("!", "to run bash"),
-				rawKeyHint("!!", "to run bash (no context)"),
-				hint("app.message.followUp", "to queue follow-up"),
-				hint("app.message.dequeue", "to edit all queued messages"),
-				hint("app.clipboard.pasteImage", "to paste image"),
-				rawKeyHint("drop files", "to attach"),
-			].join("\n");
-			const compactInstructions = [
-				hint("app.interrupt", "interrupt"),
-				rawKeyHint(`${keyText("app.clear")}/${keyText("app.exit")}`, "clear/exit"),
-				rawKeyHint("/", "commands"),
-				rawKeyHint("!", "bash"),
-				hint("app.tools.expand", "more"),
-			].join(theme.fg("muted", " · "));
-			const compactOnboarding = theme.fg(
-				"dim",
-				`Press ${keyText("app.tools.expand")} to show full startup help and loaded resources.`,
-			);
-			const onboarding = theme.fg(
-				"dim",
-				`Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`,
-			);
-			this.builtInHeader = new ExpandableText(
-				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
-				() => `${logo}\n${expandedInstructions}\n\n${onboarding}`,
-				this.getStartupExpansionState(),
-				1,
-				0,
-			);
+				const expandedInstructions = [
+					hint("app.interrupt", "to interrupt"),
+					hint("app.clear", "to clear"),
+					rawKeyHint(`${keyText("app.clear")} twice`, "to exit"),
+					hint("app.exit", "to exit (empty)"),
+					hint("app.suspend", "to suspend"),
+					keyHint("tui.editor.deleteToLineEnd", "to delete to end"),
+					hint("app.thinking.cycle", "to cycle thinking level"),
+					rawKeyHint(
+						`${keyText("app.model.cycleForward")}/${keyText("app.model.cycleBackward")}`,
+						"to cycle models",
+					),
+					hint("app.model.select", "to select model"),
+					hint("app.tools.expand", "to expand tools"),
+					hint("app.thinking.toggle", "to expand thinking"),
+					hint("app.editor.external", "for external editor"),
+					rawKeyHint("/", "for commands"),
+					rawKeyHint("!", "to run bash"),
+					rawKeyHint("!!", "to run bash (no context)"),
+					hint("app.message.followUp", "to queue follow-up"),
+					hint("app.message.dequeue", "to edit all queued messages"),
+					hint("app.clipboard.pasteImage", "to paste image"),
+					rawKeyHint("drop files", "to attach"),
+				].join("\n");
+				const compactInstructions = [
+					hint("app.interrupt", "interrupt"),
+					rawKeyHint(`${keyText("app.clear")}/${keyText("app.exit")}`, "clear/exit"),
+					rawKeyHint("/", "commands"),
+					rawKeyHint("!", "bash"),
+					hint("app.tools.expand", "more"),
+				].join(theme.fg("muted", " · "));
+				const compactOnboarding = theme.fg(
+					"dim",
+					`Press ${keyText("app.tools.expand")} to show full startup help and loaded resources.`,
+				);
+				const onboarding = theme.fg(
+					"dim",
+					`Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`,
+				);
+				this.builtInHeader = new ExpandableText(
+					() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
+					() => `${logo}\n${expandedInstructions}\n\n${onboarding}`,
+					this.getStartupExpansionState(),
+					1,
+					0,
+				);
+			}
 
 			// Setup UI layout
 			this.headerContainer.addChild(new Spacer(1));
@@ -704,6 +730,66 @@ export class InteractiveMode {
 			// Minimal header when silenced
 			this.builtInHeader = new Text("", 0, 0);
 			this.headerContainer.addChild(this.builtInHeader);
+		}
+
+		// In connect mode, render loaded resources from banner data into chat container
+		if (this.options.banner) {
+			const banner = this.options.banner;
+
+			// Loaded resource sections
+			for (const section of banner.loadedResources) {
+				const sectionHeader = theme.fg("mdHeading", `[${section.name}]`);
+				const compactBody = theme.fg("dim", `  ${section.compactList}`);
+				const expandedBody = theme.fg(
+					"dim",
+					section.expandedList
+						.split("\n")
+						.map((l) => `  ${l}`)
+						.join("\n"),
+				);
+				const expandable = new ExpandableText(
+					() => `${sectionHeader}\n${compactBody}`,
+					() => `${sectionHeader}\n${expandedBody}`,
+					this.getStartupExpansionState(),
+					0,
+					0,
+				);
+				this.chatContainer.addChild(expandable);
+				this.chatContainer.addChild(new Spacer(1));
+			}
+
+			// Diagnostics (Skill conflicts, Prompt conflicts, etc.)
+			for (const diag of banner.diagnostics) {
+				const lines: string[] = [];
+				for (const entry of diag.entries) {
+					if (entry.type === "collision" && entry.collision) {
+						const c = entry.collision;
+						lines.push(`  "${c.name}" collision:`);
+						lines.push(`    ✓ auto (${c.winnerSource ?? "local"}) ${c.winnerPath}`);
+						lines.push(`    ✗ ${c.loserPath} (skipped)`);
+					} else {
+						lines.push(`  ${entry.message}`);
+					}
+				}
+				if (lines.length > 0) {
+					this.chatContainer.addChild(
+						new Text(`${theme.fg("warning", `[${diag.label}]`)}\n${lines.join("\n")}`, 0, 0),
+					);
+					this.chatContainer.addChild(new Spacer(1));
+				}
+			}
+
+			// What's New (changelog)
+			if (banner.changelogMarkdown) {
+				this.chatContainer.addChild(new DynamicBorder());
+				this.chatContainer.addChild(new Text(theme.bold(theme.fg("accent", "What's New")), 1, 0));
+				this.chatContainer.addChild(new Spacer(1));
+				this.chatContainer.addChild(
+					new Markdown(banner.changelogMarkdown.trim(), 1, 0, this.getMarkdownThemeWithSettings()),
+				);
+				this.chatContainer.addChild(new Spacer(1));
+				this.chatContainer.addChild(new DynamicBorder());
+			}
 		}
 
 		this.ui.addChild(this.chatContainer);
@@ -732,8 +818,9 @@ export class InteractiveMode {
 		}
 
 		// Render initial messages AFTER showing loaded resources
-		// In connect mode, skip since messages come from proxy events
 		if (this.runtimeHost) {
+			this.renderInitialMessages();
+		} else if (this.proxy) {
 			this.renderInitialMessages();
 		}
 
@@ -762,7 +849,7 @@ export class InteractiveMode {
 	private updateTerminalTitle(): void {
 		const cwdBasename = path.basename(this.currentCwd);
 		if (this.runtimeHost) {
-			const sessionName = this.sessionManager.getSessionName();
+			const sessionName = this.sessionManager!.getSessionName();
 			if (sessionName) {
 				this.ui.terminal.setTitle(`${APP_TITLE} - ${sessionName} - ${cwdBasename}`);
 			} else {
@@ -811,7 +898,7 @@ export class InteractiveMode {
 		}
 
 		if (this.runtimeHost) {
-			const modelsJsonError = this.session.modelRegistry.getError();
+			const modelsJsonError = this.session!.modelRegistry.getError();
 			if (modelsJsonError) {
 				this.showError(`models.json error: ${modelsJsonError}`);
 			}
@@ -832,7 +919,7 @@ export class InteractiveMode {
 					// Proxy uses a different image format; convert or skip images
 					await this.proxy.prompt(initialMessage);
 				} else {
-					await this.session.prompt(initialMessage, { images: initialImages });
+					await this.session!.prompt(initialMessage, { images: initialImages });
 				}
 			} catch (error: unknown) {
 				const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
@@ -840,7 +927,7 @@ export class InteractiveMode {
 			}
 		}
 
-		const cmdTarget = this.proxy ?? this.session;
+		const cmdTarget = this.proxy ?? this.session!;
 		if (initialMessages) {
 			for (const message of initialMessages) {
 				try {
@@ -871,9 +958,9 @@ export class InteractiveMode {
 
 		try {
 			const packageManager = new DefaultPackageManager({
-				cwd: this.sessionManager.getCwd(),
+				cwd: this.sessionManager!.getCwd(),
 				agentDir: getAgentDir(),
-				settingsManager: this.settingsManager,
+				settingsManager: this.settingsManager!,
 			});
 			const updates = await packageManager.checkForAvailableUpdates();
 			return updates.map((update) => update.displayName);
@@ -935,24 +1022,24 @@ export class InteractiveMode {
 	 */
 	private getChangelogForDisplay(): string | undefined {
 		// Skip changelog for resumed/continued sessions (already have messages)
-		if (this.session.state.messages.length > 0) {
+		if (this.session!.state.messages.length > 0) {
 			return undefined;
 		}
 
-		const lastVersion = this.settingsManager.getLastChangelogVersion();
+		const lastVersion = this.settingsManager!.getLastChangelogVersion();
 		const changelogPath = getChangelogPath();
 		const entries = parseChangelog(changelogPath);
 
 		if (!lastVersion) {
 			// Fresh install - record the version, send telemetry, don't show changelog
-			this.settingsManager.setLastChangelogVersion(VERSION);
+			this.settingsManager!.setLastChangelogVersion(VERSION);
 			this.reportInstallTelemetry(VERSION);
 			return undefined;
 		}
 
 		const newEntries = getNewEntries(entries, lastVersion);
 		if (newEntries.length > 0) {
-			this.settingsManager.setLastChangelogVersion(VERSION);
+			this.settingsManager!.setLastChangelogVersion(VERSION);
 			this.reportInstallTelemetry(VERSION);
 			return newEntries.map((e) => e.content).join("\n\n");
 		}
@@ -965,7 +1052,7 @@ export class InteractiveMode {
 			return;
 		}
 
-		if (!isInstallTelemetryEnabled(this.settingsManager)) {
+		if (!isInstallTelemetryEnabled(this.settingsManager!)) {
 			return;
 		}
 
@@ -982,7 +1069,7 @@ export class InteractiveMode {
 	private getMarkdownThemeWithSettings(): MarkdownTheme {
 		return {
 			...getMarkdownTheme(),
-			codeBlockIndent: this.runtimeHost ? this.settingsManager.getCodeBlockIndent() : "  ",
+			codeBlockIndent: this.runtimeHost ? this.settingsManager!.getCodeBlockIndent() : "  ",
 		};
 	}
 
@@ -1009,7 +1096,7 @@ export class InteractiveMode {
 	}
 
 	private formatContextPath(p: string): string {
-		const cwd = path.resolve(this.sessionManager.getCwd());
+		const cwd = path.resolve(this.sessionManager!.getCwd());
 		const absolutePath = path.isAbsolute(p) ? path.resolve(p) : path.resolve(cwd, p);
 		const relativePath = getCwdRelativePath(absolutePath, cwd);
 		if (relativePath !== undefined) {
@@ -1360,7 +1447,7 @@ export class InteractiveMode {
 		force?: boolean;
 		showDiagnosticsWhenQuiet?: boolean;
 	}): void {
-		const showListing = options?.force || this.options.verbose || !this.settingsManager.getQuietStartup();
+		const showListing = options?.force || this.options.verbose || !this.settingsManager!.getQuietStartup();
 		const showDiagnostics = showListing || options?.showDiagnosticsWhenQuiet === true;
 		if (!showListing && !showDiagnostics) {
 			return;
@@ -1391,12 +1478,12 @@ export class InteractiveMode {
 			this.chatContainer.addChild(new Spacer(1));
 		};
 
-		const skillsResult = this.session.resourceLoader.getSkills();
-		const promptsResult = this.session.resourceLoader.getPrompts();
-		const themesResult = this.session.resourceLoader.getThemes();
+		const skillsResult = this.session!.resourceLoader.getSkills();
+		const promptsResult = this.session!.resourceLoader.getPrompts();
+		const themesResult = this.session!.resourceLoader.getThemes();
 		const extensions =
 			options?.extensions ??
-			this.session.resourceLoader.getExtensions().extensions.map((extension) => ({
+			this.session!.resourceLoader.getExtensions().extensions.map((extension) => ({
 				path: extension.path,
 				sourceInfo: extension.sourceInfo,
 			}));
@@ -1423,7 +1510,7 @@ export class InteractiveMode {
 		}
 
 		if (showListing) {
-			const contextFiles = this.session.resourceLoader.getAgentsFiles().agentsFiles;
+			const contextFiles = this.session!.resourceLoader.getAgentsFiles().agentsFiles;
 			if (contextFiles.length > 0) {
 				this.chatContainer.addChild(new Spacer(1));
 				const contextList = contextFiles
@@ -1449,7 +1536,7 @@ export class InteractiveMode {
 				addLoadedSection("Skills", skillCompactList, skillList);
 			}
 
-			const templates = this.session.promptTemplates;
+			const templates = this.session!.promptTemplates;
 			if (templates.length > 0) {
 				const groups = this.buildScopeGroups(
 					templates.map((template) => ({ path: template.filePath, sourceInfo: template.sourceInfo })),
@@ -1522,18 +1609,18 @@ export class InteractiveMode {
 			}
 
 			const extensionDiagnostics: ResourceDiagnostic[] = [];
-			const extensionErrors = this.session.resourceLoader.getExtensions().errors;
+			const extensionErrors = this.session!.resourceLoader.getExtensions().errors;
 			if (extensionErrors.length > 0) {
 				for (const error of extensionErrors) {
 					extensionDiagnostics.push({ type: "error", message: error.error, path: error.path });
 				}
 			}
 
-			const commandDiagnostics = this.session.extensionRunner.getCommandDiagnostics();
+			const commandDiagnostics = this.session!.extensionRunner.getCommandDiagnostics();
 			extensionDiagnostics.push(...commandDiagnostics);
-			extensionDiagnostics.push(...this.getBuiltInCommandConflictDiagnostics(this.session.extensionRunner));
+			extensionDiagnostics.push(...this.getBuiltInCommandConflictDiagnostics(this.session!.extensionRunner));
 
-			const shortcutDiagnostics = this.session.extensionRunner.getShortcutDiagnostics();
+			const shortcutDiagnostics = this.session!.extensionRunner.getShortcutDiagnostics();
 			extensionDiagnostics.push(...shortcutDiagnostics);
 
 			if (extensionDiagnostics.length > 0) {
@@ -1558,13 +1645,13 @@ export class InteractiveMode {
 	 */
 	private async bindCurrentSessionExtensions(): Promise<void> {
 		const uiContext = this.createExtensionUIContext();
-		await this.session.bindExtensions({
+		await this.session!.bindExtensions({
 			uiContext,
 			abortHandler: () => {
 				this.restoreQueuedMessagesToEditor({ abort: true });
 			},
 			commandContextActions: {
-				waitForIdle: () => this.session.agent.waitForIdle(),
+				waitForIdle: () => this.session!.agent.waitForIdle(),
 				newSession: async (options) => {
 					if (this.loadingAnimation) {
 						this.loadingAnimation.stop();
@@ -1596,7 +1683,7 @@ export class InteractiveMode {
 					}
 				},
 				navigateTree: async (targetId, options) => {
-					const result = await this.session.navigateTree(targetId, {
+					const result = await this.session!.navigateTree(targetId, {
 						summarize: options?.summarize,
 						customInstructions: options?.customInstructions,
 						replaceInstructions: options?.replaceInstructions,
@@ -1624,7 +1711,7 @@ export class InteractiveMode {
 			},
 			shutdownHandler: () => {
 				this.shutdownRequested = true;
-				if (!this.session.isStreaming) {
+				if (!this.session!.isStreaming) {
 					void this.shutdown();
 				}
 			},
@@ -1633,25 +1720,25 @@ export class InteractiveMode {
 			},
 		});
 
-		setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
+		setRegisteredThemes(this.session!.resourceLoader.getThemes().themes);
 		this.setupAutocompleteProvider();
 
-		const extensionRunner = this.session.extensionRunner;
+		const extensionRunner = this.session!.extensionRunner;
 		this.setupExtensionShortcuts(extensionRunner);
 		this.showLoadedResources({ force: false, showDiagnosticsWhenQuiet: true });
 		this.showStartupNoticesIfNeeded();
 	}
 
 	private applyRuntimeSettings(): void {
-		configureHttpDispatcher(this.settingsManager.getHttpIdleTimeoutMs());
-		this.footer.setSession(this.session);
-		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
-		this.footerDataProvider.setCwd(this.sessionManager.getCwd());
-		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
-		this.ui.setShowHardwareCursor(this.settingsManager.getShowHardwareCursor());
-		this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
-		const editorPaddingX = this.settingsManager.getEditorPaddingX();
-		const autocompleteMaxVisible = this.settingsManager.getAutocompleteMaxVisible();
+		configureHttpDispatcher(this.settingsManager!.getHttpIdleTimeoutMs());
+		this.footer.setSession(this.session!);
+		this.footer.setAutoCompactEnabled(this.session!.autoCompactionEnabled);
+		this.footerDataProvider.setCwd(this.sessionManager!.getCwd());
+		this.hideThinkingBlock = this.settingsManager!.getHideThinkingBlock();
+		this.ui.setShowHardwareCursor(this.settingsManager!.getShowHardwareCursor());
+		this.ui.setClearOnShrink(this.settingsManager!.getClearOnShrink());
+		const editorPaddingX = this.settingsManager!.getEditorPaddingX();
+		const autocompleteMaxVisible = this.settingsManager!.getAutocompleteMaxVisible();
 		this.defaultEditor.setPaddingX(editorPaddingX);
 		this.defaultEditor.setAutocompleteMaxVisible(autocompleteMaxVisible);
 		if (this.editor !== this.defaultEditor) {
@@ -1693,7 +1780,7 @@ export class InteractiveMode {
 	 * Get a registered tool definition by name (for custom rendering).
 	 */
 	private getRegisteredToolDefinition(toolName: string) {
-		return this.session.getToolDefinition(toolName);
+		return this.session?.getToolDefinition(toolName);
 	}
 
 	/**
@@ -1707,24 +1794,24 @@ export class InteractiveMode {
 		const createContext = (): ExtensionContext => ({
 			ui: this.createExtensionUIContext(),
 			hasUI: true,
-			cwd: this.sessionManager.getCwd(),
-			sessionManager: this.sessionManager,
-			modelRegistry: this.session.modelRegistry,
-			model: this.session.model,
-			isIdle: () => !this.session.isStreaming,
-			signal: this.session.agent.signal,
+			cwd: this.sessionManager!.getCwd(),
+			sessionManager: this.sessionManager!,
+			modelRegistry: this.session!.modelRegistry,
+			model: this.session!.model,
+			isIdle: () => !this.session!.isStreaming,
+			signal: this.session!.agent.signal,
 			abort: () => {
 				this.restoreQueuedMessagesToEditor({ abort: true });
 			},
-			hasPendingMessages: () => this.session.pendingMessageCount > 0,
+			hasPendingMessages: () => this.session!.pendingMessageCount > 0,
 			shutdown: () => {
 				this.shutdownRequested = true;
 			},
-			getContextUsage: () => this.session.getContextUsage(),
+			getContextUsage: () => this.session!.getContextUsage(),
 			compact: (options) => {
 				void (async () => {
 					try {
-						const result = await this.session.compact(options?.customInstructions);
+						const result = await this.session!.compact(options?.customInstructions);
 						options?.onComplete?.(result);
 					} catch (error) {
 						const err = error instanceof Error ? error : new Error(String(error));
@@ -1732,7 +1819,7 @@ export class InteractiveMode {
 					}
 				})();
 			},
-			getSystemPrompt: () => this.session.systemPrompt,
+			getSystemPrompt: () => this.session!.systemPrompt,
 		});
 
 		// Set up the extension shortcut handler on the default editor
@@ -1788,7 +1875,7 @@ export class InteractiveMode {
 			this.ui.requestRender();
 			return;
 		}
-		if (this.session.isStreaming && !this.loadingAnimation) {
+		if (this.session!.isStreaming && !this.loadingAnimation) {
 			this.statusContainer.clear();
 			this.loadingAnimation = this.createWorkingLoader();
 			this.statusContainer.addChild(this.loadingAnimation);
@@ -2039,13 +2126,12 @@ export class InteractiveMode {
 	 * In connect mode (proxy set), returns a headless implementation that rejects interactive dialogs.
 	 */
 	private createExtensionUIContext(): ExtensionUIContext {
-		// Headless implementation for connect mode — interactive dialogs are not supported remotely
+		// Headless implementation for connect mode — interactive dialogs return defaults
 		if (this.proxy) {
-			const notSupported = () => Promise.reject(new Error("Not supported in connect mode"));
 			return {
-				select: () => notSupported(),
-				confirm: () => notSupported(),
-				input: () => notSupported(),
+				select: () => Promise.resolve(undefined),
+				confirm: () => Promise.resolve(false),
+				input: () => Promise.resolve(undefined),
 				notify: () => {},
 				onTerminalInput: () => () => {},
 				setStatus: () => {},
@@ -2057,11 +2143,11 @@ export class InteractiveMode {
 				setFooter: () => {},
 				setHeader: () => {},
 				setTitle: () => {},
-				custom: () => notSupported(),
+				custom: () => Promise.resolve(undefined as any),
 				pasteToEditor: () => {},
 				setEditorText: () => {},
 				getEditorText: () => "",
-				editor: () => notSupported(),
+				editor: () => Promise.resolve(undefined),
 				addAutocompleteProvider: () => {},
 				setEditorComponent: () => {},
 				getEditorComponent: () => undefined,
@@ -2070,7 +2156,7 @@ export class InteractiveMode {
 				},
 				getAllThemes: () => [],
 				getTheme: () => undefined,
-				setTheme: () => ({ success: false, error: "Not supported in connect mode" }),
+				setTheme: () => ({ success: false }),
 				getToolsExpanded: () => false,
 				setToolsExpanded: () => {},
 			};
@@ -2120,8 +2206,8 @@ export class InteractiveMode {
 				}
 				const result = setTheme(themeOrName, true);
 				if (result.success) {
-					if (this.settingsManager.getTheme() !== themeOrName) {
-						this.settingsManager.setTheme(themeOrName);
+					if (this.settingsManager!.getTheme() !== themeOrName) {
+						this.settingsManager!.setTheme(themeOrName);
 					}
 					this.ui.requestRender();
 				}
@@ -2491,16 +2577,19 @@ export class InteractiveMode {
 		// Set up handlers on defaultEditor - they use this.editor for text access
 		// so they work correctly regardless of which editor is active
 		this.defaultEditor.onEscape = () => {
-			if (this.session.isStreaming) {
+			const isStreaming = this.proxy ? this.proxy.isStreaming : this.session!.isStreaming;
+			const isBashRunning = this.session?.isBashRunning ?? false;
+			if (isStreaming) {
 				this.restoreQueuedMessagesToEditor({ abort: true });
-			} else if (this.session.isBashRunning) {
-				this.session.abortBash();
+			} else if (isBashRunning) {
+				this.session!.abortBash();
 			} else if (this.isBashMode) {
 				this.editor.setText("");
 				this.isBashMode = false;
 				this.updateEditorBorderColor();
 			} else if (!this.editor.getText().trim()) {
 				// Double-escape with empty editor triggers /tree, /fork, or nothing based on setting
+				if (!this.settingsManager) return;
 				const action = this.settingsManager.getDoubleEscapeAction();
 				if (action !== "none") {
 					const now = Date.now();
@@ -2579,6 +2668,13 @@ export class InteractiveMode {
 		this.defaultEditor.onSubmit = async (text: string) => {
 			text = text.trim();
 			if (!text) return;
+
+			// In connect mode, only allow a subset of commands
+			if (this.proxy && text.startsWith("/") && text !== "/quit" && text !== "/compact") {
+				this.showWarning("Slash commands are not supported in connect mode.");
+				this.editor.setText("");
+				return;
+			}
 
 			// Handle commands
 			if (text === "/settings") {
@@ -2706,10 +2802,15 @@ export class InteractiveMode {
 
 			// Handle bash command (! for normal, !! for excluded from context)
 			if (text.startsWith("!")) {
+				if (this.proxy) {
+					this.showWarning("Bash commands are not supported in connect mode.");
+					this.editor.setText(text);
+					return;
+				}
 				const isExcluded = text.startsWith("!!");
 				const command = isExcluded ? text.slice(2).trim() : text.slice(1).trim();
 				if (command) {
-					if (this.session.isBashRunning) {
+					if (this.session!.isBashRunning) {
 						this.showWarning("A bash command is already running. Press Esc to cancel it first.");
 						this.editor.setText(text);
 						return;
@@ -2723,11 +2824,11 @@ export class InteractiveMode {
 			}
 
 			// Queue input during compaction (extension commands execute immediately)
-			if (this.session.isCompacting) {
-				if (this.isExtensionCommand(text)) {
+			if (this.proxy ? this.proxy.isCompacting : this.session!.isCompacting) {
+				if (!this.proxy && this.isExtensionCommand(text)) {
 					this.editor.addToHistory?.(text);
 					this.editor.setText("");
-					await this.session.prompt(text);
+					await this.session!.prompt(text);
 				} else {
 					this.queueCompactionMessage(text, "steer");
 				}
@@ -2736,13 +2837,13 @@ export class InteractiveMode {
 
 			// If streaming, use prompt() with steer behavior
 			// This handles extension commands (execute immediately), prompt template expansion, and queueing
-			if (this.session.isStreaming) {
+			if (this.proxy ? this.proxy.isStreaming : this.session!.isStreaming) {
 				this.editor.addToHistory?.(text);
 				this.editor.setText("");
 				if (this.proxy) {
 					this.proxy.steer(text);
 				} else {
-					await this.session.prompt(text, { streamingBehavior: "steer" });
+					await this.session!.prompt(text, { streamingBehavior: "steer" });
 				}
 				this.updatePendingMessagesDisplay();
 				this.ui.requestRender();
@@ -2761,7 +2862,7 @@ export class InteractiveMode {
 	}
 
 	private subscribeToAgent(): void {
-		const eventSource = this.proxy ?? this.session;
+		const eventSource = this.proxy ?? this.session!;
 		this.unsubscribe = eventSource.subscribe(async (event) => {
 			await this.handleEvent(event);
 		});
@@ -2881,7 +2982,7 @@ export class InteractiveMode {
 					this.streamingMessage = event.message;
 					let errorMessage: string | undefined;
 					if (this.streamingMessage.stopReason === "aborted") {
-						const retryAttempt = this.runtimeHost ? this.session.retryAttempt : 0;
+						const retryAttempt = this.runtimeHost ? this.session!.retryAttempt : 0;
 						errorMessage =
 							retryAttempt > 0
 								? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
@@ -2988,7 +3089,7 @@ export class InteractiveMode {
 					if (this.proxy) {
 						this.proxy.abort();
 					} else {
-						this.session.abortCompaction();
+						this.session!.abortCompaction();
 					}
 				};
 				this.statusContainer.clear();
@@ -3058,7 +3159,7 @@ export class InteractiveMode {
 					if (this.proxy) {
 						this.proxy.abort();
 					} else {
-						this.session.abortRetry();
+						this.session!.abortRetry();
 					}
 				};
 				// Show retry indicator
@@ -3129,7 +3230,7 @@ export class InteractiveMode {
 	 * If multiple status messages are emitted back-to-back (without anything else being added to the chat),
 	 * we update the previous status line instead of appending new ones to avoid log spam.
 	 */
-	private showStatus(message: string): void {
+	showStatus(message: string): void {
 		const children = this.chatContainer.children;
 		const last = children.length > 0 ? children[children.length - 1] : undefined;
 		const secondLast = children.length > 1 ? children[children.length - 2] : undefined;
@@ -3167,7 +3268,7 @@ export class InteractiveMode {
 			}
 			case "custom": {
 				if (message.display) {
-					const renderer = this.session.extensionRunner.getMessageRenderer(message.customType);
+					const renderer = this.session?.extensionRunner.getMessageRenderer(message.customType);
 					const component = new CustomMessageComponent(message, renderer, this.getMarkdownThemeWithSettings());
 					component.setExpanded(this.toolOutputExpanded);
 					this.chatContainer.addChild(component);
@@ -3271,12 +3372,12 @@ export class InteractiveMode {
 							content.id,
 							content.arguments,
 							{
-								showImages: this.settingsManager.getShowImages(),
-								imageWidthCells: this.settingsManager.getImageWidthCells(),
+								showImages: this.showImages,
+								imageWidthCells: this.imageWidthCells,
 							},
 							this.getRegisteredToolDefinition(content.name),
 							this.ui,
-							this.sessionManager.getCwd(),
+							this.sessionManager?.getCwd() ?? this.currentCwd,
 						);
 						component.setExpanded(this.toolOutputExpanded);
 						this.chatContainer.addChild(component);
@@ -3284,7 +3385,7 @@ export class InteractiveMode {
 						if (message.stopReason === "aborted" || message.stopReason === "error") {
 							let errorMessage: string;
 							if (message.stopReason === "aborted") {
-								const retryAttempt = this.session.retryAttempt;
+								const retryAttempt = this.session?.retryAttempt ?? 0;
 								errorMessage =
 									retryAttempt > 0
 										? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
@@ -3318,15 +3419,23 @@ export class InteractiveMode {
 	}
 
 	renderInitialMessages(): void {
+		if (this.proxy) {
+			// Connect mode: render from proxy messages directly
+			this.renderSessionContext(
+				{ messages: [...this.proxy.messages], thinkingLevel: "", model: null },
+				{ updateFooter: true, populateHistory: true },
+			);
+			return;
+		}
 		// Get aligned messages and entries from session context
-		const context = this.sessionManager.buildSessionContext();
+		const context = this.sessionManager!.buildSessionContext();
 		this.renderSessionContext(context, {
 			updateFooter: true,
 			populateHistory: true,
 		});
 
 		// Show compaction info if session was compacted
-		const allEntries = this.sessionManager.getEntries();
+		const allEntries = this.sessionManager!.getEntries();
 		const compactionCount = allEntries.filter((e) => e.type === "compaction").length;
 		if (compactionCount > 0) {
 			const times = compactionCount === 1 ? "1 time" : `${compactionCount} times`;
@@ -3345,8 +3454,12 @@ export class InteractiveMode {
 
 	private rebuildChatFromMessages(): void {
 		this.chatContainer.clear();
-		const context = this.sessionManager.buildSessionContext();
-		this.renderSessionContext(context);
+		if (this.proxy) {
+			this.renderSessionContext({ messages: [...this.proxy.messages], thinkingLevel: "", model: null });
+		} else {
+			const context = this.sessionManager!.buildSessionContext();
+			this.renderSessionContext(context);
+		}
 	}
 
 	// =========================================================================
@@ -3375,7 +3488,7 @@ export class InteractiveMode {
 	 */
 	private isShuttingDown = false;
 
-	private async shutdown(): Promise<void> {
+	async shutdown(): Promise<void> {
 		if (this.isShuttingDown) return;
 		this.isShuttingDown = true;
 		this.unregisterSignalHandlers();
@@ -3528,11 +3641,11 @@ export class InteractiveMode {
 		if (!text) return;
 
 		// Queue input during compaction (extension commands execute immediately)
-		if (this.session.isCompacting) {
+		if (this.session!.isCompacting) {
 			if (this.isExtensionCommand(text)) {
 				this.editor.addToHistory?.(text);
 				this.editor.setText("");
-				await this.session.prompt(text);
+				await this.session!.prompt(text);
 			} else {
 				this.queueCompactionMessage(text, "followUp");
 			}
@@ -3541,13 +3654,13 @@ export class InteractiveMode {
 
 		// Alt+Enter queues a follow-up message (waits until agent finishes)
 		// This handles extension commands (execute immediately), prompt template expansion, and queueing
-		if (this.session.isStreaming) {
+		if (this.session!.isStreaming) {
 			this.editor.addToHistory?.(text);
 			this.editor.setText("");
 			if (this.proxy) {
 				this.proxy.followUp(text);
 			} else {
-				await this.session.prompt(text, { streamingBehavior: "followUp" });
+				await this.session!.prompt(text, { streamingBehavior: "followUp" });
 			}
 			this.updatePendingMessagesDisplay();
 			this.ui.requestRender();
@@ -3572,14 +3685,14 @@ export class InteractiveMode {
 		if (this.isBashMode) {
 			this.editor.borderColor = theme.getBashModeBorderColor();
 		} else {
-			const level = this.session.thinkingLevel || "off";
+			const level = this.proxy ? this.proxy.thinkingLevel : this.session?.thinkingLevel || "off";
 			this.editor.borderColor = theme.getThinkingBorderColor(level);
 		}
 		this.ui.requestRender();
 	}
 
 	private cycleThinkingLevel(): void {
-		const newLevel = this.session.cycleThinkingLevel();
+		const newLevel = this.session!.cycleThinkingLevel();
 		if (newLevel === undefined) {
 			this.showStatus("Current model does not support thinking");
 		} else {
@@ -3591,9 +3704,9 @@ export class InteractiveMode {
 
 	private async cycleModel(direction: "forward" | "backward"): Promise<void> {
 		try {
-			const result = await this.session.cycleModel(direction);
+			const result = await this.session!.cycleModel(direction);
 			if (result === undefined) {
-				const msg = this.session.scopedModels.length > 0 ? "Only one model in scope" : "Only one model available";
+				const msg = this.session!.scopedModels.length > 0 ? "Only one model in scope" : "Only one model available";
 				this.showStatus(msg);
 			} else {
 				this.footer.invalidate();
@@ -3628,7 +3741,7 @@ export class InteractiveMode {
 
 	private toggleThinkingBlockVisibility(): void {
 		this.hideThinkingBlock = !this.hideThinkingBlock;
-		this.settingsManager.setHideThinkingBlock(this.hideThinkingBlock);
+		this.settingsManager!.setHideThinkingBlock(this.hideThinkingBlock);
 
 		// Rebuild chat from session messages
 		this.chatContainer.clear();
@@ -3774,13 +3887,15 @@ export class InteractiveMode {
 	 * Combines session queue and compaction queue.
 	 */
 	private getAllQueuedMessages(): { steering: string[]; followUp: string[] } {
+		const steeringSource = this.proxy ? this.proxy.steeringMessages : this.session!.getSteeringMessages();
+		const followUpSource = this.proxy ? this.proxy.followUpMessages : this.session!.getFollowUpMessages();
 		return {
 			steering: [
-				...this.session.getSteeringMessages(),
+				...steeringSource,
 				...this.compactionQueuedMessages.filter((msg) => msg.mode === "steer").map((msg) => msg.text),
 			],
 			followUp: [
-				...this.session.getFollowUpMessages(),
+				...followUpSource,
 				...this.compactionQueuedMessages.filter((msg) => msg.mode === "followUp").map((msg) => msg.text),
 			],
 		};
@@ -3791,7 +3906,9 @@ export class InteractiveMode {
 	 * Clears both session queue and compaction queue.
 	 */
 	private clearAllQueues(): { steering: string[]; followUp: string[] } {
-		const { steering, followUp } = this.session.clearQueue();
+		const sessionQueued = this.proxy
+			? { steering: [...this.proxy.steeringMessages], followUp: [...this.proxy.followUpMessages] }
+			: this.session!.clearQueue();
 		const compactionSteering = this.compactionQueuedMessages
 			.filter((msg) => msg.mode === "steer")
 			.map((msg) => msg.text);
@@ -3800,8 +3917,8 @@ export class InteractiveMode {
 			.map((msg) => msg.text);
 		this.compactionQueuedMessages = [];
 		return {
-			steering: [...steering, ...compactionSteering],
-			followUp: [...followUp, ...compactionFollowUp],
+			steering: [...sessionQueued.steering, ...compactionSteering],
+			followUp: [...sessionQueued.followUp, ...compactionFollowUp],
 		};
 	}
 
@@ -3830,7 +3947,7 @@ export class InteractiveMode {
 		if (allQueued.length === 0) {
 			this.updatePendingMessagesDisplay();
 			if (options?.abort) {
-				(this.proxy ?? this.session).abort();
+				(this.proxy ?? this.session!).abort();
 			}
 			return 0;
 		}
@@ -3840,7 +3957,7 @@ export class InteractiveMode {
 		this.editor.setText(combinedText);
 		this.updatePendingMessagesDisplay();
 		if (options?.abort) {
-			(this.proxy ?? this.session).abort();
+			(this.proxy ?? this.session!).abort();
 		}
 		return allQueued.length;
 	}
@@ -3855,6 +3972,7 @@ export class InteractiveMode {
 
 	private isExtensionCommand(text: string): boolean {
 		if (!text.startsWith("/")) return false;
+		if (!this.session) return false;
 
 		const extensionRunner = this.session.extensionRunner;
 
@@ -3873,7 +3991,9 @@ export class InteractiveMode {
 		this.updatePendingMessagesDisplay();
 
 		const restoreQueue = (error: unknown) => {
-			this.session.clearQueue();
+			if (this.session) {
+				this.session.clearQueue();
+			}
 			this.compactionQueuedMessages = queuedMessages;
 			this.updatePendingMessagesDisplay();
 			this.showError(
@@ -3883,16 +4003,33 @@ export class InteractiveMode {
 			);
 		};
 
+		// Connect mode: send all queued messages through the proxy
+		if (this.proxy) {
+			try {
+				for (const message of queuedMessages) {
+					if (message.mode === "followUp") {
+						this.proxy.followUp(message.text);
+					} else {
+						this.proxy.steer(message.text);
+					}
+				}
+				this.updatePendingMessagesDisplay();
+			} catch (error) {
+				restoreQueue(error);
+			}
+			return;
+		}
+
 		try {
 			if (options?.willRetry) {
 				// When retry is pending, queue messages for the retry turn
 				for (const message of queuedMessages) {
 					if (this.isExtensionCommand(message.text)) {
-						await this.session.prompt(message.text);
+						await this.session!.prompt(message.text);
 					} else if (message.mode === "followUp") {
-						await this.session.followUp(message.text);
+						await this.session!.followUp(message.text);
 					} else {
-						await this.session.steer(message.text);
+						await this.session!.steer(message.text);
 					}
 				}
 				this.updatePendingMessagesDisplay();
@@ -3904,7 +4041,7 @@ export class InteractiveMode {
 			if (firstPromptIndex === -1) {
 				// All extension commands - execute them all
 				for (const message of queuedMessages) {
-					await this.session.prompt(message.text);
+					await this.session!.prompt(message.text);
 				}
 				return;
 			}
@@ -3915,22 +4052,22 @@ export class InteractiveMode {
 			const rest = queuedMessages.slice(firstPromptIndex + 1);
 
 			for (const message of preCommands) {
-				await this.session.prompt(message.text);
+				await this.session!.prompt(message.text);
 			}
 
 			// Send first prompt (starts streaming)
-			const promptPromise = this.session.prompt(firstPrompt.text).catch((error) => {
+			const promptPromise = this.session!.prompt(firstPrompt.text).catch((error) => {
 				restoreQueue(error);
 			});
 
 			// Queue remaining messages
 			for (const message of rest) {
 				if (this.isExtensionCommand(message.text)) {
-					await this.session.prompt(message.text);
+					await this.session!.prompt(message.text);
 				} else if (message.mode === "followUp") {
-					await this.session.followUp(message.text);
+					await this.session!.followUp(message.text);
 				} else {
-					await this.session.steer(message.text);
+					await this.session!.steer(message.text);
 				}
 			}
 			this.updatePendingMessagesDisplay();
@@ -3974,40 +4111,40 @@ export class InteractiveMode {
 		this.showSelector((done) => {
 			const selector = new SettingsSelectorComponent(
 				{
-					autoCompact: this.session.autoCompactionEnabled,
-					showImages: this.settingsManager.getShowImages(),
-					imageWidthCells: this.settingsManager.getImageWidthCells(),
-					autoResizeImages: this.settingsManager.getImageAutoResize(),
-					blockImages: this.settingsManager.getBlockImages(),
-					enableSkillCommands: this.settingsManager.getEnableSkillCommands(),
-					steeringMode: this.session.steeringMode,
-					followUpMode: this.session.followUpMode,
-					transport: this.settingsManager.getTransport(),
-					httpIdleTimeoutMs: this.settingsManager.getHttpIdleTimeoutMs(),
-					thinkingLevel: this.session.thinkingLevel,
-					availableThinkingLevels: this.session.getAvailableThinkingLevels(),
-					currentTheme: this.settingsManager.getTheme() || "dark",
+					autoCompact: this.session!.autoCompactionEnabled,
+					showImages: this.settingsManager!.getShowImages(),
+					imageWidthCells: this.settingsManager!.getImageWidthCells(),
+					autoResizeImages: this.settingsManager!.getImageAutoResize(),
+					blockImages: this.settingsManager!.getBlockImages(),
+					enableSkillCommands: this.settingsManager!.getEnableSkillCommands(),
+					steeringMode: this.session!.steeringMode,
+					followUpMode: this.session!.followUpMode,
+					transport: this.settingsManager!.getTransport(),
+					httpIdleTimeoutMs: this.settingsManager!.getHttpIdleTimeoutMs(),
+					thinkingLevel: this.session!.thinkingLevel,
+					availableThinkingLevels: this.session!.getAvailableThinkingLevels(),
+					currentTheme: this.settingsManager!.getTheme() || "dark",
 					availableThemes: getAvailableThemes(),
 					hideThinkingBlock: this.hideThinkingBlock,
-					collapseChangelog: this.settingsManager.getCollapseChangelog(),
-					enableInstallTelemetry: this.settingsManager.getEnableInstallTelemetry(),
-					doubleEscapeAction: this.settingsManager.getDoubleEscapeAction(),
-					treeFilterMode: this.settingsManager.getTreeFilterMode(),
-					showHardwareCursor: this.settingsManager.getShowHardwareCursor(),
-					editorPaddingX: this.settingsManager.getEditorPaddingX(),
-					autocompleteMaxVisible: this.settingsManager.getAutocompleteMaxVisible(),
-					quietStartup: this.settingsManager.getQuietStartup(),
-					clearOnShrink: this.settingsManager.getClearOnShrink(),
-					showTerminalProgress: this.settingsManager.getShowTerminalProgress(),
-					warnings: this.settingsManager.getWarnings(),
+					collapseChangelog: this.settingsManager!.getCollapseChangelog(),
+					enableInstallTelemetry: this.settingsManager!.getEnableInstallTelemetry(),
+					doubleEscapeAction: this.settingsManager!.getDoubleEscapeAction(),
+					treeFilterMode: this.settingsManager!.getTreeFilterMode(),
+					showHardwareCursor: this.settingsManager!.getShowHardwareCursor(),
+					editorPaddingX: this.settingsManager!.getEditorPaddingX(),
+					autocompleteMaxVisible: this.settingsManager!.getAutocompleteMaxVisible(),
+					quietStartup: this.settingsManager!.getQuietStartup(),
+					clearOnShrink: this.settingsManager!.getClearOnShrink(),
+					showTerminalProgress: this.settingsManager!.getShowTerminalProgress(),
+					warnings: this.settingsManager!.getWarnings(),
 				},
 				{
 					onAutoCompactChange: (enabled) => {
-						this.session.setAutoCompactionEnabled(enabled);
+						this.session!.setAutoCompactionEnabled(enabled);
 						this.footer.setAutoCompactEnabled(enabled);
 					},
 					onShowImagesChange: (enabled) => {
-						this.settingsManager.setShowImages(enabled);
+						this.settingsManager!.setShowImages(enabled);
 						for (const child of this.chatContainer.children) {
 							if (child instanceof ToolExecutionComponent) {
 								child.setShowImages(enabled);
@@ -4015,7 +4152,7 @@ export class InteractiveMode {
 						}
 					},
 					onImageWidthCellsChange: (width) => {
-						this.settingsManager.setImageWidthCells(width);
+						this.settingsManager!.setImageWidthCells(width);
 						for (const child of this.chatContainer.children) {
 							if (child instanceof ToolExecutionComponent) {
 								child.setImageWidthCells(width);
@@ -4023,38 +4160,38 @@ export class InteractiveMode {
 						}
 					},
 					onAutoResizeImagesChange: (enabled) => {
-						this.settingsManager.setImageAutoResize(enabled);
+						this.settingsManager!.setImageAutoResize(enabled);
 					},
 					onBlockImagesChange: (blocked) => {
-						this.settingsManager.setBlockImages(blocked);
+						this.settingsManager!.setBlockImages(blocked);
 					},
 					onEnableSkillCommandsChange: (enabled) => {
-						this.settingsManager.setEnableSkillCommands(enabled);
+						this.settingsManager!.setEnableSkillCommands(enabled);
 						this.setupAutocompleteProvider();
 					},
 					onSteeringModeChange: (mode) => {
-						this.session.setSteeringMode(mode);
+						this.session!.setSteeringMode(mode);
 					},
 					onFollowUpModeChange: (mode) => {
-						this.session.setFollowUpMode(mode);
+						this.session!.setFollowUpMode(mode);
 					},
 					onTransportChange: (transport) => {
-						this.settingsManager.setTransport(transport);
-						this.session.agent.transport = transport;
+						this.settingsManager!.setTransport(transport);
+						this.session!.agent.transport = transport;
 					},
 					onHttpIdleTimeoutMsChange: (timeoutMs) => {
-						this.settingsManager.setHttpIdleTimeoutMs(timeoutMs);
+						this.settingsManager!.setHttpIdleTimeoutMs(timeoutMs);
 						configureHttpDispatcher(timeoutMs);
 						this.showStatus(`HTTP idle timeout: ${formatHttpIdleTimeoutMs(timeoutMs)}`);
 					},
 					onThinkingLevelChange: (level) => {
-						this.session.setThinkingLevel(level);
+						this.session!.setThinkingLevel(level);
 						this.footer.invalidate();
 						this.updateEditorBorderColor();
 					},
 					onThemeChange: (themeName) => {
 						const result = setTheme(themeName, true);
-						this.settingsManager.setTheme(themeName);
+						this.settingsManager!.setTheme(themeName);
 						this.ui.invalidate();
 						if (!result.success) {
 							this.showError(`Failed to load theme "${themeName}": ${result.error}\nFell back to dark theme.`);
@@ -4069,7 +4206,7 @@ export class InteractiveMode {
 					},
 					onHideThinkingBlockChange: (hidden) => {
 						this.hideThinkingBlock = hidden;
-						this.settingsManager.setHideThinkingBlock(hidden);
+						this.settingsManager!.setHideThinkingBlock(hidden);
 						for (const child of this.chatContainer.children) {
 							if (child instanceof AssistantMessageComponent) {
 								child.setHideThinkingBlock(hidden);
@@ -4079,47 +4216,47 @@ export class InteractiveMode {
 						this.rebuildChatFromMessages();
 					},
 					onCollapseChangelogChange: (collapsed) => {
-						this.settingsManager.setCollapseChangelog(collapsed);
+						this.settingsManager!.setCollapseChangelog(collapsed);
 					},
 					onEnableInstallTelemetryChange: (enabled) => {
-						this.settingsManager.setEnableInstallTelemetry(enabled);
+						this.settingsManager!.setEnableInstallTelemetry(enabled);
 					},
 					onQuietStartupChange: (enabled) => {
-						this.settingsManager.setQuietStartup(enabled);
+						this.settingsManager!.setQuietStartup(enabled);
 					},
 					onDoubleEscapeActionChange: (action) => {
-						this.settingsManager.setDoubleEscapeAction(action);
+						this.settingsManager!.setDoubleEscapeAction(action);
 					},
 					onTreeFilterModeChange: (mode) => {
-						this.settingsManager.setTreeFilterMode(mode);
+						this.settingsManager!.setTreeFilterMode(mode);
 					},
 					onShowHardwareCursorChange: (enabled) => {
-						this.settingsManager.setShowHardwareCursor(enabled);
+						this.settingsManager!.setShowHardwareCursor(enabled);
 						this.ui.setShowHardwareCursor(enabled);
 					},
 					onEditorPaddingXChange: (padding) => {
-						this.settingsManager.setEditorPaddingX(padding);
+						this.settingsManager!.setEditorPaddingX(padding);
 						this.defaultEditor.setPaddingX(padding);
 						if (this.editor !== this.defaultEditor && this.editor.setPaddingX !== undefined) {
 							this.editor.setPaddingX(padding);
 						}
 					},
 					onAutocompleteMaxVisibleChange: (maxVisible) => {
-						this.settingsManager.setAutocompleteMaxVisible(maxVisible);
+						this.settingsManager!.setAutocompleteMaxVisible(maxVisible);
 						this.defaultEditor.setAutocompleteMaxVisible(maxVisible);
 						if (this.editor !== this.defaultEditor && this.editor.setAutocompleteMaxVisible !== undefined) {
 							this.editor.setAutocompleteMaxVisible(maxVisible);
 						}
 					},
 					onClearOnShrinkChange: (enabled) => {
-						this.settingsManager.setClearOnShrink(enabled);
+						this.settingsManager!.setClearOnShrink(enabled);
 						this.ui.setClearOnShrink(enabled);
 					},
 					onShowTerminalProgressChange: (enabled) => {
-						this.settingsManager.setShowTerminalProgress(enabled);
+						this.settingsManager!.setShowTerminalProgress(enabled);
 					},
 					onWarningsChange: (warnings) => {
-						this.settingsManager.setWarnings(warnings);
+						this.settingsManager!.setWarnings(warnings);
 					},
 					onCancel: () => {
 						done();
@@ -4140,7 +4277,7 @@ export class InteractiveMode {
 		const model = await this.findExactModelMatch(searchTerm);
 		if (model) {
 			try {
-				await this.session.setModel(model);
+				await this.session!.setModel(model);
 				this.footer.invalidate();
 				this.updateEditorBorderColor();
 				this.showStatus(`Model: ${model.id}`);
@@ -4161,13 +4298,13 @@ export class InteractiveMode {
 	}
 
 	private async getModelCandidates(): Promise<Model<any>[]> {
-		if (this.session.scopedModels.length > 0) {
-			return this.session.scopedModels.map((scoped) => scoped.model);
+		if (this.session!.scopedModels.length > 0) {
+			return this.session!.scopedModels.map((scoped) => scoped.model);
 		}
 
-		this.session.modelRegistry.refresh();
+		this.session!.modelRegistry.refresh();
 		try {
-			return await this.session.modelRegistry.getAvailable();
+			return await this.session!.modelRegistry.getAvailable();
 		} catch {
 			return [];
 		}
@@ -4181,9 +4318,9 @@ export class InteractiveMode {
 	}
 
 	private async maybeWarnAboutAnthropicSubscriptionAuth(
-		model: Model<any> | undefined = this.session.model,
+		model: Model<any> | undefined = this.session!.model,
 	): Promise<void> {
-		if (this.settingsManager.getWarnings().anthropicExtraUsage === false) {
+		if (this.settingsManager!.getWarnings().anthropicExtraUsage === false) {
 			return;
 		}
 		if (this.anthropicSubscriptionWarningShown) {
@@ -4193,7 +4330,7 @@ export class InteractiveMode {
 			return;
 		}
 
-		const storedCredential = this.session.modelRegistry.authStorage.get("anthropic");
+		const storedCredential = this.session!.modelRegistry.authStorage.get("anthropic");
 		if (storedCredential?.type === "oauth") {
 			this.anthropicSubscriptionWarningShown = true;
 			this.showWarning(ANTHROPIC_SUBSCRIPTION_AUTH_WARNING);
@@ -4201,7 +4338,7 @@ export class InteractiveMode {
 		}
 
 		try {
-			const apiKey = await this.session.modelRegistry.getApiKeyForProvider(model.provider);
+			const apiKey = await this.session!.modelRegistry.getApiKeyForProvider(model.provider);
 			if (!isAnthropicSubscriptionAuthKey(apiKey)) {
 				return;
 			}
@@ -4216,13 +4353,13 @@ export class InteractiveMode {
 		this.showSelector((done) => {
 			const selector = new ModelSelectorComponent(
 				this.ui,
-				this.session.model,
-				this.settingsManager,
-				this.session.modelRegistry,
-				this.session.scopedModels,
+				this.session!.model,
+				this.settingsManager!,
+				this.session!.modelRegistry,
+				this.session!.scopedModels,
 				async (model) => {
 					try {
-						await this.session.setModel(model);
+						await this.session!.setModel(model);
 						this.footer.invalidate();
 						this.updateEditorBorderColor();
 						done();
@@ -4246,8 +4383,8 @@ export class InteractiveMode {
 
 	private async showModelsSelector(): Promise<void> {
 		// Get all available models
-		this.session.modelRegistry.refresh();
-		const allModels = this.session.modelRegistry.getAvailable();
+		this.session!.modelRegistry.refresh();
+		const allModels = this.session!.modelRegistry.getAvailable();
 
 		if (allModels.length === 0) {
 			this.showStatus("No models available");
@@ -4255,7 +4392,7 @@ export class InteractiveMode {
 		}
 
 		// Check if session has scoped models (from previous session-only changes or CLI --models)
-		const sessionScopedModels = this.session.scopedModels;
+		const sessionScopedModels = this.session!.scopedModels;
 		const hasSessionScope = sessionScopedModels.length > 0;
 
 		// Build enabled model IDs from session state or settings
@@ -4266,9 +4403,9 @@ export class InteractiveMode {
 			currentEnabledIds = sessionScopedModels.map((scoped) => `${scoped.model.provider}/${scoped.model.id}`);
 		} else {
 			// Fall back to settings
-			const patterns = this.settingsManager.getEnabledModels();
+			const patterns = this.settingsManager!.getEnabledModels();
 			if (patterns !== undefined && patterns.length > 0) {
-				const scopedModels = await resolveModelScope(patterns, this.session.modelRegistry);
+				const scopedModels = await resolveModelScope(patterns, this.session!.modelRegistry);
 				currentEnabledIds = scopedModels.map((scoped) => `${scoped.model.provider}/${scoped.model.id}`);
 			}
 		}
@@ -4277,8 +4414,8 @@ export class InteractiveMode {
 		const updateSessionModels = async (enabledIds: string[] | null) => {
 			currentEnabledIds = enabledIds === null ? null : [...enabledIds];
 			if (enabledIds && enabledIds.length > 0 && enabledIds.length < allModels.length) {
-				const newScopedModels = await resolveModelScope(enabledIds, this.session.modelRegistry);
-				this.session.setScopedModels(
+				const newScopedModels = await resolveModelScope(enabledIds, this.session!.modelRegistry);
+				this.session!.setScopedModels(
 					newScopedModels.map((sm) => ({
 						model: sm.model,
 						thinkingLevel: sm.thinkingLevel,
@@ -4286,7 +4423,7 @@ export class InteractiveMode {
 				);
 			} else {
 				// All enabled or none enabled = no filter
-				this.session.setScopedModels([]);
+				this.session!.setScopedModels([]);
 			}
 			await this.updateAvailableProviderCount();
 			this.ui.requestRender();
@@ -4308,7 +4445,7 @@ export class InteractiveMode {
 							enabledIds === null || enabledIds.length === allModels.length
 								? undefined // All enabled = clear filter
 								: enabledIds;
-						this.settingsManager.setEnabledModels(newPatterns ? [...newPatterns] : undefined);
+						this.settingsManager!.setEnabledModels(newPatterns ? [...newPatterns] : undefined);
 						this.showStatus("Model selection saved to settings");
 					},
 					onCancel: () => {
@@ -4322,7 +4459,7 @@ export class InteractiveMode {
 	}
 
 	private showUserMessageSelector(): void {
-		const userMessages = this.session.getUserMessagesForForking();
+		const userMessages = this.session!.getUserMessagesForForking();
 
 		if (userMessages.length === 0) {
 			this.showStatus("No messages to fork from");
@@ -4363,7 +4500,7 @@ export class InteractiveMode {
 	}
 
 	private async handleCloneCommand(): Promise<void> {
-		const leafId = this.sessionManager.getLeafId();
+		const leafId = this.sessionManager!.getLeafId();
 		if (!leafId) {
 			this.showStatus("Nothing to clone yet");
 			return;
@@ -4385,9 +4522,9 @@ export class InteractiveMode {
 	}
 
 	private showTreeSelector(initialSelectedId?: string): void {
-		const tree = this.sessionManager.getTree();
-		const realLeafId = this.sessionManager.getLeafId();
-		const initialFilterMode = this.settingsManager.getTreeFilterMode();
+		const tree = this.sessionManager!.getTree();
+		const realLeafId = this.sessionManager!.getLeafId();
+		const initialFilterMode = this.settingsManager!.getTreeFilterMode();
 
 		if (tree.length === 0) {
 			this.showStatus("No entries in session");
@@ -4415,7 +4552,7 @@ export class InteractiveMode {
 					let customInstructions: string | undefined;
 
 					// Check if we should skip the prompt (user preference to always default to no summary)
-					if (!this.settingsManager.getBranchSummarySkipPrompt()) {
+					if (!this.settingsManager!.getBranchSummarySkipPrompt()) {
 						while (true) {
 							const summaryChoice = await this.showExtensionSelector("Summarize branch?", [
 								"No summary",
@@ -4450,7 +4587,7 @@ export class InteractiveMode {
 
 					if (wantsSummary) {
 						this.defaultEditor.onEscape = () => {
-							this.session.abortBranchSummary();
+							this.session!.abortBranchSummary();
 						};
 						this.chatContainer.addChild(new Spacer(1));
 						summaryLoader = new Loader(
@@ -4464,7 +4601,7 @@ export class InteractiveMode {
 					}
 
 					try {
-						const result = await this.session.navigateTree(entryId, {
+						const result = await this.session!.navigateTree(entryId, {
 							summarize: wantsSummary,
 							customInstructions,
 						});
@@ -4503,7 +4640,7 @@ export class InteractiveMode {
 					this.ui.requestRender();
 				},
 				(entryId, label) => {
-					this.sessionManager.appendLabelChange(entryId, label);
+					this.sessionManager!.appendLabelChange(entryId, label);
 					this.ui.requestRender();
 				},
 				initialSelectedId,
@@ -4517,7 +4654,7 @@ export class InteractiveMode {
 		this.showSelector((done) => {
 			const selector = new SessionSelectorComponent(
 				(onProgress) =>
-					SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), onProgress),
+					SessionManager.list(this.sessionManager!.getCwd(), this.sessionManager!.getSessionDir(), onProgress),
 				SessionManager.listAll,
 				async (sessionPath) => {
 					done();
@@ -4542,7 +4679,7 @@ export class InteractiveMode {
 					keybindings: this.keybindings,
 				},
 
-				this.sessionManager.getSessionFile(),
+				this.sessionManager!.getSessionFile(),
 			);
 			return { component: selector, focus: selector };
 		});
@@ -4590,7 +4727,7 @@ export class InteractiveMode {
 	}
 
 	private getLoginProviderOptions(authType?: "oauth" | "api_key"): AuthSelectorProvider[] {
-		const authStorage = this.session.modelRegistry.authStorage;
+		const authStorage = this.session!.modelRegistry.authStorage;
 		const oauthProviders = authStorage.getOAuthProviders();
 		const oauthProviderIds = new Set(oauthProviders.map((provider) => provider.id));
 		const options: AuthSelectorProvider[] = oauthProviders.map((provider) => ({
@@ -4599,14 +4736,14 @@ export class InteractiveMode {
 			authType: "oauth",
 		}));
 
-		const modelProviders = new Set(this.session.modelRegistry.getAll().map((model) => model.provider));
+		const modelProviders = new Set(this.session!.modelRegistry.getAll().map((model) => model.provider));
 		for (const providerId of modelProviders) {
 			if (!isApiKeyLoginProvider(providerId, oauthProviderIds)) {
 				continue;
 			}
 			options.push({
 				id: providerId,
-				name: this.session.modelRegistry.getProviderDisplayName(providerId),
+				name: this.session!.modelRegistry.getProviderDisplayName(providerId),
 				authType: "api_key",
 			});
 		}
@@ -4616,7 +4753,7 @@ export class InteractiveMode {
 	}
 
 	private getLogoutProviderOptions(): AuthSelectorProvider[] {
-		const authStorage = this.session.modelRegistry.authStorage;
+		const authStorage = this.session!.modelRegistry.authStorage;
 		const options: AuthSelectorProvider[] = [];
 
 		for (const providerId of authStorage.list()) {
@@ -4626,7 +4763,7 @@ export class InteractiveMode {
 			}
 			options.push({
 				id: providerId,
-				name: this.session.modelRegistry.getProviderDisplayName(providerId),
+				name: this.session!.modelRegistry.getProviderDisplayName(providerId),
 				authType: credential.type,
 			});
 		}
@@ -4667,7 +4804,7 @@ export class InteractiveMode {
 		this.showSelector((done) => {
 			const selector = new OAuthSelectorComponent(
 				"login",
-				this.session.modelRegistry.authStorage,
+				this.session!.modelRegistry.authStorage,
 				providerOptions,
 				async (providerId: string) => {
 					done();
@@ -4689,7 +4826,7 @@ export class InteractiveMode {
 					done();
 					this.showLoginAuthTypeSelector();
 				},
-				(providerId) => this.session.modelRegistry.getProviderAuthStatus(providerId),
+				(providerId) => this.session!.modelRegistry.getProviderAuthStatus(providerId),
 			);
 			return { component: selector, focus: selector };
 		});
@@ -4712,7 +4849,7 @@ export class InteractiveMode {
 		this.showSelector((done) => {
 			const selector = new OAuthSelectorComponent(
 				mode,
-				this.session.modelRegistry.authStorage,
+				this.session!.modelRegistry.authStorage,
 				providerOptions,
 				async (providerId: string) => {
 					done();
@@ -4723,8 +4860,8 @@ export class InteractiveMode {
 					}
 
 					try {
-						this.session.modelRegistry.authStorage.logout(providerOption.id);
-						this.session.modelRegistry.refresh();
+						this.session!.modelRegistry.authStorage.logout(providerOption.id);
+						this.session!.modelRegistry.refresh();
 						await this.updateAvailableProviderCount();
 						const message =
 							providerOption.authType === "oauth"
@@ -4750,14 +4887,14 @@ export class InteractiveMode {
 		authType: "oauth" | "api_key",
 		previousModel: Model<any> | undefined,
 	): Promise<void> {
-		this.session.modelRegistry.refresh();
+		this.session!.modelRegistry.refresh();
 
 		const actionLabel = authType === "oauth" ? `Logged in to ${providerName}` : `Saved API key for ${providerName}`;
 
 		let selectedModel: Model<any> | undefined;
 		let selectionError: string | undefined;
 		if (isUnknownModel(previousModel)) {
-			const availableModels = this.session.modelRegistry.getAvailable();
+			const availableModels = this.session!.modelRegistry.getAvailable();
 			const providerModels = availableModels.filter((model) => model.provider === providerId);
 			if (!hasDefaultModelProvider(providerId)) {
 				selectionError = `${actionLabel}, but no default model is configured for provider "${providerId}". Use /model to select a model.`;
@@ -4770,7 +4907,7 @@ export class InteractiveMode {
 					selectionError = `${actionLabel}, but its default model "${defaultModelId}" is not available. Use /model to select a model.`;
 				} else {
 					try {
-						await this.session.setModel(selectedModel);
+						await this.session!.setModel(selectedModel);
 					} catch (error: unknown) {
 						selectedModel = undefined;
 						const errorMessage = error instanceof Error ? error.message : String(error);
@@ -4826,7 +4963,7 @@ export class InteractiveMode {
 	}
 
 	private async showApiKeyLoginDialog(providerId: string, providerName: string): Promise<void> {
-		const previousModel = this.session.model;
+		const previousModel = this.session!.model;
 
 		const dialog = new LoginDialogComponent(
 			this.ui,
@@ -4855,7 +4992,7 @@ export class InteractiveMode {
 				throw new Error("API key cannot be empty.");
 			}
 
-			this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey });
+			this.session!.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey });
 
 			restoreEditor();
 			await this.completeProviderAuthentication(providerId, providerName, "api_key", previousModel);
@@ -4897,10 +5034,10 @@ export class InteractiveMode {
 	}
 
 	private async showLoginDialog(providerId: string, providerName: string): Promise<void> {
-		const providerInfo = this.session.modelRegistry.authStorage
-			.getOAuthProviders()
-			.find((provider) => provider.id === providerId);
-		const previousModel = this.session.model;
+		const providerInfo = this.session!.modelRegistry.authStorage.getOAuthProviders().find(
+			(provider) => provider.id === providerId,
+		);
+		const previousModel = this.session!.model;
 
 		// Providers that use callback servers (can paste redirect URL)
 		const usesCallbackServer = providerInfo?.usesCallbackServer ?? false;
@@ -4938,7 +5075,7 @@ export class InteractiveMode {
 		};
 
 		try {
-			await this.session.modelRegistry.authStorage.login(providerId as OAuthProviderId, {
+			await this.session!.modelRegistry.authStorage.login(providerId as OAuthProviderId, {
 				onAuth: (info: { url: string; instructions?: string }) => {
 					dialog.showAuth(info.url, info.instructions);
 
@@ -4999,11 +5136,11 @@ export class InteractiveMode {
 	// =========================================================================
 
 	private async handleReloadCommand(): Promise<void> {
-		if (this.session.isStreaming) {
+		if (this.session!.isStreaming) {
 			this.showWarning("Wait for the current response to finish before reloading.");
 			return;
 		}
-		if (this.session.isCompacting) {
+		if (this.session!.isCompacting) {
 			this.showWarning("Wait for compaction to finish before reloading.");
 			return;
 		}
@@ -5035,32 +5172,32 @@ export class InteractiveMode {
 		};
 
 		try {
-			await this.session.reload();
-			configureHttpDispatcher(this.settingsManager.getHttpIdleTimeoutMs());
+			await this.session!.reload();
+			configureHttpDispatcher(this.settingsManager!.getHttpIdleTimeoutMs());
 			this.keybindings.reload();
 			const activeHeader = this.customHeader ?? this.builtInHeader;
 			if (isExpandable(activeHeader)) {
 				activeHeader.setExpanded(this.toolOutputExpanded);
 			}
-			setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
-			this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
-			const themeName = this.settingsManager.getTheme();
+			setRegisteredThemes(this.session!.resourceLoader.getThemes().themes);
+			this.hideThinkingBlock = this.settingsManager!.getHideThinkingBlock();
+			const themeName = this.settingsManager!.getTheme();
 			const themeResult = themeName ? setTheme(themeName, true) : { success: true };
 			if (!themeResult.success) {
 				this.showError(`Failed to load theme "${themeName}": ${themeResult.error}\nFell back to dark theme.`);
 			}
-			const editorPaddingX = this.settingsManager.getEditorPaddingX();
-			const autocompleteMaxVisible = this.settingsManager.getAutocompleteMaxVisible();
+			const editorPaddingX = this.settingsManager!.getEditorPaddingX();
+			const autocompleteMaxVisible = this.settingsManager!.getAutocompleteMaxVisible();
 			this.defaultEditor.setPaddingX(editorPaddingX);
 			this.defaultEditor.setAutocompleteMaxVisible(autocompleteMaxVisible);
 			if (this.editor !== this.defaultEditor) {
 				this.editor.setPaddingX?.(editorPaddingX);
 				this.editor.setAutocompleteMaxVisible?.(autocompleteMaxVisible);
 			}
-			this.ui.setShowHardwareCursor(this.settingsManager.getShowHardwareCursor());
-			this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
+			this.ui.setShowHardwareCursor(this.settingsManager!.getShowHardwareCursor());
+			this.ui.setClearOnShrink(this.settingsManager!.getClearOnShrink());
 			this.setupAutocompleteProvider();
-			const runner = this.session.extensionRunner;
+			const runner = this.session!.extensionRunner;
 			this.setupExtensionShortcuts(runner);
 			this.rebuildChatFromMessages();
 			dismissReloadBox(this.editor as Component);
@@ -5068,7 +5205,7 @@ export class InteractiveMode {
 				force: false,
 				showDiagnosticsWhenQuiet: true,
 			});
-			const modelsJsonError = this.session.modelRegistry.getError();
+			const modelsJsonError = this.session!.modelRegistry.getError();
 			if (modelsJsonError) {
 				this.showError(`models.json error: ${modelsJsonError}`);
 			}
@@ -5084,10 +5221,10 @@ export class InteractiveMode {
 
 		try {
 			if (outputPath?.endsWith(".jsonl")) {
-				const filePath = this.session.exportToJsonl(outputPath);
+				const filePath = this.session!.exportToJsonl(outputPath);
 				this.showStatus(`Session exported to: ${filePath}`);
 			} else {
-				const filePath = await this.session.exportToHtml(outputPath);
+				const filePath = await this.session!.exportToHtml(outputPath);
 				this.showStatus(`Session exported to: ${filePath}`);
 			}
 		} catch (error: unknown) {
@@ -5190,7 +5327,7 @@ export class InteractiveMode {
 		// Export to a temp file
 		const tmpFile = path.join(os.tmpdir(), "session.html");
 		try {
-			await this.session.exportToHtml(tmpFile);
+			await this.session!.exportToHtml(tmpFile);
 		} catch (error: unknown) {
 			this.showError(`Failed to export session: ${error instanceof Error ? error.message : "Unknown error"}`);
 			return;
@@ -5269,7 +5406,7 @@ export class InteractiveMode {
 	}
 
 	private async handleCopyCommand(): Promise<void> {
-		const text = this.session.getLastAssistantText();
+		const text = this.session!.getLastAssistantText();
 		if (!text) {
 			this.showError("No agent messages to copy yet.");
 			return;
@@ -5286,7 +5423,7 @@ export class InteractiveMode {
 	private handleNameCommand(text: string): void {
 		const name = text.replace(/^\/name\s*/, "").trim();
 		if (!name) {
-			const currentName = this.sessionManager.getSessionName();
+			const currentName = this.sessionManager!.getSessionName();
 			if (currentName) {
 				this.chatContainer.addChild(new Spacer(1));
 				this.chatContainer.addChild(new Text(theme.fg("dim", `Session name: ${currentName}`), 1, 0));
@@ -5297,15 +5434,15 @@ export class InteractiveMode {
 			return;
 		}
 
-		this.session.setSessionName(name);
+		this.session!.setSessionName(name);
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(theme.fg("dim", `Session name set: ${name}`), 1, 0));
 		this.ui.requestRender();
 	}
 
 	private handleSessionCommand(): void {
-		const stats = this.session.getSessionStats();
-		const sessionName = this.sessionManager.getSessionName();
+		const stats = this.session!.getSessionStats();
+		const sessionName = this.sessionManager!.getSessionName();
 
 		let info = `${theme.bold("Session Info")}\n\n`;
 		if (sessionName) {
@@ -5466,7 +5603,7 @@ export class InteractiveMode {
 `;
 
 		// Add extension-registered shortcuts
-		const extensionRunner = this.session.extensionRunner;
+		const extensionRunner = this.session!.extensionRunner;
 		const shortcuts = extensionRunner.getShortcuts(this.keybindings.getEffectiveConfig());
 		if (shortcuts.size > 0) {
 			hotkeys += `
@@ -5529,7 +5666,7 @@ export class InteractiveMode {
 			}),
 			"",
 			"=== Agent messages (JSONL) ===",
-			...this.session.messages.map((msg) => JSON.stringify(msg)),
+			...this.session!.messages.map((msg) => JSON.stringify(msg)),
 			"",
 		].join("\n");
 
@@ -5568,14 +5705,14 @@ export class InteractiveMode {
 	}
 
 	private async handleBashCommand(command: string, excludeFromContext = false): Promise<void> {
-		const extensionRunner = this.session.extensionRunner;
+		const extensionRunner = this.session!.extensionRunner;
 
 		// Emit user_bash event to let extensions intercept
 		const eventResult = await extensionRunner.emitUserBash({
 			type: "user_bash",
 			command,
 			excludeFromContext,
-			cwd: this.sessionManager.getCwd(),
+			cwd: this.sessionManager!.getCwd(),
 		});
 
 		// If extension returned a full result, use it directly
@@ -5584,7 +5721,7 @@ export class InteractiveMode {
 
 			// Create UI component for display
 			this.bashComponent = new BashExecutionComponent(command, this.ui, excludeFromContext);
-			if (this.session.isStreaming) {
+			if (this.session!.isStreaming) {
 				this.pendingMessagesContainer.addChild(this.bashComponent);
 				this.pendingBashComponents.push(this.bashComponent);
 			} else {
@@ -5603,14 +5740,14 @@ export class InteractiveMode {
 			);
 
 			// Record the result in session
-			this.session.recordBashResult(command, result, { excludeFromContext });
+			this.session!.recordBashResult(command, result, { excludeFromContext });
 			this.bashComponent = undefined;
 			this.ui.requestRender();
 			return;
 		}
 
 		// Normal execution path (possibly with custom operations)
-		const isDeferred = this.session.isStreaming;
+		const isDeferred = this.session!.isStreaming;
 		this.bashComponent = new BashExecutionComponent(command, this.ui, excludeFromContext);
 
 		if (isDeferred) {
@@ -5624,7 +5761,7 @@ export class InteractiveMode {
 		this.ui.requestRender();
 
 		try {
-			const result = await this.session.executeBash(
+			const result = await this.session!.executeBash(
 				command,
 				(chunk) => {
 					if (this.bashComponent) {
@@ -5655,7 +5792,7 @@ export class InteractiveMode {
 	}
 
 	private async handleCompactCommand(customInstructions?: string): Promise<void> {
-		const entries = this.sessionManager.getEntries();
+		const entries = this.sessionManager!.getEntries();
 		const messageCount = entries.filter((e) => e.type === "message").length;
 
 		if (messageCount < 2) {
@@ -5670,7 +5807,7 @@ export class InteractiveMode {
 		this.statusContainer.clear();
 
 		try {
-			await this.session.compact(customInstructions);
+			await this.session!.compact(customInstructions);
 		} catch {
 			// Ignore, will be emitted as an event
 		}
@@ -5678,7 +5815,7 @@ export class InteractiveMode {
 
 	stop(): void {
 		this.unregisterSignalHandlers();
-		if (this.settingsManager.getShowTerminalProgress()) {
+		if (this.settingsManager?.getShowTerminalProgress()) {
 			this.ui.terminal.setProgress(false);
 		}
 		if (this.loadingAnimation) {

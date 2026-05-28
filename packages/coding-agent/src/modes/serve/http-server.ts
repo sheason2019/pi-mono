@@ -5,6 +5,7 @@ import { handleApiRequest } from "./api-handlers.ts";
 
 interface SseConnection {
 	res: ServerResponse;
+	heartbeatTimer: ReturnType<typeof setInterval>;
 }
 
 export class AgentHttpServer {
@@ -51,10 +52,20 @@ export class AgentHttpServer {
 		});
 		res.write("\n");
 
-		const connection: SseConnection = { res };
+		// Send SSE heartbeat every 30s to keep the connection alive
+		const heartbeatTimer = setInterval(() => {
+			try {
+				res.write(": heartbeat\n\n");
+			} catch {
+				clearInterval(heartbeatTimer);
+			}
+		}, 30_000);
+
+		const connection: SseConnection = { res, heartbeatTimer };
 		this._connections.add(connection);
 
 		res.on("close", () => {
+			clearInterval(heartbeatTimer);
 			this._connections.delete(connection);
 		});
 	}

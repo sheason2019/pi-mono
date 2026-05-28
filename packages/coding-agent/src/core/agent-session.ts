@@ -1694,6 +1694,9 @@ export class AgentSession {
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
 
+			// Prune old entries from memory and disk to prevent unbounded growth
+			this.sessionManager.pruneAfterCompaction();
+
 			// Get the saved compaction entry for the extension event
 			const savedCompactionEntry = newEntries.find((e) => e.type === "compaction" && e.summary === summary) as
 				| CompactionEntry
@@ -1973,6 +1976,9 @@ export class AgentSession {
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
+
+			// Prune old entries from memory and disk to prevent unbounded growth
+			this.sessionManager.pruneAfterCompaction();
 
 			// Get the saved compaction entry for the extension event
 			const savedCompactionEntry = newEntries.find((e) => e.type === "compaction" && e.summary === summary) as

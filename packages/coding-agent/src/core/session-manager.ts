@@ -10,6 +10,7 @@ import {
 	readdirSync,
 	readFileSync,
 	readSync,
+	renameSync,
 	statSync,
 	writeFileSync,
 } from "fs";
@@ -835,6 +836,59 @@ export class SessionManager {
 		if (!this.persist || !this.sessionFile) return;
 		const content = `${this.fileEntries.map((e) => JSON.stringify(e)).join("\n")}\n`;
 		writeFileSync(this.sessionFile, content);
+	}
+
+	/** Rewrite the session file atomically (write to temp + rename). */
+	private _rewriteFileAtomic(): void {
+		if (!this.persist || !this.sessionFile) return;
+		const content = `${this.fileEntries.map((e) => JSON.stringify(e)).join("\n")}\n`;
+		const tmpFile = `${this.sessionFile}.tmp`;
+		writeFileSync(tmpFile, content);
+		renameSync(tmpFile, this.sessionFile);
+	}
+
+	/**
+	 * After compaction, prune entries before firstKeptEntryId from the current branch.
+	 * Rewrites the JSONL file with only the kept entries.
+	 * This releases memory and prevents unbounded file growth.
+	 *
+	 * Only the current branch (leaf → root) is preserved. Branches that diverge
+	 * from entries before firstKeptEntryId are discarded — this matches the
+	 * semantics of compaction (old context is summarized away and no longer needed).
+	 */
+	pruneAfterCompaction(): void {
+		// 1. Get current branch (leaf → root, chronological order)
+		const branch = this.getBranch();
+		if (branch.length === 0) return;
+
+		// 2. Find the latest compaction entry on the branch
+		const compactionIdx = branch.findIndex((e) => e.type === "compaction");
+		if (compactionIdx === -1) return; // No compaction, nothing to prune
+
+		const compaction = branch[compactionIdx] as CompactionEntry;
+
+		// 3. Find firstKeptEntryId in the branch
+		const firstKeptIdx = branch.findIndex((e) => e.id === compaction.firstKeptEntryId);
+		if (firstKeptIdx === -1) return; // Can't find kept entry, don't prune
+
+		// Nothing to prune if firstKeptEntryId is the first entry
+		if (firstKeptIdx === 0) return;
+
+		// 4. Collect entries to keep: header + entries from firstKeptIdx onward
+		const header = this.fileEntries.find((e) => e.type === "session");
+		const keptEntries = branch.slice(firstKeptIdx);
+
+		// 5. Fix parent chain: first kept entry becomes root (parentId = null)
+		if (keptEntries.length > 0 && keptEntries[0].parentId !== null) {
+			(keptEntries[0] as { parentId: string | null }).parentId = null;
+		}
+
+		// 6. Replace fileEntries and rebuild index
+		this.fileEntries = header ? [header, ...keptEntries] : [...keptEntries];
+		this._buildIndex();
+
+		// 7. Rewrite file atomically
+		this._rewriteFileAtomic();
 	}
 
 	isPersisted(): boolean {

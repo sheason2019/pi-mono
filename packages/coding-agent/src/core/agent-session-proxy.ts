@@ -1,6 +1,70 @@
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AgentSessionEvent } from "./agent-session.ts";
 
+/** A single keybinding hint entry for the startup banner. */
+export interface BannerKeyHint {
+	/** Display text for the key (e.g. "Ctrl+C", "/", "!!") */
+	key: string;
+	/** Description of what the key does (e.g. "to interrupt", "for commands") */
+	description: string;
+}
+
+/** A loaded resource section (Context, Skills, Prompts, Extensions, Themes). */
+export interface LoadedResourceSection {
+	/** Section name (e.g. "Context", "Skills", "Prompts", "Extensions", "Themes") */
+	name: string;
+	/** Compact display (single line, comma-separated) */
+	compactList: string;
+	/** Expanded display (one item per line, with paths) */
+	expandedList: string;
+}
+
+/** A diagnostic entry for resource conflicts/errors. */
+export interface ResourceDiagnosticEntry {
+	/** Diagnostic type */
+	type: "warning" | "error" | "collision";
+	/** Human-readable message */
+	message: string;
+	/** File path if applicable */
+	path?: string;
+	/** Collision details if type is "collision" */
+	collision?: {
+		resourceType: "extension" | "skill" | "prompt" | "theme";
+		name: string;
+		winnerPath: string;
+		loserPath: string;
+		winnerSource?: string;
+		loserSource?: string;
+	};
+}
+
+/** Structured banner data, theme-independent so connect clients can render with their own theme. */
+export interface BannerData {
+	/** App name */
+	appName: string;
+	/** Version string (e.g. "0.76.0") */
+	version: string;
+	/** Expanded keybinding hints (shown when banner is expanded) */
+	expandedHints: BannerKeyHint[];
+	/** Compact keybinding hints (shown when banner is collapsed) */
+	compactHints: BannerKeyHint[];
+	/** Compact onboarding text */
+	compactOnboarding: string;
+	/** Full onboarding text */
+	onboarding: string;
+	/** Loaded resource sections (Context, Skills, Prompts, etc.) */
+	loadedResources: LoadedResourceSection[];
+	/** Diagnostics (Skill conflicts, Prompt conflicts, Extension issues, etc.) */
+	diagnostics: Array<{
+		/** Section label (e.g. "Skill conflicts", "Prompt conflicts", "Extension issues") */
+		label: string;
+		/** Diagnostic entries */
+		entries: ResourceDiagnosticEntry[];
+	}>;
+	/** Changelog markdown for "What's New" section, or undefined if no new entries */
+	changelogMarkdown: string | undefined;
+}
+
 export interface SessionStateSnapshot {
 	model: string;
 	thinkingLevel: ThinkingLevel;
@@ -11,6 +75,7 @@ export interface SessionStateSnapshot {
 	sessionFile: string | undefined;
 	sessionName: string | undefined;
 	messages: readonly AgentMessage[];
+	banner: BannerData | undefined;
 }
 
 export interface AgentSessionProxy {
@@ -48,4 +113,7 @@ export interface AgentSessionProxy {
 
 	// Lifecycle
 	dispose(): void;
+
+	// Snapshot
+	getSnapshot(): SessionStateSnapshot;
 }

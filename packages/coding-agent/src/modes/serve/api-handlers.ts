@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { AgentSessionProxy, SessionStateSnapshot } from "../../core/agent-session-proxy.ts";
+import type { AgentSessionProxy } from "../../core/agent-session-proxy.ts";
 
 function parseBody(req: IncomingMessage): Promise<unknown> {
 	return new Promise((resolve, reject) => {
@@ -148,18 +148,7 @@ export async function handleApiRequest(
 	// GET endpoints
 	if (method === "GET") {
 		if (path === "state") {
-			const snapshot: SessionStateSnapshot = {
-				model: proxy.model,
-				thinkingLevel: proxy.thinkingLevel,
-				isStreaming: proxy.isStreaming,
-				isCompacting: proxy.isCompacting,
-				steeringMessages: proxy.steeringMessages,
-				followUpMessages: proxy.followUpMessages,
-				sessionFile: proxy.sessionFile,
-				sessionName: proxy.sessionName,
-				messages: proxy.messages,
-			};
-			sendJson(res, 200, snapshot);
+			sendJson(res, 200, proxy.getSnapshot());
 			return;
 		}
 		if (path === "messages") {

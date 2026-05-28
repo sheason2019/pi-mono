@@ -4,27 +4,30 @@ import type { AgentSessionProxy, SessionStateSnapshot } from "../../core/agent-s
 import { SseClient } from "./sse-client.ts";
 
 type Listener = (event: AgentSessionEvent) => void;
+type DisconnectCallback = (reason: string) => void;
 
 export class RemoteAgentSessionProxy implements AgentSessionProxy {
 	private _state: SessionStateSnapshot;
 	private readonly _subscribers: Set<Listener> = new Set();
 	private readonly _sseClient: SseClient;
 	private readonly _baseUrl: string;
+	private readonly _onDisconnect: DisconnectCallback | undefined;
 
-	constructor(baseUrl: string, initialState: SessionStateSnapshot) {
+	constructor(baseUrl: string, initialState: SessionStateSnapshot, onDisconnect?: DisconnectCallback) {
 		this._baseUrl = baseUrl;
 		this._state = initialState;
+		this._onDisconnect = onDisconnect;
 
 		this._sseClient = new SseClient(
 			`${baseUrl}/events`,
 			(event) => this._handleEvent(event),
 			(error) => {
 				process.stderr.write(`[connect] SSE error: ${error.message}\n`);
-				process.exit(1);
+				this._onDisconnect?.(`SSE error: ${error.message}`);
 			},
 			() => {
 				process.stderr.write(`[connect] SSE connection closed\n`);
-				process.exit(1);
+				this._onDisconnect?.(`SSE connection closed`);
 			},
 		);
 	}
@@ -193,5 +196,10 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 	// Lifecycle
 	dispose(): void {
 		this._sseClient.disconnect();
+	}
+
+	// Snapshot
+	getSnapshot(): SessionStateSnapshot {
+		return { ...this._state };
 	}
 }

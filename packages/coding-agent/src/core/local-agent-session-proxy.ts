@@ -1,7 +1,7 @@
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent } from "./agent-session.ts";
-import type { AgentSessionProxy, SessionStateSnapshot } from "./agent-session-proxy.ts";
+import type { AgentSessionProxy, BannerData, SessionStateSnapshot } from "./agent-session-proxy.ts";
 import type { AgentSessionRuntime } from "./agent-session-runtime.ts";
 
 /**
@@ -38,9 +38,15 @@ function toImageContent(images: Array<{ url: string; mediaType?: string }>): Ima
  */
 export class LocalAgentSessionProxy implements AgentSessionProxy {
 	private readonly _runtime: AgentSessionRuntime;
+	private _banner: BannerData | undefined;
 
 	constructor(runtime: AgentSessionRuntime) {
 		this._runtime = runtime;
+	}
+
+	/** Set the banner data (called by serve mode after initialization) */
+	setBanner(banner: BannerData | undefined): void {
+		this._banner = banner;
 	}
 
 	private get session(): AgentSession {
@@ -242,6 +248,7 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 			sessionFile: this.sessionFile,
 			sessionName: this.sessionName,
 			messages: this.messages,
+			banner: this._banner,
 		};
 	}
 }
