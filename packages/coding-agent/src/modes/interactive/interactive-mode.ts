@@ -16,6 +16,7 @@ import {
 	type Model,
 	type OAuthProviderId,
 	type OAuthSelectPrompt,
+	type Transport,
 } from "@earendil-works/pi-ai";
 import type {
 	AutocompleteItem,
@@ -40,6 +41,8 @@ import {
 	Markdown,
 	matchesKey,
 	ProcessTerminal,
+	type SelectItem,
+	SelectList,
 	Spacer,
 	setKeybindings,
 	Text,
@@ -59,7 +62,7 @@ import {
 	VERSION,
 } from "../../config.ts";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
-import type { AgentSessionProxy, BannerData } from "../../core/agent-session-proxy.ts";
+import type { AgentSessionProxy, BannerData, ServeSlashCommand, TreeNodeData } from "../../core/agent-session-proxy.ts";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.ts";
 import type {
 	AutocompleteProviderFactory,
@@ -80,7 +83,7 @@ import { DefaultPackageManager } from "../../core/package-manager.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
-import { type SessionContext, SessionManager } from "../../core/session-manager.ts";
+import { type SessionContext, SessionManager, type SessionTreeNode } from "../../core/session-manager.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
@@ -109,7 +112,7 @@ import { EarendilAnnouncementComponent } from "./components/earendil-announcemen
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
-import { FooterComponent } from "./components/footer.ts";
+import { FooterComponent, formatTokens } from "./components/footer.ts";
 import { formatKeyText, keyDisplayText, keyHint, keyText, rawKeyHint } from "./components/keybinding-hints.ts";
 import { LoginDialogComponent } from "./components/login-dialog.ts";
 import { ModelSelectorComponent } from "./components/model-selector.ts";
@@ -127,6 +130,7 @@ import {
 	getAvailableThemesWithPaths,
 	getEditorTheme,
 	getMarkdownTheme,
+	getSelectListTheme,
 	getThemeByName,
 	initTheme,
 	onThemeChange,
@@ -579,6 +583,60 @@ export class InteractiveMode {
 		}
 	}
 
+	/** Set up autocomplete for connect mode with a reduced command set */
+	private setupConnectModeAutocomplete(): void {
+		// Fire-and-forget: fetch commands from server, build dynamic autocomplete.
+		// Falls back to builtin-only if the fetch fails.
+		void this._fetchAndSetConnectModeAutocomplete();
+	}
+
+	private async _fetchAndSetConnectModeAutocomplete(): Promise<void> {
+		try {
+			const commands = await this.proxy!.fetchCommands();
+			this._applyConnectModeAutocomplete(commands);
+		} catch {
+			this._applyConnectModeAutocompleteFallback();
+		}
+	}
+
+	private _applyConnectModeAutocomplete(commands: ServeSlashCommand[]): void {
+		const slashCommands: SlashCommand[] = commands.map((cmd) => ({
+			name: cmd.name,
+			description: cmd.description,
+			...(cmd.argumentHint && { argumentHint: cmd.argumentHint }),
+		}));
+		const provider = new CombinedAutocompleteProvider(slashCommands, this.currentCwd);
+		this.autocompleteProvider = provider;
+		this.defaultEditor.setAutocompleteProvider(provider);
+	}
+
+	private _applyConnectModeAutocompleteFallback(): void {
+		const fallbackCommands: SlashCommand[] = [
+			{ name: "settings", description: "Open settings menu" },
+			{
+				name: "model",
+				description: "Switch model (e.g. /model provider/model-id)",
+				argumentHint: "<provider/model-id>",
+			},
+			{ name: "compact", description: "Manually compact the session context" },
+			{ name: "new", description: "Start a new session" },
+			{ name: "fork", description: "Create a new fork from a previous user message" },
+			{ name: "tree", description: "Navigate session tree (switch branches)" },
+			{ name: "clone", description: "Duplicate the current session at the current position" },
+			{ name: "resume", description: "Resume a different session" },
+			{ name: "name", description: "Set session display name" },
+			{ name: "copy", description: "Copy last agent message to clipboard" },
+			{ name: "reload", description: "Reload keybindings, extensions, skills, prompts, and themes" },
+			{ name: "hotkeys", description: "Show all keyboard shortcuts" },
+			{ name: "changelog", description: "Show changelog entries" },
+			{ name: "session", description: "Show session info and stats" },
+			{ name: "quit", description: "Quit" },
+		];
+		const provider = new CombinedAutocompleteProvider(fallbackCommands, this.currentCwd);
+		this.autocompleteProvider = provider;
+		this.defaultEditor.setAutocompleteProvider(provider);
+	}
+
 	private showStartupNoticesIfNeeded(): void {
 		if (this.startupNoticesShown) {
 			return;
@@ -815,6 +873,13 @@ export class InteractiveMode {
 			await this.rebindCurrentSession();
 		} else if (this.proxy) {
 			this.subscribeToAgent();
+			// Set initial footer snapshot from proxy
+			const snapshot = this.proxy.getSnapshot();
+			this.footer.setSnapshot(snapshot);
+			this.footerDataProvider.setCwd(snapshot.cwd);
+			this.footerDataProvider.setAvailableProviderCount(snapshot.availableProviderCount);
+			// Set up autocomplete for connect mode with a reduced command set
+			this.setupConnectModeAutocomplete();
 		}
 
 		// Render initial messages AFTER showing loaded resources
@@ -2578,19 +2643,22 @@ export class InteractiveMode {
 		// so they work correctly regardless of which editor is active
 		this.defaultEditor.onEscape = () => {
 			const isStreaming = this.proxy ? this.proxy.isStreaming : this.session!.isStreaming;
-			const isBashRunning = this.session?.isBashRunning ?? false;
+			const isBashRunning = this.proxy ? this.proxy.isBashRunning : this.session!.isBashRunning;
 			if (isStreaming) {
 				this.restoreQueuedMessagesToEditor({ abort: true });
 			} else if (isBashRunning) {
-				this.session!.abortBash();
+				if (this.proxy) {
+					this.proxy.abortBash();
+				} else {
+					this.session!.abortBash();
+				}
 			} else if (this.isBashMode) {
 				this.editor.setText("");
 				this.isBashMode = false;
 				this.updateEditorBorderColor();
 			} else if (!this.editor.getText().trim()) {
 				// Double-escape with empty editor triggers /tree, /fork, or nothing based on setting
-				if (!this.settingsManager) return;
-				const action = this.settingsManager.getDoubleEscapeAction();
+				const action = this.settingsManager?.getDoubleEscapeAction() ?? "tree";
 				if (action !== "none") {
 					const now = Date.now();
 					if (now - this.lastEscapeTime < 500) {
@@ -2649,7 +2717,17 @@ export class InteractiveMode {
 				return;
 			}
 
-			// Write to temp file
+			if (this.proxy) {
+				// Connect mode: send as base64 data URL via prompt images
+				const base64 = Buffer.from(image.bytes).toString("base64");
+				const dataUrl = `data:${image.mimeType};base64,${base64}`;
+				const text = this.editor.getText().trim() || "Look at this image";
+				await this.proxy.prompt(text, { images: [{ url: dataUrl, mediaType: image.mimeType }] });
+				this.editor.setText("");
+				return;
+			}
+
+			// Local mode: write to temp file and insert path
 			const tmpDir = os.tmpdir();
 			const ext = extensionForImageMimeType(image.mimeType) ?? "png";
 			const fileName = `pi-clipboard-${crypto.randomUUID()}.${ext}`;
@@ -2669,11 +2747,12 @@ export class InteractiveMode {
 			text = text.trim();
 			if (!text) return;
 
-			// In connect mode, only allow a subset of commands
-			if (this.proxy && text.startsWith("/") && text !== "/quit" && text !== "/compact") {
-				this.showWarning("Slash commands are not supported in connect mode.");
-				this.editor.setText("");
-				return;
+			// In connect mode, handle commands via proxy
+			if (this.proxy) {
+				if (text.startsWith("/")) {
+					await this.handleConnectModeCommand(text);
+					return;
+				}
 			}
 
 			// Handle commands
@@ -2859,6 +2938,97 @@ export class InteractiveMode {
 			}
 			this.editor.addToHistory?.(text);
 		};
+	}
+
+	/** Handle slash commands in connect mode */
+	private async handleConnectModeCommand(text: string): Promise<void> {
+		this.editor.setText("");
+
+		const cmd = text.split(" ")[0];
+		const arg = text.slice(cmd.length + 1).trim() || undefined;
+
+		switch (cmd) {
+			case "/quit":
+				await this.shutdown();
+				break;
+			case "/compact":
+				await this.proxy!.compact();
+				break;
+			case "/model":
+				if (arg) {
+					this.proxy!.setModel(arg);
+					this.showStatus(`Model: ${arg}`);
+				} else {
+					this.showConnectModeModelSelector();
+				}
+				break;
+			case "/scoped-models":
+				this.showConnectModeScopedModelsSelector();
+				break;
+			case "/settings":
+				this.showConnectModeSettingsSelector();
+				break;
+			case "/export":
+				this.showStatus("Not available in connect mode");
+				break;
+			case "/import":
+				this.showStatus("Not available in connect mode");
+				break;
+			case "/share":
+				this.showStatus("Not available in connect mode");
+				break;
+			case "/login":
+				this.showStatus("Not available in connect mode — configure auth on the server");
+				break;
+			case "/logout":
+				this.showStatus("Not available in connect mode — configure auth on the server");
+				break;
+			case "/new":
+				await this.proxy!.newSession();
+				break;
+			case "/fork":
+				this.showConnectModeForkSelector();
+				break;
+			case "/tree":
+				this.showConnectModeTreeSelector();
+				break;
+			case "/clone":
+				await this.proxy!.fork();
+				this.showStatus("Cloned to new session");
+				break;
+			case "/resume":
+				this.showConnectModeSessionSelector();
+				break;
+			case "/name":
+				if (arg) {
+					this.proxy!.renameSession(arg);
+					this.showStatus(`Session renamed to: ${arg}`);
+				} else {
+					this.showWarning("Usage: /name <session-name>");
+				}
+				break;
+			case "/copy":
+				this.handleConnectModeCopy();
+				break;
+			case "/reload":
+				await this.proxy!.reload();
+				this.setupConnectModeAutocomplete();
+				this.showStatus("Reloaded");
+				break;
+			case "/hotkeys":
+				this.handleHotkeysCommand();
+				break;
+			case "/changelog":
+				this.handleChangelogCommand();
+				break;
+			case "/session":
+				this.showConnectModeSessionInfo();
+				break;
+			default:
+				// Non-builtin commands (skill, prompt template, extension) are sent as prompts.
+				// The server's agent-session handles skill expansion and prompt template resolution.
+				await this.proxy!.prompt(text);
+		}
 	}
 
 	private subscribeToAgent(): void {
@@ -3079,6 +3249,23 @@ export class InteractiveMode {
 				this.ui.requestRender();
 				break;
 
+			case "turn_stats": {
+				const { tps, output, input, cacheRead, cacheWrite, total, duration } = event;
+				const parts: string[] = [];
+				if (output > 0) {
+					parts.push(`TPS ${tps.toFixed(1)} tok/s`);
+				}
+				parts.push(`out ${formatTokens(output)}`);
+				parts.push(`in ${formatTokens(input)}`);
+				if (cacheRead > 0 || cacheWrite > 0) {
+					parts.push(`cache r/w ${formatTokens(cacheRead)}/${formatTokens(cacheWrite)}`);
+				}
+				parts.push(`total ${formatTokens(total)}`);
+				parts.push(`${duration.toFixed(1)}s`);
+				this.showStatus(parts.join(", "));
+				break;
+			}
+
 			case "compaction_start": {
 				if (this.showTerminalProgress) {
 					this.ui.terminal.setProgress(true);
@@ -3148,6 +3335,24 @@ export class InteractiveMode {
 					}
 				}
 				void this.flushCompactionQueue({ willRetry: event.willRetry });
+				this.ui.requestRender();
+				break;
+			}
+
+			case "state_update": {
+				// Update footer snapshot for connect mode
+				if (this.proxy && event.snapshot) {
+					const currentSnapshot = this.proxy.getSnapshot();
+					const merged = { ...currentSnapshot, ...event.snapshot };
+					this.footer.setSnapshot(merged);
+					if (event.snapshot.cwd !== undefined) {
+						this.footerDataProvider.setCwd(event.snapshot.cwd);
+					}
+					if (event.snapshot.availableProviderCount !== undefined) {
+						this.footerDataProvider.setAvailableProviderCount(event.snapshot.availableProviderCount);
+					}
+				}
+				this.footer.invalidate();
 				this.ui.requestRender();
 				break;
 			}
@@ -4459,7 +4664,11 @@ export class InteractiveMode {
 	}
 
 	private showUserMessageSelector(): void {
-		const userMessages = this.session!.getUserMessagesForForking();
+		if (!this.session) {
+			this.showStatus("Fork selector not available in connect mode");
+			return;
+		}
+		const userMessages = this.session.getUserMessagesForForking();
 
 		if (userMessages.length === 0) {
 			this.showStatus("No messages to fork from");
@@ -4522,8 +4731,12 @@ export class InteractiveMode {
 	}
 
 	private showTreeSelector(initialSelectedId?: string): void {
-		const tree = this.sessionManager!.getTree();
-		const realLeafId = this.sessionManager!.getLeafId();
+		if (!this.sessionManager) {
+			this.showStatus("Tree selector not available in connect mode");
+			return;
+		}
+		const tree = this.sessionManager.getTree();
+		const realLeafId = this.sessionManager.getLeafId();
 		const initialFilterMode = this.settingsManager!.getTreeFilterMode();
 
 		if (tree.length === 0) {
@@ -4683,6 +4896,432 @@ export class InteractiveMode {
 			);
 			return { component: selector, focus: selector };
 		});
+	}
+
+	/** Show settings selector in connect mode using remote settings from snapshot */
+	private showConnectModeSettingsSelector(): void {
+		const snapshot = this.proxy!.getSnapshot();
+		const rs = snapshot.remoteSettings;
+
+		this.showSelector((done) => {
+			const selector = new SettingsSelectorComponent(
+				{
+					autoCompact: rs.autoCompact,
+					showImages: rs.showImages,
+					imageWidthCells: rs.imageWidthCells,
+					autoResizeImages: rs.autoResizeImages,
+					blockImages: rs.blockImages,
+					enableSkillCommands: rs.enableSkillCommands,
+					steeringMode: rs.steeringMode,
+					followUpMode: rs.followUpMode,
+					transport: rs.transport as Transport,
+					httpIdleTimeoutMs: rs.httpIdleTimeoutMs,
+					thinkingLevel: rs.thinkingLevel,
+					availableThinkingLevels: [...rs.availableThinkingLevels],
+					currentTheme: rs.currentTheme,
+					availableThemes: [...rs.availableThemes],
+					hideThinkingBlock: rs.hideThinkingBlock,
+					collapseChangelog: rs.collapseChangelog,
+					enableInstallTelemetry: rs.enableInstallTelemetry,
+					doubleEscapeAction: rs.doubleEscapeAction,
+					treeFilterMode: rs.treeFilterMode as "default" | "no-tools" | "user-only" | "labeled-only" | "all",
+					showHardwareCursor: rs.showHardwareCursor,
+					editorPaddingX: rs.editorPaddingX,
+					autocompleteMaxVisible: rs.autocompleteMaxVisible,
+					quietStartup: rs.quietStartup,
+					clearOnShrink: rs.clearOnShrink,
+					showTerminalProgress: rs.showTerminalProgress,
+					warnings: rs.warnings,
+				},
+				{
+					onAutoCompactChange: (enabled) => {
+						this.proxy!.setAutoCompactEnabled(enabled);
+						this.footer.setAutoCompactEnabled(enabled);
+					},
+					onShowImagesChange: (v) => {
+						this.proxy!.updateSettings({ showImages: v });
+					},
+					onImageWidthCellsChange: (v) => {
+						this.proxy!.updateSettings({ imageWidthCells: v });
+					},
+					onAutoResizeImagesChange: (v) => {
+						this.proxy!.updateSettings({ autoResizeImages: v });
+					},
+					onBlockImagesChange: (v) => {
+						this.proxy!.updateSettings({ blockImages: v });
+					},
+					onEnableSkillCommandsChange: (enabled) => {
+						this.proxy!.updateSettings({ enableSkillCommands: enabled });
+					},
+					onSteeringModeChange: (mode) => {
+						this.proxy!.setSteeringMode(mode);
+					},
+					onFollowUpModeChange: (mode) => {
+						this.proxy!.setFollowUpMode(mode);
+					},
+					onTransportChange: (v) => {
+						this.proxy!.updateSettings({ transport: v });
+					},
+					onHttpIdleTimeoutMsChange: (v) => {
+						this.proxy!.updateSettings({ httpIdleTimeoutMs: v });
+					},
+					onThinkingLevelChange: (level) => {
+						this.proxy!.setThinkingLevel(level);
+						this.footer.invalidate();
+						this.updateEditorBorderColor();
+					},
+					onThemeChange: (v) => {
+						this.proxy!.updateSettings({ theme: v });
+					},
+					onHideThinkingBlockChange: (v) => {
+						this.proxy!.updateSettings({ hideThinkingBlock: v });
+					},
+					onCollapseChangelogChange: (v) => {
+						this.proxy!.updateSettings({ collapseChangelog: v });
+					},
+					onEnableInstallTelemetryChange: (v) => {
+						this.proxy!.updateSettings({ enableInstallTelemetry: v });
+					},
+					onDoubleEscapeActionChange: (v) => {
+						this.proxy!.updateSettings({ doubleEscapeAction: v });
+					},
+					onTreeFilterModeChange: (v) => {
+						this.proxy!.updateSettings({ treeFilterMode: v });
+					},
+					onShowHardwareCursorChange: (v) => {
+						this.proxy!.updateSettings({ showHardwareCursor: v });
+					},
+					onEditorPaddingXChange: (v) => {
+						this.proxy!.updateSettings({ editorPaddingX: v });
+					},
+					onAutocompleteMaxVisibleChange: (v) => {
+						this.proxy!.updateSettings({ autocompleteMaxVisible: v });
+					},
+					onQuietStartupChange: (v) => {
+						this.proxy!.updateSettings({ quietStartup: v });
+					},
+					onClearOnShrinkChange: (v) => {
+						this.proxy!.updateSettings({ clearOnShrink: v });
+					},
+					onShowTerminalProgressChange: (v) => {
+						this.proxy!.updateSettings({ showTerminalProgress: v });
+					},
+					onWarningsChange: (v) => {
+						this.proxy!.updateSettings({ warnings: v });
+					},
+					onCancel: done,
+				},
+			);
+			return { component: selector, focus: selector };
+		});
+	}
+
+	/** Show model selector in connect mode */
+	private async showConnectModeModelSelector(): Promise<void> {
+		try {
+			const models = await this.proxy!.fetchModels();
+			if (models.length === 0) {
+				this.showStatus("No models available");
+				return;
+			}
+			const currentModelId = this.proxy!.model;
+			const items: SelectItem[] = models.map((m) => ({
+				value: `${m.provider}/${m.id}`,
+				label: `${m.id} [${m.provider}]`,
+				description: m.name,
+			}));
+			this.showSelector((done) => {
+				const selectList = new SelectList(
+					items,
+					Math.min(items.length, Math.floor(this.ui.terminal.rows / 2)),
+					getSelectListTheme(),
+					{ minPrimaryColumnWidth: 20, maxPrimaryColumnWidth: 48 },
+				);
+				// Preselect current model
+				const currentIndex = items.findIndex(
+					(item) => item.value === currentModelId || item.label === currentModelId,
+				);
+				if (currentIndex !== -1) {
+					selectList.setSelectedIndex(currentIndex);
+				}
+				selectList.onSelect = (item) => {
+					const modelId = item.value;
+					this.proxy!.setModel(modelId);
+					done();
+					this.showStatus(`Model: ${modelId}`);
+				};
+				selectList.onCancel = () => {
+					done();
+					this.ui.requestRender();
+				};
+				const container = new Container();
+				container.addChild(new DynamicBorder());
+				container.addChild(new Spacer(1));
+				container.addChild(new Text(theme.fg("muted", "Select a model"), 0, 0));
+				container.addChild(new Spacer(1));
+				container.addChild(selectList);
+				container.addChild(new DynamicBorder());
+				return { component: container, focus: selectList };
+			});
+		} catch (e: unknown) {
+			this.showError(`Failed to fetch models: ${e instanceof Error ? e.message : String(e)}`);
+		}
+	}
+
+	/** Show scoped models selector in connect mode */
+	private async showConnectModeScopedModelsSelector(): Promise<void> {
+		try {
+			const models = await this.proxy!.fetchModels();
+			if (models.length === 0) {
+				this.showStatus("No models available");
+				return;
+			}
+			const snapshot = this.proxy!.getSnapshot();
+			const enabledIds = snapshot.scopedModelIds;
+			const allModelIds = models.map((m) => `${m.provider}/${m.id}`);
+			// null = all enabled; otherwise use the explicit list
+			let currentEnabled: string[] | null = enabledIds === null ? null : [...enabledIds];
+
+			this.showSelector((done) => {
+				const buildItems = (): SelectItem[] => {
+					const enabledSet = currentEnabled === null ? null : new Set(currentEnabled);
+					const sortedIds =
+						currentEnabled === null
+							? allModelIds
+							: [...currentEnabled, ...allModelIds.filter((id) => !enabledSet!.has(id))];
+					return sortedIds.map((id) => {
+						const model = models.find((m) => `${m.provider}/${m.id}` === id);
+						const isEnabled = enabledSet === null || enabledSet.has(id);
+						return {
+							value: id,
+							label: `${isEnabled ? "✓" : "✗"} ${id}`,
+							description: model?.name,
+						};
+					});
+				};
+
+				const selectList = new SelectList(
+					buildItems(),
+					Math.min(models.length, Math.floor(this.ui.terminal.rows / 2)),
+					getSelectListTheme(),
+					{ minPrimaryColumnWidth: 20, maxPrimaryColumnWidth: 48 },
+				);
+
+				selectList.onSelect = (item) => {
+					const id = item.value;
+					// Toggle
+					if (currentEnabled === null) {
+						currentEnabled = [id];
+					} else {
+						const idx = currentEnabled.indexOf(id);
+						if (idx >= 0) {
+							currentEnabled = currentEnabled.filter((x) => x !== id);
+							if (currentEnabled.length === 0) currentEnabled = null;
+						} else {
+							currentEnabled = [...currentEnabled, id];
+						}
+					}
+					if (currentEnabled !== null && currentEnabled.length === allModelIds.length) {
+						currentEnabled = null; // All enabled = no filter
+					}
+					this.proxy!.setScopedModels(currentEnabled);
+					// Rebuild list
+					selectList.setItems(buildItems());
+					this.ui.requestRender();
+				};
+
+				selectList.onCancel = () => {
+					done();
+					this.ui.requestRender();
+				};
+
+				const container = new Container();
+				container.addChild(new DynamicBorder());
+				container.addChild(new Spacer(1));
+				container.addChild(new Text(theme.fg("muted", "Enable/disable models for Ctrl+P cycling"), 0, 0));
+				container.addChild(new Text(theme.fg("muted", "Enter=toggle  Esc=done  Ctrl+S=save to settings"), 0, 0));
+				container.addChild(new Spacer(1));
+				container.addChild(selectList);
+				container.addChild(new DynamicBorder());
+
+				// Override key handling for Ctrl+S to persist
+				const originalHandleInput = selectList.handleInput?.bind(selectList);
+				if (originalHandleInput) {
+					selectList.handleInput = (keyData: string) => {
+						if (matchesKey(keyData, "ctrl+s") || keyData === "\x13") {
+							this.proxy!.setEnabledModels(currentEnabled ? [...currentEnabled] : undefined);
+							this.showStatus("Model selection saved to settings");
+							return;
+						}
+						originalHandleInput(keyData);
+					};
+				}
+
+				return { component: container, focus: selectList };
+			});
+		} catch (e: unknown) {
+			this.showError(`Failed to fetch models: ${e instanceof Error ? e.message : String(e)}`);
+		}
+	}
+
+	/** Show fork selector in connect mode */
+	private async showConnectModeForkSelector(): Promise<void> {
+		try {
+			const messages = await this.proxy!.fetchUserMessages();
+			if (messages.length === 0) {
+				this.showStatus("No messages to fork from");
+				return;
+			}
+			this.showSelector((done) => {
+				const selector = new UserMessageSelectorComponent(
+					messages.map((m: { id: string; text: string }) => ({ id: m.id, text: m.text })),
+					async (entryId) => {
+						try {
+							await this.proxy!.fork(entryId);
+							done();
+							this.showStatus("Forked to new session");
+						} catch (error: unknown) {
+							done();
+							this.showError(error instanceof Error ? error.message : String(error));
+						}
+					},
+					() => {
+						done();
+						this.ui.requestRender();
+					},
+				);
+				return { component: selector, focus: selector.getMessageList() };
+			});
+		} catch (e: unknown) {
+			this.showError(`Failed to fetch messages: ${e instanceof Error ? e.message : String(e)}`);
+		}
+	}
+
+	/** Show tree selector in connect mode */
+	private async showConnectModeTreeSelector(): Promise<void> {
+		try {
+			const treeData = await this.proxy!.fetchTree();
+			if (treeData.length === 0) {
+				this.showStatus("No entries in session");
+				return;
+			}
+			const nodes = this._convertTreeDataToNodes(treeData);
+			this.showSelector((done) => {
+				const selector = new TreeSelectorComponent(
+					nodes,
+					null,
+					this.ui.terminal.rows,
+					async (entryId) => {
+						try {
+							await this.proxy!.fork(entryId);
+							done();
+							this.showStatus("Navigated to branch");
+						} catch (error: unknown) {
+							done();
+							this.showError(error instanceof Error ? error.message : String(error));
+						}
+					},
+					() => {
+						done();
+						this.ui.requestRender();
+					},
+					(entryId, label) => {
+						this.proxy!.setLabel(entryId, label);
+					},
+				);
+				return { component: selector, focus: selector };
+			});
+		} catch (e: unknown) {
+			this.showError(`Failed to fetch tree: ${e instanceof Error ? e.message : String(e)}`);
+		}
+	}
+
+	/** Convert wire-format TreeNodeData to SessionTreeNode for TreeSelectorComponent */
+	private _convertTreeDataToNodes(data: TreeNodeData[]): SessionTreeNode[] {
+		return data.map(
+			(node) =>
+				({
+					entry: { id: node.id, type: node.type, parentId: node.parentId, timestamp: node.timestamp },
+					children: this._convertTreeDataToNodes(node.children),
+					label: node.label,
+				}) as SessionTreeNode,
+		);
+	}
+
+	/** Show session selector in connect mode */
+	private showConnectModeSessionSelector(): void {
+		this.showSelector((done) => {
+			const selector = new SessionSelectorComponent(
+				async (_onProgress) => {
+					const sessions = await this.proxy!.getSessions();
+					return sessions.map((s) => ({
+						path: s.path,
+						id: s.id,
+						cwd: s.cwd,
+						name: s.name,
+						parentSessionPath: s.parentSessionPath,
+						created: new Date(s.created),
+						modified: new Date(s.modified),
+						messageCount: s.messageCount,
+						firstMessage: s.firstMessage,
+						allMessagesText: "",
+					}));
+				},
+				async () => [],
+				async (sessionPath) => {
+					try {
+						await this.proxy!.switchSession(sessionPath);
+						done();
+						this.showStatus("Switched session");
+					} catch (error: unknown) {
+						done();
+						this.showError(error instanceof Error ? error.message : String(error));
+					}
+				},
+				() => {
+					done();
+					this.ui.requestRender();
+				},
+				() => {
+					void this.shutdown();
+				},
+				() => this.ui.requestRender(),
+			);
+			return { component: selector, focus: selector };
+		});
+	}
+
+	/** Copy last agent message in connect mode */
+	private handleConnectModeCopy(): void {
+		const msgs = this.proxy!.messages;
+		const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
+		if (!lastAssistant) {
+			this.showStatus("No assistant message to copy");
+			return;
+		}
+		const text = lastAssistant.content
+			.filter((p): p is { type: "text"; text: string } => p.type === "text")
+			.map((p) => p.text)
+			.join("\n");
+		if (text) {
+			void copyToClipboard(text);
+			this.showStatus("Copied to clipboard");
+		}
+	}
+
+	/** Show session info in connect mode */
+	private showConnectModeSessionInfo(): void {
+		const snapshot = this.proxy!.getSnapshot();
+		const parts = [
+			`Model: ${snapshot.model}`,
+			`Session: ${snapshot.sessionName ?? "(unnamed)"}`,
+			`File: ${snapshot.sessionFile ?? "N/A"}`,
+			`CWD: ${snapshot.cwd}`,
+			`Messages: ${snapshot.messages.length}`,
+			`Context: ${snapshot.contextUsage.percent !== null ? `${snapshot.contextUsage.percent.toFixed(1)}%` : "?"} / ${snapshot.contextUsage.contextWindow}`,
+			`Tokens: ↑${snapshot.tokenUsage.input} ↓${snapshot.tokenUsage.output} $${snapshot.tokenUsage.cost.toFixed(3)}`,
+		];
+		this.showStatus(parts.join("  •  "));
 	}
 
 	private async handleResumeSession(

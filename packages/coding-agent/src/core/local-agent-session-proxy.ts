@@ -1,8 +1,21 @@
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent } from "./agent-session.ts";
-import type { AgentSessionProxy, BannerData, SessionStateSnapshot } from "./agent-session-proxy.ts";
+import type {
+	AgentSessionProxy,
+	BannerData,
+	ContextUsageInfo,
+	ModelInfo,
+	ModelItemData,
+	ServeSlashCommand,
+	SessionItemData,
+	SessionStateSnapshot,
+	TokenUsage,
+	TreeNodeData,
+	UserMessageItem,
+} from "./agent-session-proxy.ts";
 import type { AgentSessionRuntime } from "./agent-session-runtime.ts";
+import { BUILTIN_SLASH_COMMANDS } from "./slash-commands.ts";
 
 /**
  * Convert proxy-style image format ({ url, mediaType }) to the ImageContent
@@ -90,6 +103,10 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 		void this.session.abort();
 	}
 
+	abortBash(): void {
+		this.session.abortBash();
+	}
+
 	// =========================================================================
 	// State queries
 	// =========================================================================
@@ -108,6 +125,10 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 
 	get isCompacting(): boolean {
 		return this.session.isCompacting;
+	}
+
+	get isBashRunning(): boolean {
+		return this.session.isBashRunning;
 	}
 
 	get steeringMessages(): readonly string[] {
@@ -191,6 +212,18 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 		this.session.setThinkingLevel(levels[nextIndex]);
 	}
 
+	setAutoCompactEnabled(enabled: boolean): void {
+		this.session.setAutoCompactionEnabled(enabled);
+	}
+
+	setSteeringMode(mode: "all" | "one-at-a-time"): void {
+		this.session.setSteeringMode(mode);
+	}
+
+	setFollowUpMode(mode: "all" | "one-at-a-time"): void {
+		this.session.setFollowUpMode(mode);
+	}
+
 	// =========================================================================
 	// Runtime operations
 	// =========================================================================
@@ -203,20 +236,220 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 		await this._runtime.switchSession(sessionFile);
 	}
 
-	async fork(entryIndex?: number): Promise<void> {
-		// AgentSessionRuntime.fork() takes an entryId (string), not an index.
-		// Convert entry index to entry ID using the session manager.
-		if (entryIndex === undefined) {
-			await this._runtime.fork("");
-			return;
+	async fork(entryId?: string): Promise<void> {
+		await this._runtime.fork(entryId ?? "");
+	}
+
+	renameSession(name: string): void {
+		this.session.sessionManager.appendSessionInfo(name);
+	}
+
+	setLabel(entryId: string, label: string | undefined): void {
+		this.session.sessionManager.appendLabelChange(entryId, label);
+	}
+
+	setScopedModels(enabledIds: string[] | null): void {
+		if (enabledIds && enabledIds.length > 0) {
+			const allModels = this.session.modelRegistry.getAvailable();
+			const enabledSet = new Set(enabledIds);
+			const scoped = allModels.filter((m) => enabledSet.has(`${m.provider}/${m.id}`));
+			this.session.setScopedModels(scoped.map((m) => ({ model: m })));
+		} else {
+			this.session.setScopedModels([]);
+		}
+	}
+
+	setEnabledModels(patterns: string[] | undefined): void {
+		this.session.settingsManager.setEnabledModels(patterns);
+	}
+
+	updateSettings(updates: Record<string, unknown>): void {
+		const sm = this.session.settingsManager;
+		if ("showImages" in updates && typeof updates.showImages === "boolean") sm.setShowImages(updates.showImages);
+		if ("imageWidthCells" in updates && typeof updates.imageWidthCells === "number")
+			sm.setImageWidthCells(updates.imageWidthCells);
+		if ("autoResizeImages" in updates && typeof updates.autoResizeImages === "boolean")
+			sm.setImageAutoResize(updates.autoResizeImages);
+		if ("blockImages" in updates && typeof updates.blockImages === "boolean") sm.setBlockImages(updates.blockImages);
+		if ("enableSkillCommands" in updates && typeof updates.enableSkillCommands === "boolean")
+			sm.setEnableSkillCommands(updates.enableSkillCommands);
+		if ("transport" in updates && typeof updates.transport === "string") sm.setTransport(updates.transport as any);
+		if ("httpIdleTimeoutMs" in updates && typeof updates.httpIdleTimeoutMs === "number")
+			sm.setHttpIdleTimeoutMs(updates.httpIdleTimeoutMs);
+		if ("theme" in updates && typeof updates.theme === "string") sm.setTheme(updates.theme);
+		if ("hideThinkingBlock" in updates && typeof updates.hideThinkingBlock === "boolean")
+			sm.setHideThinkingBlock(updates.hideThinkingBlock);
+		if ("collapseChangelog" in updates && typeof updates.collapseChangelog === "boolean")
+			sm.setCollapseChangelog(updates.collapseChangelog);
+		if ("enableInstallTelemetry" in updates && typeof updates.enableInstallTelemetry === "boolean")
+			sm.setEnableInstallTelemetry(updates.enableInstallTelemetry);
+		if ("doubleEscapeAction" in updates && typeof updates.doubleEscapeAction === "string")
+			sm.setDoubleEscapeAction(updates.doubleEscapeAction as any);
+		if ("treeFilterMode" in updates && typeof updates.treeFilterMode === "string")
+			sm.setTreeFilterMode(updates.treeFilterMode as any);
+		if ("showHardwareCursor" in updates && typeof updates.showHardwareCursor === "boolean")
+			sm.setShowHardwareCursor(updates.showHardwareCursor);
+		if ("editorPaddingX" in updates && typeof updates.editorPaddingX === "number")
+			sm.setEditorPaddingX(updates.editorPaddingX);
+		if ("autocompleteMaxVisible" in updates && typeof updates.autocompleteMaxVisible === "number")
+			sm.setAutocompleteMaxVisible(updates.autocompleteMaxVisible);
+		if ("quietStartup" in updates && typeof updates.quietStartup === "boolean")
+			sm.setQuietStartup(updates.quietStartup);
+		if ("clearOnShrink" in updates && typeof updates.clearOnShrink === "boolean")
+			sm.setClearOnShrink(updates.clearOnShrink);
+		if ("showTerminalProgress" in updates && typeof updates.showTerminalProgress === "boolean")
+			sm.setShowTerminalProgress(updates.showTerminalProgress);
+		if ("warnings" in updates && typeof updates.warnings === "object" && updates.warnings !== null)
+			sm.setWarnings(updates.warnings as any);
+	}
+
+	async reload(): Promise<void> {
+		await this.session.reload();
+	}
+
+	getTree(): TreeNodeData[] {
+		const tree = this.session.sessionManager.getTree();
+		return tree.map((node) => this._convertTreeNode(node));
+	}
+
+	private _convertTreeNode(node: {
+		entry: { id: string; type: string; parentId: string | null; timestamp: string };
+		children: unknown[];
+		label?: string;
+	}): TreeNodeData {
+		let preview: string | undefined;
+		const entry = node.entry;
+		if (entry.type === "message") {
+			const msg = (
+				entry as unknown as {
+					type: "message";
+					message: { role: string; content: string | Array<{ type: string; text?: string }> };
+				}
+			).message;
+			if (msg.role === "user") {
+				preview =
+					typeof msg.content === "string"
+						? msg.content.slice(0, 80)
+						: msg.content
+								.filter((p): p is { type: "text"; text: string } => p.type === "text")
+								.map((p) => p.text)
+								.join(" ")
+								.slice(0, 80);
+			} else if (msg.role === "assistant") {
+				preview = "(assistant)";
+			}
+		} else if (entry.type === "compaction") {
+			preview = "(compaction)";
+		}
+		return {
+			id: entry.id,
+			type: entry.type,
+			parentId: entry.parentId,
+			timestamp: entry.timestamp,
+			label: node.label,
+			preview,
+			children: (node.children as unknown[]).map((child) =>
+				this._convertTreeNode(child as Parameters<typeof this._convertTreeNode>[0]),
+			),
+		};
+	}
+
+	getUserMessagesForForking(): UserMessageItem[] {
+		return this.session.getUserMessagesForForking().map((m) => ({ id: m.entryId, text: m.text }));
+	}
+
+	async getSessions(): Promise<SessionItemData[]> {
+		const { SessionManager } = await import("./session-manager.ts");
+		const cwd = this.session.sessionManager.getCwd();
+		const sessions = await SessionManager.list(cwd);
+		return sessions.map((s) => ({
+			path: s.path,
+			id: s.id,
+			cwd: s.cwd,
+			name: s.name,
+			parentSessionPath: s.parentSessionPath,
+			created: s.created.toISOString(),
+			modified: s.modified.toISOString(),
+			messageCount: s.messageCount,
+			firstMessage: s.firstMessage,
+		}));
+	}
+
+	async fetchTree(): Promise<TreeNodeData[]> {
+		return this.getTree();
+	}
+
+	async fetchUserMessages(): Promise<UserMessageItem[]> {
+		return this.getUserMessagesForForking();
+	}
+
+	async fetchCommands(): Promise<ServeSlashCommand[]> {
+		return this.getCommands();
+	}
+
+	getCommands(): ServeSlashCommand[] {
+		const commands: ServeSlashCommand[] = [];
+
+		// 1. Builtin commands
+		for (const cmd of BUILTIN_SLASH_COMMANDS) {
+			commands.push({ name: cmd.name, description: cmd.description, source: "builtin" });
+		}
+		// /model gets an argument hint
+		const modelCmd = commands.find((c) => c.name === "model");
+		if (modelCmd) modelCmd.argumentHint = "<provider/model-id>";
+
+		// 2. Prompt templates
+		for (const tmpl of this.session.promptTemplates) {
+			commands.push({
+				name: tmpl.name,
+				description: tmpl.description,
+				source: "prompt",
+				sourceInfo: tmpl.sourceInfo,
+			});
 		}
 
-		const entries = this.session.sessionManager.getBranch();
-		if (entryIndex < 0 || entryIndex >= entries.length) {
-			throw new Error(`Invalid entry index for fork: ${entryIndex}`);
+		// 3. Extension commands (exclude names that clash with builtins)
+		const builtinNames = new Set(BUILTIN_SLASH_COMMANDS.map((c) => c.name));
+		for (const cmd of this.session.extensionRunner.getRegisteredCommands()) {
+			if (!builtinNames.has(cmd.name)) {
+				commands.push({
+					name: cmd.invocationName,
+					description: cmd.description,
+					source: "extension",
+					sourceInfo: cmd.sourceInfo,
+				});
+			}
 		}
-		const entryId = entries[entryIndex].id;
-		await this._runtime.fork(entryId);
+
+		// 4. Skill commands (gated by enableSkillCommands)
+		if (this.session.settingsManager.getEnableSkillCommands()) {
+			for (const skill of this.session.resourceLoader.getSkills().skills) {
+				commands.push({
+					name: `skill:${skill.name}`,
+					description: skill.description,
+					source: "skill",
+					sourceInfo: skill.sourceInfo,
+				});
+			}
+		}
+
+		return commands;
+	}
+
+	getModels(): ModelItemData[] {
+		return this.session.modelRegistry.getAvailable().map((m) => ({
+			id: m.id,
+			name: m.name,
+			provider: m.provider,
+			reasoning: m.reasoning,
+			contextWindow: m.contextWindow,
+			maxTokens: m.maxTokens,
+			input: m.input,
+		}));
+	}
+
+	async fetchModels(): Promise<ModelItemData[]> {
+		return this.getModels();
 	}
 
 	// =========================================================================
@@ -238,17 +471,100 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 
 	/** Snapshot for serve mode */
 	getSnapshot(): SessionStateSnapshot {
+		const session = this.session;
+		const model = session.model;
+
+		// Compute cumulative token usage from all entries
+		let totalInput = 0;
+		let totalOutput = 0;
+		let totalCacheRead = 0;
+		let totalCacheWrite = 0;
+		let totalCost = 0;
+		for (const entry of session.sessionManager.getEntries()) {
+			if (entry.type === "message" && entry.message.role === "assistant") {
+				totalInput += entry.message.usage.input;
+				totalOutput += entry.message.usage.output;
+				totalCacheRead += entry.message.usage.cacheRead;
+				totalCacheWrite += entry.message.usage.cacheWrite;
+				totalCost += entry.message.usage.cost.total;
+			}
+		}
+		const usingSubscription = model ? session.modelRegistry.isUsingOAuth(model) : false;
+		const tokenUsage: TokenUsage = {
+			input: totalInput,
+			output: totalOutput,
+			cacheRead: totalCacheRead,
+			cacheWrite: totalCacheWrite,
+			cost: totalCost,
+			usingSubscription,
+		};
+
+		// Compute context usage
+		const rawContextUsage = session.getContextUsage();
+		const contextUsage: ContextUsageInfo = rawContextUsage
+			? {
+					tokens: rawContextUsage.tokens,
+					contextWindow: rawContextUsage.contextWindow,
+					percent: rawContextUsage.percent,
+				}
+			: { tokens: null, contextWindow: model?.contextWindow ?? 0, percent: null };
+
+		// Extract model info
+		const modelInfo: ModelInfo = model
+			? { id: model.id, provider: model.provider, reasoning: model.reasoning, contextWindow: model.contextWindow }
+			: { id: "", provider: "", reasoning: false, contextWindow: 0 };
+
 		return {
 			model: this.model,
 			thinkingLevel: this.thinkingLevel,
 			isStreaming: this.isStreaming,
 			isCompacting: this.isCompacting,
+			isBashRunning: this.isBashRunning,
 			steeringMessages: this.steeringMessages,
 			followUpMessages: this.followUpMessages,
 			sessionFile: this.sessionFile,
 			sessionName: this.sessionName,
 			messages: this.messages,
 			banner: this._banner,
+			tokenUsage,
+			contextUsage,
+			modelInfo,
+			autoCompactEnabled: session.autoCompactionEnabled,
+			cwd: session.sessionManager.getCwd(),
+			availableProviderCount: session.modelRegistry.getAvailable().length,
+			remoteSettings: {
+				autoCompact: session.autoCompactionEnabled,
+				thinkingLevel: session.thinkingLevel,
+				availableThinkingLevels: session.getAvailableThinkingLevels(),
+				steeringMode: session.steeringMode,
+				followUpMode: session.followUpMode,
+				enableSkillCommands: session.settingsManager.getEnableSkillCommands(),
+				doubleEscapeAction: session.settingsManager.getDoubleEscapeAction(),
+				showImages: session.settingsManager.getShowImages(),
+				imageWidthCells: session.settingsManager.getImageWidthCells(),
+				autoResizeImages: session.settingsManager.getImageAutoResize(),
+				blockImages: session.settingsManager.getBlockImages(),
+				transport: session.settingsManager.getTransport(),
+				httpIdleTimeoutMs: session.settingsManager.getHttpIdleTimeoutMs(),
+				currentTheme: session.settingsManager.getTheme() ?? "",
+				availableThemes: session.resourceLoader.getThemes().themes.map((t) => t.name) as string[],
+				hideThinkingBlock: session.settingsManager.getHideThinkingBlock(),
+				collapseChangelog: session.settingsManager.getCollapseChangelog(),
+				enableInstallTelemetry: session.settingsManager.getEnableInstallTelemetry(),
+				treeFilterMode: session.settingsManager.getTreeFilterMode(),
+				showHardwareCursor: session.settingsManager.getShowHardwareCursor(),
+				editorPaddingX: session.settingsManager.getEditorPaddingX(),
+				autocompleteMaxVisible: session.settingsManager.getAutocompleteMaxVisible(),
+				quietStartup: session.settingsManager.getQuietStartup(),
+				clearOnShrink: session.settingsManager.getClearOnShrink(),
+				showTerminalProgress: session.settingsManager.getShowTerminalProgress(),
+				warnings: session.settingsManager.getWarnings() as unknown as Record<string, unknown>,
+			},
+			scopedModelIds:
+				session.scopedModels.length > 0
+					? session.scopedModels.map((sm) => `${sm.model.provider}/${sm.model.id}`)
+					: null,
+			enabledModelPatterns: session.settingsManager.getEnabledModels(),
 		};
 	}
 }

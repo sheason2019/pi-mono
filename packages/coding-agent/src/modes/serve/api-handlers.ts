@@ -76,6 +76,11 @@ const handlers: Record<string, ApiHandler> = {
 		sendJson(res, 200, { ok: true });
 	},
 
+	async "abort-bash"(proxy, _body, res) {
+		proxy.abortBash();
+		sendJson(res, 200, { ok: true });
+	},
+
 	async compact(proxy, body, res) {
 		const { customInstructions } = body as { customInstructions?: string };
 		await proxy.compact(customInstructions);
@@ -130,8 +135,69 @@ const handlers: Record<string, ApiHandler> = {
 	},
 
 	async fork(proxy, body, res) {
-		const { entryIndex } = body as { entryIndex?: number };
-		await proxy.fork(entryIndex);
+		const { entryId } = body as { entryId?: string };
+		await proxy.fork(entryId);
+		sendJson(res, 200, { ok: true });
+	},
+
+	async name(proxy, body, res) {
+		const { name } = body as { name?: string };
+		if (!name) {
+			sendError(res, 400, "Missing 'name'");
+			return;
+		}
+		proxy.renameSession(name);
+		sendJson(res, 200, { ok: true });
+	},
+
+	async label(proxy, body, res) {
+		const { entryId, label } = body as { entryId?: string; label?: string };
+		if (!entryId) {
+			sendError(res, 400, "Missing 'entryId'");
+			return;
+		}
+		proxy.setLabel(entryId, label);
+		sendJson(res, 200, { ok: true });
+	},
+
+	async "scoped-models"(proxy, body, res) {
+		const { enabledIds } = body as { enabledIds?: string[] | null };
+		proxy.setScopedModels(enabledIds ?? null);
+		sendJson(res, 200, { ok: true });
+	},
+
+	async "enabled-models"(proxy, body, res) {
+		const { patterns } = body as { patterns?: string[] };
+		proxy.setEnabledModels(patterns);
+		sendJson(res, 200, { ok: true });
+	},
+
+	async reload(proxy, _body, res) {
+		await proxy.reload();
+		sendJson(res, 200, { ok: true });
+	},
+
+	async settings(proxy, body, res) {
+		const updates = body as Record<string, unknown>;
+		if (!updates || typeof updates !== "object") {
+			sendError(res, 400, "Invalid settings body");
+			return;
+		}
+		// Delegate to the generic updateSettings which handles all keys
+		proxy.updateSettings(updates);
+		// Also handle the proxy-level settings that aren't in SettingsManager
+		if ("autoCompact" in updates && typeof updates.autoCompact === "boolean") {
+			proxy.setAutoCompactEnabled(updates.autoCompact);
+		}
+		if ("thinkingLevel" in updates && typeof updates.thinkingLevel === "string") {
+			proxy.setThinkingLevel(updates.thinkingLevel as Parameters<typeof proxy.setThinkingLevel>[0]);
+		}
+		if ("steeringMode" in updates && typeof updates.steeringMode === "string") {
+			proxy.setSteeringMode(updates.steeringMode as "all" | "one-at-a-time");
+		}
+		if ("followUpMode" in updates && typeof updates.followUpMode === "string") {
+			proxy.setFollowUpMode(updates.followUpMode as "all" | "one-at-a-time");
+		}
 		sendJson(res, 200, { ok: true });
 	},
 };
@@ -153,6 +219,35 @@ export async function handleApiRequest(
 		}
 		if (path === "messages") {
 			sendJson(res, 200, proxy.messages);
+			return;
+		}
+		if (path === "settings") {
+			sendJson(res, 200, proxy.getSnapshot().remoteSettings);
+			return;
+		}
+		if (path === "tree") {
+			sendJson(res, 200, proxy.getTree());
+			return;
+		}
+		if (path === "user-messages") {
+			sendJson(res, 200, proxy.getUserMessagesForForking());
+			return;
+		}
+		if (path === "sessions") {
+			try {
+				const sessions = await proxy.getSessions();
+				sendJson(res, 200, sessions);
+			} catch (e: unknown) {
+				sendError(res, 500, e instanceof Error ? e.message : "Failed to list sessions");
+			}
+			return;
+		}
+		if (path === "commands") {
+			sendJson(res, 200, proxy.getCommands());
+			return;
+		}
+		if (path === "models") {
+			sendJson(res, 200, proxy.getModels());
 			return;
 		}
 		sendError(res, 404, `Unknown GET endpoint: /${path}`);

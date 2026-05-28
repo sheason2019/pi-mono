@@ -1,6 +1,17 @@
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AgentSessionEvent } from "../../core/agent-session.ts";
-import type { AgentSessionProxy, SessionStateSnapshot } from "../../core/agent-session-proxy.ts";
+import type {
+	AgentSessionProxy,
+	ContextUsageInfo,
+	ModelInfo,
+	ModelItemData,
+	ServeSlashCommand,
+	SessionItemData,
+	SessionStateSnapshot,
+	TokenUsage,
+	TreeNodeData,
+	UserMessageItem,
+} from "../../core/agent-session-proxy.ts";
 import { SseClient } from "./sse-client.ts";
 
 type Listener = (event: AgentSessionEvent) => void;
@@ -75,6 +86,12 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 			case "thinking_level_changed":
 				this._state = { ...this._state, thinkingLevel: event.level };
 				break;
+			case "state_update":
+				// Server pushes a full snapshot update with token usage, context usage, etc.
+				if (event.snapshot) {
+					this._state = { ...this._state, ...event.snapshot };
+				}
+				break;
 		}
 	}
 
@@ -122,6 +139,12 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 		});
 	}
 
+	abortBash(): void {
+		this._post("abort-bash").catch((e: Error) => {
+			process.stderr.write(`[connect] abortBash failed: ${e.message}\n`);
+		});
+	}
+
 	// State queries
 	get model(): string {
 		return this._state.model;
@@ -134,6 +157,9 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 	}
 	get isCompacting(): boolean {
 		return this._state.isCompacting;
+	}
+	get isBashRunning(): boolean {
+		return this._state.isBashRunning;
 	}
 	get steeringMessages(): readonly string[] {
 		return this._state.steeringMessages;
@@ -149,6 +175,24 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 	}
 	get messages(): readonly AgentMessage[] {
 		return this._state.messages;
+	}
+	get tokenUsage(): TokenUsage {
+		return this._state.tokenUsage;
+	}
+	get contextUsage(): ContextUsageInfo {
+		return this._state.contextUsage;
+	}
+	get modelInfo(): ModelInfo {
+		return this._state.modelInfo;
+	}
+	get autoCompactEnabled(): boolean {
+		return this._state.autoCompactEnabled;
+	}
+	get cwd(): string {
+		return this._state.cwd;
+	}
+	get availableProviderCount(): number {
+		return this._state.availableProviderCount;
 	}
 
 	// Session operations
@@ -180,6 +224,24 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 		});
 	}
 
+	setAutoCompactEnabled(enabled: boolean): void {
+		this._post("settings", { autoCompact: enabled }).catch((e: Error) => {
+			process.stderr.write(`[connect] setAutoCompactEnabled failed: ${e.message}\n`);
+		});
+	}
+
+	setSteeringMode(mode: "all" | "one-at-a-time"): void {
+		this._post("settings", { steeringMode: mode }).catch((e: Error) => {
+			process.stderr.write(`[connect] setSteeringMode failed: ${e.message}\n`);
+		});
+	}
+
+	setFollowUpMode(mode: "all" | "one-at-a-time"): void {
+		this._post("settings", { followUpMode: mode }).catch((e: Error) => {
+			process.stderr.write(`[connect] setFollowUpMode failed: ${e.message}\n`);
+		});
+	}
+
 	// Runtime operations
 	async newSession(): Promise<void> {
 		await this._post("new-session");
@@ -189,8 +251,86 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 		await this._post("switch-session", { sessionFile });
 	}
 
-	async fork(entryIndex?: number): Promise<void> {
-		await this._post("fork", { entryIndex });
+	async fork(entryId?: string): Promise<void> {
+		await this._post("fork", { entryId });
+	}
+
+	renameSession(name: string): void {
+		this._post("name", { name }).catch((e: Error) => {
+			process.stderr.write(`[connect] renameSession failed: ${e.message}\n`);
+		});
+	}
+
+	setLabel(entryId: string, label: string | undefined): void {
+		this._post("label", { entryId, label }).catch((e: Error) => {
+			process.stderr.write(`[connect] setLabel failed: ${e.message}\n`);
+		});
+	}
+
+	setScopedModels(enabledIds: string[] | null): void {
+		this._post("scoped-models", { enabledIds }).catch((e: Error) => {
+			process.stderr.write(`[connect] setScopedModels failed: ${e.message}\n`);
+		});
+	}
+
+	setEnabledModels(patterns: string[] | undefined): void {
+		this._post("enabled-models", { patterns }).catch((e: Error) => {
+			process.stderr.write(`[connect] setEnabledModels failed: ${e.message}\n`);
+		});
+	}
+
+	updateSettings(updates: Record<string, unknown>): void {
+		this._post("settings", updates).catch((e: Error) => {
+			process.stderr.write(`[connect] updateSettings failed: ${e.message}\n`);
+		});
+	}
+
+	async reload(): Promise<void> {
+		await this._post("reload");
+	}
+
+	// Data queries
+	getTree(): TreeNodeData[] {
+		// Fetch synchronously from cached snapshot or fetch on demand
+		// For now, we'll fetch via a separate GET request
+		throw new Error("Use fetchTree() for async tree data");
+	}
+
+	async fetchTree(): Promise<TreeNodeData[]> {
+		const response = await fetch(`${this._baseUrl}/tree`);
+		return (await response.json()) as TreeNodeData[];
+	}
+
+	getUserMessagesForForking(): UserMessageItem[] {
+		throw new Error("Use fetchUserMessages() for async data");
+	}
+
+	async fetchUserMessages(): Promise<UserMessageItem[]> {
+		const response = await fetch(`${this._baseUrl}/user-messages`);
+		return (await response.json()) as UserMessageItem[];
+	}
+
+	async getSessions(): Promise<SessionItemData[]> {
+		const response = await fetch(`${this._baseUrl}/sessions`);
+		return (await response.json()) as SessionItemData[];
+	}
+
+	getCommands(): ServeSlashCommand[] {
+		throw new Error("Use fetchCommands() for async data");
+	}
+
+	async fetchCommands(): Promise<ServeSlashCommand[]> {
+		const response = await fetch(`${this._baseUrl}/commands`);
+		return (await response.json()) as ServeSlashCommand[];
+	}
+
+	getModels(): ModelItemData[] {
+		throw new Error("Use fetchModels() for async data");
+	}
+
+	async fetchModels(): Promise<ModelItemData[]> {
+		const response = await fetch(`${this._baseUrl}/models`);
+		return (await response.json()) as ModelItemData[];
 	}
 
 	// Lifecycle

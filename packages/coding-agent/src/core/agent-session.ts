@@ -37,6 +37,7 @@ import { theme } from "../modes/interactive/theme/theme.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
+import type { SessionStateSnapshot } from "./agent-session-proxy.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import {
@@ -144,7 +145,25 @@ export type AgentSessionEvent =
 			errorMessage?: string;
 	  }
 	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
-	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string };
+	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
+	| { type: "state_update"; snapshot: Partial<SessionStateSnapshot> }
+	| {
+			type: "turn_stats";
+			/** Output tokens per second */
+			tps: number;
+			/** Output token count for this turn */
+			output: number;
+			/** Input token count for this turn */
+			input: number;
+			/** Cache read tokens for this turn */
+			cacheRead: number;
+			/** Cache write tokens for this turn */
+			cacheWrite: number;
+			/** Total tokens for this turn (input + output + cacheRead + cacheWrite) */
+			total: number;
+			/** Wall-clock duration in seconds */
+			duration: number;
+	  };
 
 /** Listener function for agent session events */
 export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
@@ -286,6 +305,9 @@ export class AgentSession {
 	// Extension system
 	private _extensionRunner!: ExtensionRunner;
 	private _turnIndex = 0;
+
+	/** Timestamp when the current agent run started, for per-turn TPS calculation */
+	private _agentStartTime: number | undefined = undefined;
 
 	private _resourceLoader: ResourceLoader;
 	private _customTools: ToolDefinition[];
@@ -462,6 +484,62 @@ export class AgentSession {
 		});
 	}
 
+	/** Emit a state_update event with the current token/context/model snapshot */
+	private _emitStateUpdate(): void {
+		const model = this.model;
+		const state = this.state;
+
+		// Compute cumulative token usage
+		let totalInput = 0;
+		let totalOutput = 0;
+		let totalCacheRead = 0;
+		let totalCacheWrite = 0;
+		let totalCost = 0;
+		for (const entry of this.sessionManager.getEntries()) {
+			if (entry.type === "message" && entry.message.role === "assistant") {
+				totalInput += entry.message.usage.input;
+				totalOutput += entry.message.usage.output;
+				totalCacheRead += entry.message.usage.cacheRead;
+				totalCacheWrite += entry.message.usage.cacheWrite;
+				totalCost += entry.message.usage.cost.total;
+			}
+		}
+
+		const usingSubscription = model ? this.modelRegistry.isUsingOAuth(model) : false;
+		const rawContextUsage = this.getContextUsage();
+
+		const snapshot: Partial<SessionStateSnapshot> = {
+			model: model?.id ?? "",
+			thinkingLevel: state.thinkingLevel,
+			// Note: isStreaming and isCompacting are NOT included here.
+			// They are managed by agent_start/agent_end and compaction_start/compaction_end events
+			// to avoid race conditions where a late state_update overwrites the correct state.
+			tokenUsage: {
+				input: totalInput,
+				output: totalOutput,
+				cacheRead: totalCacheRead,
+				cacheWrite: totalCacheWrite,
+				cost: totalCost,
+				usingSubscription,
+			},
+			contextUsage: rawContextUsage
+				? {
+						tokens: rawContextUsage.tokens,
+						contextWindow: rawContextUsage.contextWindow,
+						percent: rawContextUsage.percent,
+					}
+				: { tokens: null, contextWindow: model?.contextWindow ?? 0, percent: null },
+			modelInfo: model
+				? { id: model.id, provider: model.provider, reasoning: model.reasoning, contextWindow: model.contextWindow }
+				: { id: "", provider: "", reasoning: false, contextWindow: 0 },
+			autoCompactEnabled: this.autoCompactionEnabled,
+			cwd: this.sessionManager.getCwd(),
+			availableProviderCount: this.modelRegistry.getAvailable().length,
+		};
+
+		this._emit({ type: "state_update", snapshot });
+	}
+
 	// Track last assistant message for auto-compaction check
 	private _lastAssistantMessage: AssistantMessage | undefined = undefined;
 
@@ -487,6 +565,11 @@ export class AgentSession {
 					}
 				}
 			}
+		}
+
+		// Track agent start time for per-turn TPS calculation
+		if (event.type === "agent_start") {
+			this._agentStartTime = Date.now();
 		}
 
 		// Emit to extensions first
@@ -535,6 +618,46 @@ export class AgentSession {
 					});
 					this._retryAttempt = 0;
 				}
+
+				// Push state update (token usage changed)
+				this._emitStateUpdate();
+			}
+		} else if (event.type === "agent_end") {
+			// Push state update (streaming ended)
+			this._emitStateUpdate();
+
+			// Emit per-turn stats
+			if (this._agentStartTime !== undefined) {
+				const duration = (Date.now() - this._agentStartTime) / 1000;
+				this._agentStartTime = undefined;
+
+				// Sum token usage from all assistant messages in this agent run
+				let turnInput = 0;
+				let turnOutput = 0;
+				let turnCacheRead = 0;
+				let turnCacheWrite = 0;
+				for (const msg of event.messages) {
+					if (msg.role === "assistant") {
+						const usage = (msg as AssistantMessage).usage;
+						turnInput += usage.input;
+						turnOutput += usage.output;
+						turnCacheRead += usage.cacheRead;
+						turnCacheWrite += usage.cacheWrite;
+					}
+				}
+				const total = turnInput + turnOutput + turnCacheRead + turnCacheWrite;
+				const tps = duration > 0 ? turnOutput / duration : 0;
+
+				this._emit({
+					type: "turn_stats",
+					tps,
+					output: turnOutput,
+					input: turnInput,
+					cacheRead: turnCacheRead,
+					cacheWrite: turnCacheWrite,
+					total,
+					duration,
+				});
 			}
 		}
 	};
@@ -1429,6 +1552,7 @@ export class AgentSession {
 		this.setThinkingLevel(thinkingLevel);
 
 		await this._emitModelSelect(model, previousModel, "set");
+		this._emitStateUpdate();
 	}
 
 	/**
@@ -1469,6 +1593,7 @@ export class AgentSession {
 		this.setThinkingLevel(thinkingLevel);
 
 		await this._emitModelSelect(next.model, currentModel, "cycle");
+		this._emitStateUpdate();
 
 		return { model: next.model, thinkingLevel: this.thinkingLevel, isScoped: true };
 	}
@@ -1494,6 +1619,7 @@ export class AgentSession {
 		this.setThinkingLevel(thinkingLevel);
 
 		await this._emitModelSelect(nextModel, currentModel, "cycle");
+		this._emitStateUpdate();
 
 		return { model: nextModel, thinkingLevel: this.thinkingLevel, isScoped: false };
 	}
@@ -1528,6 +1654,7 @@ export class AgentSession {
 				level: effectiveLevel,
 				previousLevel,
 			});
+			this._emitStateUpdate();
 		}
 	}
 
@@ -1588,6 +1715,7 @@ export class AgentSession {
 	setSteeringMode(mode: "all" | "one-at-a-time"): void {
 		this.agent.steeringMode = mode;
 		this.settingsManager.setSteeringMode(mode);
+		this._emitStateUpdate();
 	}
 
 	/**
@@ -1597,6 +1725,7 @@ export class AgentSession {
 	setFollowUpMode(mode: "all" | "one-at-a-time"): void {
 		this.agent.followUpMode = mode;
 		this.settingsManager.setFollowUpMode(mode);
+		this._emitStateUpdate();
 	}
 
 	// =========================================================================
@@ -1723,6 +1852,7 @@ export class AgentSession {
 				aborted: false,
 				willRetry: false,
 			});
+			this._emitStateUpdate();
 			return compactionResult;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -1735,6 +1865,7 @@ export class AgentSession {
 				willRetry: false,
 				errorMessage: aborted ? undefined : `Compaction failed: ${message}`,
 			});
+			this._emitStateUpdate();
 			throw error;
 		} finally {
 			this._compactionAbortController = undefined;
@@ -1806,6 +1937,7 @@ export class AgentSession {
 					errorMessage:
 						"Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.",
 				});
+				this._emitStateUpdate();
 				return false;
 			}
 
@@ -1866,6 +1998,7 @@ export class AgentSession {
 					aborted: false,
 					willRetry: false,
 				});
+				this._emitStateUpdate();
 				return false;
 			}
 
@@ -1881,6 +2014,7 @@ export class AgentSession {
 						aborted: false,
 						willRetry: false,
 					});
+					this._emitStateUpdate();
 					return false;
 				}
 				apiKey = authResult.apiKey;
@@ -1900,6 +2034,7 @@ export class AgentSession {
 					aborted: false,
 					willRetry: false,
 				});
+				this._emitStateUpdate();
 				return false;
 			}
 
@@ -1923,6 +2058,7 @@ export class AgentSession {
 						aborted: true,
 						willRetry: false,
 					});
+					this._emitStateUpdate();
 					return false;
 				}
 
@@ -2000,6 +2136,7 @@ export class AgentSession {
 				details,
 			};
 			this._emit({ type: "compaction_end", reason, result, aborted: false, willRetry });
+			this._emitStateUpdate();
 
 			if (willRetry) {
 				const messages = this.agent.state.messages;
@@ -2026,6 +2163,7 @@ export class AgentSession {
 						? `Context overflow recovery failed: ${errorMessage}`
 						: `Auto-compaction failed: ${errorMessage}`,
 			});
+			this._emitStateUpdate();
 			return false;
 		} finally {
 			this._autoCompactionAbortController = undefined;
@@ -2037,6 +2175,7 @@ export class AgentSession {
 	 */
 	setAutoCompactionEnabled(enabled: boolean): void {
 		this.settingsManager.setCompactionEnabled(enabled);
+		this._emitStateUpdate();
 	}
 
 	/** Whether auto-compaction is enabled */

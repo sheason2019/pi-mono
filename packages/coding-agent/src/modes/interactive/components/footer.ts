@@ -1,6 +1,7 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { AgentSession } from "../../../core/agent-session.ts";
+import type { SessionStateSnapshot } from "../../../core/agent-session-proxy.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
 import { theme } from "../theme/theme.ts";
 
@@ -19,7 +20,7 @@ function sanitizeStatusText(text: string): string {
 /**
  * Format token counts for compact footer display.
  */
-function formatTokens(count: number): string {
+export function formatTokens(count: number): string {
 	if (count < 1000) return count.toString();
 	if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
 	if (count < 1000000) return `${Math.round(count / 1000)}k`;
@@ -49,6 +50,7 @@ export class FooterComponent implements Component {
 	private autoCompactEnabled = true;
 	private session: AgentSession | undefined;
 	private footerData: ReadonlyFooterDataProvider;
+	private _snapshot: SessionStateSnapshot | undefined;
 
 	constructor(session: AgentSession | undefined, footerData: ReadonlyFooterDataProvider) {
 		this.session = session;
@@ -61,6 +63,12 @@ export class FooterComponent implements Component {
 
 	setAutoCompactEnabled(enabled: boolean): void {
 		this.autoCompactEnabled = enabled;
+	}
+
+	/** Update snapshot data from remote proxy (connect mode) */
+	setSnapshot(snapshot: SessionStateSnapshot): void {
+		this._snapshot = snapshot;
+		this.autoCompactEnabled = snapshot.autoCompactEnabled;
 	}
 
 	/**
@@ -80,8 +88,12 @@ export class FooterComponent implements Component {
 	}
 
 	render(width: number): string[] {
-		// In connect mode (no session), render a minimal footer
+		// In connect mode (no session), render from snapshot if available
 		if (!this.session) {
+			if (this._snapshot) {
+				return this._renderFromSnapshot(width);
+			}
+			// Fallback: minimal footer without snapshot data
 			const pwd = formatCwdForFooter(this.footerData.getCwd(), process.env.HOME || process.env.USERPROFILE);
 			const branch = this.footerData.getGitBranch();
 			const pwdDisplay = branch ? `${pwd} (${branch})` : pwd;
@@ -239,5 +251,104 @@ export class FooterComponent implements Component {
 		}
 
 		return lines;
+	}
+
+	/** Render footer from snapshot data (connect mode) */
+	private _renderFromSnapshot(width: number): string[] {
+		const snapshot = this._snapshot!;
+		const { tokenUsage, contextUsage, modelInfo } = snapshot;
+
+		// Pwd line
+		const pwd = formatCwdForFooter(snapshot.cwd, process.env.HOME || process.env.USERPROFILE);
+		const branch = this.footerData.getGitBranch();
+		let pwdDisplay = branch ? `${pwd} (${branch})` : pwd;
+		if (snapshot.sessionName) {
+			pwdDisplay = `${pwdDisplay} • ${snapshot.sessionName}`;
+		}
+
+		// Build stats line from snapshot
+		const statsParts = [];
+		if (tokenUsage.input) statsParts.push(`↑${formatTokens(tokenUsage.input)}`);
+		if (tokenUsage.output) statsParts.push(`↓${formatTokens(tokenUsage.output)}`);
+		if (tokenUsage.cacheRead) statsParts.push(`R${formatTokens(tokenUsage.cacheRead)}`);
+		if (tokenUsage.cacheWrite) statsParts.push(`W${formatTokens(tokenUsage.cacheWrite)}`);
+
+		if (tokenUsage.cost || tokenUsage.usingSubscription) {
+			const costStr = `$${tokenUsage.cost.toFixed(3)}${tokenUsage.usingSubscription ? " (sub)" : ""}`;
+			statsParts.push(costStr);
+		}
+
+		// Context percentage
+		const contextPercentValue = contextUsage.percent ?? 0;
+		const contextPercent = contextUsage.percent !== null ? contextPercentValue.toFixed(1) : "?";
+		const autoIndicator = snapshot.autoCompactEnabled ? " (auto)" : "";
+		const contextPercentDisplay =
+			contextPercent === "?"
+				? `?/${formatTokens(contextUsage.contextWindow)}${autoIndicator}`
+				: `${contextPercent}%/${formatTokens(contextUsage.contextWindow)}${autoIndicator}`;
+
+		let contextPercentStr: string;
+		if (contextPercentValue > 90) {
+			contextPercentStr = theme.fg("error", contextPercentDisplay);
+		} else if (contextPercentValue > 70) {
+			contextPercentStr = theme.fg("warning", contextPercentDisplay);
+		} else {
+			contextPercentStr = contextPercentDisplay;
+		}
+		statsParts.push(contextPercentStr);
+
+		let statsLeft = statsParts.join(" ");
+
+		// Model name + thinking level
+		const modelName = modelInfo.id || "no-model";
+		let statsLeftWidth = visibleWidth(statsLeft);
+
+		if (statsLeftWidth > width) {
+			statsLeft = truncateToWidth(statsLeft, width, "...");
+			statsLeftWidth = visibleWidth(statsLeft);
+		}
+
+		const minPadding = 2;
+
+		let rightSideWithoutProvider = modelName;
+		if (modelInfo.reasoning) {
+			const thinkingLevel = snapshot.thinkingLevel || "off";
+			rightSideWithoutProvider =
+				thinkingLevel === "off" ? `${modelName} • thinking off` : `${modelName} • ${thinkingLevel}`;
+		}
+
+		let rightSide = rightSideWithoutProvider;
+		if (snapshot.availableProviderCount > 1 && modelInfo.provider) {
+			rightSide = `(${modelInfo.provider}) ${rightSideWithoutProvider}`;
+			if (statsLeftWidth + minPadding + visibleWidth(rightSide) > width) {
+				rightSide = rightSideWithoutProvider;
+			}
+		}
+
+		const rightSideWidth = visibleWidth(rightSide);
+		const totalNeeded = statsLeftWidth + minPadding + rightSideWidth;
+
+		let statsLine: string;
+		if (totalNeeded <= width) {
+			const padding = " ".repeat(width - statsLeftWidth - rightSideWidth);
+			statsLine = statsLeft + padding + rightSide;
+		} else {
+			const availableForRight = width - statsLeftWidth - minPadding;
+			if (availableForRight > 0) {
+				const truncatedRight = truncateToWidth(rightSide, availableForRight, "");
+				const truncatedRightWidth = visibleWidth(truncatedRight);
+				const padding = " ".repeat(Math.max(0, width - statsLeftWidth - truncatedRightWidth));
+				statsLine = statsLeft + padding + truncatedRight;
+			} else {
+				statsLine = statsLeft;
+			}
+		}
+
+		const dimStatsLeft = theme.fg("dim", statsLeft);
+		const remainder = statsLine.slice(statsLeft.length);
+		const dimRemainder = theme.fg("dim", remainder);
+
+		const pwdLine = truncateToWidth(theme.fg("dim", pwdDisplay), width, theme.fg("dim", "..."));
+		return [pwdLine, dimStatsLeft + dimRemainder];
 	}
 }
