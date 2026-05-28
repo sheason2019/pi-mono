@@ -7,7 +7,7 @@ import chalk from "chalk";
 import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } from "../config.ts";
 import type { ExtensionFlag } from "../core/extensions/types.ts";
 
-export type Mode = "text" | "json" | "rpc";
+export type Mode = "text" | "json" | "rpc" | "serve" | "connect";
 
 export interface Args {
 	provider?: string;
@@ -21,6 +21,8 @@ export interface Args {
 	help?: boolean;
 	version?: boolean;
 	mode?: Mode;
+	port?: number; // --port <number> for serve mode
+	url?: string; // --url <string> for connect mode
 	noSession?: boolean;
 	session?: string;
 	sessionId?: string;
@@ -74,8 +76,25 @@ export function parseArgs(args: string[]): Args {
 			result.version = true;
 		} else if (arg === "--mode" && i + 1 < args.length) {
 			const mode = args[++i];
-			if (mode === "text" || mode === "json" || mode === "rpc") {
+			if (mode === "text" || mode === "json" || mode === "rpc" || mode === "serve" || mode === "connect") {
 				result.mode = mode;
+			}
+		} else if (arg === "--port") {
+			const value = args[++i];
+			if (value === undefined) {
+				result.diagnostics.push({ type: "error", message: "--port requires a value" });
+			} else {
+				result.port = parseInt(value, 10);
+				if (Number.isNaN(result.port)) {
+					result.diagnostics.push({ type: "error", message: "--port requires a number" });
+				}
+			}
+		} else if (arg === "--url") {
+			const value = args[++i];
+			if (value === undefined) {
+				result.diagnostics.push({ type: "error", message: "--url requires a value" });
+			} else {
+				result.url = value;
 			}
 		} else if (arg === "--continue" || arg === "-c") {
 			result.continue = true;
