@@ -1,6 +1,12 @@
 import { join } from "node:path";
 import { Agent, type AgentMessage, type ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { clampThinkingLevel, type Message, type Model, streamSimple } from "@earendil-works/pi-ai";
+import {
+	clampThinkingLevel,
+	type Message,
+	type Model,
+	type SimpleStreamOptions,
+	streamSimple,
+} from "@earendil-works/pi-ai";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { AgentSession } from "./agent-session.ts";
@@ -345,7 +351,8 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				providerRetrySettings.timeoutMs ??
 				(model.api === "openai-codex-responses" ? settingsManager.getHttpIdleTimeoutMs() : undefined);
 			const websocketConnectTimeoutMs =
-				options?.websocketConnectTimeoutMs ?? settingsManager.getWebSocketConnectTimeoutMs();
+				(options as Record<string, unknown>)?.websocketConnectTimeoutMs ??
+				settingsManager.getWebSocketConnectTimeoutMs();
 			const attributionHeaders = getAttributionHeaders(model, settingsManager, options?.sessionId);
 			return streamSimple(model, context, {
 				...options,
@@ -358,7 +365,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 					attributionHeaders || auth.headers || options?.headers
 						? { ...attributionHeaders, ...auth.headers, ...options?.headers }
 						: undefined,
-			});
+			} as SimpleStreamOptions);
 		},
 		onPayload: async (payload, _model) => {
 			const runner = extensionRunnerRef.current;
