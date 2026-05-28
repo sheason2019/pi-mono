@@ -94,18 +94,14 @@ function isTruthyEnvFlag(value: string | undefined): boolean {
 	return value === "1" || value.toLowerCase() === "true" || value.toLowerCase() === "yes";
 }
 
-type AppMode = "interactive" | "print" | "json" | "rpc";
+type AppMode = "interactive" | "print" | "json" | "rpc" | "serve" | "connect";
 
 function resolveAppMode(parsed: Args, stdinIsTTY: boolean): AppMode {
-	if (parsed.mode === "rpc") {
-		return "rpc";
-	}
-	if (parsed.mode === "json") {
-		return "json";
-	}
-	if (parsed.print || !stdinIsTTY) {
-		return "print";
-	}
+	if (parsed.mode === "rpc") return "rpc";
+	if (parsed.mode === "serve") return "serve";
+	if (parsed.mode === "connect") return "connect";
+	if (parsed.mode === "json") return "json";
+	if (parsed.print || !stdinIsTTY) return "print";
 	return "interactive";
 }
 
@@ -726,6 +722,16 @@ export async function main(args: string[], options?: MainOptions) {
 		process.exit(1);
 	}
 
+	if (appMode === "serve") {
+		const { runServeMode } = await import("./modes/serve/serve-mode.ts");
+		await runServeMode(runtime, { port: parsed.port });
+		return;
+	}
+	if (appMode === "connect") {
+		const { runConnectMode } = await import("./modes/connect/connect-mode.ts");
+		await runConnectMode({ url: parsed.url! });
+		return;
+	}
 	if (appMode === "rpc") {
 		printTimings();
 		await runRpcMode(runtime);
