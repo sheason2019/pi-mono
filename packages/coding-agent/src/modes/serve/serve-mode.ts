@@ -9,7 +9,7 @@ import type {
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
 import { LocalAgentSessionProxy } from "../../core/local-agent-session-proxy.ts";
-import { parseChangelog } from "../../utils/changelog.ts";
+import { getNewEntries, parseChangelog } from "../../utils/changelog.ts";
 import { formatKeyText } from "../interactive/components/keybinding-hints.ts";
 import { AgentHttpServer } from "./http-server.ts";
 
@@ -156,12 +156,15 @@ function generateBanner(session: AgentSession): BannerData {
 		});
 	}
 
-	// Changelog — only show the latest version's entry
+	// Changelog — only show new entries since last seen version (same logic as local mode)
 	let changelogMarkdown: string | undefined;
+	const lastVersion = session.settingsManager.getLastChangelogVersion();
 	const changelogEntries = parseChangelog(getChangelogPath());
-	if (changelogEntries.length > 0) {
-		// Only include the latest version entry (same as what a first-run user would see)
-		changelogMarkdown = changelogEntries[0].content;
+	if (lastVersion && changelogEntries.length > 0) {
+		const newEntries = getNewEntries(changelogEntries, lastVersion);
+		if (newEntries.length > 0) {
+			changelogMarkdown = newEntries.map((e) => e.content).join("\n\n");
+		}
 	}
 
 	return {
@@ -186,16 +189,13 @@ export async function runServeMode(runtime: AgentSessionRuntime, options: ServeM
 
 	const server = new AgentHttpServer(proxy);
 
-	// Set up rebindSession callback so the proxy stays in sync
+	// Set up beforeSessionInvalidate callback
 	runtime.setBeforeSessionInvalidate(() => {
 		// No UI to reset in serve mode
 	});
 
-	runtime.setRebindSession(async (_session) => {
-		// Re-subscription happens automatically via the proxy's subscribe()
-		// which delegates to the current session. The server's SSE broadcast
-		// will pick up events from the new session.
-	});
+	// Note: rebindSession is set by LocalAgentSessionProxy constructor
+	// to handle re-subscribing to the new session's events.
 
 	await server.start(port);
 

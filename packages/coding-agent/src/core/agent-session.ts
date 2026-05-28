@@ -163,7 +163,8 @@ export type AgentSessionEvent =
 			total: number;
 			/** Wall-clock duration in seconds */
 			duration: number;
-	  };
+	  }
+	| { type: "session_replaced"; reason: "new" | "resume" | "fork" };
 
 /** Listener function for agent session events */
 export type AgentSessionEventListener = (event: AgentSessionEvent) => void;

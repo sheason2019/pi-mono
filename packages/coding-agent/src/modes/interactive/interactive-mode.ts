@@ -408,7 +408,7 @@ export class InteractiveMode {
 		// are not available. In normal mode, read from settingsManager.
 		const showHardwareCursor = this.runtimeHost ? this.settingsManager!.getShowHardwareCursor() : false;
 		const clearOnShrink = this.runtimeHost ? this.settingsManager!.getClearOnShrink() : true;
-		const editorPaddingX = this.runtimeHost ? this.settingsManager!.getEditorPaddingX() : 2;
+		const editorPaddingX = this.runtimeHost ? this.settingsManager!.getEditorPaddingX() : 0;
 		const autocompleteMaxVisible = this.runtimeHost ? this.settingsManager!.getAutocompleteMaxVisible() : 8;
 
 		this.ui = new TUI(new ProcessTerminal(), showHardwareCursor);
@@ -878,6 +878,14 @@ export class InteractiveMode {
 			this.footer.setSnapshot(snapshot);
 			this.footerDataProvider.setCwd(snapshot.cwd);
 			this.footerDataProvider.setAvailableProviderCount(snapshot.availableProviderCount);
+			// Apply remote settings to editor
+			if (snapshot.remoteSettings) {
+				const paddingX = snapshot.remoteSettings.editorPaddingX;
+				this.defaultEditor.setPaddingX(paddingX);
+				if (this.editor !== this.defaultEditor) {
+					this.editor.setPaddingX?.(paddingX);
+				}
+			}
 			// Set up autocomplete for connect mode with a reduced command set
 			this.setupConnectModeAutocomplete();
 		}
@@ -2985,6 +2993,7 @@ export class InteractiveMode {
 				break;
 			case "/new":
 				await this.proxy!.newSession();
+				// UI reset is handled by the session_replaced event
 				break;
 			case "/fork":
 				this.showConnectModeForkSelector();
@@ -2994,7 +3003,7 @@ export class InteractiveMode {
 				break;
 			case "/clone":
 				await this.proxy!.fork();
-				this.showStatus("Cloned to new session");
+				// UI reset is handled by the session_replaced event
 				break;
 			case "/resume":
 				this.showConnectModeSessionSelector();
@@ -3263,6 +3272,39 @@ export class InteractiveMode {
 				parts.push(`total ${formatTokens(total)}`);
 				parts.push(`${duration.toFixed(1)}s`);
 				this.showStatus(parts.join(", "));
+				break;
+			}
+
+			case "session_replaced": {
+				// Server session was replaced (new/resume/fork) — reset UI and render new session
+				this.chatContainer.clear();
+				this.pendingMessagesContainer.clear();
+				this.compactionQueuedMessages = [];
+				this.pendingTools.clear();
+				if (this.loadingAnimation) {
+					this.loadingAnimation.stop();
+					this.loadingAnimation = undefined;
+				}
+				this.statusContainer.clear();
+				this.streamingComponent = undefined;
+				this.streamingMessage = undefined;
+				// Update footer with new session state
+				const snapshot = this.proxy!.getSnapshot();
+				this.footer.setSnapshot(snapshot);
+				this.footerDataProvider.setCwd(snapshot.cwd);
+				this.footerDataProvider.setAvailableProviderCount(snapshot.availableProviderCount);
+				// Render messages from the new session
+				this.renderInitialMessages();
+				// Show confirmation
+				const label =
+					event.reason === "new"
+						? "New session started"
+						: event.reason === "resume"
+							? "Session resumed"
+							: "Forked to new session";
+				this.chatContainer.addChild(new Spacer(1));
+				this.chatContainer.addChild(new Text(theme.fg("accent", `✓ ${label}`), 1, 1));
+				this.ui.requestRender();
 				break;
 			}
 

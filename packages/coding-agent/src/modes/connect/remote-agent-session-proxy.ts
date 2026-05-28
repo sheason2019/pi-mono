@@ -48,6 +48,24 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 	}
 
 	private _handleEvent(event: AgentSessionEvent): void {
+		// For session_replaced, fetch fresh state BEFORE notifying subscribers
+		if (event.type === "session_replaced") {
+			this._state = { ...this._state, messages: [] };
+			this._fetchState()
+				.then(() => {
+					for (const subscriber of this._subscribers) {
+						subscriber(event);
+					}
+				})
+				.catch((e: Error) => {
+					process.stderr.write(`[connect] failed to fetch state after session_replaced: ${e.message}\n`);
+					// Still notify subscribers even on failure so UI resets
+					for (const subscriber of this._subscribers) {
+						subscriber(event);
+					}
+				});
+			return;
+		}
 		this._updateState(event);
 		for (const subscriber of this._subscribers) {
 			subscriber(event);
@@ -93,6 +111,16 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 				}
 				break;
 		}
+	}
+
+	/** Fetch full state snapshot from server and update local cache */
+	private async _fetchState(): Promise<void> {
+		const response = await fetch(`${this._baseUrl}/state`);
+		if (!response.ok) {
+			throw new Error(`GET /state returned HTTP ${response.status}`);
+		}
+		const snapshot = (await response.json()) as SessionStateSnapshot;
+		this._state = snapshot;
 	}
 
 	private async _post(endpoint: string, body?: unknown): Promise<unknown> {

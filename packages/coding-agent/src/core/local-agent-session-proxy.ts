@@ -52,9 +52,34 @@ function toImageContent(images: Array<{ url: string; mediaType?: string }>): Ima
 export class LocalAgentSessionProxy implements AgentSessionProxy {
 	private readonly _runtime: AgentSessionRuntime;
 	private _banner: BannerData | undefined;
+	/** Listeners registered through this proxy — re-subscribed when the session changes */
+	private _proxyListeners: Array<(event: AgentSessionEvent) => void> = [];
+	private _sessionUnsubscribe: (() => void) | undefined;
 
 	constructor(runtime: AgentSessionRuntime) {
 		this._runtime = runtime;
+		// Re-subscribe when the runtime replaces the session
+		this._runtime.setRebindSession(async (_session, reason) => {
+			this._resubscribe(reason);
+		});
+	}
+
+	/** Re-subscribe all proxy listeners to the current session */
+	private _resubscribe(reason: "new" | "resume" | "fork" = "new"): void {
+		this._sessionUnsubscribe?.();
+		this._sessionUnsubscribe = undefined;
+		if (this._proxyListeners.length === 0) return;
+		const session = this._runtime.session;
+		const combinedListener = (event: AgentSessionEvent) => {
+			for (const listener of this._proxyListeners) {
+				listener(event);
+			}
+		};
+		this._sessionUnsubscribe = session.subscribe(combinedListener);
+		// Notify listeners that the session was replaced so they can reset UI
+		for (const listener of this._proxyListeners) {
+			listener({ type: "session_replaced", reason });
+		}
 	}
 
 	/** Set the banner data (called by serve mode after initialization) */
@@ -71,7 +96,22 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 	// =========================================================================
 
 	subscribe(listener: (event: AgentSessionEvent) => void): () => void {
-		return this.session.subscribe(listener);
+		this._proxyListeners.push(listener);
+		// If this is the first listener, subscribe to the session
+		if (this._proxyListeners.length === 1) {
+			this._resubscribe();
+		}
+		return () => {
+			const index = this._proxyListeners.indexOf(listener);
+			if (index !== -1) {
+				this._proxyListeners.splice(index, 1);
+			}
+			// If no more listeners, unsubscribe from session
+			if (this._proxyListeners.length === 0) {
+				this._sessionUnsubscribe?.();
+				this._sessionUnsubscribe = undefined;
+			}
+		};
 	}
 
 	// =========================================================================

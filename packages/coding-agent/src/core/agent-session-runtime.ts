@@ -66,7 +66,7 @@ function extractUserMessageText(content: string | Array<{ type: string; text?: s
  * caller. The caller is responsible for user-facing error handling.
  */
 export class AgentSessionRuntime {
-	private rebindSession?: (session: AgentSession) => Promise<void>;
+	private rebindSession?: (session: AgentSession, reason: "new" | "resume" | "fork") => Promise<void>;
 	private beforeSessionInvalidate?: () => void;
 	private _session: AgentSession;
 	private _services: AgentSessionServices;
@@ -108,7 +108,7 @@ export class AgentSessionRuntime {
 		return this._modelFallbackMessage;
 	}
 
-	setRebindSession(rebindSession?: (session: AgentSession) => Promise<void>): void {
+	setRebindSession(rebindSession?: (session: AgentSession, reason: "new" | "resume" | "fork") => Promise<void>): void {
 		this.rebindSession = rebindSession;
 	}
 
@@ -175,9 +175,12 @@ export class AgentSessionRuntime {
 		this._modelFallbackMessage = result.modelFallbackMessage;
 	}
 
-	private async finishSessionReplacement(withSession?: (ctx: ReplacedSessionContext) => Promise<void>): Promise<void> {
+	private async finishSessionReplacement(
+		reason: "new" | "resume" | "fork",
+		withSession?: (ctx: ReplacedSessionContext) => Promise<void>,
+	): Promise<void> {
 		if (this.rebindSession) {
-			await this.rebindSession(this.session);
+			await this.rebindSession(this.session, reason);
 		}
 		if (withSession) {
 			await withSession(this.session.createReplacedSessionContext());
@@ -205,7 +208,7 @@ export class AgentSessionRuntime {
 				sessionStartEvent: { type: "session_start", reason: "resume", previousSessionFile },
 			}),
 		);
-		await this.finishSessionReplacement(options?.withSession);
+		await this.finishSessionReplacement("resume", options?.withSession);
 		return { cancelled: false };
 	}
 
@@ -239,7 +242,7 @@ export class AgentSessionRuntime {
 			await options.setup(this.session.sessionManager);
 			this.session.agent.state.messages = this.session.sessionManager.buildSessionContext().messages;
 		}
-		await this.finishSessionReplacement(options?.withSession);
+		await this.finishSessionReplacement("new", options?.withSession);
 		return { cancelled: false };
 	}
 
@@ -289,7 +292,7 @@ export class AgentSessionRuntime {
 						sessionStartEvent: { type: "session_start", reason: "fork", previousSessionFile },
 					}),
 				);
-				await this.finishSessionReplacement(options?.withSession);
+				await this.finishSessionReplacement("fork", options?.withSession);
 				return { cancelled: false, selectedText };
 			}
 
@@ -307,7 +310,7 @@ export class AgentSessionRuntime {
 					sessionStartEvent: { type: "session_start", reason: "fork", previousSessionFile },
 				}),
 			);
-			await this.finishSessionReplacement(options?.withSession);
+			await this.finishSessionReplacement("fork", options?.withSession);
 			return { cancelled: false, selectedText };
 		}
 
@@ -326,7 +329,7 @@ export class AgentSessionRuntime {
 				sessionStartEvent: { type: "session_start", reason: "fork", previousSessionFile },
 			}),
 		);
-		await this.finishSessionReplacement(options?.withSession);
+		await this.finishSessionReplacement("fork", options?.withSession);
 		return { cancelled: false, selectedText };
 	}
 
@@ -370,7 +373,7 @@ export class AgentSessionRuntime {
 				sessionStartEvent: { type: "session_start", reason: "resume", previousSessionFile },
 			}),
 		);
-		await this.finishSessionReplacement();
+		await this.finishSessionReplacement("resume");
 		return { cancelled: false };
 	}
 
