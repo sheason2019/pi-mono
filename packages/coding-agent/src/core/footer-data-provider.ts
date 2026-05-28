@@ -152,6 +152,11 @@ export class FooterDataProvider {
 		this.availableProviderCount = count;
 	}
 
+	/** Current working directory */
+	getCwd(): string {
+		return this.cwd;
+	}
+
 	setCwd(cwd: string): void {
 		if (this.cwd === cwd) {
 			return;
@@ -350,5 +355,5 @@ export class FooterDataProvider {
 /** Read-only view for extensions - excludes setExtensionStatus, setAvailableProviderCount and dispose */
 export type ReadonlyFooterDataProvider = Pick<
 	FooterDataProvider,
-	"getGitBranch" | "getExtensionStatuses" | "getAvailableProviderCount" | "onBranchChange"
+	"getGitBranch" | "getExtensionStatuses" | "getAvailableProviderCount" | "onBranchChange" | "getCwd"
 >;

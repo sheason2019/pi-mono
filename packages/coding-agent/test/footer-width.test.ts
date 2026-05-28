@@ -68,6 +68,7 @@ function createFooterData(providerCount: number): ReadonlyFooterDataProvider {
 			void callback;
 			return () => {};
 		},
+		getCwd: () => "/home/user/project",
 	};
 
 	return provider;

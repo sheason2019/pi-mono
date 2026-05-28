@@ -47,10 +47,10 @@ export function formatCwdForFooter(cwd: string, home: string | undefined): strin
  */
 export class FooterComponent implements Component {
 	private autoCompactEnabled = true;
-	private session: AgentSession;
+	private session: AgentSession | undefined;
 	private footerData: ReadonlyFooterDataProvider;
 
-	constructor(session: AgentSession, footerData: ReadonlyFooterDataProvider) {
+	constructor(session: AgentSession | undefined, footerData: ReadonlyFooterDataProvider) {
 		this.session = session;
 		this.footerData = footerData;
 	}
@@ -80,6 +80,16 @@ export class FooterComponent implements Component {
 	}
 
 	render(width: number): string[] {
+		// In connect mode (no session), render a minimal footer
+		if (!this.session) {
+			const pwd = formatCwdForFooter(this.footerData.getCwd(), process.env.HOME || process.env.USERPROFILE);
+			const branch = this.footerData.getGitBranch();
+			const pwdDisplay = branch ? `${pwd} (${branch})` : pwd;
+			const pwdLine = truncateToWidth(theme.fg("dim", pwdDisplay), width, theme.fg("dim", "..."));
+			const modelLine = theme.fg("dim", "connect mode");
+			return [pwdLine, modelLine];
+		}
+
 		const state = this.session.state;
 
 		// Calculate cumulative usage from ALL session entries (not just post-compaction messages)

@@ -238,7 +238,7 @@ export interface InteractiveModeOptions {
 }
 
 export class InteractiveMode {
-	private runtimeHost: AgentSessionRuntime;
+	private runtimeHost: AgentSessionRuntime | undefined;
 	private ui: TUI;
 	private chatContainer: Container;
 	private pendingMessagesContainer: Container;
@@ -348,27 +348,45 @@ export class InteractiveMode {
 	/** Proxy for connect mode — when set, core operations go through the proxy */
 	private readonly proxy: AgentSessionProxy | undefined;
 
-	// Convenience accessors
+	// Convenience accessors — only valid when runtimeHost is set (i.e., not in connect mode)
 	private get session(): AgentSession {
+		if (!this.runtimeHost) throw new Error("session not available in connect mode");
 		return this.runtimeHost.session;
 	}
 	private get agent() {
+		if (!this.runtimeHost) throw new Error("agent not available in connect mode");
 		return this.session.agent;
 	}
 	private get sessionManager() {
+		if (!this.runtimeHost) throw new Error("sessionManager not available in connect mode");
 		return this.session.sessionManager;
 	}
 	private get settingsManager() {
+		if (!this.runtimeHost) throw new Error("settingsManager not available in connect mode");
 		return this.session.settingsManager;
 	}
 
-	constructor(runtimeHost: AgentSessionRuntime, options: InteractiveModeOptions = {}) {
+	// Safe accessors that return defaults in connect mode
+	private get showTerminalProgress(): boolean {
+		return this.runtimeHost ? this.settingsManager.getShowTerminalProgress() : false;
+	}
+	private get showImages(): boolean {
+		return this.runtimeHost ? this.settingsManager.getShowImages() : false;
+	}
+	private get imageWidthCells(): number {
+		return this.runtimeHost ? this.settingsManager.getImageWidthCells() : 80;
+	}
+	private get currentCwd(): string {
+		return this.runtimeHost ? this.sessionManager.getCwd() : process.cwd();
+	}
+
+	constructor(runtimeHost: AgentSessionRuntime | undefined, options: InteractiveModeOptions = {}) {
 		this.runtimeHost = runtimeHost;
 		this.options = options;
 		this.proxy = options.proxy;
 
 		// Only register runtime callbacks when NOT using proxy (connect mode)
-		if (!this.proxy) {
+		if (this.runtimeHost) {
 			this.runtimeHost.setBeforeSessionInvalidate(() => {
 				this.resetExtensionUI();
 			});
@@ -381,10 +399,10 @@ export class InteractiveMode {
 
 		// In connect mode (proxy set), use defaults for UI setup since session/settingsManager
 		// are not available. In normal mode, read from settingsManager.
-		const showHardwareCursor = this.proxy ? false : this.settingsManager.getShowHardwareCursor();
-		const clearOnShrink = this.proxy ? true : this.settingsManager.getClearOnShrink();
-		const editorPaddingX = this.proxy ? 2 : this.settingsManager.getEditorPaddingX();
-		const autocompleteMaxVisible = this.proxy ? 8 : this.settingsManager.getAutocompleteMaxVisible();
+		const showHardwareCursor = this.runtimeHost ? this.settingsManager.getShowHardwareCursor() : false;
+		const clearOnShrink = this.runtimeHost ? this.settingsManager.getClearOnShrink() : true;
+		const editorPaddingX = this.runtimeHost ? this.settingsManager.getEditorPaddingX() : 2;
+		const autocompleteMaxVisible = this.runtimeHost ? this.settingsManager.getAutocompleteMaxVisible() : 8;
 
 		this.ui = new TUI(new ProcessTerminal(), showHardwareCursor);
 		this.ui.setClearOnShrink(clearOnShrink);
@@ -403,15 +421,15 @@ export class InteractiveMode {
 		this.editor = this.defaultEditor;
 		this.editorContainer = new Container();
 		this.editorContainer.addChild(this.editor as Component);
-		this.footerDataProvider = new FooterDataProvider(this.proxy ? process.cwd() : this.sessionManager.getCwd());
-		this.footer = new FooterComponent(this.session, this.footerDataProvider);
-		this.footer.setAutoCompactEnabled(this.proxy ? false : this.session.autoCompactionEnabled);
+		this.footerDataProvider = new FooterDataProvider(this.runtimeHost ? this.sessionManager.getCwd() : process.cwd());
+		this.footer = new FooterComponent(this.runtimeHost ? this.session : undefined, this.footerDataProvider);
+		this.footer.setAutoCompactEnabled(this.runtimeHost ? this.session.autoCompactionEnabled : false);
 
 		// Load hide thinking block setting
-		this.hideThinkingBlock = this.proxy ? false : this.settingsManager.getHideThinkingBlock();
+		this.hideThinkingBlock = this.runtimeHost ? this.settingsManager.getHideThinkingBlock() : false;
 
 		// Register themes from resource loader and initialize
-		if (!this.proxy) {
+		if (this.runtimeHost) {
 			setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
 			initTheme(this.settingsManager.getTheme(), true);
 		} else {
@@ -593,14 +611,21 @@ export class InteractiveMode {
 		this.registerSignalHandlers();
 
 		// Load changelog (only show new entries, skip for resumed sessions)
-		this.changelogMarkdown = this.getChangelogForDisplay();
+		// In connect mode, skip changelog since we don't have a local session
+		if (this.runtimeHost) {
+			this.changelogMarkdown = this.getChangelogForDisplay();
+		}
 
 		// Ensure fd and rg are available (downloads if missing, adds to PATH via getBinDir)
 		// Both are needed: fd for autocomplete, rg for grep tool and bash commands
 		const [fdPath] = await Promise.all([ensureTool("fd"), ensureTool("rg")]);
 		this.fdPath = fdPath;
 
-		if (this.session.scopedModels.length > 0 && (this.options.verbose || !this.settingsManager.getQuietStartup())) {
+		if (
+			this.runtimeHost &&
+			this.session.scopedModels.length > 0 &&
+			(this.options.verbose || !this.settingsManager.getQuietStartup())
+		) {
 			const modelList = this.session.scopedModels
 				.map((sm) => {
 					const thinkingStr = sm.thinkingLevel ? `:${sm.thinkingLevel}` : "";
@@ -619,7 +644,9 @@ export class InteractiveMode {
 		this.ui.addChild(this.headerContainer);
 
 		// Add header with keybindings from config (unless silenced)
-		if (this.options.verbose || !this.settingsManager.getQuietStartup()) {
+		// In connect mode, always show header since we don't have settingsManager
+		const showHeader = this.runtimeHost ? this.options.verbose || !this.settingsManager.getQuietStartup() : true;
+		if (showHeader) {
 			const logo = theme.bold(theme.fg("accent", APP_NAME)) + theme.fg("dim", ` v${this.version}`);
 
 			// Build startup instructions using keybinding hint helpers
@@ -697,10 +724,18 @@ export class InteractiveMode {
 		this.isInitialized = true;
 
 		// Initialize extensions first so resources are shown before messages
-		await this.rebindCurrentSession();
+		// In connect mode, skip extension binding and just subscribe to proxy events
+		if (this.runtimeHost) {
+			await this.rebindCurrentSession();
+		} else if (this.proxy) {
+			this.subscribeToAgent();
+		}
 
 		// Render initial messages AFTER showing loaded resources
-		this.renderInitialMessages();
+		// In connect mode, skip since messages come from proxy events
+		if (this.runtimeHost) {
+			this.renderInitialMessages();
+		}
 
 		// Set up theme file watcher
 		onThemeChange(() => {
@@ -715,19 +750,26 @@ export class InteractiveMode {
 		});
 
 		// Initialize available provider count for footer display
-		await this.updateAvailableProviderCount();
+		// In connect mode, skip since we don't have a model registry
+		if (this.runtimeHost) {
+			await this.updateAvailableProviderCount();
+		}
 	}
 
 	/**
 	 * Update terminal title with session name and cwd.
 	 */
 	private updateTerminalTitle(): void {
-		const cwdBasename = path.basename(this.sessionManager.getCwd());
-		const sessionName = this.sessionManager.getSessionName();
-		if (sessionName) {
-			this.ui.terminal.setTitle(`${APP_TITLE} - ${sessionName} - ${cwdBasename}`);
+		const cwdBasename = path.basename(this.currentCwd);
+		if (this.runtimeHost) {
+			const sessionName = this.sessionManager.getSessionName();
+			if (sessionName) {
+				this.ui.terminal.setTitle(`${APP_TITLE} - ${sessionName} - ${cwdBasename}`);
+			} else {
+				this.ui.terminal.setTitle(`${APP_TITLE} - ${cwdBasename}`);
+			}
 		} else {
-			this.ui.terminal.setTitle(`${APP_TITLE} - ${cwdBasename}`);
+			this.ui.terminal.setTitle(`${APP_TITLE} (connect) - ${cwdBasename}`);
 		}
 	}
 
@@ -738,26 +780,28 @@ export class InteractiveMode {
 	async run(): Promise<void> {
 		await this.init();
 
-		// Start version check asynchronously
-		checkForNewPiVersion(this.version).then((newRelease) => {
-			if (newRelease) {
-				this.showNewVersionNotification(newRelease);
-			}
-		});
+		// Start version check asynchronously (skip in connect mode)
+		if (this.runtimeHost) {
+			checkForNewPiVersion(this.version).then((newRelease) => {
+				if (newRelease) {
+					this.showNewVersionNotification(newRelease);
+				}
+			});
 
-		// Start package update check asynchronously
-		this.checkForPackageUpdates().then((updates) => {
-			if (updates.length > 0) {
-				this.showPackageUpdateNotification(updates);
-			}
-		});
+			// Start package update check asynchronously
+			this.checkForPackageUpdates().then((updates) => {
+				if (updates.length > 0) {
+					this.showPackageUpdateNotification(updates);
+				}
+			});
 
-		// Check tmux keyboard setup asynchronously
-		this.checkTmuxKeyboardSetup().then((warning) => {
-			if (warning) {
-				this.showWarning(warning);
-			}
-		});
+			// Check tmux keyboard setup asynchronously
+			this.checkTmuxKeyboardSetup().then((warning) => {
+				if (warning) {
+					this.showWarning(warning);
+				}
+			});
+		}
 
 		// Show startup warnings
 		const { migratedProviders, modelFallbackMessage, initialMessage, initialImages, initialMessages } = this.options;
@@ -766,16 +810,20 @@ export class InteractiveMode {
 			this.showWarning(`Migrated credentials to auth.json: ${migratedProviders.join(", ")}`);
 		}
 
-		const modelsJsonError = this.session.modelRegistry.getError();
-		if (modelsJsonError) {
-			this.showError(`models.json error: ${modelsJsonError}`);
+		if (this.runtimeHost) {
+			const modelsJsonError = this.session.modelRegistry.getError();
+			if (modelsJsonError) {
+				this.showError(`models.json error: ${modelsJsonError}`);
+			}
 		}
 
 		if (modelFallbackMessage) {
 			this.showWarning(modelFallbackMessage);
 		}
 
-		void this.maybeWarnAboutAnthropicSubscriptionAuth();
+		if (this.runtimeHost) {
+			void this.maybeWarnAboutAnthropicSubscriptionAuth();
+		}
 
 		// Process initial messages
 		if (initialMessage) {
@@ -934,7 +982,7 @@ export class InteractiveMode {
 	private getMarkdownThemeWithSettings(): MarkdownTheme {
 		return {
 			...getMarkdownTheme(),
-			codeBlockIndent: this.settingsManager.getCodeBlockIndent(),
+			codeBlockIndent: this.runtimeHost ? this.settingsManager.getCodeBlockIndent() : "  ",
 		};
 	}
 
@@ -1524,7 +1572,7 @@ export class InteractiveMode {
 					}
 					this.statusContainer.clear();
 					try {
-						const result = await this.runtimeHost.newSession(options);
+						const result = await this.runtimeHost!.newSession(options);
 						if (!result.cancelled) {
 							this.renderCurrentSessionState();
 							this.ui.requestRender();
@@ -1536,7 +1584,7 @@ export class InteractiveMode {
 				},
 				fork: async (entryId, options) => {
 					try {
-						const result = await this.runtimeHost.fork(entryId, options);
+						const result = await this.runtimeHost!.fork(entryId, options);
 						if (!result.cancelled) {
 							this.renderCurrentSessionState();
 							this.editor.setText(result.selectedText ?? "");
@@ -2729,7 +2777,7 @@ export class InteractiveMode {
 		switch (event.type) {
 			case "agent_start":
 				this.pendingTools.clear();
-				if (this.settingsManager.getShowTerminalProgress()) {
+				if (this.showTerminalProgress) {
 					this.ui.terminal.setProgress(true);
 				}
 				// Restore main escape handler if retry handler is still active
@@ -2805,12 +2853,12 @@ export class InteractiveMode {
 									content.id,
 									content.arguments,
 									{
-										showImages: this.settingsManager.getShowImages(),
-										imageWidthCells: this.settingsManager.getImageWidthCells(),
+										showImages: this.showImages,
+										imageWidthCells: this.imageWidthCells,
 									},
 									this.getRegisteredToolDefinition(content.name),
 									this.ui,
-									this.sessionManager.getCwd(),
+									this.currentCwd,
 								);
 								component.setExpanded(this.toolOutputExpanded);
 								this.chatContainer.addChild(component);
@@ -2833,7 +2881,7 @@ export class InteractiveMode {
 					this.streamingMessage = event.message;
 					let errorMessage: string | undefined;
 					if (this.streamingMessage.stopReason === "aborted") {
-						const retryAttempt = this.session.retryAttempt;
+						const retryAttempt = this.runtimeHost ? this.session.retryAttempt : 0;
 						errorMessage =
 							retryAttempt > 0
 								? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
@@ -2874,12 +2922,12 @@ export class InteractiveMode {
 						event.toolCallId,
 						event.args,
 						{
-							showImages: this.settingsManager.getShowImages(),
-							imageWidthCells: this.settingsManager.getImageWidthCells(),
+							showImages: this.showImages,
+							imageWidthCells: this.imageWidthCells,
 						},
 						this.getRegisteredToolDefinition(event.toolName),
 						this.ui,
-						this.sessionManager.getCwd(),
+						this.currentCwd,
 					);
 					component.setExpanded(this.toolOutputExpanded);
 					this.chatContainer.addChild(component);
@@ -2910,7 +2958,7 @@ export class InteractiveMode {
 			}
 
 			case "agent_end":
-				if (this.settingsManager.getShowTerminalProgress()) {
+				if (this.showTerminalProgress) {
 					this.ui.terminal.setProgress(false);
 				}
 				if (this.loadingAnimation) {
@@ -2931,13 +2979,17 @@ export class InteractiveMode {
 				break;
 
 			case "compaction_start": {
-				if (this.settingsManager.getShowTerminalProgress()) {
+				if (this.showTerminalProgress) {
 					this.ui.terminal.setProgress(true);
 				}
 				// Keep editor active; submissions are queued during compaction.
 				this.autoCompactionEscapeHandler = this.defaultEditor.onEscape;
 				this.defaultEditor.onEscape = () => {
-					this.session.abortCompaction();
+					if (this.proxy) {
+						this.proxy.abort();
+					} else {
+						this.session.abortCompaction();
+					}
 				};
 				this.statusContainer.clear();
 				const cancelHint = `(${keyText("app.interrupt")} to cancel)`;
@@ -2957,7 +3009,7 @@ export class InteractiveMode {
 			}
 
 			case "compaction_end": {
-				if (this.settingsManager.getShowTerminalProgress()) {
+				if (this.showTerminalProgress) {
 					this.ui.terminal.setProgress(false);
 				}
 				if (this.autoCompactionEscapeHandler) {
@@ -3003,7 +3055,11 @@ export class InteractiveMode {
 				// Set up escape to abort retry
 				this.retryEscapeHandler = this.defaultEditor.onEscape;
 				this.defaultEditor.onEscape = () => {
-					this.session.abortRetry();
+					if (this.proxy) {
+						this.proxy.abort();
+					} else {
+						this.session.abortRetry();
+					}
 				};
 				// Show retry indicator
 				this.statusContainer.clear();
@@ -3329,7 +3385,11 @@ export class InteractiveMode {
 		await this.ui.terminal.drainInput(1000);
 
 		this.stop();
-		await this.runtimeHost.dispose();
+		if (this.runtimeHost) {
+			await this.runtimeHost.dispose();
+		} else if (this.proxy && "dispose" in this.proxy) {
+			(this.proxy as { dispose(): void }).dispose();
+		}
 		process.exit(0);
 	}
 
@@ -4276,7 +4336,7 @@ export class InteractiveMode {
 				userMessages.map((m) => ({ id: m.entryId, text: m.text })),
 				async (entryId) => {
 					try {
-						const result = await this.runtimeHost.fork(entryId);
+						const result = await this.runtimeHost!.fork(entryId);
 						if (result.cancelled) {
 							done();
 							this.ui.requestRender();
@@ -4310,7 +4370,7 @@ export class InteractiveMode {
 		}
 
 		try {
-			const result = await this.runtimeHost.fork(leafId, { position: "at" });
+			const result = await this.runtimeHost!.fork(leafId, { position: "at" });
 			if (result.cancelled) {
 				this.ui.requestRender();
 				return;
@@ -4498,7 +4558,7 @@ export class InteractiveMode {
 		}
 		this.statusContainer.clear();
 		try {
-			const result = await this.runtimeHost.switchSession(sessionPath, {
+			const result = await this.runtimeHost!.switchSession(sessionPath, {
 				withSession: options?.withSession,
 			});
 			if (result.cancelled) {
@@ -4514,7 +4574,7 @@ export class InteractiveMode {
 					this.showStatus("Resume cancelled");
 					return { cancelled: true };
 				}
-				const result = await this.runtimeHost.switchSession(sessionPath, {
+				const result = await this.runtimeHost!.switchSession(sessionPath, {
 					cwdOverride: selectedCwd,
 					withSession: options?.withSession,
 				});
@@ -5083,7 +5143,7 @@ export class InteractiveMode {
 				this.loadingAnimation = undefined;
 			}
 			this.statusContainer.clear();
-			const result = await this.runtimeHost.importFromJsonl(inputPath);
+			const result = await this.runtimeHost!.importFromJsonl(inputPath);
 			if (result.cancelled) {
 				this.showStatus("Import cancelled");
 				return;
@@ -5097,7 +5157,7 @@ export class InteractiveMode {
 					this.showStatus("Import cancelled");
 					return;
 				}
-				const result = await this.runtimeHost.importFromJsonl(inputPath, selectedCwd);
+				const result = await this.runtimeHost!.importFromJsonl(inputPath, selectedCwd);
 				if (result.cancelled) {
 					this.showStatus("Import cancelled");
 					return;
@@ -5437,7 +5497,7 @@ export class InteractiveMode {
 		}
 		this.statusContainer.clear();
 		try {
-			const result = await this.runtimeHost.newSession();
+			const result = await this.runtimeHost!.newSession();
 			if (result.cancelled) {
 				return;
 			}
