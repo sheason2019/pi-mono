@@ -23,6 +23,8 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 	private readonly _sseClient: SseClient;
 	private readonly _baseUrl: string;
 	private readonly _onDisconnect: DisconnectCallback | undefined;
+	/** Hub URL for d-pi agent switching (set by d-pi connect mode) */
+	hubUrl: string | undefined;
 
 	constructor(baseUrl: string, initialState: SessionStateSnapshot, onDisconnect?: DisconnectCallback) {
 		this._baseUrl = baseUrl;

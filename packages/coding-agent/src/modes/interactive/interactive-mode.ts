@@ -608,6 +608,10 @@ export class InteractiveMode {
 			description: cmd.description,
 			...(cmd.argumentHint && { argumentHint: cmd.argumentHint }),
 		}));
+		// Add /agents command if connected to a d-pi hub
+		if (this.proxy && (this.proxy as any).hubUrl) {
+			slashCommands.push({ name: "agents", description: "Switch to a different agent (d-pi)" });
+		}
 		const provider = new CombinedAutocompleteProvider(slashCommands, this.currentCwd);
 		this.autocompleteProvider = provider;
 		this.defaultEditor.setAutocompleteProvider(provider);
@@ -880,6 +884,12 @@ export class InteractiveMode {
 			this.footer.setSnapshot(snapshot);
 			this.footerDataProvider.setCwd(snapshot.cwd);
 			this.footerDataProvider.setAvailableProviderCount(snapshot.availableProviderCount);
+			// If agent is already streaming, create the working loader
+			// (agent_start event fired before we subscribed)
+			if (snapshot.isStreaming) {
+				this.loadingAnimation = this.createWorkingLoader();
+				this.statusContainer.addChild(this.loadingAnimation);
+			}
 			// Apply remote settings to editor
 			if (snapshot.remoteSettings) {
 				const paddingX = snapshot.remoteSettings.editorPaddingX;
@@ -3154,6 +3164,9 @@ export class InteractiveMode {
 			case "/session":
 				this.showConnectModeSessionInfo();
 				break;
+			case "/agents":
+				await this.showConnectModeAgentSelector();
+				break;
 			default:
 				// Non-builtin commands (skill, prompt template, extension) are sent as prompts.
 				// The server's agent-session handles skill expansion and prompt template resolution.
@@ -5181,6 +5194,109 @@ export class InteractiveMode {
 			);
 			return { component: selector, focus: selector };
 		});
+	}
+
+	/** Show agent selector in connect mode (d-pi) */
+	private async showConnectModeAgentSelector(): Promise<void> {
+		if (!this.proxy) {
+			this.showStatus("Not available in local mode");
+			return;
+		}
+		const hubUrl = (this.proxy as any).hubUrl as string | undefined;
+		if (!hubUrl) {
+			this.showStatus("Not connected to a d-pi hub");
+			return;
+		}
+
+		try {
+			const response = await fetch(`${hubUrl}/_hub/network`);
+			if (!response.ok) {
+				this.showStatus(`Failed to fetch agent network: ${response.status}`);
+				return;
+			}
+			const network = (await response.json()) as {
+				agents: Array<{ id: string; name: string; parentId?: string; status: string; children: string[] }>;
+				rootId: string;
+			};
+
+			if (network.agents.length === 0) {
+				this.showStatus("No agents in network");
+				return;
+			}
+
+			// Build depth map for indentation
+			const agentMap = new Map(network.agents.map((a) => [a.id, a]));
+			const getDepth = (id: string): number => {
+				let depth = 0;
+				let current = agentMap.get(id);
+				while (current?.parentId) {
+					depth++;
+					current = agentMap.get(current.parentId);
+				}
+				return depth;
+			};
+
+			const items: SelectItem[] = network.agents.map((a) => ({
+				value: a.id,
+				label: `${"  ".repeat(getDepth(a.id))}${a.name}`,
+				description: `${a.status}${a.children.length > 0 ? ` (${a.children.length} child${a.children.length > 1 ? "ren" : ""})` : ""}`,
+			}));
+
+			this.showSelector((done) => {
+				const selectList = new SelectList(
+					items,
+					Math.min(items.length, Math.floor(this.ui.terminal.rows / 2)),
+					getSelectListTheme(),
+					{ minPrimaryColumnWidth: 24 },
+				);
+				selectList.onSelect = async (item) => {
+					const agentId = item.value;
+					const agentUrl = `${hubUrl}/agents/${agentId}`;
+
+					// Disconnect current proxy
+					this.proxy!.dispose();
+
+					// Connect to new agent
+					try {
+						const stateResponse = await fetch(`${agentUrl}/state`);
+						if (!stateResponse.ok) {
+							this.showStatus(`Failed to connect to agent: ${stateResponse.status}`);
+							return;
+						}
+						const snapshot = (await stateResponse.json()) as any;
+						const { RemoteAgentSessionProxy } = await import("../connect/remote-agent-session-proxy.ts");
+						const newProxy = new RemoteAgentSessionProxy(agentUrl, snapshot, (reason: string) => {
+							this.showStatus(`Disconnected: ${reason}`);
+							setTimeout(() => void this.shutdown(), 1500);
+						});
+						newProxy.hubUrl = hubUrl;
+						this.proxy = newProxy as any;
+						await newProxy.connect();
+
+						// Clear chat and re-render
+						this.chatContainer.clear();
+						this.chatContainer.addChild(new Spacer(1));
+						this.showStatus(`Switched to agent: ${item.label}`);
+						this.renderInitialMessages();
+						this.setupConnectModeAutocomplete();
+					} catch (err) {
+						this.showStatus(`Failed to switch agent: ${err instanceof Error ? err.message : String(err)}`);
+					}
+					done();
+				};
+				selectList.onCancel = () => done();
+				const container = new Container();
+				container.addChild(new DynamicBorder());
+				container.addChild(new Spacer(1));
+				container.addChild(new Text(theme.fg("muted", "Select an agent"), 0, 0));
+				container.addChild(new Spacer(1));
+				container.addChild(selectList);
+				container.addChild(new DynamicBorder());
+				return { component: container, focus: selectList };
+			});
+		} catch (err) {
+			this.showStatus(`Failed to fetch agent network: ${err instanceof Error ? err.message : String(err)}`);
+		}
 	}
 
 	/** Show model selector in connect mode */

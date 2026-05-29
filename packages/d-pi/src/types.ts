@@ -1,0 +1,76 @@
+// === Agent Status ===
+export type AgentStatus = "starting" | "ready" | "busy" | "error" | "destroyed";
+
+// === Worker Configuration (passed via workerData) ===
+export interface AgentWorkerConfig {
+	agentId: string;
+	port: number;
+	cwd: string;
+	model?: string;
+	parentAgentId?: string;
+	agentName: string;
+}
+
+// === Worker → Hub IPC Messages ===
+export type WorkerToHubMessage =
+	| { type: "ready"; agentId: string; port: number }
+	| { type: "error"; agentId: string; error: string }
+	| { type: "tool_call"; agentId: string; tool: string; params: unknown; callId: string }
+	| { type: "tool_call_timeout"; agentId: string; callId: string }
+	| { type: "status_update"; agentId: string; status: AgentStatus };
+
+// === Hub → Worker IPC Messages ===
+export type HubToWorkerMessage =
+	| { type: "tool_result"; callId: string; result: unknown }
+	| { type: "message"; fromAgentId: string; content: string }
+	| { type: "destroy" };
+
+// === Agent Network Snapshot ===
+export interface AgentNetworkEntry {
+	id: string;
+	name: string;
+	parentId: string | undefined;
+	status: AgentStatus;
+	children: string[];
+}
+
+export interface AgentNetworkSnapshot {
+	agents: AgentNetworkEntry[];
+	rootId: string;
+}
+
+// === Agent Record (Hub-internal) ===
+export interface AgentRecord {
+	id: string;
+	name: string;
+	parentId: string | undefined;
+	children: string[];
+	port: number;
+	status: AgentStatus;
+	worker: import("node:worker_threads").Worker;
+	cwd: string;
+	model: string | undefined;
+}
+
+// === Hub Configuration ===
+export interface HubConfig {
+	port?: number;
+	cwd: string;
+	model?: string;
+	agentPortStart?: number;
+}
+
+// === Tool Call Results ===
+export interface SendMessageResult {
+	ok: boolean;
+	error?: string;
+}
+
+export interface CreateAgentResult {
+	agentId: string;
+	name: string;
+}
+
+export interface DestroyAgentResult {
+	ok: boolean;
+}

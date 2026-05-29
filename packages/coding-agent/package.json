@@ -19,6 +19,10 @@
 		"./hooks": {
 			"types": "./dist/core/hooks/index.d.ts",
 			"import": "./dist/core/hooks/index.js"
+		},
+		"./d-pi-worker": {
+			"types": "./dist/d-pi-worker.d.ts",
+			"import": "./dist/d-pi-worker.js"
 		}
 	},
 	"files": [

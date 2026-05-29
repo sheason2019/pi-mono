@@ -27,7 +27,7 @@ function keyText(kb: KeybindingsManager, keybinding: string): string {
 }
 
 /** Generate structured banner data for serve/connect. */
-function generateBanner(session: AgentSession): BannerData {
+export function generateBanner(session: AgentSession): BannerData {
 	// Use the app's KeybindingsManager which includes app-specific bindings
 	const kb = KeybindingsManager.create();
 
