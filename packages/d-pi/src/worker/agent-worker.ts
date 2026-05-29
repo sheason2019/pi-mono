@@ -89,7 +89,7 @@ async function runAgentWorker(): Promise<void> {
 			settingsManager,
 			modelRegistry,
 			resourceLoaderOptions: {
-				extensionFactories: [extensionFactory],
+				extensionFactories: [{ factory: extensionFactory, name: "<d-pi-built-in-std-extension>" }],
 				appendSystemPrompt,
 				additionalSkillPaths,
 				additionalExtensionPaths,
@@ -129,8 +129,8 @@ async function runAgentWorker(): Promise<void> {
 		return { ...created, services, diagnostics: services.diagnostics };
 	};
 
-	// 4. Create session manager
-	const sessionManager = SessionManager.create(cwd);
+	// 4. Create session manager — continue recent session if available
+	const sessionManager = SessionManager.continueRecent(cwd);
 
 	// 5. Create runtime
 	runtime = await createAgentSessionRuntime(createRuntime, {

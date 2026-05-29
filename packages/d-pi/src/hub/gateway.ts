@@ -163,6 +163,18 @@ export class HubGateway {
 		const targetUrl = `http://localhost:${agent.port}${path}`;
 		const url = new URL(req.url ?? "/", "http://localhost");
 
+		// Block session management POST endpoints in d-pi connect mode
+		const blockedSessionEndpoints = new Set(["new-session", "switch-session", "fork"]);
+		if (req.method === "POST" && blockedSessionEndpoints.has(path)) {
+			res.writeHead(403, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ error: "Session operations are managed by the d-pi hub" }));
+			return;
+		}
+
+		// Intercept GET /commands to filter out session management commands
+		// and inject the /agents command for d-pi connect mode
+		const isCommandsRequest = req.method === "GET" && path === "/commands";
+
 		const proxyReq = request(
 			targetUrl,
 			{
@@ -174,8 +186,40 @@ export class HubGateway {
 				path: path + url.search,
 			},
 			(proxyRes) => {
-				res.writeHead(proxyRes.statusCode ?? 500, proxyRes.headers);
-				proxyRes.pipe(res, { end: true });
+				if (isCommandsRequest && proxyRes.statusCode === 200) {
+					// Collect response body, filter commands, then forward
+					const chunks: Buffer[] = [];
+					proxyRes.on("data", (chunk: Buffer) => chunks.push(chunk));
+					proxyRes.on("end", () => {
+						try {
+							const commands = JSON.parse(Buffer.concat(chunks).toString()) as Array<{
+								name: string;
+								description: string;
+								argumentHint?: string;
+								source?: string;
+								[key: string]: unknown;
+							}>;
+							const blocked = new Set(["resume", "fork", "clone", "new", "tree"]);
+							const filtered = commands.filter((cmd) => !blocked.has(cmd.name));
+							filtered.push({
+								name: "agents",
+								description: "Switch to a different agent (d-pi)",
+								source: "dpi-hub",
+							});
+							const body = JSON.stringify(filtered);
+							res.writeHead(200, { "Content-Type": "application/json" });
+							res.end(body);
+						} catch {
+							// If parsing fails, forward original response
+							const raw = Buffer.concat(chunks).toString();
+							res.writeHead(proxyRes.statusCode ?? 500, proxyRes.headers);
+							res.end(raw);
+						}
+					});
+				} else {
+					res.writeHead(proxyRes.statusCode ?? 500, proxyRes.headers);
+					proxyRes.pipe(res, { end: true });
+				}
 			},
 		);
 

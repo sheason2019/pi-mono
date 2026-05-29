@@ -608,10 +608,6 @@ export class InteractiveMode {
 			description: cmd.description,
 			...(cmd.argumentHint && { argumentHint: cmd.argumentHint }),
 		}));
-		// Add /agents command if connected to a d-pi hub
-		if (this.proxy && (this.proxy as any).hubUrl) {
-			slashCommands.push({ name: "agents", description: "Switch to a different agent (d-pi)" });
-		}
 		const provider = new CombinedAutocompleteProvider(slashCommands, this.currentCwd);
 		this.autocompleteProvider = provider;
 		this.defaultEditor.setAutocompleteProvider(provider);
