@@ -1,6 +1,7 @@
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 import type { SessionStateSnapshot } from "@earendil-works/pi-coding-agent/d-pi-worker";
 import { RemoteAgentSessionProxy } from "@earendil-works/pi-coding-agent/d-pi-worker";
+import { createDPiClientExtensionFactory } from "../extension/client-extension.ts";
 import type { AgentNetworkSnapshot } from "../types.ts";
 
 export interface DPiConnectOptions {
@@ -47,8 +48,12 @@ export async function runDPiConnectMode(options: DPiConnectOptions): Promise<voi
 	}
 	const snapshot = (await stateResponse.json()) as SessionStateSnapshot;
 
-	// 4. Create InteractiveMode with proxy (same as pi's runConnectMode)
-	const mode = new InteractiveMode(undefined, { banner: snapshot.banner });
+	// 4. Create InteractiveMode with proxy and client-side extension for /agents
+	const clientExtensionFactory = createDPiClientExtensionFactory(url);
+	const mode = new InteractiveMode(undefined, {
+		banner: snapshot.banner,
+		clientExtensionFactories: [clientExtensionFactory],
+	});
 	const proxy = new RemoteAgentSessionProxy(agentUrl, snapshot, (reason: string) => {
 		mode.showStatus(`Disconnected: ${reason}`);
 		setTimeout(() => void mode.shutdown(), 1500);
@@ -56,8 +61,6 @@ export async function runDPiConnectMode(options: DPiConnectOptions): Promise<voi
 	proxy.hubUrl = url;
 	mode.setProxy(proxy);
 	await proxy.connect();
-
-	// 5. hubUrl is set on proxy so /agents command can switch agents
 
 	process.stderr.write(`[d-pi connect] Connected to agent ${targetAgentId.slice(0, 8)}...\n`);
 	process.stderr.write(`[d-pi connect] ${network.agents.length} agent(s) in network\n`);

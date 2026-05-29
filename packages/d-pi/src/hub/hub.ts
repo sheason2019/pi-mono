@@ -1,7 +1,8 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import type {
+	AgentConfig,
 	AgentNetworkSnapshot,
 	CreateAgentResult,
 	DestroyAgentResult,
@@ -12,6 +13,8 @@ import type {
 } from "../types.ts";
 import { AgentRegistry } from "./agent-registry.ts";
 import { HubGateway } from "./gateway.ts";
+
+const AGENT_CONFIG_FILE = "agent.json";
 
 export class Hub {
 	private readonly _registry: AgentRegistry;
@@ -35,11 +38,41 @@ export class Hub {
 		// 1. Start gateway
 		await this._gateway.start(hubPort);
 
-		// 2. Create root agent
-		await this.createAgent(undefined, {
-			name: "root",
-			model: this._config.model,
-		});
+		// 2. Discover and start persisted agents from agents/ directory
+		const agentsDir = join(this._config.workspaceRoot, "agents");
+		if (existsSync(agentsDir)) {
+			const entries = readdirSync(agentsDir, { withFileTypes: true });
+			for (const entry of entries) {
+				if (!entry.isDirectory()) continue;
+				const configPath = join(agentsDir, entry.name, AGENT_CONFIG_FILE);
+				if (!existsSync(configPath)) continue;
+
+				try {
+					const agentConfig: AgentConfig = JSON.parse(readFileSync(configPath, "utf-8"));
+					process.stderr.write(`[d-pi hub] Restoring agent "${agentConfig.name}" from ${entry.name}/\n`);
+					// Resolve parentId from parentName in persisted config
+					const parentAgentId = agentConfig.parentName
+						? this._registry.getByName(agentConfig.parentName)?.id
+						: undefined;
+					await this.createAgent(parentAgentId, {
+						name: agentConfig.name,
+						model: agentConfig.model,
+					});
+				} catch (err) {
+					process.stderr.write(
+						`[d-pi hub] Failed to restore agent from ${entry.name}/: ${err instanceof Error ? err.message : String(err)}\n`,
+					);
+				}
+			}
+		}
+
+		// 3. Ensure root agent exists
+		if (!this._registry.getByName("root")) {
+			await this.createAgent(undefined, {
+				name: "root",
+				model: this._config.model,
+			});
+		}
 
 		process.stderr.write(`[d-pi hub] Workspace: ${this._config.workspaceRoot}\n`);
 		process.stderr.write(`[d-pi hub] Listening on port ${hubPort}\n`);
@@ -50,12 +83,32 @@ export class Hub {
 		parentAgentId: string | undefined,
 		options: { name: string; cwd?: string; model?: string },
 	): Promise<CreateAgentResult> {
+		// Check name uniqueness
+		if (this._registry.getByName(options.name)) {
+			throw new Error(`Agent with name "${options.name}" already exists`);
+		}
+
 		const agentId = crypto.randomUUID();
 		const port = await this._registry.allocatePort();
 
 		// Agent cwd: workspaceRoot/agents/<name>/ (create if needed)
 		const agentDir = options.cwd ?? join(this._config.workspaceRoot, "agents", options.name);
 		mkdirSync(agentDir, { recursive: true });
+
+		// Resolve parent name for persistence
+		const parentName = parentAgentId ? this._registry.get(parentAgentId)?.name : undefined;
+
+		// Write agent.json
+		const agentConfig: AgentConfig = {
+			name: options.name,
+			parentName,
+			model: options.model,
+		};
+		writeFileSync(join(agentDir, AGENT_CONFIG_FILE), `${JSON.stringify(agentConfig, null, "\t")}\n`);
+
+		process.stderr.write(
+			`[d-pi hub] Creating agent "${options.name}" (${agentId}) on port ${port}, cwd=${agentDir}\n`,
+		);
 
 		// Create worker
 		const worker = new Worker(new URL("../worker/agent-worker.js", import.meta.url), {
@@ -104,6 +157,7 @@ export class Hub {
 		return new Promise((resolve, reject) => {
 			const timeout = setTimeout(() => {
 				worker.off("message", readyHandler);
+				process.stderr.write(`[d-pi hub] Worker ${agentId} startup timeout after 120s\n`);
 				reject(new Error(`Worker ${agentId} startup timeout`));
 			}, 120_000);
 
@@ -112,11 +166,13 @@ export class Hub {
 					clearTimeout(timeout);
 					this._registry.updateStatus(agentId, "ready");
 					worker.off("message", readyHandler);
+					process.stderr.write(`[d-pi hub] Agent "${options.name}" (${agentId}) is ready\n`);
 					resolve({ agentId, name: options.name });
 				}
 				if (message.type === "error" && message.agentId === agentId) {
 					clearTimeout(timeout);
 					worker.off("message", readyHandler);
+					process.stderr.write(`[d-pi hub] Agent "${options.name}" (${agentId}) error: ${message.error}\n`);
 					reject(new Error(message.error));
 				}
 			};
@@ -124,26 +180,41 @@ export class Hub {
 		});
 	}
 
-	async destroyAgent(agentId: string): Promise<void> {
-		const record = this._registry.get(agentId);
+	async destroyAgent(agentIdOrName: string): Promise<void> {
+		// Resolve by name if not a UUID
+		const record = this._registry.get(agentIdOrName) ?? this._registry.getByName(agentIdOrName);
 		if (!record) {
-			throw new Error(`Agent not found: ${agentId}`);
+			throw new Error(`Agent not found: ${agentIdOrName}`);
 		}
+		const agentId = record.id;
 
 		// Collect all workers to terminate before unregister removes them from registry
 		const destroyedIds = this._registry.getDescendants(agentId);
 		destroyedIds.push(agentId);
 
-		const workersToTerminate: Array<{ id: string; worker: Worker }> = [];
+		const workersToTerminate: Array<{ id: string; worker: Worker; cwd: string }> = [];
 		for (const id of destroyedIds) {
 			const r = this._registry.get(id);
 			if (r) {
-				workersToTerminate.push({ id, worker: r.worker });
+				workersToTerminate.push({ id, worker: r.worker, cwd: r.cwd });
 			}
 		}
 
 		// Unregister cascades to descendants
 		this._registry.unregister(agentId);
+
+		// Remove agent.json and directory for all destroyed agents
+		for (const { cwd } of workersToTerminate) {
+			const configPath = join(cwd, AGENT_CONFIG_FILE);
+			if (existsSync(configPath)) {
+				rmSync(configPath);
+			}
+			// Remove the agent directory if it's under the workspace agents/ dir
+			const agentsDir = join(this._config.workspaceRoot, "agents");
+			if (cwd.startsWith(agentsDir)) {
+				rmSync(cwd, { recursive: true, force: true });
+			}
+		}
 
 		// Send destroy to all workers and wait for confirmation (or timeout)
 		const destroyPromises = workersToTerminate.map(async ({ id, worker }) => {
@@ -198,7 +269,10 @@ export class Hub {
 
 	private async _handleToolCall(callId: string, tool: string, params: unknown, fromAgentId: string): Promise<void> {
 		const agent = this._registry.get(fromAgentId);
-		if (!agent) return;
+		if (!agent) {
+			process.stderr.write(`[d-pi hub] _handleToolCall: agent not found for ${fromAgentId}\n`);
+			return;
+		}
 
 		try {
 			let result: unknown;
@@ -206,7 +280,7 @@ export class Hub {
 			switch (tool) {
 				case "send_message": {
 					const p = params as { agent_id: string; message: string };
-					const targetAgent = this._registry.get(p.agent_id);
+					const targetAgent = this._registry.get(p.agent_id) ?? this._registry.getByName(p.agent_id);
 					if (!targetAgent) {
 						result = { ok: false, error: `Agent not found: ${p.agent_id}` } satisfies SendMessageResult;
 					} else {

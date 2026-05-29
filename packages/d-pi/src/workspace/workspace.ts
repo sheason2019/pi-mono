@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { WorkspaceConfig, WorkspaceContext } from "../types.ts";
+import type { AgentConfig, WorkspaceConfig, WorkspaceContext } from "../types.ts";
 
 const DPI_DIR = ".dpi";
 const CONFIG_FILE = "config.json";
@@ -92,12 +92,16 @@ export function initWorkspace(dir: string): void {
 
 	// Write .dpi/config.json
 	const config: WorkspaceConfig = { version: 1 };
-	writeFileSync(join(dpiDir, CONFIG_FILE), JSON.stringify(config, null, "\t") + "\n");
+	writeFileSync(join(dpiDir, CONFIG_FILE), `${JSON.stringify(config, null, "\t")}\n`);
 
 	// Create agents/ and agents/root/
 	const agentsDir = join(resolved, AGENTS_DIR);
 	const rootAgentDir = join(agentsDir, "root");
 	mkdirSync(rootAgentDir, { recursive: true });
+
+	// Write agents/root/agent.json
+	const rootAgentConfig: AgentConfig = { name: "root", parentName: undefined };
+	writeFileSync(join(rootAgentDir, "agent.json"), `${JSON.stringify(rootAgentConfig, null, "\t")}\n`);
 
 	// --- Workspace-level context files ---
 
