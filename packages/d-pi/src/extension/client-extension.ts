@@ -1,22 +1,20 @@
-import type { ExtensionCommandContext, ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { AgentNetworkSnapshot } from "../types.ts";
 
 /**
  * Create the d-pi client-side extension factory for connect mode.
  *
  * Registers the `/agents` command which shows a tree-structured selector
- * using ctx.ui.select() and switches the connected agent via ctx.switchAgent().
+ * using ctx.ui.select() and requests an agent switch via the callback.
  */
-export function createDPiClientExtensionFactory(hubUrl: string): ExtensionFactory {
+export function createDPiClientExtensionFactory(
+	hubUrl: string,
+	onRequestSwitch: (agentId: string) => void,
+): ExtensionFactory {
 	return (pi) => {
 		pi.registerCommand("agents", {
 			description: "Switch to a different agent in the network",
-			async handler(_args: string, ctx: ExtensionCommandContext): Promise<void> {
-				if (!ctx.switchAgent) {
-					ctx.ui.notify("switchAgent not available in this context", "error");
-					return;
-				}
-
+			async handler(_args: string, ctx): Promise<void> {
 				try {
 					const response = await fetch(`${hubUrl}/_hub/network`);
 					if (!response.ok) {
@@ -70,7 +68,8 @@ export function createDPiClientExtensionFactory(hubUrl: string): ExtensionFactor
 					const agent = network.agents.find((a) => a.name === displayName);
 					if (!agent) return;
 
-					await ctx.switchAgent(`${hubUrl}/agents/${agent.id}`, hubUrl);
+					// Request switch via callback — connect-mode.ts handles the lifecycle
+					onRequestSwitch(agent.id);
 				} catch (err) {
 					ctx.ui.notify(`Failed to switch agent: ${err instanceof Error ? err.message : String(err)}`, "error");
 				}

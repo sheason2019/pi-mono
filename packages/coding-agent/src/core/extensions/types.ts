@@ -361,9 +361,6 @@ export interface ExtensionCommandContext extends ExtensionContext {
 
 	/** Reload extensions, skills, prompts, and themes. */
 	reload(): Promise<void>;
-
-	/** Switch to a different agent in connect mode. No-op in local mode. */
-	switchAgent?(agentUrl: string, hubUrl: string): Promise<void>;
 }
 
 /**
@@ -1529,8 +1526,6 @@ export interface ExtensionCommandContextActions {
 		options?: { withSession?: (ctx: ReplacedSessionContext) => Promise<void> },
 	) => Promise<{ cancelled: boolean }>;
 	reload: () => Promise<void>;
-	/** Switch to a different agent in connect mode. No-op in local mode. */
-	switchAgent?: (agentUrl: string, hubUrl: string) => Promise<void>;
 }
 
 /**

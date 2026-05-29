@@ -62,13 +62,7 @@ import {
 	VERSION,
 } from "../../config.ts";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
-import type {
-	AgentSessionProxy,
-	BannerData,
-	ServeSlashCommand,
-	SessionStateSnapshot,
-	TreeNodeData,
-} from "../../core/agent-session-proxy.ts";
+import type { AgentSessionProxy, BannerData, ServeSlashCommand, TreeNodeData } from "../../core/agent-session-proxy.ts";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.ts";
 import type {
 	AutocompleteProviderFactory,
@@ -250,6 +244,12 @@ export interface InteractiveModeOptions {
 	banner?: BannerData;
 	/** Inline extension factories for client-side commands in connect mode (e.g. d-pi /agents) */
 	clientExtensionFactories?: ExtensionFactory[];
+	/** Whether to call process.exit(0) on shutdown. Default: true.
+	 *  Set to false when the caller manages the process lifecycle (e.g. d-pi agent switching). */
+	exitProcess?: boolean;
+	/** External AbortSignal to abort the run() loop.
+	 *  When aborted, getUserInput() resolves with null and run() returns. */
+	abortSignal?: AbortSignal;
 }
 
 export class InteractiveMode {
@@ -333,6 +333,7 @@ export class InteractiveMode {
 
 	// Shutdown state
 	private shutdownRequested = false;
+	private _abortController = new AbortController();
 
 	// Extension UI state
 	private extensionSelector: ExtensionSelectorComponent | undefined = undefined;
@@ -403,6 +404,15 @@ export class InteractiveMode {
 		this.runtimeHost = runtimeHost;
 		this.options = options;
 		this.proxy = options.proxy;
+
+		// Chain external abort signal to internal controller
+		if (options.abortSignal) {
+			if (options.abortSignal.aborted) {
+				this._abortController.abort();
+			} else {
+				options.abortSignal.addEventListener("abort", () => this._abortController.abort());
+			}
+		}
 
 		// Only register runtime callbacks when NOT using proxy (connect mode)
 		if (this.runtimeHost) {
@@ -1032,8 +1042,9 @@ export class InteractiveMode {
 		}
 
 		// Main interactive loop
-		while (true) {
+		while (!this._abortController.signal.aborted) {
 			const userInput = await this.getUserInput();
+			if (userInput === null || this._abortController.signal.aborted) break;
 			try {
 				await cmdTarget.prompt(userInput);
 			} catch (error: unknown) {
@@ -1921,36 +1932,6 @@ export class InteractiveMode {
 				switchSession: async () => ({ cancelled: false }),
 				reload: async () => {
 					await this.proxy!.reload();
-				},
-				switchAgent: async (agentUrl: string, hubUrl: string) => {
-					// Disconnect current proxy
-					this.proxy!.dispose();
-
-					try {
-						const stateResponse = await fetch(`${agentUrl}/state`);
-						if (!stateResponse.ok) {
-							this.showStatus(`Failed to connect to agent: ${stateResponse.status}`);
-							return;
-						}
-						const newSnapshot = (await stateResponse.json()) as SessionStateSnapshot;
-						const { RemoteAgentSessionProxy } = await import("../connect/remote-agent-session-proxy.ts");
-						const newProxy = new RemoteAgentSessionProxy(agentUrl, newSnapshot, (reason: string) => {
-							this.showStatus(`Disconnected: ${reason}`);
-							setTimeout(() => void this.shutdown(), 1500);
-						});
-						newProxy.hubUrl = hubUrl;
-						this.proxy = newProxy as any;
-						await newProxy.connect();
-
-						// Clear chat and re-render
-						this.chatContainer.clear();
-						this.chatContainer.addChild(new Spacer(1));
-						this.showStatus("Switched agent");
-						this.renderInitialMessages();
-						this.setupConnectModeAutocomplete();
-					} catch (err) {
-						this.showStatus(`Failed to switch agent: ${err instanceof Error ? err.message : String(err)}`);
-					}
 				},
 			});
 
@@ -3891,12 +3872,33 @@ export class InteractiveMode {
 		}
 	}
 
-	async getUserInput(): Promise<string> {
+	async getUserInput(): Promise<string | null> {
 		return new Promise((resolve) => {
-			this.onInputCallback = (text: string) => {
+			const signal = this._abortController.signal;
+			if (signal.aborted) {
+				resolve(null);
+				return;
+			}
+
+			let settled = false;
+
+			const onAbort = () => {
+				if (settled) return;
+				settled = true;
 				this.onInputCallback = undefined;
+				signal.removeEventListener("abort", onAbort);
+				resolve(null);
+			};
+
+			const onInput = (text: string) => {
+				if (settled) return;
+				settled = true;
+				signal.removeEventListener("abort", onAbort);
 				resolve(text);
 			};
+
+			this.onInputCallback = onInput;
+			signal.addEventListener("abort", onAbort);
 		});
 	}
 
@@ -3939,6 +3941,10 @@ export class InteractiveMode {
 	async shutdown(): Promise<void> {
 		if (this.isShuttingDown) return;
 		this.isShuttingDown = true;
+
+		// Abort the controller to break out of getUserInput()
+		this._abortController.abort();
+
 		this.unregisterSignalHandlers();
 
 		// Drain any in-flight Kitty key release events before stopping.
@@ -3951,7 +3957,10 @@ export class InteractiveMode {
 		} else if (this.proxy && "dispose" in this.proxy) {
 			(this.proxy as { dispose(): void }).dispose();
 		}
-		process.exit(0);
+
+		if (this.options.exitProcess !== false) {
+			process.exit(0);
+		}
 	}
 
 	private emergencyTerminalExit(): never {

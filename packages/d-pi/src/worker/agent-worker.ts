@@ -25,16 +25,14 @@ import {
 	generateBanner,
 	LocalAgentSessionProxy,
 } from "@earendil-works/pi-coding-agent/d-pi-worker";
-import { createDPiExtensionFactory, HubChannel } from "../extension/index.ts";
+import { createDPiExtensionFactory, type HubChannel } from "../extension/index.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 
 const config = workerData as AgentWorkerConfig;
 const port = parentPort!;
 
-// The HubChannel shared across tools — used to resolve tool_call results
-let hubChannel: HubChannel | undefined;
-
 // Module-level references set during runAgentWorker()
+let hubChannel: HubChannel | undefined;
 let runtime: AgentSessionRuntime | undefined;
 let httpServer: AgentHttpServer | undefined;
 let proxy: LocalAgentSessionProxy | undefined;
@@ -47,6 +45,7 @@ function postToHub(message: WorkerToHubMessage): void {
 port.on("message", (message: HubToWorkerMessage) => {
 	switch (message.type) {
 		case "tool_result":
+			process.stderr.write(`[d-pi worker ${config.agentId}] Received tool_result for callId=${message.callId}\n`);
 			hubChannel?.resolveCall(message.callId, message.result);
 			break;
 		case "message":
@@ -62,16 +61,18 @@ async function runAgentWorker(): Promise<void> {
 	const { agentId, port: agentPort, cwd, model: modelSpec, agentName } = config;
 	const agentDir = getAgentDir();
 
+	process.stderr.write(`[d-pi worker ${agentId}] Starting agent "${agentName}"...\n`);
+
 	// 1. Create infrastructure
 	const authStorage = AuthStorage.create();
 	const settingsManager = SettingsManager.create(cwd, agentDir);
 	const modelRegistry = ModelRegistry.create(authStorage);
 
-	// 2. Create the d-pi extension factory
-	const extensionFactory = createDPiExtensionFactory(agentId, postToHub);
+	process.stderr.write(`[d-pi worker ${agentId}] Infrastructure created\n`);
 
-	// Also create a HubChannel reference for resolving tool results
-	hubChannel = new HubChannel(agentId, postToHub);
+	// 2. Create the d-pi extension factory and shared HubChannel
+	const { factory: extensionFactory, channel } = createDPiExtensionFactory(agentId, postToHub);
+	hubChannel = channel;
 
 	// 3. Build the runtime factory (mirrors main.ts pattern)
 	const createRuntime = async (opts: { cwd: string; agentDir: string; sessionManager: SessionManager }) => {
@@ -81,6 +82,8 @@ async function runAgentWorker(): Promise<void> {
 			: undefined;
 		const additionalSkillPaths = config.workspaceContext?.additionalSkillPaths ?? [];
 		const additionalExtensionPaths = config.workspaceContext?.additionalExtensionPaths ?? [];
+
+		process.stderr.write(`[d-pi worker ${agentId}] Creating session services...\n`);
 
 		const services = await createAgentSessionServices({
 			cwd: opts.cwd,
@@ -95,6 +98,8 @@ async function runAgentWorker(): Promise<void> {
 				additionalExtensionPaths,
 			},
 		});
+
+		process.stderr.write(`[d-pi worker ${agentId}] Session services created, resolving model...\n`);
 
 		// Resolve model
 		let resolvedModel: Model<any> | undefined;
@@ -120,11 +125,15 @@ async function runAgentWorker(): Promise<void> {
 			resolvedModel = result.model;
 		}
 
+		process.stderr.write(`[d-pi worker ${agentId}] Model resolved: ${resolvedModel?.id ?? "unknown"}\n`);
+
 		const created = await createAgentSessionFromServices({
 			services,
 			sessionManager: opts.sessionManager,
 			model: resolvedModel,
 		});
+
+		process.stderr.write(`[d-pi worker ${agentId}] Session created from services\n`);
 
 		return { ...created, services, diagnostics: services.diagnostics };
 	};
@@ -205,7 +214,18 @@ async function runAgentWorker(): Promise<void> {
 function handleIncomingMessage(fromAgentId: string, content: string): void {
 	process.stderr.write(`[d-pi worker ${config.agentId}] Received message from ${fromAgentId}\n`);
 	if (runtime) {
-		runtime.session.followUp(content);
+		const session = runtime.session;
+		// If the agent is idle, use prompt() to start a new turn.
+		// followUp() only queues — it won't trigger processing when the agent is idle.
+		if (session.isStreaming) {
+			session.followUp(content);
+		} else {
+			session.prompt(content).catch((err: Error) => {
+				process.stderr.write(
+					`[d-pi worker ${config.agentId}] prompt() failed for incoming message: ${err.message}\n`,
+				);
+			});
+		}
 	}
 }
 

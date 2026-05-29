@@ -7,7 +7,7 @@ export function createAgentNetworkTool(channel: HubChannel) {
 		name: "agent_network",
 		label: "Agent Network",
 		description:
-			"Get the current agent network topology. Returns a snapshot of all agents, their parent-child relationships, and their statuses.",
+			"Get the current agent network topology. Returns a snapshot of all agents, their parent-child relationships, and their statuses. Use agent **names** (not IDs) when calling destroy_agent or send_message.",
 		parameters: Type.Object({}),
 		async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
 			try {
@@ -16,16 +16,16 @@ export function createAgentNetworkTool(channel: HubChannel) {
 					const depth = getDepth(snapshot, a.id);
 					const indent = "  ".repeat(depth);
 					const children = a.children.length > 0 ? ` → [${a.children.join(", ")}]` : "";
-					return `${indent}${a.name} (${a.id.slice(0, 8)}...) [${a.status}]${children}`;
+					return `${indent}${a.name} [${a.status}]${children}`;
 				});
 				return {
 					content: [
 						{
 							type: "text" as const,
-							text: `Agent Network (root: ${snapshot.rootId.slice(0, 8)}...):\n${lines.join("\n")}`,
+							text: `Agent Network:\n${lines.join("\n")}\n\nUse agent names (e.g. "${snapshot.agents.find((a) => a.name === "root")?.name}") for destroy_agent and send_message.`,
 						},
 					],
-					details: { agents: snapshot.agents.length },
+					details: { agents: snapshot.agents },
 				};
 			} catch (err) {
 				return {

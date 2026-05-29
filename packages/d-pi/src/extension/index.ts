@@ -15,32 +15,23 @@ import { createSendMessageTool } from "./send-message.ts";
  *
  * @param agentId - The ID of the agent this extension is loaded into
  * @param postToHub - Callback to send messages to the Hub (via parentPort)
- * @returns An ExtensionFactory that registers d-pi tools
+ * @returns An object with the ExtensionFactory and the shared HubChannel
  */
 export function createDPiExtensionFactory(
 	agentId: string,
 	postToHub: (message: WorkerToHubMessage) => void,
-): ExtensionFactory {
-	// Create the channel — it will be shared across all 4 tools
+): { factory: ExtensionFactory; channel: HubChannel } {
+	// Create the channel — shared across all 4 tools AND the worker
 	const channel = new HubChannel(agentId, postToHub);
 
-	return (pi) => {
+	const factory: ExtensionFactory = (pi) => {
 		pi.registerTool(createSendMessageTool(channel));
 		pi.registerTool(createCreateAgentTool(channel));
 		pi.registerTool(createDestroyAgentTool(channel));
 		pi.registerTool(createAgentNetworkTool(channel));
 	};
-}
 
-/**
- * Get the HubChannel for a given agent's extension runtime.
- * This is used by the worker to resolve tool_call results.
- */
-export function getHubChannelFromFactory(
-	agentId: string,
-	postToHub: (message: WorkerToHubMessage) => void,
-): HubChannel {
-	return new HubChannel(agentId, postToHub);
+	return { factory, channel };
 }
 
 export { HubChannel };

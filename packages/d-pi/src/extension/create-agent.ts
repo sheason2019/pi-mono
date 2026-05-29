@@ -19,10 +19,15 @@ export function createCreateAgentTool(channel: HubChannel) {
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			try {
-				const result = (await channel.createAgent(params.name, params.cwd, params.model)) as {
-					agentId: string;
-					name: string;
-				};
+				const raw = await channel.createAgent(params.name, params.cwd, params.model);
+				const result = raw as { agentId?: string; name?: string; error?: string };
+				if (result.error) {
+					return {
+						content: [{ type: "text" as const, text: `Failed to create agent: ${result.error}` }],
+						details: {},
+						isError: true,
+					};
+				}
 				return {
 					content: [{ type: "text" as const, text: `Created agent "${result.name}" (ID: ${result.agentId})` }],
 					details: { agentId: result.agentId },

@@ -243,7 +243,6 @@ export class ExtensionRunner {
 	private navigateTreeHandler: NavigateTreeHandler = async () => ({ cancelled: false });
 	private switchSessionHandler: SwitchSessionHandler = async () => ({ cancelled: false });
 	private reloadHandler: ReloadHandler = async () => {};
-	private switchAgentHandler: (agentUrl: string, hubUrl: string) => Promise<void> = async () => {};
 	private shutdownHandler: ShutdownHandler = () => {};
 	private shortcutDiagnostics: ResourceDiagnostic[] = [];
 	private commandDiagnostics: ResourceDiagnostic[] = [];
@@ -373,7 +372,6 @@ export class ExtensionRunner {
 			this.navigateTreeHandler = actions.navigateTree;
 			this.switchSessionHandler = actions.switchSession;
 			this.reloadHandler = actions.reload;
-			this.switchAgentHandler = actions.switchAgent ?? (async () => {});
 			return;
 		}
 
@@ -695,10 +693,6 @@ export class ExtensionRunner {
 		context.reload = () => {
 			this.assertActive();
 			return this.reloadHandler();
-		};
-		context.switchAgent = (agentUrl, hubUrl) => {
-			this.assertActive();
-			return this.switchAgentHandler(agentUrl, hubUrl);
 		};
 		return context;
 	}

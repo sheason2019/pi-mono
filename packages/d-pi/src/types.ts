@@ -1,6 +1,13 @@
 // === Agent Status ===
 export type AgentStatus = "starting" | "ready" | "busy" | "error" | "destroyed";
 
+// === Agent Config (persisted as agent.json in each agent's cwd) ===
+export interface AgentConfig {
+	name: string;
+	parentName: string | undefined;
+	model?: string;
+}
+
 // === Workspace Configuration ===
 export interface WorkspaceConfig {
 	version: 1;

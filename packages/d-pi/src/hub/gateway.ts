@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, request, type Server, type ServerResponse } from "node:http";
+import { injectMeta } from "../extension/message-meta.ts";
 import type { AgentRegistry } from "./agent-registry.ts";
 
 /**
@@ -175,6 +176,52 @@ export class HubGateway {
 		// and inject the /agents command for d-pi connect mode
 		const isCommandsRequest = req.method === "GET" && path === "/commands";
 
+		// Intercept POST /prompt to inject message meta header
+		const isPromptRequest = req.method === "POST" && path === "/prompt";
+
+		if (isPromptRequest) {
+			// Read body, inject meta, then forward
+			try {
+				const body = await this._readBody(req);
+				const parsed = JSON.parse(body) as { text?: string; options?: unknown };
+				if (parsed.text) {
+					parsed.text = injectMeta(parsed.text, "connect");
+				}
+				const rewrittenBody = JSON.stringify(parsed);
+
+				const proxyReq = request(
+					targetUrl,
+					{
+						method: "POST",
+						headers: {
+							...req.headers,
+							host: `localhost:${agent.port}`,
+							"content-length": Buffer.byteLength(rewrittenBody).toString(),
+						},
+						path: path + url.search,
+					},
+					(proxyRes) => {
+						res.writeHead(proxyRes.statusCode ?? 500, proxyRes.headers);
+						proxyRes.pipe(res, { end: true });
+					},
+				);
+				proxyReq.on("error", (err) => {
+					process.stderr.write(`[d-pi gateway] Proxy error: ${err.message}\n`);
+					if (!res.headersSent) {
+						res.writeHead(502, { "Content-Type": "application/json" });
+						res.end(JSON.stringify({ error: `Agent unreachable: ${err.message}` }));
+					}
+				});
+				proxyReq.end(rewrittenBody);
+			} catch (_err) {
+				if (!res.headersSent) {
+					res.writeHead(500, { "Content-Type": "application/json" });
+					res.end(JSON.stringify({ error: "Failed to process prompt request" }));
+				}
+			}
+			return;
+		}
+
 		const proxyReq = request(
 			targetUrl,
 			{
@@ -199,7 +246,7 @@ export class HubGateway {
 								source?: string;
 								[key: string]: unknown;
 							}>;
-							const blocked = new Set(["resume", "fork", "clone", "new", "tree"]);
+							const blocked = new Set(["resume", "fork", "clone", "new", "tree", "agents"]);
 							const filtered = commands.filter((cmd) => !blocked.has(cmd.name));
 							filtered.push({
 								name: "agents",

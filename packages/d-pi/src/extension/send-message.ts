@@ -9,7 +9,7 @@ export function createSendMessageTool(channel: HubChannel) {
 		description:
 			"Send a message to another agent in the network. The target agent will receive the message as input. This is asynchronous — the tool returns immediately and does not wait for a reply.",
 		parameters: Type.Object({
-			agent_id: Type.String({ description: "ID of the target agent" }),
+			agent_id: Type.String({ description: "ID or name of the target agent" }),
 			message: Type.String({ description: "Message content to send" }),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {

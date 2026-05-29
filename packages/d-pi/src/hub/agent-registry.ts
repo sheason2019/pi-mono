@@ -74,6 +74,13 @@ export class AgentRegistry {
 		return this._agents.get(agentId);
 	}
 
+	getByName(name: string): AgentRecord | undefined {
+		for (const agent of this._agents.values()) {
+			if (agent.name === name) return agent;
+		}
+		return undefined;
+	}
+
 	updateStatus(agentId: string, status: AgentStatus): void {
 		const record = this._agents.get(agentId);
 		if (record) {
@@ -84,7 +91,7 @@ export class AgentRegistry {
 	getSnapshot(): AgentNetworkSnapshot {
 		let rootId = "";
 		const agents = Array.from(this._agents.values()).map((a) => {
-			if (!a.parentId) rootId = a.id;
+			if (a.name === "root") rootId = a.id;
 			return {
 				id: a.id,
 				name: a.name,
@@ -109,10 +116,7 @@ export class AgentRegistry {
 	}
 
 	getRootAgent(): AgentRecord | undefined {
-		for (const agent of this._agents.values()) {
-			if (!agent.parentId) return agent;
-		}
-		return undefined;
+		return this.getByName("root");
 	}
 
 	getAll(): IterableIterator<AgentRecord> {

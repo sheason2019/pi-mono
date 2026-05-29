@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
+import { injectMeta } from "../extension/message-meta.ts";
 import type {
 	AgentConfig,
 	AgentNetworkSnapshot,
@@ -284,10 +285,11 @@ export class Hub {
 					if (!targetAgent) {
 						result = { ok: false, error: `Agent not found: ${p.agent_id}` } satisfies SendMessageResult;
 					} else {
+						const metaContent = injectMeta(p.message, "agent", fromAgentId);
 						targetAgent.worker.postMessage({
 							type: "message",
 							fromAgentId,
-							content: p.message,
+							content: metaContent,
 						} satisfies HubToWorkerMessage);
 						result = { ok: true } satisfies SendMessageResult;
 					}
