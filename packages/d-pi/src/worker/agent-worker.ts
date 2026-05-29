@@ -5,6 +5,8 @@
  * following the same pattern as serve-mode.ts. Communicates with the Hub
  * via parentPort for tool calls and incoming messages.
  */
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
 import type { Model } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
@@ -56,6 +58,49 @@ port.on("message", (message: HubToWorkerMessage) => {
 			break;
 	}
 });
+
+/**
+ * Create a SessionManager using isolated sessionDir and optional sessionId for recovery.
+ * - If sessionDir is provided, sessions are stored under the d-pi workspace instead of ~/.pi
+ * - If sessionId is provided, attempts to open that specific session; falls back to most recent
+ */
+function createSessionManager(cwd: string, sessionId?: string, sessionDir?: string): SessionManager {
+	if (sessionDir) {
+		mkdirSync(sessionDir, { recursive: true });
+
+		if (sessionId) {
+			// Session file naming: {timestamp}_{sessionId}.jsonl
+			try {
+				const files = readdirSync(sessionDir).filter((f) => f.endsWith(".jsonl") && f.includes(sessionId));
+				if (files.length > 0) {
+					const path = join(sessionDir, files[files.length - 1]!);
+					process.stderr.write(`[d-pi worker] Restoring session ${sessionId} from ${path}\n`);
+					return SessionManager.open(path, sessionDir, cwd);
+				}
+			} catch {
+				// Directory may not exist yet
+			}
+			process.stderr.write(`[d-pi worker] Session ${sessionId} not found in ${sessionDir}, continuing recent\n`);
+		}
+
+		return SessionManager.continueRecent(cwd, sessionDir);
+	}
+
+	return SessionManager.continueRecent(cwd);
+}
+
+/** Persist the current session ID back to agent.json */
+function persistSessionId(agentCwd: string, sessionId: string): void {
+	const configPath = join(agentCwd, "agent.json");
+	try {
+		const agentConfig = JSON.parse(readFileSync(configPath, "utf-8"));
+		agentConfig.sessionId = sessionId;
+		writeFileSync(configPath, `${JSON.stringify(agentConfig, null, "\t")}\n`);
+		process.stderr.write(`[d-pi worker] Persisted sessionId=${sessionId} to agent.json\n`);
+	} catch (err) {
+		process.stderr.write(`[d-pi worker] Failed to persist sessionId: ${err}\n`);
+	}
+}
 
 async function runAgentWorker(): Promise<void> {
 	const { agentId, port: agentPort, cwd, model: modelSpec, agentName } = config;
@@ -138,8 +183,8 @@ async function runAgentWorker(): Promise<void> {
 		return { ...created, services, diagnostics: services.diagnostics };
 	};
 
-	// 4. Create session manager — continue recent session if available
-	const sessionManager = SessionManager.continueRecent(cwd);
+	// 4. Create session manager — use isolated sessionDir and restore by sessionId
+	const sessionManager = createSessionManager(cwd, config.sessionId, config.sessionDir);
 
 	// 5. Create runtime
 	runtime = await createAgentSessionRuntime(createRuntime, {
@@ -147,6 +192,12 @@ async function runAgentWorker(): Promise<void> {
 		agentDir,
 		sessionManager,
 	});
+
+	// 5b. Persist session ID to agent.json so restarts resume the correct session
+	const currentSessionId = runtime.session.sessionManager.getSessionId();
+	if (currentSessionId !== config.sessionId) {
+		persistSessionId(config.cwd, currentSessionId);
+	}
 
 	// 6. Create proxy and HTTP server (same pattern as serve-mode.ts)
 	proxy = new LocalAgentSessionProxy(runtime!);
@@ -193,6 +244,8 @@ async function runAgentWorker(): Promise<void> {
 		proxy!.resubscribe(reason);
 		await rebindSession();
 		proxy!.setBanner(generateBanner(session));
+		// Persist session ID whenever session changes (new/fork/resume)
+		persistSessionId(config.cwd, session.sessionManager.getSessionId());
 	});
 
 	// Initial bind for the first session

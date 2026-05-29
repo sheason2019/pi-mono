@@ -6,6 +6,7 @@ export interface AgentConfig {
 	name: string;
 	parentName: string | undefined;
 	model?: string;
+	sessionId?: string;
 }
 
 // === Workspace Configuration ===
@@ -30,6 +31,8 @@ export interface AgentWorkerConfig {
 	parentAgentId?: string;
 	agentName: string;
 	workspaceContext?: WorkspaceContext;
+	sessionId?: string;
+	sessionDir?: string;
 }
 
 // === Worker → Hub IPC Messages ===

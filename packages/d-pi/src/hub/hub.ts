@@ -58,6 +58,7 @@ export class Hub {
 					await this.createAgent(parentAgentId, {
 						name: agentConfig.name,
 						model: agentConfig.model,
+						sessionId: agentConfig.sessionId,
 					});
 				} catch (err) {
 					process.stderr.write(
@@ -82,7 +83,7 @@ export class Hub {
 
 	async createAgent(
 		parentAgentId: string | undefined,
-		options: { name: string; cwd?: string; model?: string },
+		options: { name: string; cwd?: string; model?: string; sessionId?: string },
 	): Promise<CreateAgentResult> {
 		// Check name uniqueness
 		if (this._registry.getByName(options.name)) {
@@ -104,8 +105,12 @@ export class Hub {
 			name: options.name,
 			parentName,
 			model: options.model,
+			sessionId: options.sessionId,
 		};
 		writeFileSync(join(agentDir, AGENT_CONFIG_FILE), `${JSON.stringify(agentConfig, null, "\t")}\n`);
+
+		// Compute isolated session directory
+		const sessionDir = join(this._config.workspaceRoot, ".dpi-sessions", options.name);
 
 		process.stderr.write(
 			`[d-pi hub] Creating agent "${options.name}" (${agentId}) on port ${port}, cwd=${agentDir}\n`,
@@ -121,6 +126,8 @@ export class Hub {
 				parentAgentId,
 				agentName: options.name,
 				workspaceContext: this._config.workspaceContext,
+				sessionId: options.sessionId,
+				sessionDir,
 			},
 		});
 
