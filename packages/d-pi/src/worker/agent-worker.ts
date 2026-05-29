@@ -75,6 +75,13 @@ async function runAgentWorker(): Promise<void> {
 
 	// 3. Build the runtime factory (mirrors main.ts pattern)
 	const createRuntime = async (opts: { cwd: string; agentDir: string; sessionManager: SessionManager }) => {
+		// Build resourceLoaderOptions from workspace context
+		const appendSystemPrompt = config.workspaceContext?.appendSystemPrompt
+			? [config.workspaceContext.appendSystemPrompt]
+			: undefined;
+		const additionalSkillPaths = config.workspaceContext?.additionalSkillPaths ?? [];
+		const additionalExtensionPaths = config.workspaceContext?.additionalExtensionPaths ?? [];
+
 		const services = await createAgentSessionServices({
 			cwd: opts.cwd,
 			agentDir: opts.agentDir,
@@ -83,6 +90,9 @@ async function runAgentWorker(): Promise<void> {
 			modelRegistry,
 			resourceLoaderOptions: {
 				extensionFactories: [extensionFactory],
+				appendSystemPrompt,
+				additionalSkillPaths,
+				additionalExtensionPaths,
 			},
 		});
 

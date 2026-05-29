@@ -1,6 +1,19 @@
 // === Agent Status ===
 export type AgentStatus = "starting" | "ready" | "busy" | "error" | "destroyed";
 
+// === Workspace Configuration ===
+export interface WorkspaceConfig {
+	version: 1;
+	defaultModel?: string;
+}
+
+export interface WorkspaceContext {
+	workspaceRoot: string;
+	appendSystemPrompt?: string;
+	additionalSkillPaths: string[];
+	additionalExtensionPaths: string[];
+}
+
 // === Worker Configuration (passed via workerData) ===
 export interface AgentWorkerConfig {
 	agentId: string;
@@ -9,6 +22,7 @@ export interface AgentWorkerConfig {
 	model?: string;
 	parentAgentId?: string;
 	agentName: string;
+	workspaceContext?: WorkspaceContext;
 }
 
 // === Worker → Hub IPC Messages ===
@@ -58,6 +72,8 @@ export interface HubConfig {
 	cwd: string;
 	model?: string;
 	agentPortStart?: number;
+	workspaceRoot: string;
+	workspaceContext: WorkspaceContext;
 }
 
 // === Tool Call Results ===

@@ -1,10 +1,35 @@
 #!/usr/bin/env node
 import { Hub } from "./hub/hub.ts";
+import { initWorkspace, isWorkspaceRoot, loadWorkspaceContext, validateWorkspace } from "./workspace/workspace.ts";
 
 const args = process.argv.slice(2);
 const command = args[0];
 
-if (command === "serve") {
+if (command === "init") {
+	try {
+		initWorkspace(process.cwd());
+		console.log("[d-pi] Workspace initialized in current directory");
+		console.log("[d-pi]   .dpi/config.json        — workspace configuration");
+		console.log("[d-pi]   AGENTS.md               — shared context for all agents");
+		console.log("[d-pi]   APPEND_SYSTEM.md        — shared system prompt for all agents");
+		console.log("[d-pi]   agents/root/            — root agent working directory");
+		console.log("[d-pi]   agents/root/AGENTS.md   — root agent specific context");
+		console.log("[d-pi]   agents/root/.pi/APPEND_SYSTEM.md — root agent system prompt");
+		console.log("[d-pi] Run 'd-pi serve' to start the hub.");
+	} catch (err) {
+		console.error(`[d-pi] ${err instanceof Error ? err.message : err}`);
+		process.exit(1);
+	}
+} else if (command === "serve") {
+	const workspaceRoot = process.cwd();
+	if (!isWorkspaceRoot(workspaceRoot)) {
+		console.error("[d-pi] Not a d-pi workspace. Run 'd-pi init' first.");
+		process.exit(1);
+	}
+
+	validateWorkspace(workspaceRoot);
+	const workspaceContext = loadWorkspaceContext(workspaceRoot);
+
 	const portIndex = args.indexOf("--port");
 	const port = portIndex !== -1 ? parseInt(args[portIndex + 1], 10) : 9090;
 	const modelIndex = args.indexOf("--model");
@@ -12,8 +37,10 @@ if (command === "serve") {
 
 	const hub = new Hub({
 		port,
-		cwd: process.cwd(),
-		model,
+		cwd: workspaceRoot,
+		model: model ?? undefined,
+		workspaceRoot,
+		workspaceContext,
 	});
 
 	hub.start().catch((err) => {
@@ -36,7 +63,8 @@ if (command === "serve") {
 	console.log(`d-pi - Multi-agent tree orchestrator
 
 Usage:
-  d-pi serve [--port 9090] [--model <model>]
+  d-pi init                         Initialize a workspace in the current directory
+  d-pi serve [--port 9090] [--model <model>]  Start the hub (must be in a workspace)
   d-pi connect [--url http://localhost:9090] [--agent <id|name>]
 `);
 }

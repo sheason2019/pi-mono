@@ -11,7 +11,7 @@ export function createCreateAgentTool(channel: HubChannel) {
 		parameters: Type.Object({
 			name: Type.String({ description: "Human-readable name for the new agent" }),
 			cwd: Type.Optional(
-				Type.String({ description: "Working directory for the new agent (defaults to this agent's cwd)" }),
+				Type.String({ description: "Working directory override (defaults to workspace/agents/<name>/)" }),
 			),
 			model: Type.Optional(
 				Type.String({ description: "Model to use for the new agent (e.g. 'anthropic/claude-sonnet-4')" }),

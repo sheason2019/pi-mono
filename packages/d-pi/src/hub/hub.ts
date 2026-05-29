@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import type {
 	AgentNetworkSnapshot,
@@ -36,10 +38,10 @@ export class Hub {
 		// 2. Create root agent
 		await this.createAgent(undefined, {
 			name: "root",
-			cwd: this._config.cwd,
 			model: this._config.model,
 		});
 
+		process.stderr.write(`[d-pi hub] Workspace: ${this._config.workspaceRoot}\n`);
 		process.stderr.write(`[d-pi hub] Listening on port ${hubPort}\n`);
 		process.stderr.write(`[d-pi hub] Connect with: d-pi connect --url http://localhost:${hubPort}\n`);
 	}
@@ -50,17 +52,21 @@ export class Hub {
 	): Promise<CreateAgentResult> {
 		const agentId = crypto.randomUUID();
 		const port = await this._registry.allocatePort();
-		const cwd = options.cwd ?? this._config.cwd;
+
+		// Agent cwd: workspaceRoot/agents/<name>/ (create if needed)
+		const agentDir = options.cwd ?? join(this._config.workspaceRoot, "agents", options.name);
+		mkdirSync(agentDir, { recursive: true });
 
 		// Create worker
 		const worker = new Worker(new URL("../worker/agent-worker.js", import.meta.url), {
 			workerData: {
 				agentId,
 				port,
-				cwd,
+				cwd: agentDir,
 				model: options.model,
 				parentAgentId,
 				agentName: options.name,
+				workspaceContext: this._config.workspaceContext,
 			},
 		});
 
@@ -90,7 +96,7 @@ export class Hub {
 			port,
 			status: "starting",
 			worker,
-			cwd,
+			cwd: agentDir,
 			model: options.model,
 		});
 
