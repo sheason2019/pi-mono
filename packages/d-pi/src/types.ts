@@ -46,7 +46,7 @@ export type WorkerToHubMessage =
 // === Hub → Worker IPC Messages ===
 export type HubToWorkerMessage =
 	| { type: "tool_result"; callId: string; result: unknown }
-	| { type: "message"; fromAgentId: string; content: string }
+	| { type: "message"; fromAgentId: string; content: string; sourceName?: string }
 	| { type: "destroy" };
 
 // === Agent Network Snapshot ===
@@ -99,4 +99,51 @@ export interface CreateAgentResult {
 
 export interface DestroyAgentResult {
 	ok: boolean;
+	error?: string;
+}
+
+// === Source Status ===
+export type SourceStatus = "running" | "stopped" | "error";
+
+// === Source Configuration ===
+export interface SourceConfig {
+	name: string;
+	command: string;
+	args?: string[];
+	cwd?: string;
+	env?: Record<string, string>;
+}
+
+// === Source Info (API responses) ===
+export interface SourceInfo {
+	name: string;
+	command: string;
+	args: string[];
+	status: SourceStatus;
+	subscriberCount: number;
+}
+
+// === Source Tool Call Results ===
+export interface CreateSourceResult {
+	ok: boolean;
+	error?: string;
+}
+
+export interface DestroySourceResult {
+	ok: boolean;
+	error?: string;
+}
+
+export interface SubscribeSourceResult {
+	ok: boolean;
+	error?: string;
+}
+
+export interface UnsubscribeSourceResult {
+	ok: boolean;
+	error?: string;
+}
+
+export interface ListSourcesResult {
+	sources: SourceInfo[];
 }

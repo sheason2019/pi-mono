@@ -1,6 +1,8 @@
 import { createServer, type IncomingMessage, request, type Server, type ServerResponse } from "node:http";
 import { injectMeta } from "../extension/message-meta.ts";
+import type { SourceConfig } from "../types.ts";
 import type { AgentRegistry } from "./agent-registry.ts";
+import type { SourceManager } from "./source-manager.ts";
 
 /**
  * HTTP gateway for the d-pi Hub.
@@ -10,12 +12,16 @@ import type { AgentRegistry } from "./agent-registry.ts";
  *   /_hub/agents       POST → create agent
  *   /_hub/agents/{id}  DELETE → destroy agent
  *   /_hub/network      GET  → network snapshot
+ *   /_hub/sources      GET  → list all sources
+ *   /_hub/sources      POST → create source
+ *   /_hub/sources/{name} DELETE → destroy source
  *   /agents/{id}/*     → reverse proxy to agent's HTTP server
  *   /*                 → reverse proxy to root agent
  */
 export class HubGateway {
 	private _server: Server | undefined;
 	private readonly _registry: AgentRegistry;
+	private readonly _sourceManager: SourceManager;
 	private readonly _onCreateAgent: (
 		parentAgentId: string | undefined,
 		options: { name: string; cwd?: string; model?: string },
@@ -24,10 +30,12 @@ export class HubGateway {
 
 	constructor(
 		registry: AgentRegistry,
+		sourceManager: SourceManager,
 		onCreateAgent: HubGateway["_onCreateAgent"],
 		onDestroyAgent: HubGateway["_onDestroyAgent"],
 	) {
 		this._registry = registry;
+		this._sourceManager = sourceManager;
 		this._onCreateAgent = onCreateAgent;
 		this._onDestroyAgent = onDestroyAgent;
 	}
@@ -141,6 +149,44 @@ export class HubGateway {
 			const snapshot = this._registry.getSnapshot();
 			res.writeHead(200, { "Content-Type": "application/json" });
 			res.end(JSON.stringify(snapshot));
+			return;
+		}
+
+		// GET /_hub/sources — list all sources
+		if (path === "/_hub/sources" && req.method === "GET") {
+			const sources = this._sourceManager.listSources();
+			res.writeHead(200, { "Content-Type": "application/json" });
+			res.end(JSON.stringify(sources));
+			return;
+		}
+
+		// POST /_hub/sources — create source
+		if (path === "/_hub/sources" && req.method === "POST") {
+			const body = await this._readBody(req);
+			const params = JSON.parse(body) as SourceConfig;
+			try {
+				this._sourceManager.createSource(params);
+				res.writeHead(201, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ ok: true }));
+			} catch (err) {
+				res.writeHead(500, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+			}
+			return;
+		}
+
+		// DELETE /_hub/sources/{name} — destroy source
+		const sourceDeleteMatch = path.match(/^\/_hub\/sources\/([^/]+)$/);
+		if (sourceDeleteMatch && req.method === "DELETE") {
+			const sourceName = decodeURIComponent(sourceDeleteMatch[1]);
+			try {
+				this._sourceManager.destroySource(sourceName);
+				res.writeHead(200, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ ok: true }));
+			} catch (err) {
+				res.writeHead(500, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+			}
 			return;
 		}
 

@@ -8055,24 +8055,6 @@ export const MODELS = {
 			contextWindow: 204800,
 			maxTokens: 131072,
 		} satisfies Model<"openai-completions">,
-		"qwen3.5-plus": {
-			id: "qwen3.5-plus",
-			name: "Qwen3.5 Plus",
-			api: "openai-completions",
-			provider: "opencode-go",
-			baseUrl: "https://opencode.ai/zen/go/v1",
-			compat: {"thinkingFormat":"qwen"},
-			reasoning: true,
-			input: ["text", "image"],
-			cost: {
-				input: 0.2,
-				output: 1.2,
-				cacheRead: 0.02,
-				cacheWrite: 0.25,
-			},
-			contextWindow: 262144,
-			maxTokens: 65536,
-		} satisfies Model<"openai-completions">,
 		"qwen3.6-plus": {
 			id: "qwen3.6-plus",
 			name: "Qwen3.6 Plus",
@@ -8899,7 +8881,7 @@ export const MODELS = {
 				cacheRead: 0.024999999999999998,
 				cacheWrite: 0.08333333333333334,
 			},
-			contextWindow: 1000000,
+			contextWindow: 1048576,
 			maxTokens: 8192,
 		} satisfies Model<"openai-completions">,
 		"google/gemini-2.0-flash-lite-001": {

@@ -6,28 +6,52 @@ import type {
 	AgentConfig,
 	AgentNetworkSnapshot,
 	CreateAgentResult,
+	CreateSourceResult,
 	DestroyAgentResult,
+	DestroySourceResult,
 	HubConfig,
 	HubToWorkerMessage,
+	ListSourcesResult,
 	SendMessageResult,
+	SubscribeSourceResult,
+	UnsubscribeSourceResult,
 	WorkerToHubMessage,
 } from "../types.ts";
 import { AgentRegistry } from "./agent-registry.ts";
 import { HubGateway } from "./gateway.ts";
+import { SourceManager } from "./source-manager.ts";
 
 const AGENT_CONFIG_FILE = "agent.json";
 
 export class Hub {
 	private readonly _registry: AgentRegistry;
 	private readonly _gateway: HubGateway;
+	private readonly _sourceManager: SourceManager;
 	private readonly _config: HubConfig;
 
 	constructor(config: HubConfig) {
 		this._config = config;
 		const portStart = config.agentPortStart ?? 9091;
 		this._registry = new AgentRegistry(portStart);
+
+		this._sourceManager = new SourceManager((sourceName, content, subscriberAgentIds) => {
+			const metaContent = injectMeta(content, "source", undefined, sourceName);
+			for (const agentId of subscriberAgentIds) {
+				const record = this._registry.get(agentId);
+				if (record) {
+					record.worker.postMessage({
+						type: "message",
+						fromAgentId: `source:${sourceName}`,
+						content: metaContent,
+						sourceName,
+					} satisfies HubToWorkerMessage);
+				}
+			}
+		});
+
 		this._gateway = new HubGateway(
 			this._registry,
+			this._sourceManager,
 			(parentId, options) => this.createAgent(parentId, options),
 			(agentId) => this.destroyAgent(agentId),
 		);
@@ -196,9 +220,27 @@ export class Hub {
 		}
 		const agentId = record.id;
 
+		// Safety check: agent must not have children
+		if (record.children.length > 0) {
+			const childNames = record.children.map((cid) => this._registry.get(cid)?.name ?? cid).join(", ");
+			throw new Error(
+				`Cannot destroy agent "${record.name}": it has ${record.children.length} child agent(s) (${childNames}). Destroy all children first.`,
+			);
+		}
+
+		// Safety check: agent must not be creator of any active source
+		const createdSources = this._sourceManager.getSourcesByCreator(agentId);
+		if (createdSources.length > 0) {
+			throw new Error(
+				`Cannot destroy agent "${record.name}": it is the creator of source(s) [${createdSources.join(", ")}]. Destroy or transfer ownership of those sources first.`,
+			);
+		}
+
+		// Auto-unsubscribe from all sources
+		this._sourceManager.removeAgentSubscriptions(agentId);
+
 		// Collect all workers to terminate before unregister removes them from registry
-		const destroyedIds = this._registry.getDescendants(agentId);
-		destroyedIds.push(agentId);
+		const destroyedIds = [agentId];
 
 		const workersToTerminate: Array<{ id: string; worker: Worker; cwd: string }> = [];
 		for (const id of destroyedIds) {
@@ -208,7 +250,7 @@ export class Hub {
 			}
 		}
 
-		// Unregister cascades to descendants
+		// Unregister (no descendants since children check passed)
 		this._registry.unregister(agentId);
 
 		// Remove agent.json and directory for all destroyed agents
@@ -316,13 +358,96 @@ export class Hub {
 
 				case "destroy_agent": {
 					const p = params as { agent_id: string };
-					await this.destroyAgent(p.agent_id);
-					result = { ok: true } satisfies DestroyAgentResult;
+					try {
+						await this.destroyAgent(p.agent_id);
+						result = { ok: true } satisfies DestroyAgentResult;
+					} catch (err) {
+						result = {
+							ok: false,
+							error: err instanceof Error ? err.message : String(err),
+						} satisfies DestroyAgentResult;
+					}
 					break;
 				}
 
 				case "agent_network": {
 					result = this._registry.getSnapshot() satisfies AgentNetworkSnapshot;
+					break;
+				}
+
+				case "create_source": {
+					const p = params as {
+						name: string;
+						command: string;
+						args?: string[];
+						cwd?: string;
+						env?: Record<string, string>;
+					};
+					try {
+						this._sourceManager.createSource(
+							{
+								name: p.name,
+								command: p.command,
+								args: p.args,
+								cwd: p.cwd,
+								env: p.env,
+							},
+							fromAgentId,
+						);
+						result = { ok: true } satisfies CreateSourceResult;
+					} catch (err) {
+						result = {
+							ok: false,
+							error: err instanceof Error ? err.message : String(err),
+						} satisfies CreateSourceResult;
+					}
+					break;
+				}
+
+				case "destroy_source": {
+					const p = params as { name: string };
+					try {
+						this._sourceManager.destroySource(p.name);
+						result = { ok: true } satisfies DestroySourceResult;
+					} catch (err) {
+						result = {
+							ok: false,
+							error: err instanceof Error ? err.message : String(err),
+						} satisfies DestroySourceResult;
+					}
+					break;
+				}
+
+				case "subscribe_source": {
+					const p = params as { source_name: string };
+					try {
+						this._sourceManager.subscribe(p.source_name, fromAgentId);
+						result = { ok: true } satisfies SubscribeSourceResult;
+					} catch (err) {
+						result = {
+							ok: false,
+							error: err instanceof Error ? err.message : String(err),
+						} satisfies SubscribeSourceResult;
+					}
+					break;
+				}
+
+				case "unsubscribe_source": {
+					const p = params as { source_name: string };
+					try {
+						this._sourceManager.unsubscribe(p.source_name, fromAgentId);
+						result = { ok: true } satisfies UnsubscribeSourceResult;
+					} catch (err) {
+						result = {
+							ok: false,
+							error: err instanceof Error ? err.message : String(err),
+						} satisfies UnsubscribeSourceResult;
+					}
+					break;
+				}
+
+				case "list_sources": {
+					result = { sources: this._sourceManager.listSources() } satisfies ListSourcesResult;
 					break;
 				}
 

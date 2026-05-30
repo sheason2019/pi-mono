@@ -51,7 +51,7 @@ port.on("message", (message: HubToWorkerMessage) => {
 			hubChannel?.resolveCall(message.callId, message.result);
 			break;
 		case "message":
-			handleIncomingMessage(message.fromAgentId, message.content);
+			handleIncomingMessage(message.fromAgentId, message.content, message.sourceName);
 			break;
 		case "destroy":
 			gracefulShutdown();
@@ -264,8 +264,12 @@ async function runAgentWorker(): Promise<void> {
 	return new Promise(() => {});
 }
 
-function handleIncomingMessage(fromAgentId: string, content: string): void {
-	process.stderr.write(`[d-pi worker ${config.agentId}] Received message from ${fromAgentId}\n`);
+function handleIncomingMessage(fromAgentId: string, content: string, sourceName?: string): void {
+	if (sourceName) {
+		process.stderr.write(`[d-pi worker ${config.agentId}] Received source message from "${sourceName}"\n`);
+	} else {
+		process.stderr.write(`[d-pi worker ${config.agentId}] Received message from ${fromAgentId}\n`);
+	}
 	if (runtime) {
 		const session = runtime.session;
 		// If the agent is idle, use prompt() to start a new turn.

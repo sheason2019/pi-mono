@@ -7,7 +7,7 @@ export function createDestroyAgentTool(channel: HubChannel) {
 		name: "destroy_agent",
 		label: "Destroy Agent",
 		description:
-			"Destroy an agent in the network. The agent and all its descendants will be terminated. This action is irreversible.",
+			"Destroy an agent in the network. The agent must have no children and must not be the creator of any active source. Unsubscribe from all sources and destroy all child agents first.",
 		parameters: Type.Object({
 			agent_id: Type.String({ description: "ID or name of the agent to destroy" }),
 		}),

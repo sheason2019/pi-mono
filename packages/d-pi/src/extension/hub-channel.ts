@@ -46,6 +46,37 @@ export class HubChannel {
 		return this._callTool("agent_network", {}) as Promise<AgentNetworkSnapshot>;
 	}
 
+	/** Create a new source */
+	createSource(
+		name: string,
+		command: string,
+		args?: string[],
+		cwd?: string,
+		env?: Record<string, string>,
+	): Promise<unknown> {
+		return this._callTool("create_source", { name, command, args, cwd, env });
+	}
+
+	/** Destroy a source */
+	destroySource(name: string): Promise<unknown> {
+		return this._callTool("destroy_source", { name });
+	}
+
+	/** Subscribe this agent to a source */
+	subscribeSource(sourceName: string): Promise<unknown> {
+		return this._callTool("subscribe_source", { source_name: sourceName });
+	}
+
+	/** Unsubscribe this agent from a source */
+	unsubscribeSource(sourceName: string): Promise<unknown> {
+		return this._callTool("unsubscribe_source", { source_name: sourceName });
+	}
+
+	/** List all available sources */
+	listSources(): Promise<unknown> {
+		return this._callTool("list_sources", {});
+	}
+
 	/** Resolve a pending tool call — called when Hub sends tool_result */
 	resolveCall(callId: string, result: unknown): void {
 		const pending = this._pendingCalls.get(callId);
