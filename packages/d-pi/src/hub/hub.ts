@@ -73,7 +73,10 @@ export class Hub {
 				if (!existsSync(configPath)) continue;
 
 				try {
-					const agentConfig: AgentConfig = JSON.parse(readFileSync(configPath, "utf-8"));
+					let agentRaw = readFileSync(configPath, "utf-8");
+					// Strip single-line comments (// ...) to allow documented config templates
+					agentRaw = agentRaw.replace(/\/\/.*$/gm, "");
+					const agentConfig: AgentConfig = JSON.parse(agentRaw);
 					process.stderr.write(`[d-pi hub] Restoring agent "${agentConfig.name}" from ${entry.name}/\n`);
 					// Resolve parentId from parentName in persisted config
 					const parentAgentId = agentConfig.parentName
@@ -83,6 +86,8 @@ export class Hub {
 						name: agentConfig.name,
 						model: agentConfig.model,
 						sessionId: agentConfig.sessionId,
+						tools: agentConfig.tools,
+						excludeTools: agentConfig.excludeTools,
 					});
 				} catch (err) {
 					process.stderr.write(
@@ -107,7 +112,14 @@ export class Hub {
 
 	async createAgent(
 		parentAgentId: string | undefined,
-		options: { name: string; cwd?: string; model?: string; sessionId?: string },
+		options: {
+			name: string;
+			cwd?: string;
+			model?: string;
+			sessionId?: string;
+			tools?: string[];
+			excludeTools?: string[];
+		},
 	): Promise<CreateAgentResult> {
 		// Check name uniqueness
 		if (this._registry.getByName(options.name)) {
@@ -130,11 +142,17 @@ export class Hub {
 			parentName,
 			model: options.model,
 			sessionId: options.sessionId,
+			tools: options.tools,
+			excludeTools: options.excludeTools,
 		};
 		writeFileSync(join(agentDir, AGENT_CONFIG_FILE), `${JSON.stringify(agentConfig, null, "\t")}\n`);
 
 		// Compute isolated session directory
 		const sessionDir = join(this._config.workspaceRoot, ".dpi-sessions", options.name);
+
+		// Merge tools config: workspace defaults + agent overrides
+		const tools = options.tools ?? this._config.workspaceConfig.tools;
+		const excludeTools = options.excludeTools ?? this._config.workspaceConfig.excludeTools;
 
 		process.stderr.write(
 			`[d-pi hub] Creating agent "${options.name}" (${agentId}) on port ${port}, cwd=${agentDir}\n`,
@@ -152,6 +170,8 @@ export class Hub {
 				workspaceContext: this._config.workspaceContext,
 				sessionId: options.sessionId,
 				sessionDir,
+				tools,
+				excludeTools,
 			},
 		});
 
@@ -346,11 +366,19 @@ export class Hub {
 				}
 
 				case "create_agent": {
-					const p = params as { name: string; cwd?: string; model?: string };
+					const p = params as {
+						name: string;
+						cwd?: string;
+						model?: string;
+						tools?: string[];
+						excludeTools?: string[];
+					};
 					const created = await this.createAgent(fromAgentId, {
 						name: p.name,
 						cwd: p.cwd,
 						model: p.model,
+						tools: p.tools,
+						excludeTools: p.excludeTools,
 					});
 					result = { agentId: created.agentId, name: created.name } satisfies CreateAgentResult;
 					break;

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { AgentConfig, WorkspaceConfig, WorkspaceContext } from "../types.ts";
+import type { WorkspaceConfig, WorkspaceContext } from "../types.ts";
 
 const DPI_DIR = ".dpi";
 const CONFIG_FILE = "config.json";
@@ -26,11 +26,14 @@ export function validateWorkspace(workspaceRoot: string): WorkspaceConfig {
 		throw new Error(`Invalid workspace: missing ${DPI_DIR}/${CONFIG_FILE}`);
 	}
 	try {
-		const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-		if (raw.version !== 1) {
-			throw new Error(`Unsupported workspace version: ${raw.version}`);
+		let raw = readFileSync(configPath, "utf-8");
+		// Strip single-line comments (// ...) to allow documented config templates
+		raw = raw.replace(/\/\/.*$/gm, "");
+		const parsed = JSON.parse(raw);
+		if (parsed.version !== 1) {
+			throw new Error(`Unsupported workspace version: ${parsed.version}`);
 		}
-		return raw as WorkspaceConfig;
+		return parsed as WorkspaceConfig;
 	} catch (err) {
 		if (err instanceof SyntaxError) {
 			throw new Error(`Invalid workspace config: ${configPath} is not valid JSON`);
@@ -90,18 +93,35 @@ export function initWorkspace(dir: string): void {
 	const dpiDir = join(resolved, DPI_DIR);
 	mkdirSync(dpiDir, { recursive: true });
 
-	// Write .dpi/config.json
-	const config: WorkspaceConfig = { version: 1 };
-	writeFileSync(join(dpiDir, CONFIG_FILE), `${JSON.stringify(config, null, "\t")}\n`);
+	// Write .dpi/config.json (with documentation comments)
+	writeFileSync(
+		join(dpiDir, CONFIG_FILE),
+		`{
+\t"version": 1,
+\t// "tools": ["tool_name"],        // Allowlist: only these tools are available to agents (omit = all tools)
+\t// "excludeTools": ["tool_name"], // Denylist: these tools are excluded for all agents (applied after allowlist)
+\t// "defaultModel": "anthropic/claude-sonnet-4" // Default model for all agents
+}
+`,
+	);
 
 	// Create agents/ and agents/root/
 	const agentsDir = join(resolved, AGENTS_DIR);
 	const rootAgentDir = join(agentsDir, "root");
 	mkdirSync(rootAgentDir, { recursive: true });
 
-	// Write agents/root/agent.json
-	const rootAgentConfig: AgentConfig = { name: "root", parentName: undefined };
-	writeFileSync(join(rootAgentDir, "agent.json"), `${JSON.stringify(rootAgentConfig, null, "\t")}\n`);
+	// Write agents/root/agent.json (with documentation comments)
+	writeFileSync(
+		join(rootAgentDir, "agent.json"),
+		`{
+\t"name": "root",
+\t"parentName": null,
+\t// "model": "anthropic/claude-sonnet-4", // Override model for this agent
+\t// "tools": ["tool_name"],               // Allowlist: only these tools available (overrides workspace config)
+\t// "excludeTools": ["tool_name"]         // Denylist: exclude these tools (overrides workspace config)
+}
+`,
+	);
 
 	// --- Workspace-level context files ---
 

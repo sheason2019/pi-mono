@@ -27,7 +27,7 @@ if (command === "init") {
 		process.exit(1);
 	}
 
-	validateWorkspace(workspaceRoot);
+	const workspaceConfig = validateWorkspace(workspaceRoot);
 	const workspaceContext = loadWorkspaceContext(workspaceRoot);
 
 	const portIndex = args.indexOf("--port");
@@ -41,6 +41,7 @@ if (command === "init") {
 		model: model ?? undefined,
 		workspaceRoot,
 		workspaceContext,
+		workspaceConfig,
 	});
 
 	hub.start().catch((err) => {
@@ -59,6 +60,24 @@ if (command === "init") {
 			process.exit(1);
 		});
 	});
+} else if (command === "_connect-child") {
+	// Internal subcommand: run coding-agent's connect mode with /agents extension injected.
+	// Spawned by the parent `d-pi connect` process for agent switching.
+	const agentUrl = args[1];
+	const hubUrl = args[2];
+
+	Promise.all([import("@earendil-works/pi-coding-agent/d-pi-worker"), import("./extension/client-extension.ts")]).then(
+		([{ runConnectMode }, { createDPiClientExtensionFactory }]) => {
+			const clientExtensionFactory = createDPiClientExtensionFactory(hubUrl);
+			runConnectMode({
+				url: agentUrl,
+				clientExtensionFactories: [clientExtensionFactory],
+			}).catch((err: Error) => {
+				console.error(`[d-pi connect] Fatal error: ${err.message}`);
+				process.exit(1);
+			});
+		},
+	);
 } else {
 	console.log(`d-pi - Multi-agent tree orchestrator
 

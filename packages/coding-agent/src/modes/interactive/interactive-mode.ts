@@ -244,12 +244,6 @@ export interface InteractiveModeOptions {
 	banner?: BannerData;
 	/** Inline extension factories for client-side commands in connect mode (e.g. d-pi /agents) */
 	clientExtensionFactories?: ExtensionFactory[];
-	/** Whether to call process.exit(0) on shutdown. Default: true.
-	 *  Set to false when the caller manages the process lifecycle (e.g. d-pi agent switching). */
-	exitProcess?: boolean;
-	/** External AbortSignal to abort the run() loop.
-	 *  When aborted, getUserInput() resolves with null and run() returns. */
-	abortSignal?: AbortSignal;
 }
 
 export class InteractiveMode {
@@ -333,7 +327,6 @@ export class InteractiveMode {
 
 	// Shutdown state
 	private shutdownRequested = false;
-	private _abortController = new AbortController();
 
 	// Extension UI state
 	private extensionSelector: ExtensionSelectorComponent | undefined = undefined;
@@ -404,15 +397,6 @@ export class InteractiveMode {
 		this.runtimeHost = runtimeHost;
 		this.options = options;
 		this.proxy = options.proxy;
-
-		// Chain external abort signal to internal controller
-		if (options.abortSignal) {
-			if (options.abortSignal.aborted) {
-				this._abortController.abort();
-			} else {
-				options.abortSignal.addEventListener("abort", () => this._abortController.abort());
-			}
-		}
 
 		// Only register runtime callbacks when NOT using proxy (connect mode)
 		if (this.runtimeHost) {
@@ -1042,9 +1026,8 @@ export class InteractiveMode {
 		}
 
 		// Main interactive loop
-		while (!this._abortController.signal.aborted) {
+		while (true) {
 			const userInput = await this.getUserInput();
-			if (userInput === null || this._abortController.signal.aborted) break;
 			try {
 				await cmdTarget.prompt(userInput);
 			} catch (error: unknown) {
@@ -1905,7 +1888,7 @@ export class InteractiveMode {
 					},
 					hasPendingMessages: () => false,
 					shutdown: () => {
-						this.shutdownRequested = true;
+						void this.shutdown();
 					},
 					getContextUsage: () => undefined,
 					compact: () => {},
@@ -3872,33 +3855,12 @@ export class InteractiveMode {
 		}
 	}
 
-	async getUserInput(): Promise<string | null> {
+	async getUserInput(): Promise<string> {
 		return new Promise((resolve) => {
-			const signal = this._abortController.signal;
-			if (signal.aborted) {
-				resolve(null);
-				return;
-			}
-
-			let settled = false;
-
-			const onAbort = () => {
-				if (settled) return;
-				settled = true;
+			this.onInputCallback = (text: string) => {
 				this.onInputCallback = undefined;
-				signal.removeEventListener("abort", onAbort);
-				resolve(null);
-			};
-
-			const onInput = (text: string) => {
-				if (settled) return;
-				settled = true;
-				signal.removeEventListener("abort", onAbort);
 				resolve(text);
 			};
-
-			this.onInputCallback = onInput;
-			signal.addEventListener("abort", onAbort);
 		});
 	}
 
@@ -3942,9 +3904,6 @@ export class InteractiveMode {
 		if (this.isShuttingDown) return;
 		this.isShuttingDown = true;
 
-		// Abort the controller to break out of getUserInput()
-		this._abortController.abort();
-
 		this.unregisterSignalHandlers();
 
 		if (options?.fromSignal) {
@@ -3974,10 +3933,7 @@ export class InteractiveMode {
 		} else if (this.proxy && "dispose" in this.proxy) {
 			(this.proxy as { dispose(): void }).dispose();
 		}
-
-		if (this.options.exitProcess !== false) {
-			process.exit(0);
-		}
+		process.exit(0);
 	}
 
 	private emergencyTerminalExit(): never {

@@ -13,6 +13,7 @@ export type {
 export { createAgentSessionFromServices, createAgentSessionServices } from "./core/agent-session-services.ts";
 export { LocalAgentSessionProxy } from "./core/local-agent-session-proxy.ts";
 export { findInitialModel } from "./core/model-resolver.ts";
+export { runConnectMode } from "./modes/connect/connect-mode.ts";
 export { RemoteAgentSessionProxy } from "./modes/connect/remote-agent-session-proxy.ts";
 export { AgentHttpServer } from "./modes/serve/http-server.ts";
 export { generateBanner } from "./modes/serve/serve-mode.ts";

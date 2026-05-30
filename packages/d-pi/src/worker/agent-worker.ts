@@ -176,6 +176,8 @@ async function runAgentWorker(): Promise<void> {
 			services,
 			sessionManager: opts.sessionManager,
 			model: resolvedModel,
+			tools: config.tools,
+			excludeTools: config.excludeTools,
 		});
 
 		process.stderr.write(`[d-pi worker ${agentId}] Session created from services\n`);

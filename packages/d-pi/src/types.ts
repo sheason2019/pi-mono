@@ -7,12 +7,16 @@ export interface AgentConfig {
 	parentName: string | undefined;
 	model?: string;
 	sessionId?: string;
+	tools?: string[];
+	excludeTools?: string[];
 }
 
 // === Workspace Configuration ===
 export interface WorkspaceConfig {
 	version: 1;
 	defaultModel?: string;
+	tools?: string[];
+	excludeTools?: string[];
 }
 
 export interface WorkspaceContext {
@@ -33,6 +37,8 @@ export interface AgentWorkerConfig {
 	workspaceContext?: WorkspaceContext;
 	sessionId?: string;
 	sessionDir?: string;
+	tools?: string[];
+	excludeTools?: string[];
 }
 
 // === Worker → Hub IPC Messages ===
@@ -84,6 +90,7 @@ export interface HubConfig {
 	agentPortStart?: number;
 	workspaceRoot: string;
 	workspaceContext: WorkspaceContext;
+	workspaceConfig: WorkspaceConfig;
 }
 
 // === Tool Call Results ===

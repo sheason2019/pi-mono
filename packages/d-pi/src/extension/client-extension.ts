@@ -1,16 +1,23 @@
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { AgentNetworkSnapshot } from "../types.ts";
+
+/** File where the selected agent ID is written before triggering shutdown.
+ *  The parent process checks for this file to determine if the child exited
+ *  due to an agent switch (file exists) or a normal quit (file absent). */
+export const AGENT_SWITCH_FILE = join(tmpdir(), "d-pi-agent-switch.txt");
 
 /**
  * Create the d-pi client-side extension factory for connect mode.
  *
  * Registers the `/agents` command which shows a tree-structured selector
- * using ctx.ui.select() and requests an agent switch via the callback.
+ * using ctx.ui.select() and triggers a graceful shutdown via ctx.shutdown()
+ * so the terminal is properly restored. The parent process detects the switch
+ * by checking for the AGENT_SWITCH_FILE.
  */
-export function createDPiClientExtensionFactory(
-	hubUrl: string,
-	onRequestSwitch: (agentId: string) => void,
-): ExtensionFactory {
+export function createDPiClientExtensionFactory(hubUrl: string): ExtensionFactory {
 	return (pi) => {
 		pi.registerCommand("agents", {
 			description: "Switch to a different agent in the network",
@@ -68,8 +75,10 @@ export function createDPiClientExtensionFactory(
 					const agent = network.agents.find((a) => a.name === displayName);
 					if (!agent) return;
 
-					// Request switch via callback — connect-mode.ts handles the lifecycle
-					onRequestSwitch(agent.id);
+					// Write selected agent ID to temp file, then trigger graceful shutdown
+					// (which restores terminal state) instead of raw process.exit()
+					writeFileSync(AGENT_SWITCH_FILE, agent.id, "utf-8");
+					ctx.shutdown();
 				} catch (err) {
 					ctx.ui.notify(`Failed to switch agent: ${err instanceof Error ? err.message : String(err)}`, "error");
 				}

@@ -16,10 +16,26 @@ export function createCreateAgentTool(channel: HubChannel) {
 			model: Type.Optional(
 				Type.String({ description: "Model to use for the new agent (e.g. 'anthropic/claude-sonnet-4')" }),
 			),
+			tools: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "Allowlist of tool names. When provided, only these tools are exposed to the agent.",
+				}),
+			),
+			excludeTools: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "Denylist of tool names. These tools will not be exposed to the agent.",
+				}),
+			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			try {
-				const raw = await channel.createAgent(params.name, params.cwd, params.model);
+				const raw = await channel.createAgent(
+					params.name,
+					params.cwd,
+					params.model,
+					params.tools,
+					params.excludeTools,
+				);
 				const result = raw as { agentId?: string; name?: string; error?: string };
 				if (result.error) {
 					return {
