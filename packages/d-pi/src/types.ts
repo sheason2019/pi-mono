@@ -61,6 +61,7 @@ export interface AgentNetworkEntry {
 	name: string;
 	parentId: string | undefined;
 	status: AgentStatus;
+	model: string | undefined;
 	children: string[];
 }
 

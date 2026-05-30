@@ -97,6 +97,7 @@ export class AgentRegistry {
 				name: a.name,
 				parentId: a.parentId,
 				status: a.status,
+				model: a.model,
 				children: [...a.children],
 			};
 		});

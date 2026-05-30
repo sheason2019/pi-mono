@@ -68,7 +68,8 @@ if (command === "init") {
 
 	Promise.all([import("@earendil-works/pi-coding-agent/d-pi-worker"), import("./extension/client-extension.ts")]).then(
 		([{ runConnectMode }, { createDPiClientExtensionFactory }]) => {
-			const clientExtensionFactory = createDPiClientExtensionFactory(hubUrl);
+			const currentAgentId = process.env.DPI_CURRENT_AGENT_ID;
+			const clientExtensionFactory = createDPiClientExtensionFactory(hubUrl, currentAgentId);
 			runConnectMode({
 				url: agentUrl,
 				clientExtensionFactories: [clientExtensionFactory],

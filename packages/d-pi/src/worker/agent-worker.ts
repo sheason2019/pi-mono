@@ -256,6 +256,19 @@ async function runAgentWorker(): Promise<void> {
 	// 8. Start HTTP server
 	await httpServer.start(agentPort);
 
+	// 8b. Subscribe to session events to report streaming status to Hub
+	proxy.subscribe((event) => {
+		if (event.type === "turn_start") {
+			postToHub({ type: "status_update", agentId, status: "busy" });
+		} else if (event.type === "turn_end" || event.type === "agent_end") {
+			postToHub({ type: "status_update", agentId, status: "ready" });
+		} else if (event.type === "compaction_start") {
+			postToHub({ type: "status_update", agentId, status: "busy" });
+		} else if (event.type === "compaction_end") {
+			postToHub({ type: "status_update", agentId, status: "ready" });
+		}
+	});
+
 	// 9. Signal ready to Hub
 	postToHub({ type: "ready", agentId, port: agentPort });
 	postToHub({ type: "status_update", agentId, status: "ready" });

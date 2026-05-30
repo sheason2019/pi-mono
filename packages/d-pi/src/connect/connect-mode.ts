@@ -34,7 +34,7 @@ export async function runDPiConnectMode(options: DPiConnectOptions): Promise<voi
 	while (true) {
 		const agentUrl = `${url}/agents/${currentAgentId}`;
 
-		await spawnConnectChild(agentUrl, url);
+		await spawnConnectChild(agentUrl, url, currentAgentId);
 
 		// Check if the child exited due to an agent switch (file exists)
 		// vs a normal quit (file absent)
@@ -57,10 +57,11 @@ export async function runDPiConnectMode(options: DPiConnectOptions): Promise<voi
 }
 
 /** Spawn `d-pi _connect-child` as a child process and wait for it to exit. */
-function spawnConnectChild(agentUrl: string, hubUrl: string): Promise<void> {
+function spawnConnectChild(agentUrl: string, hubUrl: string, currentAgentId: string): Promise<void> {
 	return new Promise((resolve) => {
 		const child = spawn(process.execPath, ["--import", "tsx", process.argv[1]!, "_connect-child", agentUrl, hubUrl], {
 			stdio: "inherit",
+			env: { ...process.env, DPI_CURRENT_AGENT_ID: currentAgentId },
 		});
 
 		child.on("exit", () => {
