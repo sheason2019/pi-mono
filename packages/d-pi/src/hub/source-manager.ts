@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { createInterface } from "node:readline";
+import { createInterface, type Interface as ReadlineInterface } from "node:readline";
 import type { SourceConfig, SourceInfo, SourceStatus } from "../types.ts";
 
 interface SourceRecord {
@@ -15,10 +15,12 @@ interface SourceRecord {
 	restartCount: number;
 	restartTimer: ReturnType<typeof setTimeout> | undefined;
 	destroyed: boolean;
+	stdoutReader: ReadlineInterface | undefined;
+	stderrReader: ReadlineInterface | undefined;
 }
 
 const MAX_RESTART_DELAY_MS = 60_000;
-const INITIAL_RESTART_DELAY_MS = 1_000;
+const INITIAL_RESTART_DELAY_MS = 10_000;
 
 export class SourceManager {
 	private readonly _sources = new Map<string, SourceRecord>();
@@ -46,6 +48,8 @@ export class SourceManager {
 			restartCount: 0,
 			restartTimer: undefined,
 			destroyed: false,
+			stdoutReader: undefined,
+			stderrReader: undefined,
 		};
 
 		// Auto-subscribe the creator agent
@@ -133,11 +137,14 @@ export class SourceManager {
 	}
 
 	private _spawnProcess(record: SourceRecord): void {
-		const child = spawn(record.command, record.args, {
+		const fullCommand = record.args.length > 0 ? `${record.command} ${record.args.join(" ")}` : record.command;
+
+		const child = spawn(fullCommand, [], {
 			cwd: record.cwd,
 			env: record.env ? { ...process.env, ...record.env } : process.env,
 			stdio: ["pipe", "pipe", "pipe"],
 			shell: true,
+			detached: true,
 		});
 
 		record.process = child;
@@ -147,16 +154,20 @@ export class SourceManager {
 		stdoutReader.on("line", (line) => {
 			this._onLine(record.name, line);
 		});
+		record.stdoutReader = stdoutReader;
 
 		const stderrReader = createInterface({ input: child.stderr! });
 		stderrReader.on("line", (line) => {
 			this._onLine(record.name, `[stderr] ${line}`);
 		});
+		record.stderrReader = stderrReader;
 
 		child.on("error", (err) => {
 			process.stderr.write(`[d-pi source] Source "${record.name}" process error: ${err.message}\n`);
-			record.status = "error";
 			record.process = undefined;
+			this._closeReaders(record);
+			if (record.destroyed) return;
+			record.status = "error";
 			this._notifyCreator(
 				record,
 				`Source "${record.name}" encountered a process error: ${err.message}. Restarting with exponential backoff.`,
@@ -167,7 +178,16 @@ export class SourceManager {
 		child.on("exit", (code, signal) => {
 			process.stderr.write(`[d-pi source] Source "${record.name}" exited with code=${code} signal=${signal}\n`);
 			record.process = undefined;
+			this._closeReaders(record);
 			if (record.destroyed) return;
+
+			// Exit code 0 means the command completed successfully — do not restart.
+			if (code === 0) {
+				record.status = "stopped";
+				this._notifyCreator(record, `Source "${record.name}" exited normally (code=0). No restart scheduled.`);
+				return;
+			}
+
 			record.status = "stopped";
 			this._notifyCreator(
 				record,
@@ -198,7 +218,7 @@ export class SourceManager {
 
 	private _onLine(sourceName: string, line: string): void {
 		const record = this._sources.get(sourceName);
-		if (!record || record.subscribers.size === 0) return;
+		if (!record || record.destroyed || record.subscribers.size === 0) return;
 
 		const subscriberIds = Array.from(record.subscribers);
 		this._onBroadcast(sourceName, line, subscriberIds);
@@ -209,26 +229,53 @@ export class SourceManager {
 		this._onBroadcast(record.name, `[source-error] ${message}`, [record.creatorAgentId]);
 	}
 
+	private _closeReaders(record: SourceRecord): void {
+		if (record.stdoutReader) {
+			record.stdoutReader.close();
+			record.stdoutReader = undefined;
+		}
+		if (record.stderrReader) {
+			record.stderrReader.close();
+			record.stderrReader = undefined;
+		}
+	}
+
 	private _destroyRecord(record: SourceRecord): void {
 		record.destroyed = true;
+		record.subscribers.clear();
 		if (record.restartTimer) {
 			clearTimeout(record.restartTimer);
 			record.restartTimer = undefined;
 		}
+		this._closeReaders(record);
 		this._killProcess(record);
 		this._sources.delete(record.name);
 	}
 
 	private _killProcess(record: SourceRecord): void {
-		if (record.process && !record.process.killed) {
-			record.process.kill("SIGTERM");
-			setTimeout(() => {
-				if (record.process && !record.process.killed) {
-					record.process.kill("SIGKILL");
-				}
-			}, 3000);
-		}
-		record.status = "stopped";
+		const child = record.process;
 		record.process = undefined;
+		record.status = "stopped";
+
+		if (!child || child.killed) return;
+
+		const pid = child.pid;
+
+		// Kill the entire process group (detached: true ensures own group)
+		try {
+			if (pid) process.kill(-pid, "SIGTERM");
+		} catch {
+			child.kill("SIGTERM");
+		}
+
+		// Force-kill after 3s if SIGTERM wasn't enough
+		setTimeout(() => {
+			try {
+				if (pid) process.kill(-pid, 0);
+				if (pid) process.kill(-pid, "SIGKILL");
+			} catch {
+				// Already dead
+			}
+		}, 3000);
 	}
 }

@@ -7,11 +7,19 @@ export function createCreateSourceTool(channel: HubChannel) {
 		name: "create_source",
 		label: "Create Source",
 		description:
-			"Register a new stdio source with the hub. The hub will spawn a child process and read its stdout/stderr line by line. Agents can subscribe to receive the output.",
+			"Register a new long-running stdio source with the hub. The command should be a persistent process that continuously produces output (e.g. 'tail -f /var/log/syslog', 'kubectl logs -f deploy/app'). One-shot commands that exit after producing output are NOT suitable — a source is meant to stream output over time, not run a batch job. If the process exits with a non-zero code, it is restarted with exponential backoff. If it exits normally (code 0), no restart is scheduled.",
 		parameters: Type.Object({
 			name: Type.String({ description: "Unique name for the source" }),
-			command: Type.String({ description: "Command to spawn (e.g. 'tail -f build.log')" }),
-			args: Type.Optional(Type.Array(Type.String(), { description: "Arguments to the command" })),
+			command: Type.String({
+				description:
+					"Shell command to run. Must be a long-running process. For complex commands with pipes, loops, or variables, put the entire command here as a single string.",
+			}),
+			args: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"Simple positional arguments appended to the command. Only use for plain tokens like filenames or flags. Do NOT use for shell syntax (quotes, variables, pipes, loops) — put those in the command field instead.",
+				}),
+			),
 			cwd: Type.Optional(Type.String({ description: "Working directory for the process" })),
 			env: Type.Optional(Type.Record(Type.String(), Type.String(), { description: "Environment variables" })),
 		}),
