@@ -167,7 +167,7 @@ async function resolveSessionPath(sessionArg: string, cwd: string, sessionDir?: 
 	}
 
 	// Try global search across all projects
-	const allSessions = await SessionManager.listAll();
+	const allSessions = await SessionManager.listAll(sessionDir);
 	const globalMatch =
 		allSessions.find((s) => s.id === sessionArg) ?? allSessions.find((s) => s.id.startsWith(sessionArg));
 
@@ -305,7 +305,7 @@ async function createSessionManager(
 		try {
 			const selectedPath = await selectSession(
 				(onProgress) => SessionManager.list(cwd, sessionDir, onProgress),
-				SessionManager.listAll,
+				(onProgress) => SessionManager.listAll(sessionDir, onProgress),
 			);
 			if (!selectedPath) {
 				console.log(chalk.dim("No session selected"));
@@ -420,6 +420,9 @@ function buildSessionOptions(
 	}
 	if (parsed.tools) {
 		options.tools = [...parsed.tools];
+	}
+	if (parsed.excludeTools) {
+		options.excludeTools = [...parsed.excludeTools];
 	}
 
 	return { options, cliThinkingFromModel, diagnostics };
@@ -644,6 +647,7 @@ export async function main(args: string[], options?: MainOptions) {
 			thinkingLevel: sessionOptions.thinkingLevel,
 			scopedModels: sessionOptions.scopedModels,
 			tools: sessionOptions.tools,
+			excludeTools: sessionOptions.excludeTools,
 			noTools: sessionOptions.noTools,
 			customTools: sessionOptions.customTools,
 		});
@@ -664,6 +668,7 @@ export async function main(args: string[], options?: MainOptions) {
 		agentDir,
 		sessionManager,
 	});
+	time("createAgentSessionRuntime");
 	const { services, session, modelFallbackMessage } = runtime;
 	const { settingsManager, modelRegistry, resourceLoader } = services;
 	configureHttpDispatcher(settingsManager.getHttpIdleTimeoutMs());
