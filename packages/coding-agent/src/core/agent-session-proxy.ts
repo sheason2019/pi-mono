@@ -2,6 +2,11 @@ import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core"
 import type { AgentSessionEvent } from "./agent-session.ts";
 import type { SourceInfo } from "./source-info.ts";
 
+export interface ProxyPromptOptions {
+	images?: Array<{ url: string; mediaType?: string }>;
+	streamingBehavior?: "steer" | "followUp";
+}
+
 /** A single keybinding hint entry for the startup banner. */
 export interface BannerKeyHint {
 	/** Display text for the key (e.g. "Ctrl+C", "/", "!!") */
@@ -210,7 +215,7 @@ export interface AgentSessionProxy {
 	subscribe(listener: (event: AgentSessionEvent) => void): () => void;
 
 	// Commands
-	prompt(text: string, options?: { images?: Array<{ url: string; mediaType?: string }> }): Promise<void>;
+	prompt(text: string, options?: ProxyPromptOptions): Promise<void>;
 	steer(text: string, images?: Array<{ url: string; mediaType?: string }>): void;
 	followUp(text: string, images?: Array<{ url: string; mediaType?: string }>): void;
 	abort(): void;

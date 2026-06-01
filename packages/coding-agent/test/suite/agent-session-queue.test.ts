@@ -325,6 +325,30 @@ describe("AgentSession queue characterization", () => {
 		).toBe(true);
 	});
 
+	it("tracks queued custom messages in pending queue state", async () => {
+		const waiting = await createWaitingHarness();
+		const { harness, waitForToolStart, promptPromise, releaseToolExecution } = waiting;
+		harnesses.push(harness);
+
+		harness.setResponses([fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" })]);
+
+		await waitForToolStart;
+		await harness.session.sendCustomMessage(
+			{ customType: "queue-test", content: "custom follow-up", display: true, details: { source: "meta" } },
+			{ deliverAs: "followUp" },
+		);
+
+		expect(harness.session.pendingMessageCount).toBe(1);
+		expect(harness.session.getFollowUpMessages()).toEqual(["custom follow-up"]);
+		expect(harness.session.clearQueue()).toEqual({
+			steering: [],
+			followUp: ["custom follow-up"],
+		});
+
+		releaseToolExecution();
+		await promptPromise;
+	});
+
 	it("injects nextTurn custom messages into the next prompt", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

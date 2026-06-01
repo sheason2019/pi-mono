@@ -5,6 +5,7 @@ import type {
 	ContextUsageInfo,
 	ModelInfo,
 	ModelItemData,
+	ProxyPromptOptions,
 	ServeSlashCommand,
 	SessionItemData,
 	SessionStateSnapshot,
@@ -23,9 +24,6 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 	private readonly _sseClient: SseClient;
 	private readonly _baseUrl: string;
 	private readonly _onDisconnect: DisconnectCallback | undefined;
-	/** Hub URL for d-pi agent switching (set by d-pi connect mode) */
-	hubUrl: string | undefined;
-
 	constructor(baseUrl: string, initialState: SessionStateSnapshot, onDisconnect?: DisconnectCallback) {
 		this._baseUrl = baseUrl;
 		this._state = initialState;
@@ -147,18 +145,18 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 	}
 
 	// Commands
-	async prompt(text: string, options?: { images?: Array<{ url: string; mediaType?: string }> }): Promise<void> {
+	async prompt(text: string, options?: ProxyPromptOptions): Promise<void> {
 		await this._post("prompt", { text, options });
 	}
 
 	steer(text: string, images?: Array<{ url: string; mediaType?: string }>): void {
-		this._post("steer", { text, images }).catch((e: Error) => {
+		this._post("prompt", { text, options: { images, streamingBehavior: "steer" } }).catch((e: Error) => {
 			process.stderr.write(`[connect] steer failed: ${e.message}\n`);
 		});
 	}
 
 	followUp(text: string, images?: Array<{ url: string; mediaType?: string }>): void {
-		this._post("follow-up", { text, images }).catch((e: Error) => {
+		this._post("prompt", { text, options: { images, streamingBehavior: "followUp" } }).catch((e: Error) => {
 			process.stderr.write(`[connect] followUp failed: ${e.message}\n`);
 		});
 	}

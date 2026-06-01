@@ -106,15 +106,30 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 		});
 
 		// Worker only: handle incoming messages through the extension event bus
-		let isStreaming = false;
-		pi.on("turn_start", () => {
-			isStreaming = true;
-		});
-		pi.on("turn_end", () => {
-			isStreaming = false;
+		let isAgentRunning = false;
+		pi.on("agent_start", () => {
+			isAgentRunning = true;
 		});
 		pi.on("agent_end", () => {
-			isStreaming = false;
+			isAgentRunning = false;
+		});
+		pi.on("input", (event) => {
+			if (event.source !== "interactive") {
+				return { action: "continue" };
+			}
+			const metaContent = injectMeta(event.text, "connect");
+			const extracted = extractMeta(metaContent);
+			const options = event.streamingBehavior ? { deliverAs: event.streamingBehavior } : { triggerTurn: true };
+			pi.sendMessage(
+				{
+					customType: "d-pi-message",
+					content: metaContent,
+					display: true,
+					details: extracted?.meta,
+				},
+				options,
+			);
+			return { action: "handled" };
 		});
 
 		channel.onIncomingMessage((content, sourceName) => {
@@ -125,7 +140,7 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 				? content
 				: injectMeta(content, sourceName ? "source" : "connect", undefined, sourceName);
 			const extracted = extractMeta(metaContent);
-			const options = isStreaming ? { deliverAs: "followUp" as const } : { triggerTurn: true };
+			const options = isAgentRunning ? { deliverAs: "followUp" as const } : { triggerTurn: true };
 			pi.sendMessage(
 				{
 					customType: "d-pi-message",

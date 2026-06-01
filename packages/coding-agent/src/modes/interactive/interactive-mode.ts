@@ -242,7 +242,7 @@ export interface InteractiveModeOptions {
 	proxy?: AgentSessionProxy;
 	/** Banner data from server (connect mode) — used to render the startup header */
 	banner?: BannerData;
-	/** Inline extension factories for client-side commands in connect mode (e.g. d-pi /agents) */
+	/** Inline extension factories for client-side commands in connect mode */
 	clientExtensionFactories?: ExtensionFactory[];
 }
 

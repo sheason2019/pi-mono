@@ -7,6 +7,7 @@ import type {
 	ContextUsageInfo,
 	ModelInfo,
 	ModelItemData,
+	ProxyPromptOptions,
 	ServeSlashCommand,
 	SessionItemData,
 	SessionStateSnapshot,
@@ -126,9 +127,9 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 	// Commands
 	// =========================================================================
 
-	async prompt(text: string, options?: { images?: Array<{ url: string; mediaType?: string }> }): Promise<void> {
+	async prompt(text: string, options?: ProxyPromptOptions): Promise<void> {
 		const images = options?.images ? toImageContent(options.images) : undefined;
-		await this.session.prompt(text, { images });
+		await this.session.prompt(text, { images, streamingBehavior: options?.streamingBehavior });
 	}
 
 	steer(text: string, images?: Array<{ url: string; mediaType?: string }>): void {

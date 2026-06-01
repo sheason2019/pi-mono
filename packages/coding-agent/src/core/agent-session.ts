@@ -550,25 +550,17 @@ export class AgentSession {
 
 	/** Internal handler for agent events - shared by subscribe and reconnect */
 	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
-		// When a user message starts, check if it's from either queue and remove it BEFORE emitting
-		// This ensures the UI sees the updated queue state
-		if (event.type === "message_start" && event.message.role === "user") {
-			this._overflowRecoveryAttempted = false;
-			const messageText = this._getUserMessageText(event.message);
+		// When a queued message starts, remove it BEFORE emitting so the UI sees the updated queue state.
+		if (event.type === "message_start" && (event.message.role === "user" || event.message.role === "custom")) {
+			if (event.message.role === "user") {
+				this._overflowRecoveryAttempted = false;
+			}
+			const messageText =
+				event.message.role === "user"
+					? this._getUserMessageText(event.message)
+					: this._getCustomMessageText(event.message);
 			if (messageText) {
-				// Check steering queue first
-				const steeringIndex = this._steeringMessages.indexOf(messageText);
-				if (steeringIndex !== -1) {
-					this._steeringMessages.splice(steeringIndex, 1);
-					this._emitQueueUpdate();
-				} else {
-					// Check follow-up queue
-					const followUpIndex = this._followUpMessages.indexOf(messageText);
-					if (followUpIndex !== -1) {
-						this._followUpMessages.splice(followUpIndex, 1);
-						this._emitQueueUpdate();
-					}
-				}
+				this._removeQueuedMessageText(messageText);
 			}
 		}
 
@@ -685,10 +677,32 @@ export class AgentSession {
 	/** Extract text content from a message */
 	private _getUserMessageText(message: Message): string {
 		if (message.role !== "user") return "";
-		const content = message.content;
+		return this._getContentText(message.content);
+	}
+
+	private _getCustomMessageText(message: CustomMessage): string {
+		return this._getContentText(message.content);
+	}
+
+	private _getContentText(content: string | (TextContent | ImageContent)[]): string {
 		if (typeof content === "string") return content;
 		const textBlocks = content.filter((c) => c.type === "text");
-		return textBlocks.map((c) => (c as TextContent).text).join("");
+		return textBlocks.map((c) => c.text).join("");
+	}
+
+	private _removeQueuedMessageText(messageText: string): void {
+		const steeringIndex = this._steeringMessages.indexOf(messageText);
+		if (steeringIndex !== -1) {
+			this._steeringMessages.splice(steeringIndex, 1);
+			this._emitQueueUpdate();
+			return;
+		}
+
+		const followUpIndex = this._followUpMessages.indexOf(messageText);
+		if (followUpIndex !== -1) {
+			this._followUpMessages.splice(followUpIndex, 1);
+			this._emitQueueUpdate();
+		}
 	}
 
 	/** Find the last assistant message in agent state (including aborted ones) */
@@ -1434,9 +1448,14 @@ export class AgentSession {
 		if (options?.deliverAs === "nextTurn") {
 			this._pendingNextTurnMessages.push(appMessage);
 		} else if (this.isStreaming) {
+			const queuedText = this._getCustomMessageText(appMessage);
 			if (options?.deliverAs === "followUp") {
+				this._followUpMessages.push(queuedText);
+				this._emitQueueUpdate();
 				this.agent.followUp(appMessage);
 			} else {
+				this._steeringMessages.push(queuedText);
+				this._emitQueueUpdate();
 				this.agent.steer(appMessage);
 			}
 		} else if (options?.triggerTurn) {
