@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
-import { AGENT_SWITCH_FILE } from "../extension/client-extension.ts";
+import { AGENT_SWITCH_FILE } from "../extension/index.ts";
 import type { AgentNetworkSnapshot } from "../types.ts";
 
 export interface DPiConnectOptions {

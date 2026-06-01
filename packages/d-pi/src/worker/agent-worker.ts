@@ -27,7 +27,7 @@ import {
 	generateBanner,
 	LocalAgentSessionProxy,
 } from "@earendil-works/pi-coding-agent/d-pi-worker";
-import { createDPiExtensionFactory, type HubChannel } from "../extension/index.ts";
+import { createDPiExtension, type HubChannel } from "../extension/index.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 
 const config = workerData as AgentWorkerConfig;
@@ -51,7 +51,7 @@ port.on("message", (message: HubToWorkerMessage) => {
 			hubChannel?.resolveCall(message.callId, message.result);
 			break;
 		case "message":
-			handleIncomingMessage(message.fromAgentId, message.content, message.sourceName);
+			hubChannel?.deliverMessage(message.content, message.sourceName);
 			break;
 		case "destroy":
 			gracefulShutdown();
@@ -116,7 +116,11 @@ async function runAgentWorker(): Promise<void> {
 	process.stderr.write(`[d-pi worker ${agentId}] Infrastructure created\n`);
 
 	// 2. Create the d-pi extension factory and shared HubChannel
-	const { factory: extensionFactory, channel } = createDPiExtensionFactory(agentId, postToHub);
+	const { factory: extensionFactory, channel } = createDPiExtension({
+		mode: "worker",
+		agentId,
+		postToHub,
+	});
 	hubChannel = channel;
 
 	// 3. Build the runtime factory (mirrors main.ts pattern)
@@ -205,6 +209,13 @@ async function runAgentWorker(): Promise<void> {
 	proxy = new LocalAgentSessionProxy(runtime!);
 	proxy.setBanner(generateBanner(runtime!.session));
 
+	// All user prompts are routed through hubChannel.deliverMessage() so the extension
+	// creates a CustomMessage instead of a UserMessageComponent (which has OSC133 markers
+	// that produce unwanted editor divider lines in the TUI).
+	proxy.prompt = async (_text: string, _options?: { images?: Array<{ url: string; mediaType?: string }> }) => {
+		hubChannel?.deliverMessage(_text);
+	};
+
 	httpServer = new AgentHttpServer(proxy);
 
 	// 7. Bind extensions — no UI context (same as serve-mode.ts)
@@ -277,28 +288,6 @@ async function runAgentWorker(): Promise<void> {
 
 	// Keep alive
 	return new Promise(() => {});
-}
-
-function handleIncomingMessage(fromAgentId: string, content: string, sourceName?: string): void {
-	if (sourceName) {
-		process.stderr.write(`[d-pi worker ${config.agentId}] Received source message from "${sourceName}"\n`);
-	} else {
-		process.stderr.write(`[d-pi worker ${config.agentId}] Received message from ${fromAgentId}\n`);
-	}
-	if (runtime) {
-		const session = runtime.session;
-		// If the agent is idle, use prompt() to start a new turn.
-		// followUp() only queues — it won't trigger processing when the agent is idle.
-		if (session.isStreaming) {
-			session.followUp(content);
-		} else {
-			session.prompt(content).catch((err: Error) => {
-				process.stderr.write(
-					`[d-pi worker ${config.agentId}] prompt() failed for incoming message: ${err.message}\n`,
-				);
-			});
-		}
-	}
 }
 
 async function gracefulShutdown(): Promise<void> {

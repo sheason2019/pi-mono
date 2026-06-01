@@ -1,5 +1,7 @@
 import type { AgentNetworkSnapshot, WorkerToHubMessage } from "../types.ts";
 
+type IncomingMessageHandler = (content: string, sourceName?: string) => void;
+
 /**
  * Communication channel from extension tools to the Hub.
  *
@@ -16,6 +18,7 @@ export class HubChannel {
 		{ resolve: (result: unknown) => void; reject: (error: Error) => void }
 	>();
 	private _callIdCounter = 0;
+	private _onIncomingMessage?: IncomingMessageHandler;
 
 	constructor(agentId: string, postToHub: (message: WorkerToHubMessage) => void) {
 		this._agentId = agentId;
@@ -24,6 +27,16 @@ export class HubChannel {
 
 	get agentId(): string {
 		return this._agentId;
+	}
+
+	/** Register handler for incoming messages from the Hub */
+	onIncomingMessage(handler: IncomingMessageHandler): void {
+		this._onIncomingMessage = handler;
+	}
+
+	/** Deliver an incoming message — called by agent-worker, handled by extension */
+	deliverMessage(content: string, sourceName?: string): void {
+		this._onIncomingMessage?.(content, sourceName);
 	}
 
 	/** Send a message to another agent */

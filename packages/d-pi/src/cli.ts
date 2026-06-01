@@ -66,10 +66,14 @@ if (command === "init") {
 	const agentUrl = args[1];
 	const hubUrl = args[2];
 
-	Promise.all([import("@earendil-works/pi-coding-agent/d-pi-worker"), import("./extension/client-extension.ts")]).then(
-		([{ runConnectMode }, { createDPiClientExtensionFactory }]) => {
+	Promise.all([import("@earendil-works/pi-coding-agent/d-pi-worker"), import("./extension/index.ts")]).then(
+		([{ runConnectMode }, { createDPiExtension }]) => {
 			const currentAgentId = process.env.DPI_CURRENT_AGENT_ID;
-			const clientExtensionFactory = createDPiClientExtensionFactory(hubUrl, currentAgentId);
+			const clientExtensionFactory = createDPiExtension({
+				mode: "client",
+				hubUrl,
+				currentAgentId,
+			}).factory;
 			runConnectMode({
 				url: agentUrl,
 				clientExtensionFactories: [clientExtensionFactory],

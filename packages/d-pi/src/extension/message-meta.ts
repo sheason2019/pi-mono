@@ -32,3 +32,28 @@ export function injectMeta(
 	};
 	return `[meta(${JSON.stringify(meta)})]\n${text}`;
 }
+
+/** Extract and parse the [meta(...)]\n prefix from a message. */
+export function extractMeta(text: string): { meta: MessageMeta; text: string } | undefined {
+	if (!text.startsWith("[meta(")) return undefined;
+	const endIdx = text.indexOf(")]\n");
+	if (endIdx === -1) return undefined;
+	try {
+		const meta = JSON.parse(text.slice(6, endIdx)) as MessageMeta;
+		return { meta, text: text.slice(endIdx + 3) };
+	} catch {
+		return undefined;
+	}
+}
+
+/** Build LLM-facing content from meta (used as custom message content). */
+export function buildMetaContent(meta: MessageMeta): string {
+	switch (meta.sourceType) {
+		case "agent":
+			return `Message from agent "${meta.agentId}". ${meta.tips}`;
+		case "source":
+			return `Message from external source "${meta.sourceName}". ${meta.tips}`;
+		case "connect":
+			return meta.tips;
+	}
+}

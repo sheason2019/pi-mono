@@ -3680,7 +3680,12 @@ export class InteractiveMode {
 			}
 			case "custom": {
 				if (message.display) {
-					const renderer = this.session?.extensionRunner.getMessageRenderer(message.customType);
+					if (this.chatContainer.children.length > 0) {
+						this.chatContainer.addChild(new Spacer(1));
+					}
+					const renderer =
+						this.session?.extensionRunner.getMessageRenderer(message.customType) ??
+						this._clientExtensionRunner?.getMessageRenderer(message.customType);
 					const component = new CustomMessageComponent(message, renderer, this.getMarkdownThemeWithSettings());
 					component.setExpanded(this.toolOutputExpanded);
 					this.chatContainer.addChild(component);
