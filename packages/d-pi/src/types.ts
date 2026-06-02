@@ -5,6 +5,7 @@ export type AgentStatus = "starting" | "ready" | "busy" | "error" | "destroyed";
 export interface AgentConfig {
 	name: string;
 	parentName: string | undefined;
+	roles?: string[];
 	model?: string;
 	sessionId?: string;
 	tools?: string[];
@@ -22,6 +23,7 @@ export interface WorkspaceConfig {
 export interface WorkspaceContext {
 	workspaceRoot: string;
 	appendSystemPrompt?: string;
+	additionalAgentsFiles?: Array<{ path: string; content: string }>;
 	additionalSkillPaths: string[];
 	additionalExtensionPaths: string[];
 }

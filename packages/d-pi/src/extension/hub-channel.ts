@@ -49,10 +49,11 @@ export class HubChannel {
 		name: string,
 		cwd?: string,
 		model?: string,
+		roles?: string[],
 		tools?: string[],
 		excludeTools?: string[],
 	): Promise<unknown> {
-		return this._callTool("create_agent", { name, cwd, model, tools, excludeTools });
+		return this._callTool("create_agent", { name, cwd, model, roles, tools, excludeTools });
 	}
 
 	/** Destroy an agent */

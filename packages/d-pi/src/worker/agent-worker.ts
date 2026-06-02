@@ -129,6 +129,7 @@ async function runAgentWorker(): Promise<void> {
 		const appendSystemPrompt = config.workspaceContext?.appendSystemPrompt
 			? [config.workspaceContext.appendSystemPrompt]
 			: undefined;
+		const additionalAgentsFiles = config.workspaceContext?.additionalAgentsFiles ?? [];
 		const additionalSkillPaths = config.workspaceContext?.additionalSkillPaths ?? [];
 		const additionalExtensionPaths = config.workspaceContext?.additionalExtensionPaths ?? [];
 
@@ -143,6 +144,9 @@ async function runAgentWorker(): Promise<void> {
 			resourceLoaderOptions: {
 				extensionFactories: [{ factory: extensionFactory, name: "<d-pi-built-in-std-extension>" }],
 				appendSystemPrompt,
+				agentsFilesOverride: (base) => ({
+					agentsFiles: [...additionalAgentsFiles, ...base.agentsFiles],
+				}),
 				additionalSkillPaths,
 				additionalExtensionPaths,
 			},

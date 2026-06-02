@@ -1,13 +1,21 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { WorkspaceConfig, WorkspaceContext } from "../types.ts";
 
 const DPI_DIR = ".dpi";
 const CONFIG_FILE = "config.json";
 const AGENTS_DIR = "agents";
+const AGENT_NETWORK_DIR = "agent-network";
 const SKILLS_DIR = "skills";
 const EXTENSIONS_DIR = "extensions";
+const ROLES_DIR = "roles";
 const APPEND_SYSTEM_MD = "APPEND_SYSTEM.md";
+const AGENTS_MD = "AGENTS.md";
+
+export interface LoadWorkspaceContextOptions {
+	agentName?: string;
+	roles?: string[];
+}
 
 /**
  * Check if the given directory is a d-pi workspace root (contains .dpi/).
@@ -45,7 +53,10 @@ export function validateWorkspace(workspaceRoot: string): WorkspaceConfig {
 /**
  * Load workspace context: APPEND_SYSTEM.md content, skill paths, extension paths.
  */
-export function loadWorkspaceContext(workspaceRoot: string): WorkspaceContext {
+export function loadWorkspaceContext(
+	workspaceRoot: string,
+	options: LoadWorkspaceContextOptions = {},
+): WorkspaceContext {
 	const resolved = resolve(workspaceRoot);
 
 	// Read APPEND_SYSTEM.md if present
@@ -55,26 +66,127 @@ export function loadWorkspaceContext(workspaceRoot: string): WorkspaceContext {
 		appendSystemPrompt = readFileSync(appendSystemPath, "utf-8");
 	}
 
-	// Collect skill paths
+	const additionalAgentsFiles: Array<{ path: string; content: string }> = [];
 	const additionalSkillPaths: string[] = [];
-	const skillsDir = join(resolved, SKILLS_DIR);
-	if (existsSync(skillsDir)) {
-		additionalSkillPaths.push(skillsDir);
-	}
-
-	// Collect extension paths
 	const additionalExtensionPaths: string[] = [];
-	const extensionsDir = join(resolved, EXTENSIONS_DIR);
-	if (existsSync(extensionsDir)) {
-		additionalExtensionPaths.push(extensionsDir);
-	}
+
+	collectAgentNetworkContext(resolved, options, additionalAgentsFiles, additionalSkillPaths, additionalExtensionPaths);
+	pushIfExists(additionalSkillPaths, join(resolved, SKILLS_DIR));
+	pushExtensionEntriesIfExists(additionalExtensionPaths, join(resolved, EXTENSIONS_DIR));
 
 	return {
 		workspaceRoot: resolved,
 		appendSystemPrompt,
+		additionalAgentsFiles,
 		additionalSkillPaths,
 		additionalExtensionPaths,
 	};
+}
+
+function collectAgentNetworkContext(
+	workspaceRoot: string,
+	options: LoadWorkspaceContextOptions,
+	additionalAgentsFiles: Array<{ path: string; content: string }>,
+	additionalSkillPaths: string[],
+	additionalExtensionPaths: string[],
+): void {
+	const networkDir = join(workspaceRoot, AGENT_NETWORK_DIR);
+	if (!existsSync(networkDir)) {
+		return;
+	}
+	pushAgentsFileIfExists(additionalAgentsFiles, join(networkDir, AGENTS_MD));
+	pushIfExists(additionalSkillPaths, join(networkDir, SKILLS_DIR));
+	pushExtensionEntriesIfExists(additionalExtensionPaths, join(networkDir, EXTENSIONS_DIR));
+
+	for (const role of getEffectiveRoles(options)) {
+		const roleDir = join(networkDir, ROLES_DIR, role.name);
+		if (!existsSync(roleDir)) {
+			if (role.implicit) {
+				continue;
+			}
+			throw new Error(`Unknown agent role "${role.name}": ${roleDir}`);
+		}
+		pushAgentsFileIfExists(additionalAgentsFiles, join(roleDir, AGENTS_MD));
+		pushIfExists(additionalSkillPaths, join(roleDir, SKILLS_DIR));
+		pushExtensionEntriesIfExists(additionalExtensionPaths, join(roleDir, EXTENSIONS_DIR));
+	}
+}
+
+function getEffectiveRoles(options: LoadWorkspaceContextOptions): Array<{ name: string; implicit: boolean }> {
+	const roles = options.roles ?? [];
+	if (options.agentName !== "root") {
+		return roles.map((name) => ({ name, implicit: false }));
+	}
+	return [
+		{ name: "root", implicit: !roles.includes("root") },
+		...roles.filter((role) => role !== "root").map((name) => ({ name, implicit: false })),
+	];
+}
+
+function pushIfExists(target: string[], path: string): void {
+	if (existsSync(path)) {
+		target.push(path);
+	}
+}
+
+function pushExtensionEntriesIfExists(target: string[], path: string): void {
+	if (!existsSync(path)) {
+		return;
+	}
+	for (const entry of discoverExtensionEntries(path)) {
+		target.push(entry);
+	}
+}
+
+function discoverExtensionEntries(path: string): string[] {
+	const stats = statSync(path);
+	if (!stats.isDirectory()) {
+		return [path];
+	}
+	const manifestEntries = readPiExtensionManifest(path);
+	if (manifestEntries.length > 0) {
+		return manifestEntries;
+	}
+	const indexTs = join(path, "index.ts");
+	if (existsSync(indexTs)) {
+		return [indexTs];
+	}
+	const indexJs = join(path, "index.js");
+	if (existsSync(indexJs)) {
+		return [indexJs];
+	}
+
+	const entries: string[] = [];
+	for (const entry of readdirSync(path, { withFileTypes: true })) {
+		const entryPath = join(path, entry.name);
+		if ((entry.isFile() || entry.isSymbolicLink()) && isExtensionFile(entry.name)) {
+			entries.push(entryPath);
+			continue;
+		}
+		if (entry.isDirectory() || entry.isSymbolicLink()) {
+			entries.push(...discoverExtensionEntries(entryPath));
+		}
+	}
+	return entries;
+}
+
+function readPiExtensionManifest(dir: string): string[] {
+	const packageJsonPath = join(dir, "package.json");
+	if (!existsSync(packageJsonPath)) {
+		return [];
+	}
+	const parsed = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as { pi?: { extensions?: string[] } };
+	return (parsed.pi?.extensions ?? []).map((entry) => join(dir, entry)).filter((entry) => existsSync(entry));
+}
+
+function isExtensionFile(filename: string): boolean {
+	return filename.endsWith(".ts") || filename.endsWith(".js");
+}
+
+function pushAgentsFileIfExists(target: Array<{ path: string; content: string }>, path: string): void {
+	if (existsSync(path)) {
+		target.push({ path, content: readFileSync(path, "utf-8") });
+	}
 }
 
 /**

@@ -16,6 +16,11 @@ export function createCreateAgentTool(channel: HubChannel) {
 			model: Type.Optional(
 				Type.String({ description: "Model to use for the new agent (e.g. 'anthropic/claude-sonnet-4')" }),
 			),
+			roles: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "Agent-network role names to apply from agent-network/roles/<role>/",
+				}),
+			),
 			tools: Type.Optional(
 				Type.Array(Type.String(), {
 					description: "Allowlist of tool names. When provided, only these tools are exposed to the agent.",
@@ -33,6 +38,7 @@ export function createCreateAgentTool(channel: HubChannel) {
 					params.name,
 					params.cwd,
 					params.model,
+					params.roles,
 					params.tools,
 					params.excludeTools,
 				);

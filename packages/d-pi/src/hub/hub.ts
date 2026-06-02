@@ -17,6 +17,7 @@ import type {
 	UnsubscribeSourceResult,
 	WorkerToHubMessage,
 } from "../types.ts";
+import { loadWorkspaceContext } from "../workspace/workspace.ts";
 import { AgentRegistry } from "./agent-registry.ts";
 import { HubGateway } from "./gateway.ts";
 import { SourceManager } from "./source-manager.ts";
@@ -84,6 +85,7 @@ export class Hub {
 						: undefined;
 					await this.createAgent(parentAgentId, {
 						name: agentConfig.name,
+						roles: agentConfig.roles,
 						model: agentConfig.model,
 						sessionId: agentConfig.sessionId,
 						tools: agentConfig.tools,
@@ -116,6 +118,7 @@ export class Hub {
 			name: string;
 			cwd?: string;
 			model?: string;
+			roles?: string[];
 			sessionId?: string;
 			tools?: string[];
 			excludeTools?: string[];
@@ -135,11 +138,16 @@ export class Hub {
 
 		// Resolve parent name for persistence
 		const parentName = parentAgentId ? this._registry.get(parentAgentId)?.name : undefined;
+		const workspaceContext = loadWorkspaceContext(this._config.workspaceRoot, {
+			agentName: options.name,
+			roles: options.roles,
+		});
 
 		// Write agent.json
 		const agentConfig: AgentConfig = {
 			name: options.name,
 			parentName,
+			roles: options.roles,
 			model: options.model,
 			sessionId: options.sessionId,
 			tools: options.tools,
@@ -167,7 +175,7 @@ export class Hub {
 				model: options.model,
 				parentAgentId,
 				agentName: options.name,
-				workspaceContext: this._config.workspaceContext,
+				workspaceContext,
 				sessionId: options.sessionId,
 				sessionDir,
 				tools,
@@ -370,6 +378,7 @@ export class Hub {
 						name: string;
 						cwd?: string;
 						model?: string;
+						roles?: string[];
 						tools?: string[];
 						excludeTools?: string[];
 					};
@@ -377,6 +386,7 @@ export class Hub {
 						name: p.name,
 						cwd: p.cwd,
 						model: p.model,
+						roles: p.roles,
 						tools: p.tools,
 						excludeTools: p.excludeTools,
 					});
