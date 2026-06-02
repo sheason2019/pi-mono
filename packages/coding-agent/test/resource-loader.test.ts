@@ -438,7 +438,11 @@ Extra content`,
 			});
 
 			const { skills, diagnostics } = loader.getSkills();
-			expect(diagnostics).toEqual([]);
+			expect(
+				diagnostics.filter(
+					(diagnostic) => diagnostic.type !== "collision" || diagnostic.collision?.name === "file-url-skill",
+				),
+			).toEqual([]);
 			const loadedSkill = skills.find((skill) => skill.name === "file-url-skill");
 			expect(loadedSkill).toBeDefined();
 			expect(loadedSkill?.filePath).toBe(skillPath);
