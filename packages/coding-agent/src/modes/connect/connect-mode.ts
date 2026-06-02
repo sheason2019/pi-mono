@@ -4,13 +4,15 @@ import { RemoteAgentSessionProxy } from "./remote-agent-session-proxy.ts";
 
 export interface ConnectModeOptions {
 	url: string;
+	authToken?: string;
 }
 
 export async function runConnectMode(options: ConnectModeOptions): Promise<void> {
-	const { url } = options;
+	const { authToken, url } = options;
+	const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
 
 	// Fetch initial state snapshot
-	const stateResponse = await fetch(`${url}/state`);
+	const stateResponse = await fetch(`${url}/state`, { headers });
 	if (!stateResponse.ok) {
 		throw new Error(`Failed to connect to ${url}: ${stateResponse.status} ${stateResponse.statusText}`);
 	}
@@ -20,14 +22,20 @@ export async function runConnectMode(options: ConnectModeOptions): Promise<void>
 	const mode = new InteractiveMode(undefined, {
 		banner: snapshot.banner,
 		remoteClientExtensionsUrl: url,
+		remoteClientExtensionHeaders: headers,
 	});
 
 	// Create remote proxy with disconnect callback for graceful shutdown
-	const proxy = new RemoteAgentSessionProxy(url, snapshot, (reason) => {
-		mode.showStatus(`Disconnected: ${reason}`);
-		// Schedule shutdown after a brief delay so the user sees the message
-		setTimeout(() => void mode.shutdown(), 1500);
-	});
+	const proxy = new RemoteAgentSessionProxy(
+		url,
+		snapshot,
+		(reason) => {
+			mode.showStatus(`Disconnected: ${reason}`);
+			// Schedule shutdown after a brief delay so the user sees the message
+			setTimeout(() => void mode.shutdown(), 1500);
+		},
+		{ headers },
+	);
 
 	// Assign proxy to mode after construction
 	mode.setProxy(proxy);

@@ -238,13 +238,14 @@ function registerDPiMessageRenderer(pi: ExtensionAPI): void {
 		}
 		const textContent = extracted?.text ?? rawText;
 
-		// Build meta label: sourceType[:name] · timeString
+		// Build meta label: sourceType[:name] · authName · timeString
 		let source: string = meta.sourceType;
 		if (meta.sourceName) source = `${source}:${meta.sourceName}`;
 		else if (meta.agentId) source = `${source}:${meta.agentId}`;
+		const headerParts = [source, meta.auth?.name, meta.createTime].filter((part) => part?.trim());
 
 		const container = new Container();
-		container.addChild(new Text(theme.fg("warning", `${source} - ${meta.createTime}`), 0, 0));
+		container.addChild(new Text(theme.fg("warning", headerParts.join(" · ")), 0, 0));
 		if (textContent) {
 			const box = new Box(1, 1, (t: string) => theme.bg("userMessageBg", t));
 			box.addChild(

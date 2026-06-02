@@ -115,10 +115,37 @@ describe("d-pi message renderer", () => {
 		const rendered = component!.render(80).map(stripAnsi);
 		const text = rendered.join("\n");
 
-		expect(text).toContain("agent:agent-1");
+		expect(text).toContain("agent:agent-1 · ");
+		expect(text).not.toContain("agent:agent-1 - ");
 		expect(text).toContain("hello world");
 		expect(text).not.toContain("[meta(");
 		expect(rendered.some((line) => visibleWidth(line) === 80)).toBe(true);
+	});
+
+	it("renders connect auth name between source and time", () => {
+		initTheme("dark");
+		const renderer = getDPiMessageRenderer();
+		const component = renderer(
+			{
+				role: "custom",
+				customType: "d-pi-message",
+				content: injectMeta("hello", "connect", undefined, undefined, {
+					name: "lixujie",
+					description: "",
+				}),
+				display: true,
+				details: undefined,
+				timestamp: Date.now(),
+			},
+			{ expanded: false },
+			fakeTheme as never,
+		) as Component | undefined;
+
+		expect(component).toBeDefined();
+		const header = component!.render(80).map(stripAnsi)[0];
+
+		expect(header).toContain("connect · lixujie · ");
+		expect(header).not.toContain("connect - lixujie - ");
 	});
 
 	it("queues incoming messages as follow-ups until agent_end", () => {

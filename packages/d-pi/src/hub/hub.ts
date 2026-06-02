@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
+import { AuthSessionManager } from "../auth/auth-session.ts";
+import { DEFAULT_AGENT_PORT_START, DEFAULT_HUB_PORT } from "../defaults.ts";
 import { injectMeta } from "../extension/message-meta.ts";
 import type {
 	AgentConfig,
@@ -32,7 +34,7 @@ export class Hub {
 
 	constructor(config: HubConfig) {
 		this._config = config;
-		const portStart = config.agentPortStart ?? 9091;
+		const portStart = config.agentPortStart ?? DEFAULT_AGENT_PORT_START;
 		this._registry = new AgentRegistry(portStart);
 
 		this._sourceManager = new SourceManager((sourceName, content, subscriberAgentIds) => {
@@ -55,11 +57,12 @@ export class Hub {
 			this._sourceManager,
 			(parentId, options) => this.createAgent(parentId, options),
 			(agentId) => this.destroyAgent(agentId),
+			new AuthSessionManager(config.workspaceRoot),
 		);
 	}
 
 	async start(): Promise<void> {
-		const hubPort = this._config.port ?? 9090;
+		const hubPort = this._config.port ?? DEFAULT_HUB_PORT;
 
 		// 1. Start gateway
 		await this._gateway.start(hubPort);
@@ -109,7 +112,7 @@ export class Hub {
 
 		process.stderr.write(`[d-pi hub] Workspace: ${this._config.workspaceRoot}\n`);
 		process.stderr.write(`[d-pi hub] Listening on port ${hubPort}\n`);
-		process.stderr.write(`[d-pi hub] Connect with: d-pi connect --url http://localhost:${hubPort}\n`);
+		process.stderr.write(`[d-pi hub] Connect with: d-pi connect <local-user@http://localhost:${hubPort}>\n`);
 	}
 
 	async createAgent(

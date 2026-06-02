@@ -3,6 +3,10 @@ export interface MessageMeta {
 	sourceType: "connect" | "agent" | "source";
 	agentId?: string;
 	sourceName?: string;
+	auth?: {
+		name: string;
+		description: string;
+	};
 	tips: string;
 }
 
@@ -22,12 +26,14 @@ export function injectMeta(
 	sourceType: "connect" | "agent" | "source",
 	agentId?: string,
 	sourceName?: string,
+	auth?: MessageMeta["auth"],
 ): string {
 	const meta: MessageMeta = {
 		createTime: formatTime(new Date()),
 		sourceType,
 		...(agentId && { agentId }),
 		...(sourceName && { sourceName }),
+		...(auth && { auth }),
 		tips: TIPS[sourceType],
 	};
 	return `[meta(${JSON.stringify(meta)})]\n${text}`;

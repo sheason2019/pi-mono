@@ -98,6 +98,7 @@ import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
+import type { ConnectAuthHeaders } from "../connect/auth-headers.ts";
 import { loadRemoteClientExtensions } from "../connect/client-extension-sync.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
@@ -245,6 +246,8 @@ export interface InteractiveModeOptions {
 	banner?: BannerData;
 	/** Serve/connect base URL for server-synchronized client extensions */
 	remoteClientExtensionsUrl?: string;
+	/** Headers to use for remote connect-mode extension requests */
+	remoteClientExtensionHeaders?: ConnectAuthHeaders;
 }
 
 export class InteractiveMode {
@@ -1833,7 +1836,11 @@ export class InteractiveMode {
 
 			// Load server-synchronized client extensions. Connect mode intentionally
 			// does not load local extension paths; the server is the source of truth.
-			const result = await loadRemoteClientExtensions(remoteClientExtensionsUrl, cwd);
+			const result = await loadRemoteClientExtensions(
+				remoteClientExtensionsUrl,
+				cwd,
+				this.options.remoteClientExtensionHeaders,
+			);
 
 			if (result.extensions.length === 0) return;
 

@@ -13,6 +13,7 @@ import type {
 	TreeNodeData,
 	UserMessageItem,
 } from "../../core/agent-session-proxy.ts";
+import type { ConnectAuthHeaders } from "./auth-headers.ts";
 import { SseClient } from "./sse-client.ts";
 
 type Listener = (event: AgentSessionEvent) => void;
@@ -24,13 +25,22 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 	private readonly _sseClient: SseClient;
 	private readonly _baseUrl: string;
 	private readonly _onDisconnect: DisconnectCallback | undefined;
-	constructor(baseUrl: string, initialState: SessionStateSnapshot, onDisconnect?: DisconnectCallback) {
+	private readonly _headers: ConnectAuthHeaders | undefined;
+
+	constructor(
+		baseUrl: string,
+		initialState: SessionStateSnapshot,
+		onDisconnect?: DisconnectCallback,
+		options: { headers?: ConnectAuthHeaders } = {},
+	) {
 		this._baseUrl = baseUrl;
 		this._state = initialState;
 		this._onDisconnect = onDisconnect;
+		this._headers = options.headers;
 
 		this._sseClient = new SseClient(
 			`${baseUrl}/events`,
+			this._headers,
 			(event) => this._handleEvent(event),
 			(error) => {
 				process.stderr.write(`[connect] SSE error: ${error.message}\n`);
@@ -115,7 +125,7 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 
 	/** Fetch full state snapshot from server and update local cache */
 	private async _fetchState(): Promise<void> {
-		const response = await fetch(`${this._baseUrl}/state`);
+		const response = await fetch(`${this._baseUrl}/state`, { headers: this._headers });
 		if (!response.ok) {
 			throw new Error(`GET /state returned HTTP ${response.status}`);
 		}
@@ -126,7 +136,7 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 	private async _post(endpoint: string, body?: unknown): Promise<unknown> {
 		const response = await fetch(`${this._baseUrl}/${endpoint}`, {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: { ...this._headers, "Content-Type": "application/json" },
 			body: body ? JSON.stringify(body) : undefined,
 		});
 		const data = await response.json();

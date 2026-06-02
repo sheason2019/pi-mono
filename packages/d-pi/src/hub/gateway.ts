@@ -1,4 +1,6 @@
 import { createServer, type IncomingMessage, request, type Server, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
+import type { AuthSessionInfo, AuthSessionManager } from "../auth/auth-session.ts";
 import { injectMeta } from "../extension/message-meta.ts";
 import type { SourceConfig } from "../types.ts";
 import type { AgentRegistry } from "./agent-registry.ts";
@@ -27,17 +29,20 @@ export class HubGateway {
 		options: { name: string; cwd?: string; model?: string; roles?: string[] },
 	) => Promise<{ agentId: string; name: string }>;
 	private readonly _onDestroyAgent: (agentId: string) => Promise<void>;
+	private readonly _auth: AuthSessionManager | undefined;
 
 	constructor(
 		registry: AgentRegistry,
 		sourceManager: SourceManager,
 		onCreateAgent: HubGateway["_onCreateAgent"],
 		onDestroyAgent: HubGateway["_onDestroyAgent"],
+		auth?: AuthSessionManager,
 	) {
 		this._registry = registry;
 		this._sourceManager = sourceManager;
 		this._onCreateAgent = onCreateAgent;
 		this._onDestroyAgent = onDestroyAgent;
+		this._auth = auth;
 	}
 
 	async start(port: number): Promise<void> {
@@ -96,7 +101,77 @@ export class HubGateway {
 		}
 	}
 
+	url(): string {
+		if (!this._server) {
+			throw new Error("Gateway is not running");
+		}
+		const address = this._server.address() as AddressInfo | null;
+		if (!address) {
+			throw new Error("Gateway address is unavailable");
+		}
+		return `http://127.0.0.1:${address.port}`;
+	}
+
+	private _authenticate(req: IncomingMessage): AuthSessionInfo | undefined {
+		if (!this._auth) return { publicKey: "", auth: { name: "local", description: "local" } };
+		const header = req.headers.authorization;
+		if (!header?.startsWith("Bearer ")) return undefined;
+		return this._auth.verifyToken(header.slice("Bearer ".length));
+	}
+
 	private async _handleHubApi(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+		if (path === "/_hub/auth/challenge" && req.method === "POST") {
+			if (!this._auth) {
+				res.writeHead(404, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ error: "Auth is not enabled" }));
+				return;
+			}
+			try {
+				const body = await this._readBody(req);
+				const params = JSON.parse(body) as { publicKey?: string };
+				if (!params.publicKey) throw new Error("publicKey is required");
+				res.writeHead(200, { "Content-Type": "application/json" });
+				res.end(JSON.stringify(this._auth.createChallenge(params.publicKey)));
+			} catch (err) {
+				res.writeHead(401, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+			}
+			return;
+		}
+
+		if (path === "/_hub/auth/session" && req.method === "POST") {
+			if (!this._auth) {
+				res.writeHead(404, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ error: "Auth is not enabled" }));
+				return;
+			}
+			try {
+				const body = await this._readBody(req);
+				const params = JSON.parse(body) as { publicKey?: string; challengeId?: string; signature?: string };
+				if (!params.publicKey || !params.challengeId || !params.signature) {
+					throw new Error("publicKey, challengeId, and signature are required");
+				}
+				const session = this._auth.createSession({
+					publicKey: params.publicKey,
+					challengeId: params.challengeId,
+					signature: params.signature,
+				});
+				res.writeHead(200, { "Content-Type": "application/json" });
+				res.end(JSON.stringify(session));
+			} catch (err) {
+				res.writeHead(401, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+			}
+			return;
+		}
+
+		const auth = this._authenticate(req);
+		if (!auth) {
+			res.writeHead(401, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ error: "Unauthorized" }));
+			return;
+		}
+
 		// GET /_hub/agents — list all agents
 		if (path === "/_hub/agents" && req.method === "GET") {
 			const snapshot = this._registry.getSnapshot();
@@ -208,6 +283,12 @@ export class HubGateway {
 			res.end(JSON.stringify({ error: `Agent not found: ${agentId}` }));
 			return;
 		}
+		const auth = this._authenticate(req);
+		if (!auth) {
+			res.writeHead(401, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ error: "Unauthorized" }));
+			return;
+		}
 
 		const targetUrl = `http://localhost:${agent.port}${path}`;
 		const url = new URL(req.url ?? "/", "http://localhost");
@@ -233,7 +314,7 @@ export class HubGateway {
 				const body = await this._readBody(req);
 				const parsed = JSON.parse(body) as { text?: string; options?: unknown };
 				if (parsed.text) {
-					parsed.text = injectMeta(parsed.text, "connect");
+					parsed.text = injectMeta(parsed.text, "connect", undefined, undefined, auth.auth);
 				}
 				const rewrittenBody = JSON.stringify(parsed);
 

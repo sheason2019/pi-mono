@@ -2,10 +2,12 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { AGENT_SWITCH_FILE } from "../extension/index.ts";
 import type { AgentNetworkSnapshot } from "../types.ts";
+import { createConnectSession } from "./connect-auth.ts";
 
 export interface DPiConnectOptions {
 	url: string;
 	agent?: string;
+	authToken?: string;
 }
 
 /**
@@ -19,10 +21,18 @@ export interface DPiConnectOptions {
  * a new child connected to the selected agent.
  */
 export async function runDPiConnectMode(options: DPiConnectOptions): Promise<void> {
-	const { url, agent: agentSpec } = options;
+	let { url } = options;
+	let authToken = options.authToken;
+	const { agent: agentSpec } = options;
+	if (!authToken && url.includes("@")) {
+		const session = await createConnectSession({ target: url });
+		url = session.url;
+		authToken = session.token;
+	}
+	const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
 
 	// 1. Fetch agent network from Hub to resolve initial agent
-	const networkResponse = await fetch(`${url}/_hub/network`);
+	const networkResponse = await fetch(`${url}/_hub/network`, { headers });
 	if (!networkResponse.ok) {
 		throw new Error(`Failed to fetch agent network: ${networkResponse.status} ${networkResponse.statusText}`);
 	}
@@ -34,7 +44,7 @@ export async function runDPiConnectMode(options: DPiConnectOptions): Promise<voi
 	while (true) {
 		const agentUrl = `${url}/agents/${currentAgentId}`;
 
-		await spawnConnectChild(agentUrl, url, currentAgentId);
+		await spawnConnectChild(agentUrl, url, currentAgentId, authToken);
 
 		// Check if the child exited due to an agent switch (file exists)
 		// vs a normal quit (file absent)
@@ -57,11 +67,23 @@ export async function runDPiConnectMode(options: DPiConnectOptions): Promise<voi
 }
 
 /** Spawn `d-pi _connect-child` as a child process and wait for it to exit. */
-function spawnConnectChild(agentUrl: string, hubUrl: string, currentAgentId: string): Promise<void> {
+export function buildConnectChildArgs(cliPath: string, agentUrl: string, hubUrl: string): string[] {
+	if (cliPath.endsWith(".ts")) {
+		return ["--import", "tsx", cliPath, "_connect-child", agentUrl, hubUrl];
+	}
+	return [cliPath, "_connect-child", agentUrl, hubUrl];
+}
+
+function spawnConnectChild(
+	agentUrl: string,
+	hubUrl: string,
+	currentAgentId: string,
+	authToken: string | undefined,
+): Promise<void> {
 	return new Promise((resolve) => {
-		const child = spawn(process.execPath, ["--import", "tsx", process.argv[1]!, "_connect-child", agentUrl, hubUrl], {
+		const child = spawn(process.execPath, buildConnectChildArgs(process.argv[1]!, agentUrl, hubUrl), {
 			stdio: "inherit",
-			env: { ...process.env, DPI_CURRENT_AGENT_ID: currentAgentId, DPI_HUB_URL: hubUrl },
+			env: { ...process.env, DPI_AUTH_TOKEN: authToken, DPI_CURRENT_AGENT_ID: currentAgentId, DPI_HUB_URL: hubUrl },
 		});
 
 		child.on("exit", () => {

@@ -1,20 +1,24 @@
 import type { AgentSessionEvent } from "../../core/agent-session.ts";
+import type { ConnectAuthHeaders } from "./auth-headers.ts";
 
 export class SseClient {
 	private _abortController: AbortController | undefined;
 	private _connected = false;
 	private readonly _url: string;
+	private readonly _headers: ConnectAuthHeaders | undefined;
 	private readonly _onEvent: (event: AgentSessionEvent) => void;
 	private readonly _onError: (error: Error) => void;
 	private readonly _onClose: () => void;
 
 	constructor(
 		url: string,
+		headers: ConnectAuthHeaders | undefined,
 		onEvent: (event: AgentSessionEvent) => void,
 		onError: (error: Error) => void,
 		onClose: () => void,
 	) {
 		this._url = url;
+		this._headers = headers;
 		this._onEvent = onEvent;
 		this._onError = onError;
 		this._onClose = onClose;
@@ -25,7 +29,7 @@ export class SseClient {
 
 		const response = await fetch(this._url, {
 			method: "GET",
-			headers: { Accept: "text/event-stream" },
+			headers: { ...this._headers, Accept: "text/event-stream" },
 			signal: this._abortController.signal,
 		});
 

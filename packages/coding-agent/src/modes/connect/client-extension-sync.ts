@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { createEventBus } from "../../core/event-bus.ts";
 import type { LoadExtensionsResult } from "../../core/extensions/index.ts";
 import { loadExtensions } from "../../core/extensions/loader.ts";
+import type { ConnectAuthHeaders } from "./auth-headers.ts";
 
 export interface RemoteClientExtensionFile {
 	path: string;
@@ -47,8 +48,12 @@ function writeBundle(bundle: RemoteClientExtensionBundle, baseDir: string): stri
 	return shimPath;
 }
 
-export async function loadRemoteClientExtensions(url: string, cwd: string): Promise<LoadExtensionsResult> {
-	const response = await fetch(`${url}/client-extensions`);
+export async function loadRemoteClientExtensions(
+	url: string,
+	cwd: string,
+	headers?: ConnectAuthHeaders,
+): Promise<LoadExtensionsResult> {
+	const response = await fetch(`${url}/client-extensions`, { headers });
 	if (!response.ok) {
 		throw new Error(`Failed to load client extensions: ${response.status} ${response.statusText}`);
 	}
