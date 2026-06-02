@@ -5,9 +5,9 @@ import {
 	type InputEventResult,
 	initTheme,
 	type MessageRenderer,
-} from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
-import { visibleWidth } from "@earendil-works/pi-tui";
+} from "@sheason/pi-coding-agent";
+import type { Component } from "@sheason/pi-tui";
+import { visibleWidth } from "@sheason/pi-tui";
 import { describe, expect, it } from "vitest";
 import { createDPiExtension } from "../src/extension/index.ts";
 import { injectMeta } from "../src/extension/message-meta.ts";

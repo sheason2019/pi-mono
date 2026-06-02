@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { runConnectMode } from "@earendil-works/pi-coding-agent/d-pi-worker";
+import { runConnectMode } from "@sheason/pi-coding-agent/d-pi-worker";
 import { createAllowedUser, listAllowedUsers, removeAllowedUser, updateAllowedUser } from "./auth/allowed-users.ts";
 import { createLocalUser, listLocalUsers, removeLocalUser, updateLocalUser } from "./auth/local-users.ts";
 import { runDPiConnectMode } from "./connect/connect-mode.ts";

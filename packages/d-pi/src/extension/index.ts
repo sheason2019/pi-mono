@@ -1,9 +1,9 @@
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionFactory, MessageRenderer } from "@earendil-works/pi-coding-agent";
-import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { Box, Container, Markdown, Text } from "@earendil-works/pi-tui";
+import type { ExtensionAPI, ExtensionFactory, MessageRenderer } from "@sheason/pi-coding-agent";
+import { getMarkdownTheme } from "@sheason/pi-coding-agent";
+import { Box, Container, Markdown, Text } from "@sheason/pi-tui";
 import type { AgentNetworkEntry, AgentNetworkSnapshot, AgentStatus, SourceInfo, WorkerToHubMessage } from "../types.ts";
 import { createAgentNetworkTool } from "./agent-network.ts";
 import { createCreateAgentTool } from "./create-agent.ts";

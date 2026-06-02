@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@sheason/pi-coding-agent";
 import { createDPiExtension } from "./index.ts";
 
 export default function server(): void {

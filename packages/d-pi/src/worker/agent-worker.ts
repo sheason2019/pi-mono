@@ -8,15 +8,9 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
-import type { Model } from "@earendil-works/pi-ai";
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import {
-	AuthStorage,
-	getAgentDir,
-	ModelRegistry,
-	SessionManager,
-	SettingsManager,
-} from "@earendil-works/pi-coding-agent";
+import type { Model } from "@sheason/pi-ai";
+import type { AgentSession } from "@sheason/pi-coding-agent";
+import { AuthStorage, getAgentDir, ModelRegistry, SessionManager, SettingsManager } from "@sheason/pi-coding-agent";
 import {
 	AgentHttpServer,
 	type AgentSessionRuntime,
@@ -26,7 +20,7 @@ import {
 	findInitialModel,
 	generateBanner,
 	LocalAgentSessionProxy,
-} from "@earendil-works/pi-coding-agent/d-pi-worker";
+} from "@sheason/pi-coding-agent/d-pi-worker";
 import { createDPiExtension, type HubChannel } from "../extension/index.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 

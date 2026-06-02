@@ -1,5 +1,5 @@
-import { Type } from "@earendil-works/pi-ai";
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sheason/pi-ai";
+import { defineTool } from "@sheason/pi-coding-agent";
 import type { SourceInfo } from "../types.ts";
 import type { HubChannel } from "./hub-channel.ts";
 

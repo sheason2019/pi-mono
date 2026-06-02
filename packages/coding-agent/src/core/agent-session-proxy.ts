@@ -1,4 +1,4 @@
-import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, ThinkingLevel } from "@sheason/pi-agent-core";
 import type { AgentSessionEvent } from "./agent-session.ts";
 import type { SourceInfo } from "./source-info.ts";
 
