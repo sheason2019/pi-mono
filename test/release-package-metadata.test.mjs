@@ -45,6 +45,22 @@ describe("sheason release metadata", () => {
 		assert.equal(dPi.dependencies["@sheason/pi-tui"], combinedVersion);
 	});
 
+	test("keeps pi packages lockstep while allowing d-pi to use its own embedded version", () => {
+		const ai = readJson("packages/ai/package.json");
+		const agent = readJson("packages/agent/package.json");
+		const tui = readJson("packages/tui/package.json");
+		const codingAgent = readJson("packages/coding-agent/package.json");
+		const dPi = readJson("packages/d-pi/package.json");
+		const publishScript = readText("scripts/publish.mjs");
+
+		const piVersions = new Set([ai.version, agent.version, tui.version, codingAgent.version]);
+		assert.deepEqual([...piVersions], [combinedVersion]);
+		assert.equal(combinedVersion, `0.78.0-sheason.${dPi.version}`);
+		assert.equal(dPi.version, dPiVersion);
+		assert.match(publishScript, /assertReleaseVersions/);
+		assert.doesNotMatch(publishScript, /Publish packages are not lockstep versioned/);
+	});
+
 	test("keeps workspace aliases and publish scripts aligned with renamed packages", () => {
 		const rootPackage = readJson("package.json");
 		const tsconfig = readJson("tsconfig.json");

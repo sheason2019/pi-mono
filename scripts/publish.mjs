@@ -12,6 +12,9 @@ const packages = [
 	{ directory: "packages/d-pi", name: "@sheason/d-pi" },
 ];
 
+const piPackageNames = ["@sheason/pi-ai", "@sheason/pi-agent-core", "@sheason/pi-tui", "@sheason/pi-coding-agent"];
+const dPiPackageName = "@sheason/d-pi";
+
 const dryRun = process.argv.includes("--dry-run");
 const unknownArgs = process.argv.slice(2).filter((arg) => arg !== "--dry-run");
 
@@ -74,6 +77,26 @@ function isPublished(name, version) {
 	throw new Error(output ? `Failed to query ${name}@${version}\n${output}` : `Failed to query ${name}@${version}`);
 }
 
+function assertReleaseVersions(packageVersions) {
+	const piVersions = [...new Set(piPackageNames.map((name) => packageVersions.get(name)))];
+	if (piVersions.length !== 1) {
+		throw new Error(`pi packages are not lockstep versioned: ${piVersions.join(", ")}`);
+	}
+
+	const dPiVersion = packageVersions.get(dPiPackageName);
+	if (!dPiVersion) {
+		throw new Error(`${dPiPackageName} version is missing`);
+	}
+
+	const piVersion = piVersions[0];
+	const expectedSuffix = `-sheason.${dPiVersion}`;
+	if (!piVersion.endsWith(expectedSuffix)) {
+		throw new Error(`${piPackageNames.join(", ")} version ${piVersion} must end with ${expectedSuffix}`);
+	}
+
+	return { dPiVersion, piVersion };
+}
+
 const packageVersions = new Map();
 for (const pkg of packages) {
 	const packageJson = readPackageJson(pkg.directory);
@@ -83,12 +106,9 @@ for (const pkg of packages) {
 	packageVersions.set(pkg.name, packageJson.version);
 }
 
-const versions = [...new Set(packageVersions.values())];
-if (versions.length !== 1) {
-	throw new Error(`Publish packages are not lockstep versioned: ${versions.join(", ")}`);
-}
+const { dPiVersion, piVersion } = assertReleaseVersions(packageVersions);
 
-console.log(`Publishing pi packages at ${versions[0]}${dryRun ? " (dry run)" : ""}\n`);
+console.log(`Publishing pi packages at ${piVersion} and ${dPiPackageName} at ${dPiVersion}${dryRun ? " (dry run)" : ""}\n`);
 
 for (const pkg of packages) {
 	const version = packageVersions.get(pkg.name);
