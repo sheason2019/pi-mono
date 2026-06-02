@@ -1,12 +1,9 @@
 import type { SessionStateSnapshot } from "../../core/agent-session-proxy.ts";
-import type { ExtensionFactory } from "../../core/extensions/types.ts";
 import { InteractiveMode } from "../interactive/interactive-mode.ts";
 import { RemoteAgentSessionProxy } from "./remote-agent-session-proxy.ts";
 
 export interface ConnectModeOptions {
 	url: string;
-	/** Inline extension factories for client-side commands (e.g. /agents) */
-	clientExtensionFactories?: ExtensionFactory[];
 }
 
 export async function runConnectMode(options: ConnectModeOptions): Promise<void> {
@@ -23,7 +20,6 @@ export async function runConnectMode(options: ConnectModeOptions): Promise<void>
 	const mode = new InteractiveMode(undefined, {
 		banner: snapshot.banner,
 		remoteClientExtensionsUrl: url,
-		clientExtensionFactories: options.clientExtensionFactories,
 	});
 
 	// Create remote proxy with disconnect callback for graceful shutdown

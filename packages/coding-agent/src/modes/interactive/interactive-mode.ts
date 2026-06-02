@@ -64,19 +64,16 @@ import {
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
 import type { AgentSessionProxy, BannerData, ServeSlashCommand, TreeNodeData } from "../../core/agent-session-proxy.ts";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.ts";
-import { createEventBus } from "../../core/event-bus.ts";
 import type {
 	AutocompleteProviderFactory,
 	EditorFactory,
 	ExtensionCommandContext,
 	ExtensionContext,
-	ExtensionFactory,
 	ExtensionRunner,
 	ExtensionUIContext,
 	ExtensionUIDialogOptions,
 	ExtensionWidgetOptions,
 } from "../../core/extensions/index.ts";
-import { createExtensionRuntime, loadExtensionFromFactory } from "../../core/extensions/loader.ts";
 import { ExtensionRunner as ExtensionRunnerImpl } from "../../core/extensions/runner.ts";
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
@@ -248,8 +245,6 @@ export interface InteractiveModeOptions {
 	banner?: BannerData;
 	/** Serve/connect base URL for server-synchronized client extensions */
 	remoteClientExtensionsUrl?: string;
-	/** Inline extension factories for client-side commands in connect mode */
-	clientExtensionFactories?: ExtensionFactory[];
 }
 
 export class InteractiveMode {
@@ -1830,32 +1825,15 @@ export class InteractiveMode {
 		if (!this.proxy) return;
 
 		const snapshot = this.proxy.getSnapshot();
-		const inlineFactories = this.options.clientExtensionFactories;
 		const remoteClientExtensionsUrl = this.options.remoteClientExtensionsUrl;
-		const hasRemote = Boolean(remoteClientExtensionsUrl);
-		const hasInline = inlineFactories && inlineFactories.length > 0;
-		if (!hasRemote && !hasInline) return;
+		if (!remoteClientExtensionsUrl) return;
 
 		try {
 			const cwd = snapshot.cwd || process.cwd();
-			const eventBus = createEventBus();
 
 			// Load server-synchronized client extensions. Connect mode intentionally
 			// does not load local extension paths; the server is the source of truth.
-			let result: Awaited<ReturnType<typeof loadRemoteClientExtensions>>;
-			if (remoteClientExtensionsUrl) {
-				result = await loadRemoteClientExtensions(remoteClientExtensionsUrl, cwd);
-			} else {
-				result = { extensions: [], errors: [], runtime: createExtensionRuntime() };
-			}
-
-			// Load inline factory extensions
-			if (hasInline) {
-				for (const factory of inlineFactories!) {
-					const ext = await loadExtensionFromFactory(factory, cwd, eventBus, result.runtime, "<client-inline>");
-					result.extensions.push(ext);
-				}
-			}
+			const result = await loadRemoteClientExtensions(remoteClientExtensionsUrl, cwd);
 
 			if (result.extensions.length === 0) return;
 

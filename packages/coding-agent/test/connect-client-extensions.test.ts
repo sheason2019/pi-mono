@@ -5,7 +5,32 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentSessionProxy, SessionStateSnapshot } from "../src/core/agent-session-proxy.ts";
 import { loadRemoteClientExtensions } from "../src/modes/connect/client-extension-sync.ts";
+import { runConnectMode } from "../src/modes/connect/connect-mode.ts";
 import { handleApiRequest } from "../src/modes/serve/api-handlers.ts";
+
+const interactiveModeOptions: unknown[] = [];
+
+vi.mock("../src/modes/interactive/interactive-mode.ts", () => ({
+	InteractiveMode: class {
+		constructor(_runtime: unknown, options: unknown) {
+			interactiveModeOptions.push(options);
+		}
+
+		setProxy(): void {}
+
+		showStatus(): void {}
+
+		async shutdown(): Promise<void> {}
+
+		async run(): Promise<void> {}
+	},
+}));
+
+vi.mock("../src/modes/connect/remote-agent-session-proxy.ts", () => ({
+	RemoteAgentSessionProxy: class {
+		async connect(): Promise<void> {}
+	},
+}));
 
 const baseSnapshot: SessionStateSnapshot = {
 	model: "test/model",
@@ -87,10 +112,35 @@ async function serveOnce(proxy: AgentSessionProxy): Promise<{ url: string; close
 
 describe("connect client extensions", () => {
 	afterEach(() => {
+		interactiveModeOptions.length = 0;
+		vi.unstubAllGlobals();
 		if (tempDir) {
 			rmSync(tempDir, { recursive: true, force: true });
 			tempDir = undefined;
 		}
+	});
+
+	it("connect mode does not accept local client extension factories", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: string | URL | Request) => {
+				expect(String(url)).toBe("http://remote/state");
+				return new Response(JSON.stringify(baseSnapshot), { status: 200 });
+			}),
+		);
+
+		const options = {
+			url: "http://remote",
+			clientExtensionFactories: [
+				() => {
+					throw new Error("local client extension should not be wired");
+				},
+			],
+		};
+
+		await runConnectMode(options);
+
+		expect(interactiveModeOptions).toEqual([{ banner: undefined, remoteClientExtensionsUrl: "http://remote" }]);
 	});
 
 	it("serve mode exposes only extension bundles with a client export", async () => {
