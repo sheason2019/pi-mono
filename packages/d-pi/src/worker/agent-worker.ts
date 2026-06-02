@@ -30,6 +30,10 @@ import {
 import { createDPiExtension, type HubChannel } from "../extension/index.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 
+const dPiClientExtensionPath = new URL(
+	`../extension/client-extension${import.meta.url.endsWith(".ts") ? ".ts" : ".js"}`,
+	import.meta.url,
+).pathname;
 const config = workerData as AgentWorkerConfig;
 const port = parentPort!;
 
@@ -131,7 +135,10 @@ async function runAgentWorker(): Promise<void> {
 			: undefined;
 		const additionalAgentsFiles = config.workspaceContext?.additionalAgentsFiles ?? [];
 		const additionalSkillPaths = config.workspaceContext?.additionalSkillPaths ?? [];
-		const additionalExtensionPaths = config.workspaceContext?.additionalExtensionPaths ?? [];
+		const additionalExtensionPaths = [
+			dPiClientExtensionPath,
+			...(config.workspaceContext?.additionalExtensionPaths ?? []),
+		];
 
 		process.stderr.write(`[d-pi worker ${agentId}] Creating session services...\n`);
 

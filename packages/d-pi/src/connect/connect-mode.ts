@@ -61,7 +61,7 @@ function spawnConnectChild(agentUrl: string, hubUrl: string, currentAgentId: str
 	return new Promise((resolve) => {
 		const child = spawn(process.execPath, ["--import", "tsx", process.argv[1]!, "_connect-child", agentUrl, hubUrl], {
 			stdio: "inherit",
-			env: { ...process.env, DPI_CURRENT_AGENT_ID: currentAgentId },
+			env: { ...process.env, DPI_CURRENT_AGENT_ID: currentAgentId, DPI_HUB_URL: hubUrl },
 		});
 
 		child.on("exit", () => {

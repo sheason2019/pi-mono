@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { runConnectMode } from "@earendil-works/pi-coding-agent/d-pi-worker";
+import { runDPiConnectMode } from "./connect/connect-mode.ts";
 import { Hub } from "./hub/hub.ts";
 import { initWorkspace, isWorkspaceRoot, loadWorkspaceContext, validateWorkspace } from "./workspace/workspace.ts";
 
@@ -54,35 +56,19 @@ if (command === "init") {
 	const agentIndex = args.indexOf("--agent");
 	const agent = agentIndex !== -1 ? args[agentIndex + 1] : undefined;
 
-	import("./connect/connect-mode.ts").then(({ runDPiConnectMode }) => {
-		runDPiConnectMode({ url, agent }).catch((err) => {
-			console.error(`[d-pi] Fatal error: ${err.message}`);
-			process.exit(1);
-		});
+	runDPiConnectMode({ url, agent }).catch((err) => {
+		console.error(`[d-pi] Fatal error: ${err.message}`);
+		process.exit(1);
 	});
 } else if (command === "_connect-child") {
-	// Internal subcommand: run coding-agent's connect mode with /agents extension injected.
+	// Internal subcommand: run coding-agent's connect mode for one selected agent.
 	// Spawned by the parent `d-pi connect` process for agent switching.
 	const agentUrl = args[1];
-	const hubUrl = args[2];
 
-	Promise.all([import("@earendil-works/pi-coding-agent/d-pi-worker"), import("./extension/index.ts")]).then(
-		([{ runConnectMode }, { createDPiExtension }]) => {
-			const currentAgentId = process.env.DPI_CURRENT_AGENT_ID;
-			const clientExtensionFactory = createDPiExtension({
-				mode: "client",
-				hubUrl,
-				currentAgentId,
-			}).factory;
-			runConnectMode({
-				url: agentUrl,
-				clientExtensionFactories: [clientExtensionFactory],
-			}).catch((err: Error) => {
-				console.error(`[d-pi connect] Fatal error: ${err.message}`);
-				process.exit(1);
-			});
-		},
-	);
+	runConnectMode({ url: agentUrl }).catch((err: Error) => {
+		console.error(`[d-pi connect] Fatal error: ${err.message}`);
+		process.exit(1);
+	});
 } else {
 	console.log(`d-pi - Multi-agent tree orchestrator
 

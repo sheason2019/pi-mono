@@ -64,6 +64,7 @@ import {
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
 import type { AgentSessionProxy, BannerData, ServeSlashCommand, TreeNodeData } from "../../core/agent-session-proxy.ts";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.ts";
+import { createEventBus } from "../../core/event-bus.ts";
 import type {
 	AutocompleteProviderFactory,
 	EditorFactory,
@@ -75,6 +76,8 @@ import type {
 	ExtensionUIDialogOptions,
 	ExtensionWidgetOptions,
 } from "../../core/extensions/index.ts";
+import { createExtensionRuntime, loadExtensionFromFactory } from "../../core/extensions/loader.ts";
+import { ExtensionRunner as ExtensionRunnerImpl } from "../../core/extensions/runner.ts";
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
@@ -98,6 +101,7 @@ import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
+import { loadRemoteClientExtensions } from "../connect/client-extension-sync.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -242,6 +246,8 @@ export interface InteractiveModeOptions {
 	proxy?: AgentSessionProxy;
 	/** Banner data from server (connect mode) — used to render the startup header */
 	banner?: BannerData;
+	/** Serve/connect base URL for server-synchronized client extensions */
+	remoteClientExtensionsUrl?: string;
 	/** Inline extension factories for client-side commands in connect mode */
 	clientExtensionFactories?: ExtensionFactory[];
 }
@@ -1824,26 +1830,21 @@ export class InteractiveMode {
 		if (!this.proxy) return;
 
 		const snapshot = this.proxy.getSnapshot();
-		const extensionPaths = snapshot.extensionPaths;
 		const inlineFactories = this.options.clientExtensionFactories;
-		const hasPaths = extensionPaths && extensionPaths.length > 0;
+		const remoteClientExtensionsUrl = this.options.remoteClientExtensionsUrl;
+		const hasRemote = Boolean(remoteClientExtensionsUrl);
 		const hasInline = inlineFactories && inlineFactories.length > 0;
-		if (!hasPaths && !hasInline) return;
+		if (!hasRemote && !hasInline) return;
 
 		try {
-			const { loadExtensions, loadExtensionFromFactory, createExtensionRuntime } = await import(
-				"../../core/extensions/loader.ts"
-			);
-			const { ExtensionRunner } = await import("../../core/extensions/runner.ts");
-			const { createEventBus } = await import("../../core/event-bus.ts");
-
 			const cwd = snapshot.cwd || process.cwd();
 			const eventBus = createEventBus();
 
-			// Load path-based extensions
-			let result: Awaited<ReturnType<typeof loadExtensions>>;
-			if (hasPaths) {
-				result = await loadExtensions(extensionPaths!, cwd, eventBus);
+			// Load server-synchronized client extensions. Connect mode intentionally
+			// does not load local extension paths; the server is the source of truth.
+			let result: Awaited<ReturnType<typeof loadRemoteClientExtensions>>;
+			if (remoteClientExtensionsUrl) {
+				result = await loadRemoteClientExtensions(remoteClientExtensionsUrl, cwd);
 			} else {
 				result = { extensions: [], errors: [], runtime: createExtensionRuntime() };
 			}
@@ -1858,7 +1859,7 @@ export class InteractiveMode {
 
 			if (result.extensions.length === 0) return;
 
-			const runner = ExtensionRunner.createClientSide(result.extensions, result.runtime, cwd);
+			const runner = ExtensionRunnerImpl.createClientSide(result.extensions, result.runtime, cwd);
 
 			// Bind core actions — most are no-ops since the server handles them.
 			// Only UI-facing actions need real implementations.

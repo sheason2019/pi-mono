@@ -22,6 +22,7 @@ export async function runConnectMode(options: ConnectModeOptions): Promise<void>
 	// Create InteractiveMode first so we have a reference for graceful shutdown
 	const mode = new InteractiveMode(undefined, {
 		banner: snapshot.banner,
+		remoteClientExtensionsUrl: url,
 		clientExtensionFactories: options.clientExtensionFactories,
 	});
 
