@@ -54,3 +54,46 @@ describe("ExecutorRegistry", () => {
 		expect(captured).toEqual({ ok: false, error: expect.stringContaining("disconnected") });
 	});
 });
+
+describe("ExecutorRegistry two-step API", () => {
+	let registry: ExecutorRegistry;
+
+	beforeEach(() => {
+		registry = new ExecutorRegistry();
+	});
+
+	it("preRegister records cwd without an sseConn", () => {
+		registry.preRegister("c1", { cwd: "/tmp" });
+		const handle = registry.get("c1");
+		expect(handle).toBeDefined();
+		expect(handle!.cwd).toBe("/tmp");
+		expect(handle!.sseConn).toBeUndefined();
+	});
+
+	it("attachSse promotes a pre-registered entry to fully registered", () => {
+		registry.preRegister("c1", { cwd: "/tmp" });
+		const sseConn = { send: () => {} };
+		registry.attachSse("c1", sseConn);
+		expect(registry.get("c1")!.sseConn).toBe(sseConn);
+	});
+
+	it("attachSse throws if connectId not pre-registered", () => {
+		expect(() => registry.attachSse("nope", { send: () => {} })).toThrow(/not pre-registered/i);
+	});
+
+	it("preRegister throws on duplicate (whether pre-registered or fully)", () => {
+		registry.preRegister("c1", { cwd: "/tmp" });
+		expect(() => registry.preRegister("c1", { cwd: "/other" })).toThrow(/already registered/i);
+		// After attach, preRegister should still throw.
+		registry.attachSse("c1", { send: () => {} });
+		expect(() => registry.preRegister("c1", { cwd: "/another" })).toThrow(/already registered/i);
+	});
+
+	it("register (single-call convenience) pre-registers and attaches in one step", () => {
+		const sseConn = { send: () => {} };
+		registry.register("c1", { cwd: "/tmp", sseConn });
+		const handle = registry.get("c1");
+		expect(handle!.cwd).toBe("/tmp");
+		expect(handle!.sseConn).toBe(sseConn);
+	});
+});
