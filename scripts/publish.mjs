@@ -77,6 +77,10 @@ function isPublished(name, version) {
 	throw new Error(output ? `Failed to query ${name}@${version}\n${output}` : `Failed to query ${name}@${version}`);
 }
 
+function useProvenance() {
+	return process.env.GITHUB_ACTIONS === "true";
+}
+
 function assertReleaseVersions(packageVersions) {
 	const piVersions = [...new Set(piPackageNames.map((name) => packageVersions.get(name)))];
 	if (piVersions.length !== 1) {
@@ -131,6 +135,10 @@ for (const pkg of packages) {
 		continue;
 	}
 
-	run("npm", ["publish", "--access", "public", "--provenance", "--ignore-scripts"], { cwd: pkg.directory });
+	const publishArgs = ["publish", "--access", "public", "--ignore-scripts"];
+	if (useProvenance()) {
+		publishArgs.push("--provenance");
+	}
+	run("npm", publishArgs, { cwd: pkg.directory });
 	console.log();
 }

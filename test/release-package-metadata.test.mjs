@@ -61,6 +61,15 @@ describe("sheason release metadata", () => {
 		assert.doesNotMatch(publishScript, /Publish packages are not lockstep versioned/);
 	});
 
+	test("uses npm provenance only in supported CI providers", () => {
+		const publishScript = readText("scripts/publish.mjs");
+
+		assert.match(publishScript, /useProvenance/);
+		assert.match(publishScript, /GITHUB_ACTIONS/);
+		assert.match(publishScript, /publishArgs\.push\("--provenance"\)/);
+		assert.doesNotMatch(publishScript, /\["publish", "--access", "public", "--provenance", "--ignore-scripts"\]/);
+	});
+
 	test("keeps workspace aliases and publish scripts aligned with renamed packages", () => {
 		const rootPackage = readJson("package.json");
 		const tsconfig = readJson("tsconfig.json");
