@@ -281,6 +281,36 @@ export class HubGateway {
 			return;
 		}
 
+		// POST /_hub/agents/{id}/bind — bind an agent id to a connect id so the
+		// hub can dispatch /agents/{id}/remote-call requests to the executor
+		// registered for that connect id. Called by `d-pi connect` after the
+		// auth handshake.
+		const bindMatch = path.match(/^\/_hub\/agents\/([^/]+)\/bind$/);
+		if (bindMatch && req.method === "POST") {
+			try {
+				const body = await this._readBody(req);
+				const { connectId } = JSON.parse(body) as { connectId?: string };
+				if (!connectId) throw new Error("connectId is required");
+				this.bindAgent(bindMatch[1]!, connectId);
+				res.writeHead(200, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ ok: true }));
+			} catch (err) {
+				res.writeHead(400, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+			}
+			return;
+		}
+
+		// POST /_hub/agents/{id}/unbind — drop the agent→connectId binding.
+		// Called by `d-pi connect` on session exit.
+		const unbindMatch = path.match(/^\/_hub\/agents\/([^/]+)\/unbind$/);
+		if (unbindMatch && req.method === "POST") {
+			this.unbindAgent(unbindMatch[1]!);
+			res.writeHead(200, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ ok: true }));
+			return;
+		}
+
 		// GET /_hub/network — network snapshot
 		if (path === "/_hub/network" && req.method === "GET") {
 			const snapshot = this._registry.getSnapshot();

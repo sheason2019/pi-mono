@@ -5,6 +5,7 @@ import { createAllowedUser, listAllowedUsers, removeAllowedUser, updateAllowedUs
 import { createLocalUser, listLocalUsers, removeLocalUser, updateLocalUser } from "./auth/local-users.ts";
 import { runDPiConnectMode } from "./connect/connect-mode.ts";
 import { DEFAULT_HUB_PORT } from "./defaults.ts";
+import { main as runExecutor } from "./executor/index.ts";
 import { Hub } from "./hub/hub.ts";
 import { initWorkspace, isWorkspaceRoot, loadWorkspaceContext, validateWorkspace } from "./workspace/workspace.ts";
 
@@ -191,6 +192,10 @@ export async function runDPiCli(args: string[], runtime: DPiCliRuntime = default
 	if (command === "_connect-child") {
 		const agentUrl = args[1];
 		await runConnectMode({ url: agentUrl, authToken: process.env.DPI_AUTH_TOKEN });
+		return;
+	}
+	if (command === "_executor-child") {
+		await runExecutor();
 		return;
 	}
 	printHelp(runtime);
