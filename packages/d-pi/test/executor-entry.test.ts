@@ -17,16 +17,22 @@ describe("executor env", () => {
 		});
 	});
 
-	it("throws if any var missing", () => {
-		expect(() => readExecutorEnv({ DPI_HUB_URL: "x" })).toThrow(/DPI_AUTH_TOKEN/);
-		expect(() => readExecutorEnv({ DPI_HUB_URL: "x", DPI_AUTH_TOKEN: "t" })).toThrow(/DPI_CONNECT_ID/);
-		expect(() => readExecutorEnv({ DPI_HUB_URL: "x", DPI_AUTH_TOKEN: "t", DPI_CONNECT_ID: "c" })).toThrow(/DPI_CWD/);
+	it("treats DPI_AUTH_TOKEN as optional (dev mode)", () => {
+		const env = readExecutorEnv({
+			DPI_HUB_URL: "http://h:1234",
+			DPI_CONNECT_ID: "c1",
+			DPI_CWD: "/tmp",
+		});
+		expect(env.authToken).toBeUndefined();
 	});
 
-	it("throws listing all missing vars when many are absent", () => {
+	it("throws if any required var is missing", () => {
 		expect(() => readExecutorEnv({})).toThrow(/DPI_HUB_URL/);
-		expect(() => readExecutorEnv({})).toThrow(/DPI_AUTH_TOKEN/);
-		expect(() => readExecutorEnv({})).toThrow(/DPI_CONNECT_ID/);
-		expect(() => readExecutorEnv({})).toThrow(/DPI_CWD/);
+		expect(() => readExecutorEnv({ DPI_HUB_URL: "x" })).toThrow(/DPI_CONNECT_ID/);
+		expect(() => readExecutorEnv({ DPI_HUB_URL: "x", DPI_CONNECT_ID: "c" })).toThrow(/DPI_CWD/);
+	});
+
+	it("does not require DPI_AUTH_TOKEN in the missing-vars list", () => {
+		expect(() => readExecutorEnv({})).not.toThrow(/DPI_AUTH_TOKEN/);
 	});
 });

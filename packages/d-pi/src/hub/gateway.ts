@@ -64,10 +64,17 @@ export class HubGateway {
 
 				// /agents/{id}/remote-call — dispatch to the bound executor and block
 				// until the executor POSTs the result back. Must be checked BEFORE the
-				// generic /agents/{id}/* proxy below.
+				// generic /agents/{id}/* proxy below. Auth is required: without it,
+				// anyone reachable on the hub port could invoke remote tools on a
+				// connected user's machine (RCE via the executor).
 				const remoteCallMatch = path.match(/^\/agents\/([^/]+)\/remote-call$/);
 				if (remoteCallMatch && req.method === "POST") {
-					const agentId = remoteCallMatch[1];
+					if (!this._authenticate(req)) {
+						res.writeHead(401, { "Content-Type": "application/json" });
+						res.end(JSON.stringify({ error: "Unauthorized" }));
+						return;
+					}
+					const agentId = remoteCallMatch[1]!;
 					const connectId = this._agentBindings.get(agentId);
 					if (!connectId) {
 						res.writeHead(409, { "Content-Type": "application/json" });

@@ -178,4 +178,40 @@ describe("hub endpoint POST /agents/{id}/remote-call", () => {
 			await gateway.stop();
 		}
 	});
+
+	it("returns 401 when no bearer token is supplied (regression for unauthenticated RCE)", async () => {
+		const { url, gateway, executorRegistry } = await startHubWithAuth(tempDir!);
+		try {
+			executorRegistry.preRegister("c1", { cwd: "/tmp" });
+			executorRegistry.attachSse("c1", { send: () => {} });
+			gateway.bindAgent("agent-1", "c1");
+
+			const res = await fetch(`${url}/agents/agent-1/remote-call`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ callId: "c-1", tool: "bash", params: {} }),
+			});
+			expect(res.status).toBe(401);
+		} finally {
+			await gateway.stop();
+		}
+	});
+
+	it("returns 401 when the bearer token is wrong", async () => {
+		const { url, gateway, executorRegistry } = await startHubWithAuth(tempDir!);
+		try {
+			executorRegistry.preRegister("c1", { cwd: "/tmp" });
+			executorRegistry.attachSse("c1", { send: () => {} });
+			gateway.bindAgent("agent-1", "c1");
+
+			const res = await fetch(`${url}/agents/agent-1/remote-call`, {
+				method: "POST",
+				headers: { Authorization: "Bearer not-a-real-token", "Content-Type": "application/json" },
+				body: JSON.stringify({ callId: "c-1", tool: "bash", params: {} }),
+			});
+			expect(res.status).toBe(401);
+		} finally {
+			await gateway.stop();
+		}
+	});
 });

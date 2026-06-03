@@ -1,23 +1,45 @@
 import type { ToolDefinition } from "@sheason/pi-coding-agent";
+import {
+	createBashToolDefinition,
+	createEditToolDefinition,
+	createFindToolDefinition,
+	createGrepToolDefinition,
+	createLsToolDefinition,
+	createReadToolDefinition,
+	createWriteToolDefinition,
+} from "@sheason/pi-coding-agent";
 import { ExecutorClient } from "./client.ts";
 import { type ExecutorEnv, readExecutorEnv } from "./env.ts";
 import { ToolRunner } from "./runner.ts";
 
 export { readExecutorEnv, type ExecutorEnv, ExecutorClient, ToolRunner };
 
-/** Entry point for the executor subprocess. Reads env, chdirs, opens
- *  the hub client, and runs until the hub disconnects.
- *
- *  The tool set is built lazily from the native tools' registrations.
- *  In a real deployment the executor would receive the list of available
- *  tools from the hub; for v1 we register the canonical native set
- *  (read, ls, grep, find, bash, write, edit) by name. Wiring those into
- *  ToolDefinition instances is deferred to the inline-extension work. */
+/** Build the canonical native tool set, one per supported tool name. Each
+ *  tool is constructed with the executor's cwd so file-system operations
+ *  resolve relative paths the same way the agent worker's tools do. */
+export function buildNativeToolSet(cwd: string): Array<ToolDefinition> {
+	// The native tool factories return strongly-typed ToolDefinition<P, D, S>
+	// variants; we cast here so the executor's runner can treat them as the
+	// shape-erased interface it works with.
+	const tools = [
+		createBashToolDefinition(cwd),
+		createEditToolDefinition(cwd),
+		createFindToolDefinition(cwd),
+		createGrepToolDefinition(cwd),
+		createLsToolDefinition(cwd),
+		createReadToolDefinition(cwd),
+		createWriteToolDefinition(cwd),
+	];
+	return tools as unknown as Array<ToolDefinition>;
+}
+
+/** Entry point for the executor subprocess. Reads env, chdirs, builds the
+ *  canonical native tool set (matching what the agent worker uses), opens
+ *  the hub client, and runs until the hub disconnects. */
 export async function main(): Promise<void> {
 	const env = readExecutorEnv();
 	process.chdir(env.cwd);
-	const tools: ToolDefinition[] = []; // populated by the inline-extension consumer
-	const runner = new ToolRunner(tools);
+	const runner = new ToolRunner(buildNativeToolSet(env.cwd));
 	const client = new ExecutorClient({
 		hubUrl: env.hubUrl,
 		authToken: env.authToken,

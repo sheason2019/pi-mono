@@ -153,15 +153,16 @@ export async function runConnectSession(opts: ConnectSessionSpawnOptions & { fet
 	await bindAgentOnHub(hubUrl, authToken, connectId, connectId, fetchImpl);
 
 	// 2. Spawn executor + TUI in parallel.
+	const execChildEnv: Record<string, string | undefined> = {
+		...process.env,
+		DPI_HUB_URL: hubUrl,
+		DPI_CONNECT_ID: connectId,
+		DPI_CWD: cwd,
+	};
+	if (authToken) execChildEnv.DPI_AUTH_TOKEN = authToken;
 	const execChild = spawn(process.execPath, buildExecutorChildArgs(cliPath), {
 		stdio: ["ignore", "inherit", "inherit"],
-		env: {
-			...process.env,
-			DPI_HUB_URL: hubUrl,
-			DPI_AUTH_TOKEN: authToken ?? "",
-			DPI_CONNECT_ID: connectId,
-			DPI_CWD: cwd,
-		},
+		env: execChildEnv as NodeJS.ProcessEnv,
 	});
 	const tuiChild = spawn(process.execPath, buildConnectChildArgs(cliPath, agentUrl, hubUrl), {
 		stdio: "inherit",

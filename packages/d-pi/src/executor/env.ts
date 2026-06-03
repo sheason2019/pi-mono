@@ -1,6 +1,7 @@
 export interface ExecutorEnv {
 	hubUrl: string;
-	authToken: string;
+	/** Bearer token. Undefined in dev mode (hub without auth). */
+	authToken?: string;
 	connectId: string;
 	cwd: string;
 }
@@ -14,11 +15,10 @@ export function readExecutorEnv(
 	const cwd = source.DPI_CWD;
 	const missing: string[] = [];
 	if (!hubUrl) missing.push("DPI_HUB_URL");
-	if (!authToken) missing.push("DPI_AUTH_TOKEN");
 	if (!connectId) missing.push("DPI_CONNECT_ID");
 	if (!cwd) missing.push("DPI_CWD");
 	if (missing.length > 0) {
 		throw new Error(`Missing required env vars: ${missing.join(", ")}`);
 	}
-	return { hubUrl: hubUrl!, authToken: authToken!, connectId: connectId!, cwd: cwd! };
+	return { hubUrl: hubUrl!, authToken, connectId: connectId!, cwd: cwd! };
 }

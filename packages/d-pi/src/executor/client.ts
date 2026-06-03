@@ -1,4 +1,4 @@
-import { request as httpRequest, type IncomingMessage } from "node:http";
+import { type ClientRequest, request as httpRequest, type IncomingMessage } from "node:http";
 
 export type RemoteCallEvent = {
 	callId: string;
@@ -14,23 +14,23 @@ export type ResultInput = { callId: string; ok: true; result: unknown } | { call
 
 export interface ExecutorClientOptions {
 	hubUrl: string;
-	authToken: string;
+	/** Bearer token. Omit in dev mode (hub without auth). */
+	authToken?: string;
 	connectId: string;
-	onCommand: (event: RemoteCallEvent) => void;
+	onCommand: (event: RemoteCallEvent) => Promise<void> | void;
 }
 
-/** Small helper: do a fetch with the executor's auth header. */
+/** Small helper: do a fetch with the executor's auth header (omitted
+ *  when no token, e.g. in dev mode). */
 async function hubFetch(
 	hubUrl: string,
-	authToken: string,
+	authToken: string | undefined,
 	href: string,
 	init: { method: string; body?: string; headers?: Record<string, string> },
 ): Promise<Response> {
 	const url = new URL(href, hubUrl);
-	const headers: Record<string, string> = {
-		Authorization: "Bearer " + authToken,
-		...init.headers,
-	};
+	const headers: Record<string, string> = { ...init.headers };
+	if (authToken) headers.Authorization = "Bearer " + authToken;
 	if (init.body && !headers["Content-Type"]) {
 		headers["Content-Type"] = "application/json";
 	}
@@ -60,8 +60,7 @@ async function hubFetch(
 
 function readSseEvents(
 	stream: NodeJS.ReadableStream | null,
-	connectId: string,
-	onRemoteCall: (event: RemoteCallEvent) => void,
+	onRemoteCall: (event: RemoteCallEvent) => Promise<void> | void,
 	close: () => void,
 ): void {
 	if (!stream) return;
@@ -83,13 +82,18 @@ function readSseEvents(
 			if (eventName === "remote-call") {
 				try {
 					const event = JSON.parse(dataStr) as RemoteCallEvent;
-					onRemoteCall(event);
+					// onRemoteCall may be sync or async; normalize to a promise so
+					// any throw from sendResult is caught and logged rather than
+					// crashing the executor process.
+					Promise.resolve(onRemoteCall(event)).catch((e: unknown) => {
+						const msg = e instanceof Error ? e.message : String(e);
+						process.stderr.write("[executor] command failed: " + msg + "\n");
+					});
 				} catch {
 					/* ignore malformed */
 				}
 			}
 			// "connected" is informational; no-op.
-			void connectId;
 		}
 	};
 	const onEnd = () => {
@@ -113,7 +117,7 @@ function readSseEvents(
  *  remote-call events to `onCommand`, and POSTs results back. */
 export class ExecutorClient {
 	private readonly opts: ExecutorClientOptions;
-	private req: import("node:http").ClientRequest | null = null;
+	private req: ClientRequest | null = null;
 	private stopped = false;
 
 	constructor(opts: ExecutorClientOptions) {
@@ -150,7 +154,7 @@ export class ExecutorClient {
 						return;
 					}
 					this.req = req;
-					readSseEvents(res, this.opts.connectId, this.opts.onCommand, () => {
+					readSseEvents(res, this.opts.onCommand, () => {
 						if (!this.stopped) this.start().catch(() => {});
 					});
 					resolve();
