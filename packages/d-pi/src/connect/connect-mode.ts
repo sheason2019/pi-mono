@@ -8,6 +8,13 @@ export interface DPiConnectOptions {
 	url: string;
 	agent?: string;
 	authToken?: string;
+	/**
+	 * Path to the d-pi CLI entry used to spawn the TUI and executor
+	 * children. Defaults to the current process's argv[1]. Set this when
+	 * calling \`runDPiConnectMode\` as a library from a different entry
+	 * point, so the children resolve to the right binary.
+	 */
+	cliPath?: string;
 }
 
 /** Options for spawning a connected session (TUI + executor). */
@@ -42,6 +49,7 @@ export interface ConnectSessionSpawnOptions {
  * dispatched to the executor.
  */
 export async function runDPiConnectMode(options: DPiConnectOptions): Promise<void> {
+	const cliPath = options.cliPath ?? process.argv[1]!;
 	let { url } = options;
 	let authToken = options.authToken;
 	const { agent: agentSpec } = options;
@@ -66,7 +74,7 @@ export async function runDPiConnectMode(options: DPiConnectOptions): Promise<voi
 		const agentUrl = `${url}/agents/${currentAgentId}`;
 
 		await runConnectSession({
-			cliPath: process.argv[1]!,
+			cliPath,
 			agentUrl,
 			hubUrl: url,
 			authToken,

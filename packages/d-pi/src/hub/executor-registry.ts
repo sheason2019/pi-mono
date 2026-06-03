@@ -8,6 +8,10 @@ export interface ExecutorHandle {
 	cwd: string;
 	sseConn?: SseConn;
 	pendingCalls: Map<string, ServerResponse>;
+	/** Per-call timeout handles so a result POST can clear the timer
+	 *  before it fires, preventing a stale timeout from clobbering a
+	 *  late-but-valid result. */
+	pendingTimers: Map<string, NodeJS.Timeout>;
 	attached: boolean;
 }
 
@@ -29,6 +33,7 @@ export class ExecutorRegistry {
 		this.entries.set(connectId, {
 			cwd: input.cwd,
 			pendingCalls: new Map(),
+			pendingTimers: new Map(),
 			attached: false,
 		});
 	}
@@ -57,6 +62,10 @@ export class ExecutorRegistry {
 	deregister(connectId: string): boolean {
 		const handle = this.entries.get(connectId);
 		if (!handle) return false;
+		for (const timer of handle.pendingTimers.values()) {
+			clearTimeout(timer);
+		}
+		handle.pendingTimers.clear();
 		for (const res of handle.pendingCalls.values()) {
 			try {
 				res.writeHead(503, { "Content-Type": "application/json" });
@@ -80,5 +89,19 @@ export class ExecutorRegistry {
 
 	removePending(connectId: string, callId: string): void {
 		this.entries.get(connectId)?.pendingCalls.delete(callId);
+	}
+
+	setPendingTimer(connectId: string, callId: string, timer: NodeJS.Timeout): void {
+		this.entries.get(connectId)?.pendingTimers.set(callId, timer);
+	}
+
+	clearPendingTimer(connectId: string, callId: string): void {
+		const handle = this.entries.get(connectId);
+		if (!handle) return;
+		const timer = handle.pendingTimers.get(callId);
+		if (timer !== undefined) {
+			clearTimeout(timer);
+			handle.pendingTimers.delete(callId);
+		}
 	}
 }

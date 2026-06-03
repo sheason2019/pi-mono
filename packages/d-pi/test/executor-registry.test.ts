@@ -96,4 +96,27 @@ describe("ExecutorRegistry two-step API", () => {
 		expect(handle!.cwd).toBe("/tmp");
 		expect(handle!.sseConn).toBe(sseConn);
 	});
+
+	it("setPendingTimer / clearPendingTimer are independent of the pending res", () => {
+		registry.preRegister("c1", { cwd: "/tmp" });
+		const fakeRes = { writeHead: () => {}, end: () => {} } as never;
+		registry.addPending("c1", "call-1", fakeRes);
+		const timer = setTimeout(() => {}, 60_000);
+		registry.setPendingTimer("c1", "call-1", timer);
+		registry.clearPendingTimer("c1", "call-1");
+		// Idempotent: clearing a second time is a no-op.
+		registry.clearPendingTimer("c1", "call-1");
+	});
+
+	it("deregister clears all pending timers (no leaked setTimeout)", () => {
+		registry.preRegister("c1", { cwd: "/tmp" });
+		const fakeRes = { writeHead: () => {}, end: () => {} } as never;
+		registry.addPending("c1", "call-1", fakeRes);
+		const t1 = setTimeout(() => {}, 60_000);
+		const t2 = setTimeout(() => {}, 60_000);
+		registry.setPendingTimer("c1", "call-1", t1);
+		registry.setPendingTimer("c1", "call-2", t2);
+		registry.deregister("c1");
+		expect(registry.get("c1")).toBeUndefined();
+	});
 });

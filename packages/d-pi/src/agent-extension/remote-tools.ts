@@ -34,7 +34,7 @@ function makeRemoteTool(nativeName: string, registeredName: string, ctx: RemoteT
 		execute: async (
 			_toolCallId: string,
 			params: unknown,
-			_signal: AbortSignal | undefined,
+			signal: AbortSignal | undefined,
 			_onUpdate: unknown,
 			_extCtx: unknown,
 		): Promise<unknown> => {
@@ -46,10 +46,14 @@ function makeRemoteTool(nativeName: string, registeredName: string, ctx: RemoteT
 			};
 			let res: Response;
 			try {
+				// I7: forward the upstream AbortSignal so Ctrl+C / cancellation
+				// from the agent propagates to the hub request and the
+				// executor's running tool.
 				res = await ctx.fetchImpl(url, {
 					method: "POST",
 					headers,
 					body: JSON.stringify({ callId, tool: nativeName, params }),
+					signal,
 				});
 			} catch (e) {
 				throw new Error("Hub unreachable: " + (e instanceof Error ? e.message : String(e)));

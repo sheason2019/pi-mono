@@ -214,4 +214,100 @@ describe("hub endpoint POST /agents/{id}/remote-call", () => {
 			await gateway.stop();
 		}
 	});
+
+	it("returns 409 when the executor is pre-registered but its SSE is not yet attached (race fix)", async () => {
+		// Reproduce: the connect parent binds the agent before spawning the
+		// executor, so a remote-call can arrive during the preRegister-only
+		// window. The hub should fail fast instead of parking the call in
+		// pendingCalls (where it would hang until the per-call timeout).
+		const { url, sessionToken, gateway, executorRegistry } = await startHubWithAuth(tempDir!);
+		try {
+			executorRegistry.preRegister("c1", { cwd: "/tmp" });
+			// Note: deliberately NOT calling attachSse.
+			gateway.bindAgent("agent-1", "c1");
+
+			const res = await fetch(`${url}/agents/agent-1/remote-call`, {
+				method: "POST",
+				headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ callId: "c-1", tool: "bash", params: {} }),
+			});
+			expect(res.status).toBe(409);
+			const body = (await res.json()) as { error: string };
+			expect(body.error).toMatch(/not yet ready/i);
+			// And the call should NOT be parked in pendingCalls.
+			expect(executorRegistry.getPending("c1", "c-1")).toBeUndefined();
+		} finally {
+			await gateway.stop();
+		}
+	});
+
+	it("returns 504 when the executor never POSTs a result (per-call timeout)", async () => {
+		// Build a hub with a 50ms remote-call timeout so the test is fast.
+		const workspaceRoot = tempDir!;
+		const localUser = createLocalUser(workspaceRoot, { name: "rc-test", description: "" });
+		createAllowedUser(workspaceRoot, {
+			name: "allowed-rc-test",
+			description: "",
+			publicKey: localUser.publicKey,
+		});
+		const executorRegistry = new ExecutorRegistry();
+		const gateway = new HubGateway(
+			new AgentRegistry(0),
+			new SourceManager(() => {}),
+			async () => ({ agentId: "created", name: "created" }),
+			async () => {},
+			new AuthSessionManager(workspaceRoot),
+			executorRegistry,
+			{ remoteCallTimeoutMs: 50 },
+		);
+		await gateway.start(0);
+		const url = gateway.url();
+		try {
+			const ch = (await (
+				await fetch(`${url}/_hub/auth/challenge`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ publicKey: localUser.publicKey }),
+				})
+			).json()) as { challengeId: string; challenge: string };
+			const session = (await (
+				await fetch(`${url}/_hub/auth/session`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						publicKey: localUser.publicKey,
+						challengeId: ch.challengeId,
+						signature: signChallenge(localUser, ch.challenge),
+					}),
+				})
+			).json()) as { token: string };
+			const sessionToken = session.token;
+
+			executorRegistry.preRegister("c1", { cwd: "/tmp" });
+			// attachSse but never call sendResult. The fake send is a
+			// no-op so the executor never resolves the call.
+			executorRegistry.attachSse("c1", { send: () => {} });
+			gateway.bindAgent("agent-1", "c1");
+
+			const start = Date.now();
+			const res = await fetch(`${url}/agents/agent-1/remote-call`, {
+				method: "POST",
+				headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ callId: "c-1", tool: "bash", params: {} }),
+			});
+			const elapsed = Date.now() - start;
+
+			expect(res.status).toBe(504);
+			const body = (await res.json()) as { ok: boolean; error: string };
+			expect(body.ok).toBe(false);
+			expect(body.error).toMatch(/timed out/i);
+			// Should have failed around the 50ms timeout, not hung.
+			expect(elapsed).toBeGreaterThanOrEqual(40);
+			expect(elapsed).toBeLessThan(2_000);
+			// And the pending entry was cleared.
+			expect(executorRegistry.getPending("c1", "c-1")).toBeUndefined();
+		} finally {
+			await gateway.stop();
+		}
+	}, 5000);
 });

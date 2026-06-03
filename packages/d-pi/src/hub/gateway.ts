@@ -21,6 +21,13 @@ import type { SourceManager } from "./source-manager.ts";
  *   /agents/{id}/*     → reverse proxy to agent's HTTP server
  *   /*                 → reverse proxy to root agent
  */
+export interface HubGatewayOptions {
+	/** Max time to wait for an executor to POST a result to
+	 *  /_hub/executor/results before failing the pending
+	 *  /agents/{id}/remote-call. Default 60_000. */
+	remoteCallTimeoutMs?: number;
+}
+
 export class HubGateway {
 	private _server: Server | undefined;
 	private readonly _registry: AgentRegistry;
@@ -33,6 +40,7 @@ export class HubGateway {
 	private readonly _auth: AuthSessionManager | undefined;
 	private readonly _executorRegistry: ExecutorRegistry | undefined;
 	private readonly _agentBindings: Map<string, string> = new Map();
+	private readonly _remoteCallTimeoutMs: number;
 
 	constructor(
 		registry: AgentRegistry,
@@ -41,6 +49,7 @@ export class HubGateway {
 		onDestroyAgent: HubGateway["_onDestroyAgent"],
 		auth?: AuthSessionManager,
 		executorRegistry?: ExecutorRegistry,
+		options?: HubGatewayOptions,
 	) {
 		this._registry = registry;
 		this._sourceManager = sourceManager;
@@ -48,6 +57,7 @@ export class HubGateway {
 		this._onDestroyAgent = onDestroyAgent;
 		this._auth = auth;
 		this._executorRegistry = executorRegistry;
+		this._remoteCallTimeoutMs = options?.remoteCallTimeoutMs ?? 60_000;
 	}
 
 	async start(port: number): Promise<void> {
@@ -103,9 +113,38 @@ export class HubGateway {
 						if (!callId || !tool) {
 							throw new Error("callId and tool are required");
 						}
+						// I2: fail fast if the executor is pre-registered but has
+						// not yet attached its SSE channel. Without this, the
+						// call would be parked in pendingCalls and only resolve
+						// on the (never arriving) result POST.
+						if (!handle.sseConn) {
+							res.writeHead(409, { "Content-Type": "application/json" });
+							res.end(JSON.stringify({ error: "Executor not yet ready" }));
+							return;
+						}
 						execReg.addPending(connectId, callId, res);
-						handle.sseConn?.send("remote-call", { callId, tool, params });
-						// `res` is now held; the executor's result POST will resolve it.
+						// I1: server-side timeout. If the executor never POSTs a
+						// result (tool hangs, SSE message lost, half-open TCP), fail
+						// the pending call so the agent's tool.execute does not hang.
+						const timeoutMs = this._remoteCallTimeoutMs;
+						const timer = setTimeout(() => {
+							const pending = execReg.getPending(connectId, callId);
+							if (pending) {
+								execReg.clearPendingTimer(connectId, callId);
+								execReg.removePending(connectId, callId);
+								try {
+									pending.writeHead(504, { "Content-Type": "application/json" });
+									pending.end(JSON.stringify({ ok: false, error: "Remote call timed out" }));
+								} catch {
+									/* ignore */
+								}
+								process.stderr.write(`[hub] remote call ${callId} timed out after ${timeoutMs}ms\n`);
+							}
+						}, timeoutMs);
+						execReg.setPendingTimer(connectId, callId, timer);
+						handle.sseConn.send("remote-call", { callId, tool, params });
+						// `res` is now held; the executor's result POST (or the
+						// timeout above) will resolve it.
 						return;
 					} catch (err) {
 						res.writeHead(400, { "Content-Type": "application/json" });
@@ -431,6 +470,7 @@ export class HubGateway {
 				if (pending) {
 					pending.writeHead(200, { "Content-Type": "application/json" });
 					pending.end(JSON.stringify(ok ? { ok: true, result } : { ok: false, error }));
+					execReg.clearPendingTimer(connectId, callId);
 					execReg.removePending(connectId, callId);
 				} else {
 					process.stderr.write(`[hub] dropping result for unknown callId ${callId}\n`);

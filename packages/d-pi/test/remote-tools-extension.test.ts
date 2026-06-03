@@ -116,5 +116,38 @@ describe("remote tools extension", () => {
 				/Hub returned 500/,
 			);
 		});
+
+		it("forwards the upstream AbortSignal to fetchImpl (I7)", async () => {
+			// Replace fetchImpl with one that observes the AbortSignal.
+			for (const k of Object.keys(registered)) delete registered[k];
+			createRemoteToolsExtension({
+				api: makeApi(),
+				fetchImpl: (url, init) => {
+					fetchCalls.push({ url, init });
+					return new Promise<Response>((_resolve, reject) => {
+						if (init?.signal?.aborted) {
+							reject(new Error("aborted"));
+							return;
+						}
+						init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+						// Never resolve normally; only the abort will settle this.
+					});
+				},
+				registerTool: (name, def) => {
+					registered[name] = def as unknown as {
+						description: string;
+						execute: (toolCallId: string, params: unknown) => Promise<unknown>;
+					};
+				},
+			});
+			const ctrl = new AbortController();
+			const promise = (
+				registered.remote_bash.execute as unknown as (id: string, p: unknown, sig: AbortSignal) => Promise<unknown>
+			)("call-id-sig", { command: "ls" }, ctrl.signal);
+			// The init passed to fetchImpl should already include the signal.
+			expect(fetchCalls[0]?.init?.signal).toBeDefined();
+			ctrl.abort();
+			await expect(promise).rejects.toThrow(/aborted/);
+		});
 	});
 });
