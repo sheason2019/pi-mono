@@ -38,7 +38,7 @@ export class Hub {
 		this._registry = new AgentRegistry(portStart);
 
 		this._sourceManager = new SourceManager((sourceName, content, subscriberAgentIds) => {
-			const metaContent = injectMeta(content, "source", undefined, sourceName);
+			const metaContent = injectMeta(content, "source", undefined, { sourceName });
 			for (const agentId of subscriberAgentIds) {
 				const record = this._registry.get(agentId);
 				if (record) {
@@ -365,7 +365,7 @@ export class Hub {
 					if (!targetAgent) {
 						result = { ok: false, error: `Agent not found: ${p.agent_id}` } satisfies SendMessageResult;
 					} else {
-						const metaContent = injectMeta(p.message, "agent", fromAgentId);
+						const metaContent = injectMeta(p.message, "agent", undefined, { agentId: fromAgentId });
 						targetAgent.worker.postMessage({
 							type: "message",
 							fromAgentId,

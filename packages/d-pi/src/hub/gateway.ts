@@ -314,7 +314,7 @@ export class HubGateway {
 				const body = await this._readBody(req);
 				const parsed = JSON.parse(body) as { text?: string; options?: unknown };
 				if (parsed.text) {
-					parsed.text = injectMeta(parsed.text, "connect", undefined, undefined, auth.auth);
+					parsed.text = injectMeta(parsed.text, "connect", auth.auth);
 				}
 				const rewrittenBody = JSON.stringify(parsed);
 

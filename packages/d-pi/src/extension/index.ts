@@ -138,7 +138,7 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 			}
 			const metaContent = extractMeta(content)
 				? content
-				: injectMeta(content, sourceName ? "source" : "connect", undefined, sourceName);
+				: injectMeta(content, sourceName ? "source" : "connect", undefined, { sourceName });
 			const extracted = extractMeta(metaContent);
 			const options = isAgentRunning ? { deliverAs: "followUp" as const } : { triggerTurn: true };
 			pi.sendMessage(
@@ -240,8 +240,13 @@ function registerDPiMessageRenderer(pi: ExtensionAPI): void {
 
 		// Build meta label: sourceType[:name] · authName · timeString
 		let source: string = meta.sourceType;
-		if (meta.sourceName) source = `${source}:${meta.sourceName}`;
-		else if (meta.agentId) source = `${source}:${meta.agentId}`;
+		if (meta.sourceType === "connect" && meta.connectId) {
+			source = `${source} ${meta.connectId}`;
+		} else if (meta.sourceName) {
+			source = `${source}:${meta.sourceName}`;
+		} else if (meta.agentId) {
+			source = `${source}:${meta.agentId}`;
+		}
 		const headerParts = [source, meta.auth?.name, meta.createTime].filter((part) => part?.trim());
 
 		const container = new Container();

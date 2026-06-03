@@ -102,7 +102,7 @@ describe("d-pi message renderer", () => {
 			{
 				role: "custom",
 				customType: "d-pi-message",
-				content: injectMeta("hello **world**", "agent", "agent-1"),
+				content: injectMeta("hello **world**", "agent", undefined, { agentId: "agent-1" }),
 				display: true,
 				details: undefined,
 				timestamp: Date.now(),
@@ -129,7 +129,7 @@ describe("d-pi message renderer", () => {
 			{
 				role: "custom",
 				customType: "d-pi-message",
-				content: injectMeta("hello", "connect", undefined, undefined, {
+				content: injectMeta("hello", "connect", {
 					name: "lixujie",
 					description: "",
 				}),

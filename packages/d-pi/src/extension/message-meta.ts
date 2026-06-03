@@ -3,11 +3,18 @@ export interface MessageMeta {
 	sourceType: "connect" | "agent" | "source";
 	agentId?: string;
 	sourceName?: string;
+	connectId?: string;
 	auth?: {
 		name: string;
 		description: string;
 	};
 	tips: string;
+}
+
+export interface InjectMetaOptions {
+	connectId?: string;
+	agentId?: string;
+	sourceName?: string;
 }
 
 const TIPS: Record<string, string> = {
@@ -24,15 +31,15 @@ function formatTime(date: Date): string {
 export function injectMeta(
 	text: string,
 	sourceType: "connect" | "agent" | "source",
-	agentId?: string,
-	sourceName?: string,
 	auth?: MessageMeta["auth"],
+	options?: InjectMetaOptions,
 ): string {
 	const meta: MessageMeta = {
 		createTime: formatTime(new Date()),
 		sourceType,
-		...(agentId && { agentId }),
-		...(sourceName && { sourceName }),
+		...(options?.agentId && { agentId: options.agentId }),
+		...(options?.sourceName && { sourceName: options.sourceName }),
+		...(sourceType === "connect" && options?.connectId && { connectId: options.connectId }),
 		...(auth && { auth }),
 		tips: TIPS[sourceType],
 	};
