@@ -271,6 +271,50 @@ export class HubGateway {
 			return;
 		}
 
+		if (path === "/_hub/executor/events" && req.method === "GET") {
+			const execReg = this._executorRegistry;
+			if (!execReg) {
+				res.writeHead(503, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ error: "Executor registry not configured" }));
+				return;
+			}
+			const url = new URL(req.url ?? "/", "http://localhost");
+			const connectId = url.searchParams.get("connectId");
+			if (!connectId) {
+				res.writeHead(400, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ error: "connectId is required" }));
+				return;
+			}
+			const handle = execReg.get(connectId);
+			if (!handle) {
+				res.writeHead(404, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ error: "Not registered" }));
+				return;
+			}
+			res.writeHead(200, {
+				"Content-Type": "text/event-stream",
+				"Cache-Control": "no-cache",
+				Connection: "keep-alive",
+			});
+			res.flushHeaders();
+			res.write(`event: connected\ndata: ${JSON.stringify({ connectId })}\n\n`);
+			const sseConn = {
+				send: (event: string, data: unknown) => {
+					try {
+						res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+					} catch {
+						/* broken pipe */
+					}
+				},
+			};
+			const cid = connectId;
+			execReg.attachSse(cid, sseConn);
+			req.on("close", () => {
+				execReg.deregister(cid);
+			});
+			return;
+		}
+
 		if (path === "/_hub/executor/register" && req.method === "POST") {
 			if (!this._executorRegistry) {
 				res.writeHead(503, { "Content-Type": "application/json" });
