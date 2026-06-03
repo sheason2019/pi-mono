@@ -238,7 +238,13 @@ function registerDPiMessageRenderer(pi: ExtensionAPI): void {
 		}
 		const textContent = extracted?.text ?? rawText;
 
-		// Build meta label: sourceType[:name] · authName · timeString
+		// Build meta label: sourceType[:name] · authName · timeString.
+		// Contract: at most one of {connectId, sourceName, agentId} is set per
+		// message, keyed off sourceType — `connectId` only appears with
+		// sourceType "connect", `sourceName` with "source", and `agentId`
+		// with "agent". The chain below relies on that mutual exclusion, so
+		// do not generalize it (e.g. by appending more suffixes) without also
+		// widening the contract.
 		let source: string = meta.sourceType;
 		if (meta.sourceType === "connect" && meta.connectId) {
 			source = `${source} ${meta.connectId}`;

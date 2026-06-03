@@ -11,7 +11,7 @@ export interface MessageMeta {
 	tips: string;
 }
 
-export interface InjectMetaOptions {
+export interface MessageMetaOptions {
 	connectId?: string;
 	agentId?: string;
 	sourceName?: string;
@@ -32,13 +32,14 @@ export function injectMeta(
 	text: string,
 	sourceType: "connect" | "agent" | "source",
 	auth?: MessageMeta["auth"],
-	options?: InjectMetaOptions,
+	options?: MessageMetaOptions,
 ): string {
 	const meta: MessageMeta = {
 		createTime: formatTime(new Date()),
 		sourceType,
 		...(options?.agentId && { agentId: options.agentId }),
 		...(options?.sourceName && { sourceName: options.sourceName }),
+		// connectId is meaningful only for connect-typed meta
 		...(sourceType === "connect" && options?.connectId && { connectId: options.connectId }),
 		...(auth && { auth }),
 		tips: TIPS[sourceType],
@@ -67,6 +68,10 @@ export function buildMetaContent(meta: MessageMeta): string {
 		case "source":
 			return `Message from external source "${meta.sourceName}". ${meta.tips}`;
 		case "connect":
+			// Intentionally omit connectId: it's a routing/display identifier, not
+			// useful context for the LLM. The generic tips already explain the
+			// "connect" channel. Including the id here would leak implementation
+			// detail into the model prompt.
 			return meta.tips;
 	}
 }

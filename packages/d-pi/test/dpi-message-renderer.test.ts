@@ -148,6 +148,52 @@ describe("d-pi message renderer", () => {
 		expect(header).not.toContain("connect - lixujie - ");
 	});
 
+	it("renders 'connect <id>' in the header when a connectId is present", () => {
+		initTheme("dark");
+		const renderer = getDPiMessageRenderer();
+		const component = renderer(
+			{
+				role: "custom",
+				customType: "d-pi-message",
+				content: injectMeta("hello", "connect", undefined, { connectId: "abc-123" }),
+				display: true,
+				details: undefined,
+				timestamp: Date.now(),
+			},
+			{ expanded: false },
+			fakeTheme as never,
+		) as Component | undefined;
+
+		expect(component).toBeDefined();
+		const header = component!.render(80).map(stripAnsi)[0];
+
+		expect(header).toContain("connect abc-123");
+	});
+
+	it("renders just 'connect' (with trailing space) when no connectId is present", () => {
+		initTheme("dark");
+		const renderer = getDPiMessageRenderer();
+		const component = renderer(
+			{
+				role: "custom",
+				customType: "d-pi-message",
+				content: injectMeta("hello", "connect"),
+				display: true,
+				details: undefined,
+				timestamp: Date.now(),
+			},
+			{ expanded: false },
+			fakeTheme as never,
+		) as Component | undefined;
+
+		expect(component).toBeDefined();
+		const header = component!.render(80).map(stripAnsi)[0];
+
+		// Trailing space distinguishes the bare label from "connect <id>".
+		expect(header).toContain("connect ");
+		expect(header).not.toContain("connect abc-123");
+	});
+
 	it("queues incoming messages as follow-ups until agent_end", () => {
 		const harness = createWorkerHarness();
 
