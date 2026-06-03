@@ -315,6 +315,42 @@ export class HubGateway {
 			return;
 		}
 
+		if (path === "/_hub/executor/results" && req.method === "POST") {
+			const execReg = this._executorRegistry;
+			if (!execReg) {
+				res.writeHead(503, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ error: "Executor registry not configured" }));
+				return;
+			}
+			try {
+				const body = await this._readBody(req);
+				const { connectId, callId, ok, result, error } = JSON.parse(body) as {
+					connectId?: string;
+					callId?: string;
+					ok?: boolean;
+					result?: unknown;
+					error?: string;
+				};
+				if (!connectId || !callId || typeof ok !== "boolean") {
+					throw new Error("connectId, callId, and ok are required");
+				}
+				const pending = execReg.getPending(connectId, callId);
+				if (pending) {
+					pending.writeHead(200, { "Content-Type": "application/json" });
+					pending.end(JSON.stringify(ok ? { ok: true, result } : { ok: false, error }));
+					execReg.removePending(connectId, callId);
+				} else {
+					process.stderr.write(`[hub] dropping result for unknown callId ${callId}\n`);
+				}
+				res.writeHead(200, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ ok: true }));
+			} catch (err) {
+				res.writeHead(400, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+			}
+			return;
+		}
+
 		if (path === "/_hub/executor/register" && req.method === "POST") {
 			if (!this._executorRegistry) {
 				res.writeHead(503, { "Content-Type": "application/json" });
