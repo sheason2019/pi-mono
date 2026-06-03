@@ -5330,93 +5330,44 @@ export class InteractiveMode {
 	/** Show scoped models selector in connect mode */
 	private async showConnectModeScopedModelsSelector(): Promise<void> {
 		try {
-			const models = await this.proxy!.fetchModels();
-			if (models.length === 0) {
+			const items = await this.proxy!.fetchModels();
+			if (items.length === 0) {
 				this.showStatus("No models available");
 				return;
 			}
 			const snapshot = this.proxy!.getSnapshot();
-			const enabledIds = snapshot.scopedModelIds;
-			const allModelIds = models.map((m) => `${m.provider}/${m.id}`);
-			// null = all enabled; otherwise use the explicit list
-			let currentEnabled: string[] | null = enabledIds === null ? null : [...enabledIds];
+			const enabledModelIds = snapshot.scopedModelIds;
+			// Adapt connect-mode ModelItemData to the shape the upstream
+			// ScopedModelsSelectorComponent expects. The selector only reads
+			// id/provider/name at runtime; the remaining fields are required by
+			// the Model<any> type but never inspected.
+			const allModels: Model<any>[] = items.map((m) => ({
+				...m,
+				api: "openai-responses" as const,
+				baseUrl: "",
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			}));
 
 			this.showSelector((done) => {
-				const buildItems = (): SelectItem[] => {
-					const enabledSet = currentEnabled === null ? null : new Set(currentEnabled);
-					const sortedIds =
-						currentEnabled === null
-							? allModelIds
-							: [...currentEnabled, ...allModelIds.filter((id) => !enabledSet!.has(id))];
-					return sortedIds.map((id) => {
-						const model = models.find((m) => `${m.provider}/${m.id}` === id);
-						const isEnabled = enabledSet === null || enabledSet.has(id);
-						return {
-							value: id,
-							label: `${isEnabled ? "✓" : "✗"} ${id}`,
-							description: model?.name,
-						};
-					});
-				};
-
-				const selectList = new SelectList(
-					buildItems(),
-					Math.min(models.length, Math.floor(this.ui.terminal.rows / 2)),
-					getSelectListTheme(),
-					{ minPrimaryColumnWidth: 20, maxPrimaryColumnWidth: 48 },
-				);
-
-				selectList.onSelect = (item) => {
-					const id = item.value;
-					// Toggle
-					if (currentEnabled === null) {
-						currentEnabled = [id];
-					} else {
-						const idx = currentEnabled.indexOf(id);
-						if (idx >= 0) {
-							currentEnabled = currentEnabled.filter((x) => x !== id);
-							if (currentEnabled.length === 0) currentEnabled = null;
-						} else {
-							currentEnabled = [...currentEnabled, id];
-						}
-					}
-					if (currentEnabled !== null && currentEnabled.length === allModelIds.length) {
-						currentEnabled = null; // All enabled = no filter
-					}
-					this.proxy!.setScopedModels(currentEnabled);
-					// Rebuild list
-					selectList.setItems(buildItems());
-					this.ui.requestRender();
-				};
-
-				selectList.onCancel = () => {
-					done();
-					this.ui.requestRender();
-				};
-
-				const container = new Container();
-				container.addChild(new DynamicBorder());
-				container.addChild(new Spacer(1));
-				container.addChild(new Text(theme.fg("muted", "Enable/disable models for Ctrl+P cycling"), 0, 0));
-				container.addChild(new Text(theme.fg("muted", "Enter=toggle  Esc=done  Ctrl+S=save to settings"), 0, 0));
-				container.addChild(new Spacer(1));
-				container.addChild(selectList);
-				container.addChild(new DynamicBorder());
-
-				// Override key handling for Ctrl+S to persist
-				const originalHandleInput = selectList.handleInput?.bind(selectList);
-				if (originalHandleInput) {
-					selectList.handleInput = (keyData: string) => {
-						if (matchesKey(keyData, "ctrl+s") || keyData === "\x13") {
-							this.proxy!.setEnabledModels(currentEnabled ? [...currentEnabled] : undefined);
+				const selector = new ScopedModelsSelectorComponent(
+					{ allModels, enabledModelIds },
+					{
+						onChange: (ids) => {
+							this.proxy!.setScopedModels(ids);
+						},
+						onPersist: (ids) => {
+							// Mirror upstream: null or full coverage = clear filter.
+							const patterns = ids === null || ids.length === allModels.length ? undefined : ids;
+							this.proxy!.setEnabledModels(patterns ? [...patterns] : undefined);
 							this.showStatus("Model selection saved to settings");
-							return;
-						}
-						originalHandleInput(keyData);
-					};
-				}
-
-				return { component: container, focus: selectList };
+						},
+						onCancel: () => {
+							done();
+							this.ui.requestRender();
+						},
+					},
+				);
+				return { component: selector, focus: selector };
 			});
 		} catch (e: unknown) {
 			this.showError(`Failed to fetch models: ${e instanceof Error ? e.message : String(e)}`);
