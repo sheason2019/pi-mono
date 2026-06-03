@@ -196,6 +196,33 @@ export class HubGateway {
 		this._agentBindings.delete(agentId);
 	}
 
+	/** Number of agent->connectId bindings currently held. Exposed for
+	 *  tests and operational introspection; the map itself stays private. */
+	get bindingCount(): number {
+		return this._agentBindings.size;
+	}
+
+	/** Resolve a single binding. Exposed for tests. */
+	getBinding(agentId: string): string | undefined {
+		return this._agentBindings.get(agentId);
+	}
+
+	/**
+	 * Drop every binding that points at the given connectId. Called when
+	 * the executor's SSE channel closes so a stale binding cannot dispatch
+	 * to a now-disconnected executor.
+	 */
+	unbindByConnectId(connectId: string): number {
+		let removed = 0;
+		for (const [agentId, cid] of this._agentBindings) {
+			if (cid === connectId) {
+				this._agentBindings.delete(agentId);
+				removed++;
+			}
+		}
+		return removed;
+	}
+
 	async stop(): Promise<void> {
 		if (this._server) {
 			return new Promise((resolve, reject) => {
@@ -441,7 +468,23 @@ export class HubGateway {
 			};
 			const cid = connectId;
 			execReg.attachSse(cid, sseConn);
+			// M3: keepalive. Without periodic bytes, intermediate proxies
+			// (and many corporate NATs) will silently drop an idle SSE
+			// connection after ~60s. A comment line is a no-op for the
+			// EventSource parser but counts as activity.
+			const keepalive = setInterval(() => {
+				try {
+					res.write(": keepalive\n\n");
+				} catch {
+					/* broken pipe; the close handler will run */
+				}
+			}, 30_000);
 			req.on("close", () => {
+				clearInterval(keepalive);
+				// M4: GC the agent->connectId bindings pointing at this
+				// executor so future /remote-call requests do not try to
+				// dispatch to a dead SSE channel.
+				this.unbindByConnectId(cid);
 				execReg.deregister(cid);
 			});
 			return;

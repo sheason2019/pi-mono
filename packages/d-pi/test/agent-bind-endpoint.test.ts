@@ -158,4 +158,91 @@ describe("hub endpoint POST /_hub/agents/{id}/bind", () => {
 			await gateway.stop();
 		}
 	});
+
+	it("unbindByConnectId drops every binding pointing at that connectId", () => {
+		// We need a real gateway; build one inline.
+		// (Auxiliary test; reuses the startHub helper indirectly via the
+		// gateway created in the beforeEach of the enclosing describe. We
+		// inline a small new gateway to keep the assertion self-contained.)
+		const g = new HubGateway(
+			new AgentRegistry(0),
+			new SourceManager(() => {}),
+			async () => ({ agentId: "x", name: "x" }),
+			async () => {},
+		);
+		g.bindAgent("agent-1", "c1");
+		g.bindAgent("agent-2", "c2");
+		g.bindAgent("agent-3", "c1");
+		expect(g.bindingCount).toBe(3);
+		const removed = g.unbindByConnectId("c1");
+		expect(removed).toBe(2);
+		expect(g.bindingCount).toBe(1);
+		expect(g.getBinding("agent-2")).toBe("c2");
+	});
+
+	it("SSE close handler GCs bindings for the disconnecting connectId", async () => {
+		// Build a hub with a real executor registry, register a binding,
+		// open an SSE channel, then close it. The binding should be cleared.
+		const { AgentRegistry: AR } = await import("../src/hub/agent-registry.ts");
+		const { ExecutorRegistry } = await import("../src/hub/executor-registry.ts");
+		void AR;
+		const localUser = createLocalUser(tempDir!, { name: "m4-test", description: "" });
+		createAllowedUser(tempDir!, {
+			name: "allowed-m4-test",
+			description: "",
+			publicKey: localUser.publicKey,
+		});
+		const execReg = new ExecutorRegistry();
+		const gw = new HubGateway(
+			new AR(0),
+			new SourceManager(() => {}),
+			async () => ({ agentId: "x", name: "x" }),
+			async () => {},
+			new AuthSessionManager(tempDir!),
+			execReg,
+		);
+		await gw.start(0);
+		try {
+			// Pre-register, bind, then open the SSE channel.
+			execReg.preRegister("c1", { cwd: "/tmp" });
+			gw.bindAgent("agent-1", "c1");
+			expect(gw.getBinding("agent-1")).toBe("c1");
+
+			const ch = (await (
+				await fetch(`${gw.url()}/_hub/auth/challenge`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ publicKey: localUser.publicKey }),
+				})
+			).json()) as { challengeId: string; challenge: string };
+			const session = (await (
+				await fetch(`${gw.url()}/_hub/auth/session`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						publicKey: localUser.publicKey,
+						challengeId: ch.challengeId,
+						signature: signChallenge(localUser, ch.challenge),
+					}),
+				})
+			).json()) as { token: string };
+
+			// Open SSE then close immediately. We use AbortController to
+			// tear down the connection so the close handler runs.
+			const ctrl = new AbortController();
+			const sseRes = await fetch(`${gw.url()}/_hub/executor/events?connectId=c1`, {
+				headers: { Authorization: `Bearer ${session.token}` },
+				signal: ctrl.signal,
+			});
+			expect(sseRes.status).toBe(200);
+			await sseRes.body?.cancel();
+			ctrl.abort();
+			// Allow the close handler to run.
+			await new Promise((r) => setTimeout(r, 50));
+			expect(gw.getBinding("agent-1")).toBeUndefined();
+			expect(execReg.get("c1")).toBeUndefined();
+		} finally {
+			await gw.stop();
+		}
+	});
 });

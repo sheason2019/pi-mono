@@ -67,5 +67,10 @@ function makeRemoteTool(nativeName: string, registeredName: string, ctx: RemoteT
 			}
 			return body.result;
 		},
+		// FIXME: the upstream ToolDefinition requires strongly-typed parameter
+		// schemas (TParams). We pass through params verbatim and rely on the
+		// remote executor's tool factories to enforce shape. Tighten to the
+		// canonical native tool schemas in a follow-up so the LLM sees correct
+		// parameter descriptions.
 	} as unknown as ToolDefinition;
 }
