@@ -146,6 +146,26 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 		return data;
 	}
 
+	/** GET {endpoint} and return parsed JSON. Throws with status + server error
+	 *  body on non-2xx, so callers see the real cause instead of a misleading
+	 *  downstream failure (e.g. `.map is not a function` on a JSON object). */
+	private async _getJson<T>(endpoint: string): Promise<T> {
+		const response = await fetch(`${this._baseUrl}/${endpoint}`, { headers: this._headers });
+		if (!response.ok) {
+			let detail = "";
+			try {
+				const body = (await response.json()) as { error?: unknown };
+				if (body && typeof body === "object" && "error" in body) {
+					detail = `: ${String(body.error)}`;
+				}
+			} catch {
+				// body was not JSON; leave detail empty
+			}
+			throw new Error(`${endpoint} returned ${response.status}${detail}`);
+		}
+		return (await response.json()) as T;
+	}
+
 	// Event subscription
 	subscribe(listener: Listener): () => void {
 		this._subscribers.add(listener);
@@ -335,8 +355,7 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 	}
 
 	async fetchTree(): Promise<TreeNodeData[]> {
-		const response = await fetch(`${this._baseUrl}/tree`);
-		return (await response.json()) as TreeNodeData[];
+		return this._getJson<TreeNodeData[]>("tree");
 	}
 
 	getUserMessagesForForking(): UserMessageItem[] {
@@ -344,13 +363,11 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 	}
 
 	async fetchUserMessages(): Promise<UserMessageItem[]> {
-		const response = await fetch(`${this._baseUrl}/user-messages`);
-		return (await response.json()) as UserMessageItem[];
+		return this._getJson<UserMessageItem[]>("user-messages");
 	}
 
 	async getSessions(): Promise<SessionItemData[]> {
-		const response = await fetch(`${this._baseUrl}/sessions`);
-		return (await response.json()) as SessionItemData[];
+		return this._getJson<SessionItemData[]>("sessions");
 	}
 
 	getCommands(): ServeSlashCommand[] {
@@ -358,8 +375,7 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 	}
 
 	async fetchCommands(): Promise<ServeSlashCommand[]> {
-		const response = await fetch(`${this._baseUrl}/commands`);
-		return (await response.json()) as ServeSlashCommand[];
+		return this._getJson<ServeSlashCommand[]>("commands");
 	}
 
 	getModels(): ModelItemData[] {
@@ -367,8 +383,7 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 	}
 
 	async fetchModels(): Promise<ModelItemData[]> {
-		const response = await fetch(`${this._baseUrl}/models`);
-		return (await response.json()) as ModelItemData[];
+		return this._getJson<ModelItemData[]>("models");
 	}
 
 	// Lifecycle
