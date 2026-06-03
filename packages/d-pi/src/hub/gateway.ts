@@ -4,6 +4,7 @@ import type { AuthSessionInfo, AuthSessionManager } from "../auth/auth-session.t
 import { injectMeta } from "../extension/message-meta.ts";
 import type { SourceConfig } from "../types.ts";
 import type { AgentRegistry } from "./agent-registry.ts";
+import type { ExecutorRegistry } from "./executor-registry.ts";
 import type { SourceManager } from "./source-manager.ts";
 
 /**
@@ -30,6 +31,7 @@ export class HubGateway {
 	) => Promise<{ agentId: string; name: string }>;
 	private readonly _onDestroyAgent: (agentId: string) => Promise<void>;
 	private readonly _auth: AuthSessionManager | undefined;
+	private readonly _executorRegistry: ExecutorRegistry | undefined;
 
 	constructor(
 		registry: AgentRegistry,
@@ -37,12 +39,14 @@ export class HubGateway {
 		onCreateAgent: HubGateway["_onCreateAgent"],
 		onDestroyAgent: HubGateway["_onDestroyAgent"],
 		auth?: AuthSessionManager,
+		executorRegistry?: ExecutorRegistry,
 	) {
 		this._registry = registry;
 		this._sourceManager = sourceManager;
 		this._onCreateAgent = onCreateAgent;
 		this._onDestroyAgent = onDestroyAgent;
 		this._auth = auth;
+		this._executorRegistry = executorRegistry;
 	}
 
 	async start(port: number): Promise<void> {
@@ -263,6 +267,30 @@ export class HubGateway {
 			} catch (err) {
 				res.writeHead(500, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+			}
+			return;
+		}
+
+		if (path === "/_hub/executor/register" && req.method === "POST") {
+			if (!this._executorRegistry) {
+				res.writeHead(503, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ error: "Executor registry not configured" }));
+				return;
+			}
+			try {
+				const body = await this._readBody(req);
+				const { connectId, cwd } = JSON.parse(body) as { connectId?: string; cwd?: string };
+				if (!connectId || !cwd) {
+					throw new Error("connectId and cwd are required");
+				}
+				this._executorRegistry.preRegister(connectId, { cwd });
+				res.writeHead(200, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ ok: true }));
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				const status = /already registered/i.test(msg) ? 409 : 400;
+				res.writeHead(status, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ error: msg }));
 			}
 			return;
 		}

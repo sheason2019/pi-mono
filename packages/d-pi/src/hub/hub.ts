@@ -21,6 +21,7 @@ import type {
 } from "../types.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
 import { AgentRegistry } from "./agent-registry.ts";
+import { ExecutorRegistry } from "./executor-registry.ts";
 import { HubGateway } from "./gateway.ts";
 import { SourceManager } from "./source-manager.ts";
 
@@ -30,6 +31,7 @@ export class Hub {
 	private readonly _registry: AgentRegistry;
 	private readonly _gateway: HubGateway;
 	private readonly _sourceManager: SourceManager;
+	private readonly _executorRegistry: ExecutorRegistry;
 	private readonly _config: HubConfig;
 
 	constructor(config: HubConfig) {
@@ -52,12 +54,15 @@ export class Hub {
 			}
 		});
 
+		this._executorRegistry = new ExecutorRegistry();
+
 		this._gateway = new HubGateway(
 			this._registry,
 			this._sourceManager,
 			(parentId, options) => this.createAgent(parentId, options),
 			(agentId) => this.destroyAgent(agentId),
 			new AuthSessionManager(config.workspaceRoot),
+			this._executorRegistry,
 		);
 	}
 
