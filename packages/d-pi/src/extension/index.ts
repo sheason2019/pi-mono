@@ -30,6 +30,11 @@ export interface DPiClientConfig {
 	mode: "client";
 	hubUrl: string;
 	currentAgentId?: string;
+	/**
+	 * Bearer token for the hub. Required when the hub is running with auth
+	 * enabled (the default). Omit in dev mode (hub without auth).
+	 */
+	authToken?: string;
 }
 
 export type DPiExtensionConfig = DPiWorkerConfig | DPiClientConfig;
@@ -79,29 +84,18 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 		pi.registerTool(createUnsubscribeSourceTool(channel));
 		pi.registerTool(createListSourcesTool(channel));
 
-		// Worker only: /sources command
+		// Server-side /sources command — registers the command name so it
+		// appears in the TUI slash menu (via the /commands proxy). The
+		// actual execution is handled by the client-side /sources handler
+		// loaded via the extension sync mechanism; this server-side
+		// registration is a placeholder for any future server-side work
+		// (e.g. server-side logging).
 		pi.registerCommand("sources", {
 			description: "List all registered sources",
-			async handler(_args: string, ctx): Promise<void> {
-				try {
-					const raw = await channel.listSources();
-					const result = raw as { sources?: SourceInfo[]; error?: string };
-					if (result.error) {
-						ctx.ui.notify(`Failed to list sources: ${result.error}`, "error");
-						return;
-					}
-					const sources = result.sources ?? [];
-					if (sources.length === 0) {
-						ctx.ui.notify("No sources registered. Use create_source tool to register one.", "info");
-						return;
-					}
-					const lines = sources.map(
-						(s) => `  ${s.name} [${s.status}] command="${s.command}" subscribers=${s.subscriberCount}`,
-					);
-					ctx.ui.notify(`Sources:\n${lines.join("\n")}`, "info");
-				} catch (err) {
-					ctx.ui.notify(`Failed to list sources: ${err instanceof Error ? err.message : String(err)}`, "error");
-				}
+			async handler(_args: string, _ctx): Promise<void> {
+				// Intentionally a no-op: the client extension intercepts this
+				// command on the TUI side. The TUI's command flow checks the
+				// client extension runner before sending to the agent.
 			},
 		});
 
@@ -161,12 +155,50 @@ function createClientFactory(config: DPiClientConfig): ExtensionFactory {
 		// Shared: message renderer
 		registerDPiMessageRenderer(pi);
 
+		// Client only: /sources command — show a panel listing all sources
+		// (Dual-side registration: the server-side registration in the worker
+		// factory also lists it in /commands so it appears in the TUI slash
+		// menu. The TUI's command flow checks the client extension runner
+		// first, so this handler is what actually runs.)
+		pi.registerCommand("sources", {
+			description: "List all registered sources",
+			async handler(_args: string, ctx): Promise<void> {
+				try {
+					const headers: Record<string, string> = {};
+					if (config.authToken) {
+						headers.Authorization = `Bearer ${config.authToken}`;
+					}
+					const response = await fetch(`${config.hubUrl}/_hub/sources`, { headers });
+					if (!response.ok) {
+						ctx.ui.notify(`Failed to fetch sources: ${response.status}`, "error");
+						return;
+					}
+					const sources = (await response.json()) as SourceInfo[];
+					if (sources.length === 0) {
+						ctx.ui.notify("No sources registered. Use create_source tool to register one.", "info");
+						return;
+					}
+					const options = sources.map(
+						(s) => `  ${s.name} [${s.status}] command="${s.command}" subscribers=${s.subscriberCount}`,
+					);
+					const title = `Sources (${sources.length})`;
+					await ctx.ui.select(title, options);
+				} catch (err) {
+					ctx.ui.notify(`Failed to list sources: ${err instanceof Error ? err.message : String(err)}`, "error");
+				}
+			},
+		});
+
 		// Client only: /agents command
 		pi.registerCommand("agents", {
 			description: "Switch to a different agent in the network",
 			async handler(_args: string, ctx): Promise<void> {
 				try {
-					const response = await fetch(`${config.hubUrl}/_hub/network`);
+					const headers: Record<string, string> = {};
+					if (config.authToken) {
+						headers.Authorization = `Bearer ${config.authToken}`;
+					}
+					const response = await fetch(`${config.hubUrl}/_hub/network`, { headers });
 					if (!response.ok) {
 						ctx.ui.notify(`Failed to fetch agent network: ${response.status}`, "error");
 						return;

@@ -14,5 +14,6 @@ export function client(pi: ExtensionAPI): void {
 		mode: "client",
 		hubUrl,
 		currentAgentId: process.env.DPI_CURRENT_AGENT_ID,
+		authToken: process.env.DPI_AUTH_TOKEN,
 	}).factory(pi);
 }
