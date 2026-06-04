@@ -67,8 +67,13 @@ function readSseEvents(
 	let buf = "";
 	const onData = (chunk: Buffer | string) => {
 		buf += chunk.toString();
-		const idx = buf.indexOf("\n\n");
-		while (idx !== -1) {
+		// Pull complete SSE events off the buffer one at a time. We
+		// re-scan the buffer on every iteration (not just on success) so
+		// a comment-only frame like ": ok\n\n" can't get stuck re-testing
+		// the original condition and wedge the loop.
+		while (true) {
+			const idx = buf.indexOf("\n\n");
+			if (idx === -1) break;
 			const raw = buf.slice(0, idx);
 			buf = buf.slice(idx + 2);
 			let eventName = "message";
@@ -118,8 +123,6 @@ function readSseEvents(
 export class ExecutorClient {
 	private readonly opts: ExecutorClientOptions;
 	private req: ClientRequest | null = null;
-	private stopped = false;
-
 	constructor(opts: ExecutorClientOptions) {
 		this.opts = opts;
 	}
@@ -155,7 +158,16 @@ export class ExecutorClient {
 					}
 					this.req = req;
 					readSseEvents(res, this.opts.onCommand, () => {
-						if (!this.stopped) this.start().catch(() => {});
+						// SSE ended: the hub disconnected us (graceful shutdown or
+						// server died) or the underlying socket errored out. We
+						// deliberately do not reconnect. The executor's lifetime
+						// is bound to the d-pi connect parent; if the hub comes
+						// back the user re-runs d-pi connect, which spawns a
+						// fresh executor. Reconnecting here would also hold the
+						// SSE I/O open long enough to defeat SIGTERM, which is
+						// what caused the connect process to hang on server exit.
+						process.stderr.write("[executor] SSE ended, exiting\n");
+						process.exit(0);
 					});
 					resolve();
 				},
@@ -176,9 +188,12 @@ export class ExecutorClient {
 	}
 
 	stop(): void {
-		this.stopped = true;
 		if (this.req) {
-			this.req.destroy();
+			try {
+				this.req.destroy();
+			} catch {
+				/* ignore */
+			}
 			this.req = null;
 		}
 	}

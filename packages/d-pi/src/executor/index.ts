@@ -14,6 +14,20 @@ import { ToolRunner } from "./runner.ts";
 
 export { readExecutorEnv, type ExecutorEnv, ExecutorClient, ToolRunner };
 
+// Install SIGTERM/SIGINT handlers at module load so the executor exits
+// promptly when d-pi connect signals it. The executor's only long-lived
+// I/O is the SSE stream to the hub, and Node's default signal behavior
+// waits for that to drain — which never happens — so we have to short-
+// circuit it. The handlers are installed here, not in cli.ts, because
+// the connect parent actually spawns `d-pi _executor-child`, which
+// dispatches to main() via cli-runner without ever loading cli.ts.
+const exitOnSignal = (signal: NodeJS.Signals): void => {
+	process.stderr.write(`[d-pi executor] received ${signal}, exiting\n`);
+	process.exit(0);
+};
+process.on("SIGTERM", exitOnSignal);
+process.on("SIGINT", exitOnSignal);
+
 /** Build the canonical native tool set, one per supported tool name. Each
  *  tool is constructed with the executor's cwd so file-system operations
  *  resolve relative paths the same way the agent worker's tools do. */

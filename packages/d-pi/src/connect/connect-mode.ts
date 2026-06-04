@@ -194,11 +194,18 @@ export async function runConnectSession(opts: ConnectSessionSpawnOptions & { fet
 				/* ignore */
 			}
 			// Safety net: restore terminal state in case a child exited
-			// abnormally without cleaning up.
+			// abnormally without cleaning up. The TUI enables the Kitty
+			// progressive keyboard protocol (CSI >u) and modifyOtherKeys
+			// (CSI >4;1m) on start; its own `stop()` pops both, but when the
+			// TUI is SIGTERM'd here it never reaches `stop()`, so the parent
+			// has to pop them itself. Without this the shell inherits the
+			// protocol and renders every keystroke as a `7;1:3u…` sequence.
 			try {
 				if (process.stdin.isTTY) {
 					process.stdin.setRawMode(false);
 				}
+				process.stdout.write("\x1B[<u"); // Pop Kitty keyboard protocol
+				process.stdout.write("\x1B[>4;0m"); // Disable modifyOtherKeys
 				process.stdout.write("\x1B[?25h"); // Show cursor
 				process.stdout.write("\x1B[?1004l"); // Disable focus reporting
 				process.stdout.write("\x1B[?2004l"); // Disable bracketed paste
@@ -227,11 +234,18 @@ export async function runConnectSession(opts: ConnectSessionSpawnOptions & { fet
 	});
 
 	// 3. Unbind so a future /agents/{id}/remote-call from a different session
-	// does not hit a stale binding.
+	// does not hit a stale binding. Bounded by a short timeout: the hub has
+	// its own GC of stale bindings on executor SSE close, so a slow unbind
+	// is not load-bearing. Without this bound, a half-open TCP socket to a
+	// dead hub can keep the parent alive past the moment the executor is
+	// reaped, surfacing as a hang right after the "TUI child exited" line.
 	try {
 		const headers: Record<string, string> = {};
 		if (authToken) headers.Authorization = `Bearer ${authToken}`;
-		await fetchImpl(`${hubUrl}/_hub/agents/${connectId}/unbind`, { method: "POST", headers });
+		await Promise.race([
+			fetchImpl(`${hubUrl}/_hub/agents/${connectId}/unbind`, { method: "POST", headers }),
+			new Promise((_, reject) => setTimeout(() => reject(new Error("unbind timeout")), 2_000)),
+		]);
 	} catch {
 		// Unbind is best-effort; the hub will GC stale bindings on executor disconnect.
 	}
