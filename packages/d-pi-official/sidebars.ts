@@ -1,0 +1,73 @@
+import type { SidebarsConfig } from "@docusaurus/plugin-content-docs";
+
+const sidebars: SidebarsConfig = {
+  docs: [
+    "intro",
+    {
+      type: "category",
+      label: "快速上手",
+      collapsed: false,
+      items: [
+        "getting-started/install",
+        "getting-started/init",
+        "getting-started/serve",
+        "getting-started/connect",
+        "getting-started/first-session",
+      ],
+    },
+    {
+      type: "category",
+      label: "多 Agent 编排",
+      items: [
+        "multi-agent/overview",
+        "multi-agent/create-agent",
+        "multi-agent/send-message",
+        "multi-agent/agent-network",
+        "multi-agent/destroy-agent",
+        "multi-agent/meta-connect",
+      ],
+    },
+    {
+      type: "category",
+      label: "数据源（Sources）",
+      items: [
+        "sources/overview",
+        "sources/create-source",
+        "sources/subscribe-source",
+        "sources/unsubscribe-source",
+        "sources/list-sources",
+        "sources/slash-sources",
+      ],
+    },
+    {
+      type: "category",
+      label: "远程执行（Remote Execution）",
+      items: [
+        "remote-execution/overview",
+        "remote-execution/executor-lifecycle",
+        "remote-execution/remote-tools",
+        "remote-execution/slash-agents",
+      ],
+    },
+    {
+      type: "category",
+      label: "用户与认证",
+      items: [
+        "auth/users",
+        "auth/allow-user",
+        "auth/dpi-auth-token",
+      ],
+    },
+    {
+      type: "category",
+      label: "参考",
+      items: [
+        "reference/cli",
+        "reference/tools",
+        "reference/slash-commands",
+      ],
+    },
+  ],
+};
+
+export default sidebars;

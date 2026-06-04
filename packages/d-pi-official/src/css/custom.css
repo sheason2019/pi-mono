@@ -1,0 +1,27 @@
+/**
+ * D-Pi Agent Teams 自定义样式
+ * 只动 code 字体和 toc 颜色，不改主题色。
+ */
+
+:root {
+  --ifm-code-font-size: 0.9em;
+  --ifm-toc-border-color: rgba(0, 0, 0, 0.08);
+}
+
+code {
+  font-family: var(--ifm-font-family-monospace);
+}
+
+.theme-doc-sidebar-container {
+  border-right: 1px solid var(--ifm-toc-border-color);
+}
+
+/* 让中文段落在长行下也能合理折行 */
+.markdown p {
+  line-height: 1.7;
+}
+
+/* 代码块内的中文注释不撞 italic */
+.prism-code .token.comment {
+  font-style: normal;
+}
