@@ -29,6 +29,16 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Agent Network",
+      items: [
+        "agent-network/overview",
+        "agent-network/directory-convention",
+        "agent-network/roles",
+        "agent-network/examples",
+      ],
+    },
+    {
+      type: "category",
       label: "数据源（Sources）",
       items: [
         "sources/overview",

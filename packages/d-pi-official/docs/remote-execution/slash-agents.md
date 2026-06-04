@@ -36,6 +36,7 @@ Agent network (4)
 
 ## 相关
 
+- [Agent Network 目录约定 → 概览](../agent-network/overview) —— 怎么设计 agent-network 目录让 `/agents` 有东西可看
 - [connect &lt;id&gt;](../multi-agent/meta-connect) — 命令行等价
 - [agent_network 工具](../multi-agent/agent-network) — agent 用
 
