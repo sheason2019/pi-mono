@@ -25,7 +25,7 @@ TUI 提示切换到该 agent 的会话上下文，后续你输入的内容直接
 
 ## 行为
 
-- 当前 agent 会收到一条 `meta` 消息，标记为「用户已切到 <id>」
+- 当前 agent 会收到一条 `meta` 消息，标记为「用户已切到 `<id>`」
 - TUI prompt 区显示当前目标 agent 名字
 - 后续用户消息**只发给**目标 agent，不发当前 agent
 - 切回原 agent：再次 `connect <原名>`
