@@ -63,6 +63,7 @@ const sidebars: SidebarsConfig = {
       type: "category",
       label: "用户与认证",
       items: [
+        "auth/overview",
         "auth/users",
         "auth/allow-user",
         "auth/dpi-auth-token",
