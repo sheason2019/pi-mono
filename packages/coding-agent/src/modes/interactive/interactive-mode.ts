@@ -62,7 +62,7 @@ import {
 	getShareViewerUrl,
 	VERSION,
 } from "../../config.ts";
-import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
+import { type AgentSession, type AgentSessionEvent, type ModelCycleResult, parseSkillBlock } from "../../core/agent-session.ts";
 import type { AgentSessionProxy, BannerData, ServeSlashCommand, TreeNodeData } from "../../core/agent-session-proxy.ts";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.ts";
 import type {
@@ -4153,7 +4153,13 @@ export class InteractiveMode {
 	}
 
 	private cycleThinkingLevel(): void {
-		const newLevel = this.session!.cycleThinkingLevel();
+		// Connect mode: no local session — route through the proxy. The proxy is
+		// fire-and-forget; the resulting state change arrives via SSE.
+		if (!this.session) {
+			this.proxy!.cycleThinkingLevel(1);
+			return;
+		}
+		const newLevel = this.session.cycleThinkingLevel();
 		if (newLevel === undefined) {
 			this.showStatus("Current model does not support thinking");
 		} else {
@@ -4165,9 +4171,18 @@ export class InteractiveMode {
 
 	private async cycleModel(direction: "forward" | "backward"): Promise<void> {
 		try {
-			const result = await this.session!.cycleModel(direction);
+			let result: ModelCycleResult | undefined;
+			if (this.session) {
+				result = await this.session.cycleModel(direction);
+			} else {
+				// Connect mode: no local session — route through the proxy. The
+				// proxy is fire-and-forget and returns void; the actual model
+				// change is reflected via SSE.
+				this.proxy!.cycleModel(direction === "forward" ? 1 : -1);
+			}
 			if (result === undefined) {
-				const msg = this.session!.scopedModels.length > 0 ? "Only one model in scope" : "Only one model available";
+				const scopedCount = this.session?.scopedModels.length ?? 0;
+				const msg = scopedCount > 0 ? "Only one model in scope" : "Only one model available";
 				this.showStatus(msg);
 			} else {
 				this.footer.invalidate();
