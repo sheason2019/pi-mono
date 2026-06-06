@@ -84,14 +84,24 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 		pi.registerTool(createUnsubscribeSourceTool(channel));
 		pi.registerTool(createListSourcesTool(channel));
 
-		// Server-side /sources command — registers the command name so it
-		// appears in the TUI slash menu (via the /commands proxy). The
-		// actual execution is handled by the client-side /sources handler
-		// loaded via the extension sync mechanism; this server-side
-		// registration is a placeholder for any future server-side work
-		// (e.g. server-side logging).
+		// Server-side /sources and /agents commands — register the command
+		// names so they appear in the TUI slash menu (via the /commands
+		// proxy). The actual execution is handled by the client-side
+		// handlers loaded via the extension sync mechanism; these
+		// server-side registrations are no-op placeholders so the server's
+		// `/commands` response naturally includes them. Previously the hub
+		// gateway intercepted GET /commands to inject /agents manually;
+		// unifying the registration here removes that hack.
 		pi.registerCommand("sources", {
 			description: "List all registered sources",
+			async handler(_args: string, _ctx): Promise<void> {
+				// Intentionally a no-op: the client extension intercepts this
+				// command on the TUI side. The TUI's command flow checks the
+				// client extension runner before sending to the agent.
+			},
+		});
+		pi.registerCommand("agents", {
+			description: "Switch to a different agent in the network",
 			async handler(_args: string, _ctx): Promise<void> {
 				// Intentionally a no-op: the client extension intercepts this
 				// command on the TUI side. The TUI's command flow checks the
