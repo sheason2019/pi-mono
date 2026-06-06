@@ -585,10 +585,6 @@ export class HubGateway {
 			return;
 		}
 
-		// Intercept GET /commands to filter out session management commands
-		// and inject the /agents command for d-pi connect mode
-		const isCommandsRequest = req.method === "GET" && path === "/commands";
-
 		// Intercept POST /prompt to inject message meta header
 		const isPromptRequest = req.method === "POST" && path === "/prompt";
 
@@ -646,40 +642,8 @@ export class HubGateway {
 				path: path + url.search,
 			},
 			(proxyRes) => {
-				if (isCommandsRequest && proxyRes.statusCode === 200) {
-					// Collect response body, filter commands, then forward
-					const chunks: Buffer[] = [];
-					proxyRes.on("data", (chunk: Buffer) => chunks.push(chunk));
-					proxyRes.on("end", () => {
-						try {
-							const commands = JSON.parse(Buffer.concat(chunks).toString()) as Array<{
-								name: string;
-								description: string;
-								argumentHint?: string;
-								source?: string;
-								[key: string]: unknown;
-							}>;
-							const blocked = new Set(["resume", "fork", "clone", "new", "tree", "agents"]);
-							const filtered = commands.filter((cmd) => !blocked.has(cmd.name));
-							filtered.push({
-								name: "agents",
-								description: "Switch to a different agent (d-pi)",
-								source: "dpi-hub",
-							});
-							const body = JSON.stringify(filtered);
-							res.writeHead(200, { "Content-Type": "application/json" });
-							res.end(body);
-						} catch {
-							// If parsing fails, forward original response
-							const raw = Buffer.concat(chunks).toString();
-							res.writeHead(proxyRes.statusCode ?? 500, proxyRes.headers);
-							res.end(raw);
-						}
-					});
-				} else {
-					res.writeHead(proxyRes.statusCode ?? 500, proxyRes.headers);
-					proxyRes.pipe(res, { end: true });
-				}
+				res.writeHead(proxyRes.statusCode ?? 500, proxyRes.headers);
+				proxyRes.pipe(res, { end: true });
 			},
 		);
 
