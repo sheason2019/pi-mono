@@ -5337,16 +5337,14 @@ export class InteractiveMode {
 			}
 			const snapshot = this.proxy!.getSnapshot();
 			const enabledModelIds = snapshot.scopedModelIds;
-			// Adapt connect-mode ModelItemData to the shape the upstream
-			// ScopedModelsSelectorComponent expects. The selector only reads
-			// id/provider/name at runtime; the remaining fields are required by
-			// the Model<any> type but never inspected.
-			const allModels: Model<any>[] = items.map((m) => ({
-				...m,
-				api: "openai-responses" as const,
-				baseUrl: "",
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			}));
+			// `ModelItemData` is now field-compatible with `Model<any>` (see
+			// core/agent-session-proxy.ts), so the only gap is the strict
+			// structural mismatch on `compat?` (optional) and `headers?` (optional)
+			// and the union-typed `api` field. A two-step cast skips those
+			// without touching upstream's strict `ModelsConfig.allModels` type.
+			// TODO: upstream `ScopedModelsSelectorComponent` should accept
+			// `ModelItemData` (or a `ModelDisplay` alias) directly.
+			const allModels = items as unknown as Model<any>[];
 
 			this.showSelector((done) => {
 				const selector = new ScopedModelsSelectorComponent(
