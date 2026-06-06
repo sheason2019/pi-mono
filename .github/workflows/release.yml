@@ -177,13 +177,15 @@ jobs:
           npm publish \
             --access public \
             --tag "${{ steps.dist-tag.outputs.dist-tag }}" \
-            --provenance \
             --ignore-scripts
 
       - name: Upload build artifacts for release attachment
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: pkg-${{ matrix.npm_name }}
+          # Use `matrix.package` (short slug like "ai", "tui") instead of
+          # `matrix.npm_name` (e.g. "@sheason/pi-ai") because GitHub Actions
+          # artifact names reject forward slashes.
+          name: pkg-${{ matrix.package }}
           path: ${{ matrix.pkg_path }}/${{ matrix.dist_dir }}/
           if-no-files-found: error
           retention-days: 14
@@ -200,40 +202,43 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download @sheason/pi-ai build
+      - name: Download pi-ai build
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        # Artifact names must match the upload side; the publish job uploads
+        # them as `pkg-<short-slug>` (e.g. "pkg-ai"), NOT `pkg-@sheason/...`,
+        # because GitHub Actions artifact names reject forward slashes.
         with:
-          name: pkg-@sheason/pi-ai
+          name: pkg-ai
           path: release-artifacts/pi-ai
 
-      - name: Download @sheason/pi-tui build
+      - name: Download pi-tui build
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
-          name: pkg-@sheason/pi-tui
+          name: pkg-tui
           path: release-artifacts/pi-tui
 
-      - name: Download @sheason/pi-agent-core build
+      - name: Download pi-agent-core build
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
-          name: pkg-@sheason/pi-agent-core
+          name: pkg-agent
           path: release-artifacts/pi-agent-core
 
-      - name: Download @sheason/pi-coding-agent build
+      - name: Download pi-coding-agent build
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
-          name: pkg-@sheason/pi-coding-agent
+          name: pkg-coding-agent
           path: release-artifacts/pi-coding-agent
 
-      - name: Download @sheason/d-pi build
+      - name: Download d-pi build
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
-          name: pkg-@sheason/d-pi
+          name: pkg-d-pi
           path: release-artifacts/d-pi
 
-      - name: Download @sheason/d-pi-official static site
+      - name: Download d-pi-official static site
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
-          name: pkg-@sheason/d-pi-official
+          name: pkg-d-pi-official
           path: release-artifacts/d-pi-official
 
       - name: Publish GitHub Release
