@@ -168,13 +168,21 @@ export class SourceManager {
 	}
 
 	private _spawnProcess(record: SourceRecord): void {
-		const fullCommand = record.args.length > 0 ? `${record.command} ${record.args.join(" ")}` : record.command;
-
-		const child = spawn(fullCommand, [], {
+		// Invoke the child as a real argv vector (no shell). With `shell: true`
+		// we used to glue `command` and `args` with single spaces and hand the
+		// whole thing to `/bin/sh -c`, which silently broke multi-word args
+		// such as `sh -c "exit 7"` because the inner quote pair was lost when
+		// the args were re-tokenised by the shell — `sh -c exit 7` parses as
+		// `sh -c` with `exit` as the script and `7` as `$0`, so the child
+		// always exited 0 instead of 7. Spawning with an explicit argv array
+		// preserves the original token boundaries verbatim. Users who need
+		// shell features (pipes, redirects, globs, variable expansion) can
+		// opt in explicitly with `command: "sh"`, `args: ["-c", "cmd | tee log"]`.
+		const child = spawn(record.command, record.args, {
 			cwd: record.cwd,
 			env: record.env ? { ...process.env, ...record.env } : process.env,
 			stdio: ["pipe", "pipe", "pipe"],
-			shell: true,
+			shell: false,
 			detached: true,
 		});
 

@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SourceManager } from "../src/hub/source-manager.ts";
 
@@ -27,11 +24,11 @@ import { SourceManager } from "../src/hub/source-manager.ts";
  * and are exercised by reading the source — the regression we care
  * about is the supervisor's *behavior*, not the exact delays.
  *
- * The supervisor spawns its child through `shell: true` and joins args
- * with a single space, so commands must be shell-safe (no unescaped
- * metacharacters). For the "exits with code 0 after a delay" case we
- * use `sleep 0.2; exit 0`; for the immediate-exit and explicit-code
- * cases we write small scripts to a temp dir.
+ * The supervisor spawns its child as an argv vector (no shell), so
+ * args are passed through verbatim. We exercise the "exits with
+ * non-zero code" path via `sh -c "exit 7"` (an inline script is safe
+ * because the shell that consumes it is sh itself, not the d-pi
+ * supervisor's spawn).
  */
 
 interface BroadcastCall {
@@ -69,7 +66,6 @@ function makeManager(opts?: {
 describe("SourceManager supervisor (regression for sheason2019/pi-mono#2)", () => {
 	let manager: SourceManager;
 	let broadcasts: BroadcastCall[];
-	let tempDir: string;
 	const CREATOR = "creator-agent-1";
 
 	// All tests use a short backoff so the full backoff curve is exercised
@@ -86,7 +82,6 @@ describe("SourceManager supervisor (regression for sheason2019/pi-mono#2)", () =
 		const ctx = makeManager(FAST_BACKOFF);
 		manager = ctx.manager;
 		broadcasts = ctx.broadcasts;
-		tempDir = mkdtempSync(join(tmpdir(), "d-pi-source-supervisor-"));
 	});
 
 	afterEach(async () => {
@@ -99,21 +94,7 @@ describe("SourceManager supervisor (regression for sheason2019/pi-mono#2)", () =
 		// Small grace period to let the SIGTERM/SIGKILL chain settle so the
 		// vitest process doesn't get a zombie reaped mid-suite
 		await wait(50);
-		rmSync(tempDir, { recursive: true, force: true });
 	});
-
-	/**
-	 * Write a small shell script to a temp file so the source manager can
-	 * invoke it as a single shell-safe command argument. The supervisor
-	 * spawns its child through `shell: true` and joins args with a space,
-	 * which breaks any arg containing whitespace, so we cannot pass a
-	 * `sh -c "exit 7"` style script directly.
-	 */
-	function writeScript(name: string, body: string): string {
-		const path = join(tempDir, name);
-		writeFileSync(path, body, { mode: 0o755 });
-		return path;
-	}
 
 	it("restarts a source whose child exits with code 0 (was: silently abandoned)", async () => {
 		// Shell-native command: sleep 200ms then exit 0. Before the fix this
@@ -222,18 +203,16 @@ describe("SourceManager supervisor (regression for sheason2019/pi-mono#2)", () =
 
 	it("notifies the creator with the actual exit code (non-zero path)", async () => {
 		// Exercise the non-zero exit path so we know the code/signal pair
-		// is always propagated verbatim to the creator broadcast.
-		//
-		// We use a small script on disk because the supervisor joins args
-		// with a single space and runs under `sh -c`, so we can't safely
-		// pass a multi-word `sh -c "exit 7"` inline (the inner space
-		// would split the script into two tokens).
-		const script = writeScript("exit-7.sh", "exit 7\n");
+		// is always propagated verbatim to the creator broadcast. Now that
+		// the supervisor spawns args as an argv vector (no shell joining),
+		// we can pass `sh -c "exit 7"` inline without the inner space
+		// getting re-tokenised — which is the regression this whole PR
+		// series is about.
 		manager.createSource(
 			{
 				name: "crash-source",
 				command: "sh",
-				args: [script],
+				args: ["-c", "exit 7"],
 			},
 			CREATOR,
 		);

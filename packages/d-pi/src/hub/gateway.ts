@@ -259,16 +259,32 @@ export class HubGateway {
 				res.end(JSON.stringify({ error: "Auth is not enabled" }));
 				return;
 			}
+			// Compute the result BEFORE writing response headers. Otherwise a
+			// throw from createChallenge() (e.g. "Public key is not allowed")
+			// would send a 200 with no body (writeHead already flushed) and
+			// the catch's 401 would hit ERR_HTTP_HEADERS_SENT, leaving the
+			// client hung waiting for a body that never arrives. By computing
+			// first, any throw cleanly produces a real 4xx.
+			let challenge: { challengeId: string; challenge: string };
 			try {
 				const body = await this._readBody(req);
 				const params = JSON.parse(body) as { publicKey?: string };
 				if (!params.publicKey) throw new Error("publicKey is required");
-				res.writeHead(200, { "Content-Type": "application/json" });
-				res.end(JSON.stringify(this._auth.createChallenge(params.publicKey)));
+				challenge = this._auth.createChallenge(params.publicKey);
 			} catch (err) {
-				res.writeHead(401, { "Content-Type": "application/json" });
-				res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+				if (!res.headersSent) {
+					res.writeHead(401, { "Content-Type": "application/json" });
+					res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+				} else {
+					// Defensive: if some prior code path already flushed headers
+					// (e.g. a buggy proxy or write), tear down the socket so the
+					// client does not hang on a half-closed response.
+					res.destroy();
+				}
+				return;
 			}
+			res.writeHead(200, { "Content-Type": "application/json" });
+			res.end(JSON.stringify(challenge));
 			return;
 		}
 
@@ -278,23 +294,36 @@ export class HubGateway {
 				res.end(JSON.stringify({ error: "Auth is not enabled" }));
 				return;
 			}
+			// Same ordering rationale as /_hub/auth/challenge: compute first,
+			// write the response after, so a throw from createSession() cannot
+			// leave the response in a half-closed 200 state.
+			let session: { token: string; auth: { name: string; description: string } };
 			try {
 				const body = await this._readBody(req);
-				const params = JSON.parse(body) as { publicKey?: string; challengeId?: string; signature?: string };
+				const params = JSON.parse(body) as {
+					publicKey?: string;
+					challengeId?: string;
+					signature?: string;
+				};
 				if (!params.publicKey || !params.challengeId || !params.signature) {
 					throw new Error("publicKey, challengeId, and signature are required");
 				}
-				const session = this._auth.createSession({
+				session = this._auth.createSession({
 					publicKey: params.publicKey,
 					challengeId: params.challengeId,
 					signature: params.signature,
 				});
-				res.writeHead(200, { "Content-Type": "application/json" });
-				res.end(JSON.stringify(session));
 			} catch (err) {
-				res.writeHead(401, { "Content-Type": "application/json" });
-				res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+				if (!res.headersSent) {
+					res.writeHead(401, { "Content-Type": "application/json" });
+					res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+				} else {
+					res.destroy();
+				}
+				return;
 			}
+			res.writeHead(200, { "Content-Type": "application/json" });
+			res.end(JSON.stringify(session));
 			return;
 		}
 
@@ -585,10 +614,6 @@ export class HubGateway {
 			return;
 		}
 
-		// Intercept GET /commands to filter out session management commands
-		// and inject the /agents command for d-pi connect mode
-		const isCommandsRequest = req.method === "GET" && path === "/commands";
-
 		// Intercept POST /prompt to inject message meta header
 		const isPromptRequest = req.method === "POST" && path === "/prompt";
 
@@ -646,40 +671,8 @@ export class HubGateway {
 				path: path + url.search,
 			},
 			(proxyRes) => {
-				if (isCommandsRequest && proxyRes.statusCode === 200) {
-					// Collect response body, filter commands, then forward
-					const chunks: Buffer[] = [];
-					proxyRes.on("data", (chunk: Buffer) => chunks.push(chunk));
-					proxyRes.on("end", () => {
-						try {
-							const commands = JSON.parse(Buffer.concat(chunks).toString()) as Array<{
-								name: string;
-								description: string;
-								argumentHint?: string;
-								source?: string;
-								[key: string]: unknown;
-							}>;
-							const blocked = new Set(["resume", "fork", "clone", "new", "tree", "agents"]);
-							const filtered = commands.filter((cmd) => !blocked.has(cmd.name));
-							filtered.push({
-								name: "agents",
-								description: "Switch to a different agent (d-pi)",
-								source: "dpi-hub",
-							});
-							const body = JSON.stringify(filtered);
-							res.writeHead(200, { "Content-Type": "application/json" });
-							res.end(body);
-						} catch {
-							// If parsing fails, forward original response
-							const raw = Buffer.concat(chunks).toString();
-							res.writeHead(proxyRes.statusCode ?? 500, proxyRes.headers);
-							res.end(raw);
-						}
-					});
-				} else {
-					res.writeHead(proxyRes.statusCode ?? 500, proxyRes.headers);
-					proxyRes.pipe(res, { end: true });
-				}
+				res.writeHead(proxyRes.statusCode ?? 500, proxyRes.headers);
+				proxyRes.pipe(res, { end: true });
 			},
 		);
 
