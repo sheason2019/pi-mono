@@ -1,6 +1,6 @@
 {
   "name": "@sheason/d-pi-official",
-  "version": "0.6.0-alpha.1",
+  "version": "0.6.0-alpha.2",
   "private": true,
   "description": "D-Pi Agent Teams documentation site",
   "scripts": {
