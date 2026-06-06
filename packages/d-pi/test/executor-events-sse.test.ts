@@ -88,7 +88,7 @@ async function* openSse(url: string, headers: Record<string, string>): AsyncGene
 			res.setEncoding("utf8");
 			res.on("data", (chunk: string) => {
 				buffer += chunk;
-				const idx = buffer.indexOf("\n\n");
+				let idx = buffer.indexOf("\n\n");
 				while (idx !== -1) {
 					const raw = buffer.slice(0, idx);
 					buffer = buffer.slice(idx + 2);
@@ -105,6 +105,7 @@ async function* openSse(url: string, headers: Record<string, string>): AsyncGene
 						for (const r of pendingResolvers) r();
 						pendingResolvers = [];
 					}
+					idx = buffer.indexOf("\n\n");
 				}
 			});
 			res.on("end", () => {
