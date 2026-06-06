@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -47,6 +47,9 @@ describe("init template: strict-JSON output", () => {
 		expect(raw).not.toMatch(/\/\//);
 		expect(raw).not.toMatch(/,[\s\n]*[}\]]/);
 
+		// The point of the regression: strict JSON.parse must accept the file.
+		// This is the exact path the hub uses when restoring persisted agents
+		// (see packages/d-pi/src/hub/hub.ts:start()).
 		const parsed = JSON.parse(raw) as { name: string; parentName: string | null };
 		expect(parsed.name).toBe("root");
 		expect(parsed.parentName).toBeNull();
@@ -56,8 +59,33 @@ describe("init template: strict-JSON output", () => {
 		const workspace = freshWorkspace();
 		initWorkspace(workspace);
 
+		// validateWorkspace no longer strips `//` comments — the init template
+		// must be canonical JSON on its own.
 		const config = validateWorkspace(workspace);
 		expect(config.version).toBe(1);
+	});
+
+	it("validateWorkspace rejects a hand-written config that still uses JS comments", () => {
+		// Regression guard for the workaround removal: previously
+		// validateWorkspace did `raw.replace(/\/\/.*$/gm, "")` before
+		// JSON.parse, which silently masked hand-written `//` comments
+		// (and the resulting trailing-comma SyntaxError). With the
+		// workaround gone, a hand-written comment must surface as
+		// "Invalid workspace config: ... is not valid JSON".
+		const workspace = freshWorkspace();
+		initWorkspace(workspace);
+
+		const configPath = join(workspace, ".dpi", "config.json");
+		writeFileSync(
+			configPath,
+			`{
+	"version": 1,
+	// "defaultModel": "anthropic/claude-sonnet-4"
+}
+`,
+		);
+
+		expect(() => validateWorkspace(workspace)).toThrowError(/Invalid workspace config/);
 	});
 
 	it("AGENTS.md template documents the optional workspace and agent config keys", () => {

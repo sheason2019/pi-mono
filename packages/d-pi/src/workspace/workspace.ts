@@ -34,9 +34,11 @@ export function validateWorkspace(workspaceRoot: string): WorkspaceConfig {
 		throw new Error(`Invalid workspace: missing ${DPI_DIR}/${CONFIG_FILE}`);
 	}
 	try {
-		let raw = readFileSync(configPath, "utf-8");
-		// Strip single-line comments (// ...) to allow documented config templates
-		raw = raw.replace(/\/\/.*$/gm, "");
+		// Strict JSON parse. The init template (and every agent config) is
+		// emitted as canonical JSON via JSON.stringify, so no comment-stripping
+		// workaround is needed. If a user adds a hand-written config with `//`
+		// or trailing commas, JSON.parse will surface the SyntaxError.
+		const raw = readFileSync(configPath, "utf-8");
 		const parsed = JSON.parse(raw);
 		if (parsed.version !== 1) {
 			throw new Error(`Unsupported workspace version: ${parsed.version}`);
