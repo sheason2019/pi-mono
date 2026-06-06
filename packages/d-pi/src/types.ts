@@ -113,7 +113,7 @@ export interface DestroyAgentResult {
 }
 
 // === Source Status ===
-export type SourceStatus = "running" | "stopped" | "error";
+export type SourceStatus = "running" | "stopped" | "error" | "failed";
 
 // === Source Configuration ===
 export interface SourceConfig {

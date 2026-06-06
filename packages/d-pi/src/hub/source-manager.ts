@@ -21,13 +21,29 @@ interface SourceRecord {
 
 const MAX_RESTART_DELAY_MS = 60_000;
 const INITIAL_RESTART_DELAY_MS = 10_000;
+const MAX_RESTART_ATTEMPTS = 5;
+
+export interface SourceManagerOptions {
+	/** Initial backoff between restart attempts. Default 10s. */
+	initialRestartDelayMs?: number;
+	/** Cap on the exponential backoff. Default 60s. */
+	maxRestartDelayMs?: number;
+	/** Number of consecutive restart attempts before the source is marked failed. Default 5. */
+	maxRestartAttempts?: number;
+}
 
 export class SourceManager {
 	private readonly _sources = new Map<string, SourceRecord>();
 	private readonly _onBroadcast: (sourceName: string, line: string, subscriberAgentIds: string[]) => void;
+	private readonly _initialRestartDelayMs: number;
+	private readonly _maxRestartDelayMs: number;
+	private readonly _maxRestartAttempts: number;
 
-	constructor(onBroadcast: SourceManager["_onBroadcast"]) {
+	constructor(onBroadcast: SourceManager["_onBroadcast"], options: SourceManagerOptions = {}) {
 		this._onBroadcast = onBroadcast;
+		this._initialRestartDelayMs = options.initialRestartDelayMs ?? INITIAL_RESTART_DELAY_MS;
+		this._maxRestartDelayMs = options.maxRestartDelayMs ?? MAX_RESTART_DELAY_MS;
+		this._maxRestartAttempts = options.maxRestartAttempts ?? MAX_RESTART_ATTEMPTS;
 	}
 
 	createSource(config: SourceConfig, creatorAgentId?: string): void {
@@ -99,6 +115,21 @@ export class SourceManager {
 			status: r.status,
 			subscriberCount: r.subscribers.size,
 		}));
+	}
+
+	/**
+	 * Inspector used by tests and operators to see the supervisor's view of a
+	 * source: how many times it has been restarted and what its lifecycle
+	 * status is. Returns undefined if no source is registered under `name`.
+	 */
+	getSourceStats(name: string): { status: SourceStatus; restartCount: number; destroyed: boolean } | undefined {
+		const record = this._sources.get(name);
+		if (!record) return undefined;
+		return {
+			status: record.status,
+			restartCount: record.restartCount,
+			destroyed: record.destroyed,
+		};
 	}
 
 	removeAgentSubscriptions(agentId: string): void {
@@ -181,17 +212,17 @@ export class SourceManager {
 			this._closeReaders(record);
 			if (record.destroyed) return;
 
-			// Exit code 0 means the command completed successfully — do not restart.
-			if (code === 0) {
-				record.status = "stopped";
-				this._notifyCreator(record, `Source "${record.name}" exited normally (code=0). No restart scheduled.`);
-				return;
-			}
-
+			// A Source is a long-running supervised process. Every non-destroyed
+			// exit (code 0, non-zero, or signal) is treated as a supervisor-level
+			// failure and is eligible for restart. Treating `code === 0` as
+			// "normal completion" is wrong: long-running consumers like
+			// `lark-cli event consume` exit cleanly (code 0) when the internal
+			// bus daemon goes idle, when the WebSocket drops, or when stdin is
+			// closed. Those are not user-initiated stops and must be recovered.
 			record.status = "stopped";
 			this._notifyCreator(
 				record,
-				`Source "${record.name}" exited unexpectedly (code=${code}, signal=${signal}). Restarting with exponential backoff.`,
+				`Source "${record.name}" exited (code=${code}, signal=${signal}). Restarting with exponential backoff.`,
 			);
 			this._scheduleRestart(record);
 		});
@@ -201,7 +232,24 @@ export class SourceManager {
 		if (record.destroyed) return;
 		if (record.restartTimer) return; // Already scheduled
 
-		const delay = Math.min(INITIAL_RESTART_DELAY_MS * 2 ** record.restartCount, MAX_RESTART_DELAY_MS);
+		// If we have already burned through our budget of restart attempts,
+		// give up: mark the source as failed, surface a final [source-error]
+		// to the creator, and stop supervising. This bounds the restart loop
+		// for persistently crashing children (e.g. a misconfigured command)
+		// while still recovering transparently from transient blips.
+		if (record.restartCount >= this._maxRestartAttempts) {
+			record.status = "failed";
+			this._notifyCreator(
+				record,
+				`Source "${record.name}" failed after ${record.restartCount} restart attempts; giving up. Last operator action required: destroy and recreate the source, or fix the underlying command.`,
+			);
+			process.stderr.write(
+				`[d-pi source] Source "${record.name}" giving up after ${record.restartCount} restart attempts\n`,
+			);
+			return;
+		}
+
+		const delay = Math.min(this._initialRestartDelayMs * 2 ** record.restartCount, this._maxRestartDelayMs);
 		record.restartCount++;
 
 		process.stderr.write(
