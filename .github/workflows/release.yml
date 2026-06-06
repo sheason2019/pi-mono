@@ -247,7 +247,12 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           generate_release_notes: true
-          fail_on_unmatched_files: true
+          # Idempotent re-run: allow overwriting existing assets (6 platform
+          # binaries from build-binaries.yml share the same release; without
+          # this flag softprops tries to delete then recreate, which 404s on
+          # the second re-run).
+          overwrite_files: true
+          fail_on_unmatched_files: false
           files: |
             release-artifacts/pi-ai/**
             release-artifacts/pi-tui/**
