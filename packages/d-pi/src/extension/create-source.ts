@@ -12,12 +12,12 @@ export function createCreateSourceTool(channel: HubChannel) {
 			name: Type.String({ description: "Unique name for the source" }),
 			command: Type.String({
 				description:
-					"Shell command to run. Must be a long-running process. For complex commands with pipes, loops, or variables, put the entire command here as a single string.",
+					'Program to run (argv[0]). Must be a long-running process that keeps producing output until destroyed. The hub spawns the program with the `args` array as-is — no shell parsing, no globbing, no variable expansion. For shell features (pipes, redirects, globs), invoke `sh` explicitly: `command: "sh"`, `args: ["-c", "tail -f /var/log/app.log | grep ERROR"]`.',
 			}),
 			args: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
-						"Simple positional arguments appended to the command. Only use for plain tokens like filenames or flags. Do NOT use for shell syntax (quotes, variables, pipes, loops) — put those in the command field instead.",
+						'Positional arguments passed verbatim to the program. Each element is one argv token — no shell tokenisation, no quote stripping. To pass a single argument containing spaces, make it one element of this array; do not split it across multiple elements or try to quote it with `"` or `\'`. Example: `args: ["-c", "echo hello world"]` runs `sh -c \'echo hello world\'`.',
 				}),
 			),
 			cwd: Type.Optional(Type.String({ description: "Working directory for the process" })),
