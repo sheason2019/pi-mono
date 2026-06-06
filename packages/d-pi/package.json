@@ -1,6 +1,6 @@
 {
 	"name": "@sheason/d-pi",
-	"version": "0.6.0-alpha.1",
+	"version": "0.6.0-alpha.2",
 	"description": "Multi-agent tree orchestrator built on pi serve mode",
 	"type": "module",
 	"bin": {
@@ -13,10 +13,10 @@
 		"build": "tsgo -p tsconfig.build.json && shx chmod +x dist/cli.js"
 	},
 	"dependencies": {
-		"@sheason/pi-coding-agent": "0.78.0-sheason.0.6.0-alpha.1",
-		"@sheason/pi-agent-core": "0.78.0-sheason.0.6.0-alpha.1",
-		"@sheason/pi-ai": "0.78.0-sheason.0.6.0-alpha.1",
-		"@sheason/pi-tui": "0.78.0-sheason.0.6.0-alpha.1",
+		"@sheason/pi-coding-agent": "0.78.0-sheason.0.6.0-alpha.2",
+		"@sheason/pi-agent-core": "0.78.0-sheason.0.6.0-alpha.2",
+		"@sheason/pi-ai": "0.78.0-sheason.0.6.0-alpha.2",
+		"@sheason/pi-tui": "0.78.0-sheason.0.6.0-alpha.2",
 		"typebox": "1.1.38"
 	},
 	"devDependencies": {
