@@ -82,9 +82,12 @@ export class Hub {
 				if (!existsSync(configPath)) continue;
 
 				try {
-					let agentRaw = readFileSync(configPath, "utf-8");
-					// Strip single-line comments (// ...) to allow documented config templates
-					agentRaw = agentRaw.replace(/\/\/.*$/gm, "");
+					// Strict JSON parse. The init template (and every persisted
+					// agent.json) is canonical JSON emitted by JSON.stringify, so
+					// no comment-stripping workaround is needed. A SyntaxError
+					// here means the file is corrupt or hand-edited with `//` /
+					// trailing commas — surface it instead of papering over it.
+					const agentRaw = readFileSync(configPath, "utf-8");
 					const agentConfig: AgentConfig = JSON.parse(agentRaw);
 					process.stderr.write(`[d-pi hub] Restoring agent "${agentConfig.name}" from ${entry.name}/\n`);
 					// Resolve parentId from parentName in persisted config
