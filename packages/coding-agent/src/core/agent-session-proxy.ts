@@ -1,4 +1,5 @@
 import type { AgentMessage, ThinkingLevel } from "@sheason/pi-agent-core";
+import type { Api } from "@sheason/pi-ai";
 import type { AgentSessionEvent } from "./agent-session.ts";
 import type { SourceInfo } from "./source-info.ts";
 
@@ -96,11 +97,25 @@ export interface ModelInfo {
 	contextWindow: number;
 }
 
-/** Model item for remote model selector. */
+/**
+ * Model item for remote model selector. Field-compatible with `Model<any>`
+ * (the upstream `ScopedModelsSelectorComponent`'s expected input type) so
+ * connect-mode callers can cast `ModelItemData[]` to `Model<any>[]` without
+ * fabricating missing fields. Fields mirror the relevant subset of
+ * `packages/ai/src/types.ts#Model`.
+ */
 export interface ModelItemData {
 	id: string;
 	name: string;
 	provider: string;
+	api: Api;
+	baseUrl: string;
+	cost: {
+		input: number;
+		output: number;
+		cacheRead: number;
+		cacheWrite: number;
+	};
 	reasoning: boolean;
 	contextWindow: number;
 	maxTokens: number;
