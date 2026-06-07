@@ -167,6 +167,7 @@ jobs:
           npm publish \
             --access public \
             --tag "${{ steps.dist-tag.outputs.dist-tag }}" \
+            --provenance \
             --ignore-scripts
 
       - name: Upload build artifacts for release attachment
