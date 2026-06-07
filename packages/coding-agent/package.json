@@ -93,7 +93,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/sheason2019/pi-mono.git",
 		"directory": "packages/coding-agent"
 	},
 	"engines": {

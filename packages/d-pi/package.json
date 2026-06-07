@@ -2,6 +2,11 @@
 	"name": "@sheason/d-pi",
 	"version": "0.6.0-alpha.2",
 	"description": "Multi-agent tree orchestrator built on pi serve mode",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/sheason2019/pi-mono.git",
+		"directory": "packages/d-pi"
+	},
 	"type": "module",
 	"bin": {
 		"d-pi": "dist/cli.js"
