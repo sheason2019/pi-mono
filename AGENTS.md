@@ -23,6 +23,31 @@
 - Never hardcode key checks (e.g. `matchesKey(keyData, "ctrl+x")`). Add defaults to `DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS` so they stay configurable.
 - Never modify `packages/ai/src/models.generated.ts` directly; update `packages/ai/scripts/generate-models.ts` instead, then regenerate. Including the resulting `models.generated.ts` diff is always OK, even if regeneration includes unrelated upstream model metadata changes.
 
+## Source design
+
+d-pi sources are loose, long-running commands that emit **JSON-RPC 2.0
+notifications** on stdout, one per line. The hub parses every line
+through `packages/d-pi/src/hub/source-validator.ts` and forwards only
+`notification` shapes to subscribed agents — requests/responses are
+silently dropped, invalid lines are logged to hub stderr and dropped.
+
+Full design: `docs/superpowers/specs/2026-06-07-source-redesign-design.md`.
+
+Quick reference for new sources:
+
+- One JSON-RPC 2.0 notification per stdout line. Use `\n` (not `\r\n`).
+- Required: `jsonrpc: "2.0"`, `method: "events.emit"`, `params.type`.
+- Optional but standard: `params.id` (event id for ack/dedup), `params.priority` (`steer` / `follow-up` / `next-turn` / `append`, default `follow-up`), `params.data` (arbitrary payload).
+- Notifications must NOT carry `id`, `result`, or `error` fields — those mark the message as a request/response and the hub will drop it.
+- Anything that fails to parse is logged to hub stderr (`[d-pi source] Source "<name>" emitted invalid line: <reason> (truncated: <line>)`) and dropped. Sources must not crash on hub-side rejection — the hub catches validator throws and keeps the source alive.
+- Sources can be written in Node / Python / Bash / Rust / anything. The hub only spawns the command (argv vector, no shell). For pipes / redirects / env vars, wrap in `sh -c`.
+- Reference impls and wrappers for the bundled Lark sources live under `scripts/lark-source-formatter/` (notify.sh, health-notify.sh) and `packages/d-pi/src/sources/` (lark-im-shim.ts, lark-health-shim.ts). Use them as templates when adding a new source.
+
+When adding a new source type, write its transform/shim as a separate
+small executable (similar to the Lark shims) rather than embedding
+JSON-RPC wrapping logic in whatever produces the raw output. Keeps each
+piece testable in isolation.
+
 ## Commands
 
 - After code changes (not docs): `npm run check` (full output, no tail). Fix all errors, warnings, and infos before committing. Does not run tests.
