@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed npm publish E422 due to missing `repository.url` (will be in v0.6.0-alpha.3)
+
 ## [0.78.0] - 2026-05-29
 
 ## [0.77.0] - 2026-05-28
