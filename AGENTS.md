@@ -158,30 +158,29 @@ Attribution:
 
 ## Releasing d-pi (fork-specific)
 
-`sheason2019/pi-mono` is a fork. **All** six packages under the `@sheason` npm scope are maintained here as forks of upstream pi-mono: `@sheason/pi-ai`, `@sheason/pi-tui`, `@sheason/pi-agent-core`, `@sheason/pi-coding-agent`, `@sheason/d-pi`, plus the docs site `@sheason/d-pi-official`. The `## Releasing` section above describes the upstream-style flow that uses `npm run release:patch` / `release:minor` and `scripts/release.mjs` to bump versions across the lockstep set. `.github/workflows/release.yml` is the d-pi-tag-push trigger that does the actual publishing for this fork.
+`sheason2019/pi-mono` is a fork. **Five** packages under the `@sheason` npm scope are maintained here as forks of upstream pi-mono: `@sheason/pi-ai`, `@sheason/pi-tui`, `@sheason/pi-agent-core`, `@sheason/pi-coding-agent`, `@sheason/d-pi`. The docusaurus docs site at `packages/d-pi-official` is **not** part of the release pipeline and is deployed independently (Vercel / Cloudflare Pages / GitHub Pages) — tracked by a follow-up issue. The `## Releasing` section above describes the upstream-style flow that uses `npm run release:patch` / `release:minor` and `scripts/release.mjs` to bump versions across the lockstep set. `.github/workflows/release.yml` is the d-pi-tag-push trigger that does the actual publishing for this fork.
 
 Workflow: `.github/workflows/release.yml`. Triggers on `v*` tag push or `workflow_dispatch` with a `tag` input. Three jobs:
 
 1. `test` — `npm ci --ignore-scripts` + `npm run build` + `npm run check` + `npm test` (same as `ci.yml`).
-2. `publish` (matrix over all six packages, **serial** via `max-parallel: 1`) — order is fixed by the dependency graph:
+2. `publish` (matrix over the five packages, **serial** via `max-parallel: 1`) — order is fixed by the dependency graph:
    1. `@sheason/pi-ai` (`packages/ai`)
    2. `@sheason/pi-tui` (`packages/tui`)
    3. `@sheason/pi-agent-core` (`packages/agent`)
    4. `@sheason/pi-coding-agent` (`packages/coding-agent`)
    5. `@sheason/d-pi` (`packages/d-pi`)
-   6. `@sheason/d-pi-official` (`packages/d-pi-official`)
 
-   Serial execution is required: downstream packages (pi-coding-agent, d-pi) read upstream `dist/` from the filesystem via `tsconfig` `paths`. Before the matrix runs, the job does `npm run build` (root chain: `tui → ai → agent → coding-agent → d-pi`) plus `docusaurus build` for `d-pi-official` (which is not in the root chain) so every package's `dist`/`build` exists on disk for the matrix. Each matrix row then re-runs its own `npm run build` (idempotent) and resolves the npm `dist-tag` from the tag name (`v1.2.3` → `latest`, `v1.2.3-alpha.N` → `alpha`, `v1.2.3-beta.N` → `beta`, `v1.2.3-rc.N` → `rc`). The five publishable rows run `npm publish --access public --tag <tag> --provenance --ignore-scripts`. `@sheason/d-pi-official` is `private: true` in its `package.json`, so its matrix row only runs `docusaurus build` and skips `npm publish`. Each row uploads its build output as a workflow artifact (`pkg-<name>`).
-3. `github-release` — downloads all six build artifacts and creates a GitHub Release via `softprops/action-gh-release@v2` with auto-generated notes (`generate_release_notes: true`) and the dist/build directories attached.
+   Serial execution is required: downstream packages (pi-coding-agent, d-pi) read upstream `dist/` from the filesystem via `tsconfig` `paths`. Before the matrix runs, the job runs `npm run build` (root chain: `tui → ai → agent → coding-agent → d-pi`) so every package's `dist/` exists on disk for the matrix. Each matrix row then re-runs its own `npm run build` (idempotent) and resolves the npm `dist-tag` from the tag name (`v1.2.3` → `latest`, `v1.2.3-alpha.N` → `alpha`, `v1.2.3-beta.N` → `beta`, `v1.2.3-rc.N` → `rc`). All five rows run `npm publish --access public --tag <tag> --ignore-scripts` (provenance: deferred — see follow-up issue). Each row uploads its build output as a workflow artifact (`pkg-<name>`).
+3. `github-release` — downloads the five build artifacts and creates a GitHub Release via `softprops/action-gh-release@v2` with auto-generated notes (`generate_release_notes: true`) and the `dist/` directories attached (`overwrite_files: true` + `fail_on_unmatched_files: false` for idempotent re-runs alongside the 6 platform binaries from `build-binaries.yml`).
 
 Required secret on the fork repo (Settings → Secrets and variables → Actions):
 
-- `NPM_TOKEN` — a single npm access token with **Automation** permission, publish scope limited to `@sheason`. Used for all six packages. The `id-token: write` permission is requested for npm provenance, which also requires configuring npm trusted publishing for the `@sheason` org against this repo (Settings → Environments → `npm-publish`).
+- `NPM_TOKEN` — a single npm access token with **Automation** permission, publish scope limited to `@sheason`. Used for all five packages. The `id-token: write` permission is requested for npm provenance, which also requires configuring npm trusted publishing for the `@sheason` org against this repo (Settings → Environments → `npm-publish`).
 - `GITHUB_TOKEN` is provided automatically; no extra token needed for the GitHub Release step.
 
 Cut a release:
 
-1. Bump versions in `packages/*/package.json` (all six packages stay lockstep on the d-pi version) and refresh the lockfile + shrinkwrap:
+1. Bump versions in `packages/*/package.json` (all five packages stay lockstep on the d-pi version) and refresh the lockfile + shrinkwrap:
    ```bash
    # edit each packages/*/package.json by hand — do not use `npm version` (it would auto-tag)
    npm install --package-lock-only --ignore-scripts
@@ -197,7 +196,7 @@ Cut a release:
    git tag -a v<X> -m "Release v<X>" <commit-sha>
    git push origin v<X>
    ```
-4. CI runs `test` → `publish` (six matrix rows, serial) → `github-release`. `.github/workflows/release.yml` is the **only** publishing path on the fork: `.github/workflows/build-binaries.yml` still runs on `v*` tag push for the binary artifacts, but its `publish-npm` job has been removed to avoid double-publishing. The upstream `## Releasing` section above remains the source of truth for the bump/commit/tag ritual.
+4. CI runs `test` → `publish` (five matrix rows, serial) → `github-release`. `.github/workflows/release.yml` is the **only** publishing path on the fork: `.github/workflows/build-binaries.yml` still runs on `v*` tag push for the binary artifacts, but its `publish-npm` job has been removed to avoid double-publishing. The upstream `## Releasing` section above remains the source of truth for the bump/commit/tag ritual.
 
 ## User Override
 
