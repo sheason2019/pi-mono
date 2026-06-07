@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { createInterface, type Interface as ReadlineInterface } from "node:readline";
 import type { SourceConfig, SourceInfo, SourceStatus } from "../types.ts";
+import { validateLine } from "./source-validator.ts";
 
 interface SourceRecord {
 	name: string;
@@ -191,7 +192,27 @@ export class SourceManager {
 
 		const stdoutReader = createInterface({ input: child.stdout! });
 		stdoutReader.on("line", (line) => {
-			this._onLine(record.name, line);
+			try {
+				const result = validateLine(line);
+				switch (result.kind) {
+					case "notification":
+						this._onLine(record.name, line);
+						break;
+					case "request":
+					case "response":
+						// Silent drop — source is a push service, doesn't process
+						// bidirectional calls. Don't log to avoid stderr noise.
+						break;
+					case "invalid":
+						process.stderr.write(
+							`[d-pi source] Source "${record.name}" emitted invalid line: ${result.reason} (truncated: ${line.slice(0, 120)})\n`,
+						);
+						break;
+				}
+			} catch (err) {
+				// Validator itself threw — log and continue. Never crash the source.
+				process.stderr.write(`[d-pi source] Source "${record.name}" validator threw: ${(err as Error).message}\n`);
+			}
 		});
 		record.stdoutReader = stdoutReader;
 
