@@ -364,3 +364,4 @@ function parseAgentId(selected: string): string | undefined {
 }
 
 export { HubChannel };
+export { createReloadExtension, createReloadTools, type ReloadToolsDeps } from "./reload-tools.ts";
