@@ -34,6 +34,10 @@
 - For ad-hoc scripts, `write` them to a temp file (e.g. `/tmp`), run, edit if needed, remove when done. Don't embed multi-line scripts in `bash` commands.
 - Never commit unless the user asks.
 
+### Skipped tests
+
+- `packages/d-pi/src/executor/client.ts:170` calls `process.exit(0)` on SSE end. The corresponding test in `packages/d-pi/test/executor-client.test.ts` is `it.skip`'d because vitest treats `process.exit` calls in child processes as unhandled errors. We rely on the OS to clean up the process (acceptable for SSE-end behavior; not worth the test infrastructure complexity).
+
 ## Dependency and Install Security
 
 - Treat npm dep and lockfile changes as reviewed code. Direct external deps stay pinned to exact versions.
