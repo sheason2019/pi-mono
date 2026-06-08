@@ -28,8 +28,8 @@
 d-pi sources are loose, long-running commands that emit **JSON-RPC 2.0
 notifications** on stdout, one per line. The hub parses every line
 through `packages/d-pi/src/hub/source-validator.ts` and forwards only
-`notification` shapes to subscribed agents — requests/responses are
-silently dropped, invalid lines are logged to hub stderr and dropped.
+`notification` shapes to subscribed agents — requests/responses and
+invalid lines are silently dropped.
 
 Full design: `docs/superpowers/specs/2026-06-07-source-redesign-design.md`.
 
@@ -39,9 +39,9 @@ Quick reference for new sources:
 - Required: `jsonrpc: "2.0"`, `method: "events.emit"`, `params.type`.
 - Optional but standard: `params.id` (event id for ack/dedup), `params.data` (arbitrary payload), `params.deliverAs` (routing mode — see below).
 - Notifications must NOT carry `id`, `result`, or `error` fields — those mark the message as a request/response and the hub will drop it.
-- Anything that fails to parse is logged to hub stderr (`[d-pi source] Source "<name>" emitted invalid line: <reason> (truncated: <line>)`) and dropped. Sources must not crash on hub-side rejection — the hub catches validator throws and keeps the source alive.
+- Anything that fails to parse is silently dropped — not the hub's problem to diagnose. Per the "only valuable output" principle, no stderr warning either. Sources must not crash on hub-side rejection — the hub catches validator throws and keeps the source alive.
 - Sources can be written in Node / Python / Bash / Rust / anything. The hub only spawns the command (argv vector, no shell). For pipes / redirects / env vars, wrap in `sh -c`.
-- Reference impls and wrappers for the bundled Lark sources live under `scripts/lark-source-formatter/` (notify.sh, health-notify.sh) and `packages/d-pi/src/sources/` (lark-im-shim.ts, lark-health-shim.ts). Use them as templates when adding a new source.
+- Shim/wrappers for specific protocols (e.g. Lark) live outside d-pi — at the Agent layer in your own workspace. d-pi ships protocol-agnostic infrastructure only.
 
 `params.deliverAs` routes the notification through the agent's `pi.sendMessage` to a specific executor endpoint. Three values, default `followUp`:
 
@@ -49,12 +49,7 @@ Quick reference for new sources:
 - `"followUp"` — queue after the current turn finishes (default for most sources: lark chats, health reports, low-priority ambient data).
 - `"prompt"` — same routing as `followUp` but flagged for tools that want to distinguish an explicit prompt from a passive follow-up. Sources that intentionally drive a turn (e.g. user-driven chat) should declare `prompt` instead of leaving it as default.
 
-Unknown values (wrong case, wrong type, missing) coerce to `followUp` so a misbehaving source can never accidentally route to `steer`. Supervisor-error broadcasts (e.g. `[source-error] ...` lines) always use `followUp` regardless of source content — they are operational infra, not user-visible messages.
-
-When adding a new source type, write its transform/shim as a separate
-small executable (similar to the Lark shims) rather than embedding
-JSON-RPC wrapping logic in whatever produces the raw output. Keeps each
-piece testable in isolation.
+Routing decision is fully owned by SourceManager: it parses `params.deliverAs` from the validated JSONRPC notification, coerces unknown values (wrong case, wrong type, missing) to `followUp`, and passes the resolved mode to the broadcast callback. The downstream extension performs a 1:1 mapping to `pi.sendMessage` options — no per-event branching, no "is agent running?" heuristic. Supervisor-error broadcasts (e.g. `[source-error] ...` lines) always use `followUp` regardless of source content — they are operational infra, not user-visible messages.
 
 ## Commands
 

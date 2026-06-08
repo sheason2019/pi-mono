@@ -35,8 +35,10 @@ export interface SourceManagerOptions {
 
 /**
  * Source-message routing mode. Sources declare a per-event `params.deliverAs`
- * in their JSONRPC notification; the hub extracts it and the agent's
- * `pi.sendMessage` uses it to pick the matching executor HTTP endpoint.
+ * in their JSONRPC notification; SourceManager parses + coerces it and
+ * forwards the resolved mode to the broadcast callback as the 4th
+ * argument. The downstream extension maps it 1:1 to `pi.sendMessage`
+ * options — the routing decision is fully owned by SourceManager.
  *
  * - "steer":    interrupt the current turn and inject immediately (urgent
  *               events). Routes to the agent's `/steer` endpoint.
@@ -44,7 +46,8 @@ export interface SourceManagerOptions {
  *               e.g. lark chats, health reports). Routes to `/prompt`.
  * - "prompt":   same routing as followUp but the source explicitly flagged
  *               it as a prompt-shaped event — kept as a distinct value so
- *               future tools can tell the two apart.
+ *               future tools can tell the two apart. Maps to
+ *               `{ triggerTurn: true }` at the extension layer.
  */
 export type DeliverAsMode = "steer" | "followUp" | "prompt";
 

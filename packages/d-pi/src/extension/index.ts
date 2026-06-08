@@ -110,13 +110,6 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 		});
 
 		// Worker only: handle incoming messages through the extension event bus
-		let isAgentRunning = false;
-		pi.on("agent_start", () => {
-			isAgentRunning = true;
-		});
-		pi.on("agent_end", () => {
-			isAgentRunning = false;
-		});
 		pi.on("input", (event) => {
 			if (event.source !== "interactive") {
 				return { action: "continue" };
@@ -144,19 +137,20 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 				? content
 				: injectMeta(content, sourceName ? "source" : "connect", undefined, { sourceName });
 			const extracted = extractMeta(metaContent);
-			// Source-declared routing wins over the "agent running?" heuristic.
-			//   steer    → interrupt current turn immediately
-			//   followUp → queue after current turn (default for most sources)
-			//   prompt   → same routing as followUp but flagged for tools that
-			//              distinguish (legacy explicit-prompt path)
+			// Routing decision lives in SourceManager (parsed + coerced from
+			// params.deliverAs on the validated JSONRPC notification).
+			// Extension just maps the source-declared mode to pi.sendMessage
+			// options — no "is agent running?" fallback, no per-event
+			// branching. The 1:1 mapping is:
+			//   steer    → { deliverAs: "steer" }    → /steer endpoint
+			//   followUp → { deliverAs: "followUp" } → /prompt endpoint
+			//   prompt   → { triggerTurn: true }    → /prompt (new turn)
 			const options: { deliverAs?: "steer" | "followUp"; triggerTurn?: boolean } =
 				deliverAs === "steer"
 					? { deliverAs: "steer" }
 					: deliverAs === "prompt"
 						? { triggerTurn: true }
-						: isAgentRunning
-							? { deliverAs: "followUp" }
-							: { triggerTurn: true };
+						: { deliverAs: "followUp" };
 			pi.sendMessage(
 				{
 					customType: "d-pi-message",
