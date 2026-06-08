@@ -54,7 +54,13 @@ export type WorkerToHubMessage =
 // === Hub → Worker IPC Messages ===
 export type HubToWorkerMessage =
 	| { type: "tool_result"; callId: string; result: unknown }
-	| { type: "message"; fromAgentId: string; content: string; sourceName?: string }
+	| {
+			type: "message";
+			fromAgentId: string;
+			content: string;
+			sourceName?: string;
+			deliverAs?: "steer" | "followUp" | "prompt";
+	  }
 	| { type: "destroy" };
 
 // === Agent Network Snapshot ===

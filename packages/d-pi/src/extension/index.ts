@@ -136,7 +136,7 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 			return { action: "handled" };
 		});
 
-		channel.onIncomingMessage((content, sourceName) => {
+		channel.onIncomingMessage((content, sourceName, deliverAs) => {
 			if (sourceName) {
 				process.stderr.write(`[d-pi extension] Received source message from "${sourceName}"\n`);
 			}
@@ -144,7 +144,19 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 				? content
 				: injectMeta(content, sourceName ? "source" : "connect", undefined, { sourceName });
 			const extracted = extractMeta(metaContent);
-			const options = isAgentRunning ? { deliverAs: "followUp" as const } : { triggerTurn: true };
+			// Source-declared routing wins over the "agent running?" heuristic.
+			//   steer    → interrupt current turn immediately
+			//   followUp → queue after current turn (default for most sources)
+			//   prompt   → same routing as followUp but flagged for tools that
+			//              distinguish (legacy explicit-prompt path)
+			const options: { deliverAs?: "steer" | "followUp"; triggerTurn?: boolean } =
+				deliverAs === "steer"
+					? { deliverAs: "steer" }
+					: deliverAs === "prompt"
+						? { triggerTurn: true }
+						: isAgentRunning
+							? { deliverAs: "followUp" }
+							: { triggerTurn: true };
 			pi.sendMessage(
 				{
 					customType: "d-pi-message",

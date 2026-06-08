@@ -1,6 +1,8 @@
 import type { AgentNetworkSnapshot, WorkerToHubMessage } from "../types.ts";
 
-type IncomingMessageHandler = (content: string, sourceName?: string) => void;
+type DeliverAsMode = "steer" | "followUp" | "prompt";
+
+type IncomingMessageHandler = (content: string, sourceName?: string, deliverAs?: DeliverAsMode) => void;
 
 /**
  * Communication channel from extension tools to the Hub.
@@ -35,8 +37,8 @@ export class HubChannel {
 	}
 
 	/** Deliver an incoming message — called by agent-worker, handled by extension */
-	deliverMessage(content: string, sourceName?: string): void {
-		this._onIncomingMessage?.(content, sourceName);
+	deliverMessage(content: string, sourceName?: string, deliverAs?: DeliverAsMode): void {
+		this._onIncomingMessage?.(content, sourceName, deliverAs);
 	}
 
 	/** Send a message to another agent */

@@ -37,11 +37,19 @@ Quick reference for new sources:
 
 - One JSON-RPC 2.0 notification per stdout line. Use `\n` (not `\r\n`).
 - Required: `jsonrpc: "2.0"`, `method: "events.emit"`, `params.type`.
-- Optional but standard: `params.id` (event id for ack/dedup), `params.priority` (`steer` / `follow-up` / `next-turn` / `append`, default `follow-up`), `params.data` (arbitrary payload).
+- Optional but standard: `params.id` (event id for ack/dedup), `params.data` (arbitrary payload), `params.deliverAs` (routing mode — see below).
 - Notifications must NOT carry `id`, `result`, or `error` fields — those mark the message as a request/response and the hub will drop it.
 - Anything that fails to parse is logged to hub stderr (`[d-pi source] Source "<name>" emitted invalid line: <reason> (truncated: <line>)`) and dropped. Sources must not crash on hub-side rejection — the hub catches validator throws and keeps the source alive.
 - Sources can be written in Node / Python / Bash / Rust / anything. The hub only spawns the command (argv vector, no shell). For pipes / redirects / env vars, wrap in `sh -c`.
 - Reference impls and wrappers for the bundled Lark sources live under `scripts/lark-source-formatter/` (notify.sh, health-notify.sh) and `packages/d-pi/src/sources/` (lark-im-shim.ts, lark-health-shim.ts). Use them as templates when adding a new source.
+
+`params.deliverAs` routes the notification through the agent's `pi.sendMessage` to a specific executor endpoint. Three values, default `followUp`:
+
+- `"steer"` — interrupt the agent's current turn and inject immediately. Use for urgent events where queueing would lose value (operator pokes, kill switches, security alerts).
+- `"followUp"` — queue after the current turn finishes (default for most sources: lark chats, health reports, low-priority ambient data).
+- `"prompt"` — same routing as `followUp` but flagged for tools that want to distinguish an explicit prompt from a passive follow-up. Sources that intentionally drive a turn (e.g. user-driven chat) should declare `prompt` instead of leaving it as default.
+
+Unknown values (wrong case, wrong type, missing) coerce to `followUp` so a misbehaving source can never accidentally route to `steer`. Supervisor-error broadcasts (e.g. `[source-error] ...` lines) always use `followUp` regardless of source content — they are operational infra, not user-visible messages.
 
 When adding a new source type, write its transform/shim as a separate
 small executable (similar to the Lark shims) rather than embedding

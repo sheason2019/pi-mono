@@ -33,9 +33,37 @@ export interface SourceManagerOptions {
 	maxRestartAttempts?: number;
 }
 
+/**
+ * Source-message routing mode. Sources declare a per-event `params.deliverAs`
+ * in their JSONRPC notification; the hub extracts it and the agent's
+ * `pi.sendMessage` uses it to pick the matching executor HTTP endpoint.
+ *
+ * - "steer":    interrupt the current turn and inject immediately (urgent
+ *               events). Routes to the agent's `/steer` endpoint.
+ * - "followUp": queue after the current turn (default for most messages,
+ *               e.g. lark chats, health reports). Routes to `/prompt`.
+ * - "prompt":   same routing as followUp but the source explicitly flagged
+ *               it as a prompt-shaped event — kept as a distinct value so
+ *               future tools can tell the two apart.
+ */
+export type DeliverAsMode = "steer" | "followUp" | "prompt";
+
+/** Coerce a JSONRPC `params.deliverAs` value into a valid mode (default: followUp). */
+function coerceDeliverAs(raw: unknown): DeliverAsMode {
+	if (raw === "steer" || raw === "followUp" || raw === "prompt") {
+		return raw;
+	}
+	return "followUp";
+}
+
 export class SourceManager {
 	private readonly _sources = new Map<string, SourceRecord>();
-	private readonly _onBroadcast: (sourceName: string, line: string, subscriberAgentIds: string[]) => void;
+	private readonly _onBroadcast: (
+		sourceName: string,
+		line: string,
+		subscriberAgentIds: string[],
+		deliverAs: DeliverAsMode,
+	) => void;
 	private readonly _initialRestartDelayMs: number;
 	private readonly _maxRestartDelayMs: number;
 	private readonly _maxRestartAttempts: number;
@@ -297,12 +325,30 @@ export class SourceManager {
 		if (!record || record.destroyed || record.subscribers.size === 0) return;
 
 		const subscriberIds = Array.from(record.subscribers);
-		this._onBroadcast(sourceName, line, subscriberIds);
+
+		// Parse the JSONRPC notification so we can route by deliverAs.
+		// If parsing fails (validator already filtered this line as a
+		// notification, so JSON.parse should succeed), default to
+		// followUp — never throw here, supervisor must stay alive.
+		let deliverAs: DeliverAsMode = "followUp";
+		try {
+			const parsed = JSON.parse(line) as { params?: { deliverAs?: unknown } };
+			if (parsed && typeof parsed === "object" && parsed.params && typeof parsed.params === "object") {
+				deliverAs = coerceDeliverAs(parsed.params.deliverAs);
+			}
+		} catch {
+			// Shouldn't happen for validated notifications, but stay safe.
+			deliverAs = "followUp";
+		}
+
+		this._onBroadcast(sourceName, line, subscriberIds, deliverAs);
 	}
 
 	private _notifyCreator(record: SourceRecord, message: string): void {
 		if (!record.creatorAgentId) return;
-		this._onBroadcast(record.name, `[source-error] ${message}`, [record.creatorAgentId]);
+		// Supervisor-error notifications are operational infra, not source
+		// content — use followUp (default) so they flow with normal delivery.
+		this._onBroadcast(record.name, `[source-error] ${message}`, [record.creatorAgentId], "followUp");
 	}
 
 	private _closeReaders(record: SourceRecord): void {
