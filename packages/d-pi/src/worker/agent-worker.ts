@@ -21,7 +21,7 @@ import {
 	generateBanner,
 	LocalAgentSessionProxy,
 } from "@sheason/pi-coding-agent/d-pi-worker";
-import { createDPiExtension, type HubChannel } from "../extension/index.ts";
+import { createDPiExtension, createReloadExtension, type HubChannel } from "../extension/index.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 
 const dPiClientExtensionPath = new URL(
@@ -143,7 +143,25 @@ async function runAgentWorker(): Promise<void> {
 			settingsManager,
 			modelRegistry,
 			resourceLoaderOptions: {
-				extensionFactories: [{ factory: extensionFactory, name: "<d-pi-built-in-std-extension>" }],
+				extensionFactories: [
+					{ factory: extensionFactory, name: "<d-pi-built-in-std-extension>" },
+					{
+						// d-pi-built-in-reload-extension: registers the
+						// `reload` LLM tool. The session is not
+						// available when the factory first runs (it is
+						// constructed later by createAgentSessionFromServices),
+						// so the tool's deps use lazy getters that resolve
+						// `runtime?.session` at execute() time.
+						factory: createReloadExtension({
+							getReloadFn: () => {
+								const session = runtime?.session;
+								return session ? () => session.reload() : undefined;
+							},
+							getResourceLoader: () => runtime?.session?.resourceLoader,
+						}),
+						name: "<d-pi-built-in-reload-extension>",
+					},
+				],
 				appendSystemPrompt,
 				agentsFilesOverride: (base) => ({
 					agentsFiles: [...additionalAgentsFiles, ...base.agentsFiles],
