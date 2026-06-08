@@ -147,7 +147,7 @@ async function runAgentWorker(): Promise<void> {
 					{ factory: extensionFactory, name: "<d-pi-built-in-std-extension>" },
 					{
 						// d-pi-built-in-reload-extension: registers the
-						// `reload_resources` LLM tool. The session is not
+						// `reload` LLM tool. The session is not
 						// available when the factory first runs (it is
 						// constructed later by createAgentSessionFromServices),
 						// so the tool's deps use lazy getters that resolve

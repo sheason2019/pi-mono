@@ -17,7 +17,7 @@ export interface ReloadToolsDeps {
 }
 
 /**
- * Create the `reload_resources` LLM-callable tool.
+ * Create the `reload` LLM-callable tool.
  *
  * The tool calls the worker's `AgentSession.reload()` (re-reading skills,
  * system prompt, context files, extensions), then queries the resource
@@ -26,7 +26,7 @@ export interface ReloadToolsDeps {
  */
 export function createReloadTools(deps: ReloadToolsDeps): ToolDefinition {
 	return defineTool({
-		name: "reload_resources",
+		name: "reload",
 		label: "Reload Resources",
 		description:
 			"Reload d-pi resources (skills, system prompt, AGENTS.md / CLAUDE.md context files, extensions) at runtime without restarting the hub or worker. Returns a JSON snapshot of the post-reload state so the caller can verify what changed. Takes effect on the next agent turn — the in-flight turn is aborted.",

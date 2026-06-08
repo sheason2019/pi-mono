@@ -69,12 +69,12 @@ describe("createReloadTools", () => {
 		});
 	});
 
-	it("exports a tool named 'reload_resources' with description and zero-arg schema", () => {
+	it("exports a tool named 'reload' with description and zero-arg schema", () => {
 		const tool = createReloadTools({
 			getReloadFn: () => mockReloadFn,
 			getResourceLoader: () => mockLoader,
 		});
-		expect(tool.name).toBe("reload_resources");
+		expect(tool.name).toBe("reload");
 		expect(tool.label).toBeTruthy();
 		expect(tool.description).toMatch(/reload/i);
 		// 0 parameters: schema is Type.Object({}) which renders as a fixed object
@@ -184,7 +184,7 @@ describe("createReloadTools", () => {
 });
 
 describe("createReloadExtension", () => {
-	it("registers a single reload_resources tool on the pi api", () => {
+	it("registers a single reload tool on the pi api", () => {
 		const registered: ToolDefinition[] = [];
 		const fakeApi = {
 			registerTool: (t: ToolDefinition) => registered.push(t),
@@ -195,7 +195,7 @@ describe("createReloadExtension", () => {
 		});
 		factory(fakeApi);
 		expect(registered).toHaveLength(1);
-		expect(registered[0]?.name).toBe("reload_resources");
+		expect(registered[0]?.name).toBe("reload");
 	});
 
 	it("is safe to call before the session is ready (tool still registered)", () => {
