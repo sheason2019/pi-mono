@@ -26,6 +26,8 @@ interface BroadcastCall {
 	sourceName: string;
 	line: string;
 	subscriberAgentIds: string[];
+	deliverAs: "steer" | "followUp" | "prompt";
+	drainMode: "all" | "one-at-a-time";
 }
 
 const CREATOR = "integration-creator";
@@ -52,8 +54,8 @@ async function waitFor(predicate: () => boolean, timeoutMs: number, intervalMs =
 
 function makeManager() {
 	const broadcasts: BroadcastCall[] = [];
-	const manager = new SourceManager((sourceName, line, subscriberAgentIds) => {
-		broadcasts.push({ sourceName, line, subscriberAgentIds });
+	const manager = new SourceManager((sourceName, line, subscriberAgentIds, deliverAs, drainMode) => {
+		broadcasts.push({ sourceName, line, subscriberAgentIds, deliverAs, drainMode });
 	}, FAST_BACKOFF);
 	return { manager, broadcasts };
 }
@@ -217,5 +219,25 @@ echo '{"jsonrpc":"2.0","method":"events.emit","params":{"type":"cycle","data":"e
 		expect(notifications.length).toBeGreaterThanOrEqual(2);
 		// No garbage leaked through.
 		expect(cycleBroadcasts.some((b) => b.line.includes("GARBAGE"))).toBe(false);
+	});
+
+	it("end-to-end: source emits deliverAs + drainMode, both surface in broadcast", async () => {
+		const line = JSON.stringify({
+			jsonrpc: "2.0",
+			method: "events.emit",
+			params: {
+				type: "integration.drainMode",
+				id: "ev-dm",
+				deliverAs: "steer",
+				drainMode: "one-at-a-time",
+				data: { marker: "dm" },
+			},
+		});
+		manager.createSource({ name: "drainmode-e2e", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
+
+		await waitFor(() => broadcasts.some((b) => b.sourceName === "drainmode-e2e"), 3_000, 20);
+		const b = broadcasts.find((b) => b.sourceName === "drainmode-e2e");
+		expect(b?.deliverAs).toBe("steer");
+		expect(b?.drainMode).toBe("one-at-a-time");
 	});
 });

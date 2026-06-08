@@ -49,7 +49,7 @@ port.on("message", (message: HubToWorkerMessage) => {
 			hubChannel?.resolveCall(message.callId, message.result);
 			break;
 		case "message":
-			hubChannel?.deliverMessage(message.content, message.sourceName, message.deliverAs);
+			hubChannel?.deliverMessage(message.content, message.sourceName, message.deliverAs, message.drainMode);
 			break;
 		case "destroy":
 			gracefulShutdown();

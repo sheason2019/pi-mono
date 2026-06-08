@@ -51,6 +51,14 @@ Quick reference for new sources:
 
 Routing decision is fully owned by SourceManager: it parses `params.deliverAs` from the validated JSONRPC notification, coerces unknown values (wrong case, wrong type, missing) to `followUp`, and passes the resolved mode to the broadcast callback. The downstream extension performs a 1:1 mapping to `pi.sendMessage` options — no per-event branching, no "is agent running?" heuristic. Supervisor-error broadcasts (e.g. `[source-error] ...` lines) always use `followUp` regardless of source content — they are operational infra, not user-visible messages.
 
+In addition to `deliverAs`, one optional `params` field controls how the agent session drains the queued message. Mirrors the upstream coding-agent `PendingMessageQueue.mode` enum.
+
+- `params.drainMode` — `"all" | "one-at-a-time"` (default `"all"`). `"all"` means a batch of queued messages from the same source is drained together (the agent loop processes them as a combined context window); `"one-at-a-time"` means each queued message is processed in its own discrete turn. Use `"one-at-a-time"` for interactive sources where each event deserves its own response (e.g. chat-like sources with back-to-back user turns).
+
+Like `deliverAs`, `drainMode` is parsed + coerced by SourceManager. Unknown values (wrong case, wrong type, missing) coerce to `"all"` so a misbehaving source can never accidentally degrade batching behaviour. Supervisor-error broadcasts always use `"all"` regardless of source content.
+
+Note: as of PR #25, the downstream `pi.sendMessage` API in `packages/coding-agent` does not yet expose a slot for `drainMode`. The field flows through the IPC chain and the extension logs it for observability, but the actual queueing behaviour is still driven by the upstream default. A follow-up PR to `packages/coding-agent` will expose `drainMode` on `sendCustomMessage` so this PR's plumbing activates end-to-end. Until that lands, treat the field as a forward-compatible schema declaration — sources can declare it now and it will start working the moment the coding-agent side lands.
+
 ## Commands
 
 - After code changes (not docs): `npm run check` (full output, no tail). Fix all errors, warnings, and infos before committing. Does not run tests.

@@ -59,6 +59,33 @@ function coerceDeliverAs(raw: unknown): DeliverAsMode {
 	return "followUp";
 }
 
+/**
+ * Source-message queueing mode. Sources declare a per-event
+ * `params.drainMode` in their JSONRPC notification; SourceManager
+ * parses + coerces it and forwards the resolved mode to the broadcast
+ * callback as the 5th argument. Mirrors the upstream coding-agent
+ * `PendingMessageQueue.mode` enum (see `packages/coding-agent/src/core/
+ * agent-session.ts`).
+ *
+ * - "all":            drain a batch of queued messages together (default
+ *                     — same effective behaviour as before this field
+ *                     existed; the agent loop processes them as a single
+ *                     batched context window).
+ * - "one-at-a-time":  each queued message is processed in its own
+ *                     discrete turn. Use for interactive sources where
+ *                     each event deserves its own response.
+ *
+ * Unknown values (wrong case, wrong type, missing) coerce to `"all"`
+ * so a misbehaving source can never accidentally degrade agent
+ * batching behaviour.
+ */
+export type DrainMode = "all" | "one-at-a-time";
+
+/** Coerce a JSONRPC `params.drainMode` value into a valid mode (default: "all"). */
+function coerceDrainMode(raw: unknown): DrainMode {
+	return raw === "all" || raw === "one-at-a-time" ? raw : "all";
+}
+
 export class SourceManager {
 	private readonly _sources = new Map<string, SourceRecord>();
 	private readonly _onBroadcast: (
@@ -66,6 +93,7 @@ export class SourceManager {
 		line: string,
 		subscriberAgentIds: string[],
 		deliverAs: DeliverAsMode,
+		drainMode: DrainMode,
 	) => void;
 	private readonly _initialRestartDelayMs: number;
 	private readonly _maxRestartDelayMs: number;
@@ -329,29 +357,35 @@ export class SourceManager {
 
 		const subscriberIds = Array.from(record.subscribers);
 
-		// Parse the JSONRPC notification so we can route by deliverAs.
-		// If parsing fails (validator already filtered this line as a
-		// notification, so JSON.parse should succeed), default to
-		// followUp — never throw here, supervisor must stay alive.
+		// Parse the JSONRPC notification so we can extract deliverAs +
+		// drainMode. The validator already classified this line as a
+		// notification, so JSON.parse should succeed — but stay defensive
+		// (try/catch) so a parsing bug can never crash the supervisor.
 		let deliverAs: DeliverAsMode = "followUp";
+		let drainMode: DrainMode = "all";
 		try {
-			const parsed = JSON.parse(line) as { params?: { deliverAs?: unknown } };
+			const parsed = JSON.parse(line) as {
+				params?: { deliverAs?: unknown; drainMode?: unknown };
+			};
 			if (parsed && typeof parsed === "object" && parsed.params && typeof parsed.params === "object") {
 				deliverAs = coerceDeliverAs(parsed.params.deliverAs);
+				drainMode = coerceDrainMode(parsed.params.drainMode);
 			}
 		} catch {
 			// Shouldn't happen for validated notifications, but stay safe.
 			deliverAs = "followUp";
+			drainMode = "all";
 		}
 
-		this._onBroadcast(sourceName, line, subscriberIds, deliverAs);
+		this._onBroadcast(sourceName, line, subscriberIds, deliverAs, drainMode);
 	}
 
 	private _notifyCreator(record: SourceRecord, message: string): void {
 		if (!record.creatorAgentId) return;
 		// Supervisor-error notifications are operational infra, not source
-		// content — use followUp (default) so they flow with normal delivery.
-		this._onBroadcast(record.name, `[source-error] ${message}`, [record.creatorAgentId], "followUp");
+		// content — use followUp + "all" defaults so they flow with normal
+		// delivery and don't accidentally degrade batching behaviour.
+		this._onBroadcast(record.name, `[source-error] ${message}`, [record.creatorAgentId], "followUp", "all");
 	}
 
 	private _closeReaders(record: SourceRecord): void {
