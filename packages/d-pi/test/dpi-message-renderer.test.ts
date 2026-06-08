@@ -213,7 +213,7 @@ describe("d-pi message renderer", () => {
 		});
 
 		harness.emit("agent_end");
-		harness.channel.deliverMessage("after run", "source-a");
+		harness.channel.deliverMessage("after run", "source-a", "prompt");
 
 		expect(harness.sendMessageCalls[1].options).toEqual({ triggerTurn: true });
 	});

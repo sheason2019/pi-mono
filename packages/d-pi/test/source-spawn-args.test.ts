@@ -120,22 +120,36 @@ describe("SourceManager spawn argv (regression for sheason2019/pi-mono#7)", () =
 		// `echo 'hello world'` (or any arg with an inner space) used to
 		// get sliced into two tokens. After the fix, the whole string
 		// reaches the child as one argv element. We assert on the
-		// broadcasted stdout line — the script emits exactly
-		// `hello world`, which the supervisor streams back to its
-		// creator.
+		// broadcasted stdout line — the script emits a valid JSONRPC 2.0
+		// notification (matching the redesigned source contract; see
+		// docs/superpowers/specs/2026-06-07-source-redesign-design.md),
+		// which the supervisor streams back to its creator. The
+		// substring "hello world" must survive the JSONRPC encoding
+		// round-trip, proving that the inner-space argv token reached
+		// the child intact.
+		const notification = JSON.stringify({
+			jsonrpc: "2.0",
+			method: "events.emit",
+			params: { type: "test.spawn_args", data: { value: "hello world" } },
+		});
 		manager.createSource(
 			{
 				name: "whitespace",
 				command: "sh",
-				args: ["-c", "echo 'hello world'"],
+				args: ["-c", `echo '${notification}'`],
 			},
 			CREATOR,
 		);
 
-		await waitFor(() => broadcasts.some((b) => b.sourceName === "whitespace" && b.line === "hello world"), 3_000, 20);
+		await waitFor(
+			() => broadcasts.some((b) => b.sourceName === "whitespace" && b.line.includes("hello world")),
+			3_000,
+			20,
+		);
 
-		const line = broadcasts.find((b) => b.sourceName === "whitespace" && b.line === "hello world");
+		const line = broadcasts.find((b) => b.sourceName === "whitespace" && b.line.includes("hello world"));
 		expect(line).toBeDefined();
+		expect(line?.line).toContain(notification);
 		// The child should not have exited yet — `echo` then idle. But the
 		// supervisor's restart timer will eventually fire on the idle
 		// exit (code 0) so we don't assert on `status` here.
@@ -177,10 +191,19 @@ describe("SourceManager spawn argv (regression for sheason2019/pi-mono#7)", () =
 		// binary. With argv spawn, the whole path is one argv element.
 		//
 		// We fabricate such a path under a temp dir; the script prints
-		// a marker to stdout and exits 11, both of which we assert.
+		// a valid JSONRPC 2.0 notification to stdout (matching the
+		// redesigned source contract; see
+		// docs/superpowers/specs/2026-06-07-source-redesign-design.md)
+		// and exits 11. Both the stdout broadcast and the exit code
+		// are asserted.
+		const notification = JSON.stringify({
+			jsonrpc: "2.0",
+			method: "events.emit",
+			params: { type: "test.spawn_args", data: { marker: "from-spacey-path" } },
+		});
 		const spaceyDir = mkdtempSync(join(tmpdir(), "d-pi-spawn-spaces-"));
 		const scriptPath = join(spaceyDir, "my script.sh");
-		writeFileSync(scriptPath, "echo from-spacey-path; exit 11\n", { mode: 0o755 });
+		writeFileSync(scriptPath, `echo '${notification}'; exit 11\n`, { mode: 0o755 });
 
 		try {
 			manager.createSource(
@@ -193,7 +216,7 @@ describe("SourceManager spawn argv (regression for sheason2019/pi-mono#7)", () =
 			);
 
 			await waitFor(
-				() => broadcasts.some((b) => b.sourceName === "spacey-path" && b.line === "from-spacey-path"),
+				() => broadcasts.some((b) => b.sourceName === "spacey-path" && b.line.includes("from-spacey-path")),
 				3_000,
 				20,
 			);
@@ -203,8 +226,9 @@ describe("SourceManager spawn argv (regression for sheason2019/pi-mono#7)", () =
 				20,
 			);
 
-			const stdout = broadcasts.find((b) => b.sourceName === "spacey-path" && b.line === "from-spacey-path");
+			const stdout = broadcasts.find((b) => b.sourceName === "spacey-path" && b.line.includes("from-spacey-path"));
 			expect(stdout).toBeDefined();
+			expect(stdout?.line).toContain(notification);
 
 			const exit = broadcasts.find((b) => b.sourceName === "spacey-path" && b.line.startsWith("[source-error]"));
 			expect(exit).toBeDefined();

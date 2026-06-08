@@ -39,7 +39,7 @@ export class Hub {
 		const portStart = config.agentPortStart ?? DEFAULT_AGENT_PORT_START;
 		this._registry = new AgentRegistry(portStart);
 
-		this._sourceManager = new SourceManager((sourceName, content, subscriberAgentIds) => {
+		this._sourceManager = new SourceManager((sourceName, content, subscriberAgentIds, deliverAs, drainMode) => {
 			const metaContent = injectMeta(content, "source", undefined, { sourceName });
 			for (const agentId of subscriberAgentIds) {
 				const record = this._registry.get(agentId);
@@ -49,6 +49,8 @@ export class Hub {
 						fromAgentId: `source:${sourceName}`,
 						content: metaContent,
 						sourceName,
+						deliverAs,
+						drainMode,
 					} satisfies HubToWorkerMessage);
 				}
 			}

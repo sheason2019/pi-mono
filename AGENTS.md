@@ -23,6 +23,42 @@
 - Never hardcode key checks (e.g. `matchesKey(keyData, "ctrl+x")`). Add defaults to `DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS` so they stay configurable.
 - Never modify `packages/ai/src/models.generated.ts` directly; update `packages/ai/scripts/generate-models.ts` instead, then regenerate. Including the resulting `models.generated.ts` diff is always OK, even if regeneration includes unrelated upstream model metadata changes.
 
+## Source design
+
+d-pi sources are loose, long-running commands that emit **JSON-RPC 2.0
+notifications** on stdout, one per line. The hub parses every line
+through `packages/d-pi/src/hub/source-validator.ts` and forwards only
+`notification` shapes to subscribed agents — requests/responses and
+invalid lines are silently dropped.
+
+Full design: `docs/superpowers/specs/2026-06-07-source-redesign-design.md`.
+
+Quick reference for new sources:
+
+- One JSON-RPC 2.0 notification per stdout line. Use `\n` (not `\r\n`).
+- Required: `jsonrpc: "2.0"`, `method: "events.emit"`, `params.type`.
+- Optional but standard: `params.id` (event id for ack/dedup), `params.data` (arbitrary payload), `params.deliverAs` (routing mode — see below).
+- Notifications must NOT carry `id`, `result`, or `error` fields — those mark the message as a request/response and the hub will drop it.
+- Anything that fails to parse is silently dropped — not the hub's problem to diagnose. Per the "only valuable output" principle, no stderr warning either. Sources must not crash on hub-side rejection — the hub catches validator throws and keeps the source alive.
+- Sources can be written in Node / Python / Bash / Rust / anything. The hub only spawns the command (argv vector, no shell). For pipes / redirects / env vars, wrap in `sh -c`.
+- Shim/wrappers for specific protocols (e.g. Lark) live outside d-pi — at the Agent layer in your own workspace. d-pi ships protocol-agnostic infrastructure only.
+
+`params.deliverAs` routes the notification through the agent's `pi.sendMessage` to a specific executor endpoint. Three values, default `followUp`:
+
+- `"steer"` — interrupt the agent's current turn and inject immediately. Use for urgent events where queueing would lose value (operator pokes, kill switches, security alerts).
+- `"followUp"` — queue after the current turn finishes (default for most sources: lark chats, health reports, low-priority ambient data).
+- `"prompt"` — same routing as `followUp` but flagged for tools that want to distinguish an explicit prompt from a passive follow-up. Sources that intentionally drive a turn (e.g. user-driven chat) should declare `prompt` instead of leaving it as default.
+
+Routing decision is fully owned by SourceManager: it parses `params.deliverAs` from the validated JSONRPC notification, coerces unknown values (wrong case, wrong type, missing) to `followUp`, and passes the resolved mode to the broadcast callback. The downstream extension performs a 1:1 mapping to `pi.sendMessage` options — no per-event branching, no "is agent running?" heuristic. Supervisor-error broadcasts (e.g. `[source-error] ...` lines) always use `followUp` regardless of source content — they are operational infra, not user-visible messages.
+
+In addition to `deliverAs`, one optional `params` field controls how the agent session drains the queued message. Mirrors the upstream coding-agent `PendingMessageQueue.mode` enum.
+
+- `params.drainMode` — `"all" | "one-at-a-time"` (default `"all"`). `"all"` means a batch of queued messages from the same source is drained together (the agent loop processes them as a combined context window); `"one-at-a-time"` means each queued message is processed in its own discrete turn. Use `"one-at-a-time"` for interactive sources where each event deserves its own response (e.g. chat-like sources with back-to-back user turns).
+
+Like `deliverAs`, `drainMode` is parsed + coerced by SourceManager. Unknown values (wrong case, wrong type, missing) coerce to `"all"` so a misbehaving source can never accidentally degrade batching behaviour. Supervisor-error broadcasts always use `"all"` regardless of source content.
+
+Note: as of PR #25, the downstream `pi.sendMessage` API in `packages/coding-agent` does not yet expose a slot for `drainMode`. The field flows through the IPC chain and the extension logs it for observability, but the actual queueing behaviour is still driven by the upstream default. A follow-up PR to `packages/coding-agent` will expose `drainMode` on `sendCustomMessage` so this PR's plumbing activates end-to-end. Until that lands, treat the field as a forward-compatible schema declaration — sources can declare it now and it will start working the moment the coding-agent side lands.
+
 ## Commands
 
 - After code changes (not docs): `npm run check` (full output, no tail). Fix all errors, warnings, and infos before committing. Does not run tests.

@@ -110,13 +110,6 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 		});
 
 		// Worker only: handle incoming messages through the extension event bus
-		let isAgentRunning = false;
-		pi.on("agent_start", () => {
-			isAgentRunning = true;
-		});
-		pi.on("agent_end", () => {
-			isAgentRunning = false;
-		});
 		pi.on("input", (event) => {
 			if (event.source !== "interactive") {
 				return { action: "continue" };
@@ -136,7 +129,7 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 			return { action: "handled" };
 		});
 
-		channel.onIncomingMessage((content, sourceName) => {
+		channel.onIncomingMessage((content, sourceName, deliverAs, drainMode) => {
 			if (sourceName) {
 				process.stderr.write(`[d-pi extension] Received source message from "${sourceName}"\n`);
 			}
@@ -144,7 +137,30 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 				? content
 				: injectMeta(content, sourceName ? "source" : "connect", undefined, { sourceName });
 			const extracted = extractMeta(metaContent);
-			const options = isAgentRunning ? { deliverAs: "followUp" as const } : { triggerTurn: true };
+			// Routing decision lives in SourceManager (parsed + coerced from
+			// params.deliverAs on the validated JSONRPC notification).
+			// Extension just maps the source-declared mode to pi.sendMessage
+			// options — no "is agent running?" fallback, no per-event
+			// branching. The 1:1 mapping is:
+			//   steer    → { deliverAs: "steer" }    → /steer endpoint
+			//   followUp → { deliverAs: "followUp" } → /prompt endpoint
+			//   prompt   → { triggerTurn: true }    → /prompt (new turn)
+			const options: { deliverAs?: "steer" | "followUp"; triggerTurn?: boolean } =
+				deliverAs === "steer"
+					? { deliverAs: "steer" }
+					: deliverAs === "prompt"
+						? { triggerTurn: true }
+						: { deliverAs: "followUp" };
+			// drainMode is accepted here and flows through the IPC chain,
+			// but the current upstream coding-agent `pi.sendMessage` API
+			// has no slot for it (a follow-up PR to packages/coding-agent
+			// will expose drainMode on sendCustomMessage). Until that
+			// lands the extension just logs the value for observability
+			// and drops it on the floor — the schema is in place so
+			// source-side declarations don't get silently lost.
+			if (drainMode !== undefined) {
+				process.stderr.write(`[d-pi extension] (passthrough) drainMode=${drainMode}\n`);
+			}
 			pi.sendMessage(
 				{
 					customType: "d-pi-message",
