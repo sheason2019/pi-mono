@@ -235,8 +235,14 @@ async function runAgentWorker(): Promise<void> {
 	// All user prompts are routed through hubChannel.deliverMessage() so the extension
 	// creates a CustomMessage instead of a UserMessageComponent (which has OSC133 markers
 	// that produce unwanted editor divider lines in the TUI).
+	//
+	// deliverAs is set to "prompt" explicitly: TUI /prompt and HTTP /prompt are
+	// user-driven new-turn requests, so they should map to {triggerTurn: true}
+	// at the extension layer (the 1:1 mapping committed in 14103e179). Without
+	// this, deliverMessage would fall through to followUp and the agent would
+	// never pick up the queued message while idle.
 	proxy.prompt = async (_text: string, _options?: { images?: Array<{ url: string; mediaType?: string }> }) => {
-		hubChannel?.deliverMessage(_text);
+		hubChannel?.deliverMessage(_text, undefined, "prompt");
 	};
 
 	httpServer = new AgentHttpServer(proxy);
