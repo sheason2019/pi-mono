@@ -200,13 +200,12 @@ export class SourceManager {
 						break;
 					case "request":
 					case "response":
-						// Silent drop — source is a push service, doesn't process
-						// bidirectional calls. Don't log to avoid stderr noise.
-						break;
 					case "invalid":
-						process.stderr.write(
-							`[d-pi source] Source "${record.name}" emitted invalid line: ${result.reason} (truncated: ${line.slice(0, 120)})\n`,
-						);
+						// Silent drop. Source is push-only (request/response
+						// have no business here), and invalid lines are not
+						// the hub's problem to diagnose — that's the source's
+						// own contract. Per the "only valuable output"
+						// principle, no stderr warning either.
 						break;
 				}
 			} catch (err) {
