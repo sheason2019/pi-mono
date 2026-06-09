@@ -16,10 +16,10 @@ sidebar_position: 4
 **Step 1：建目录**
 
 ```bash
-mkdir -p .dpi/agent-network/roles/researcher/skills
+mkdir -p agent-network/roles/researcher/skills
 ```
 
-**Step 2：写 `.dpi/agent-network/roles/researcher/AGENTS.md`**
+**Step 2：写 `agent-network/roles/researcher/AGENTS.md`**
 
 ```markdown
 # Role: researcher
@@ -87,14 +87,14 @@ sleep 3
 **Step 1：建 3 个目录**
 
 ```bash
-mkdir -p .dpi/agent-network/roles/researcher/skills
-mkdir -p .dpi/agent-network/roles/writer/skills
-mkdir -p .dpi/agent-network/roles/reviewer/skills
+mkdir -p agent-network/roles/researcher/skills
+mkdir -p agent-network/roles/writer/skills
+mkdir -p agent-network/roles/reviewer/skills
 ```
 
 **Step 2：3 个 AGENTS.md**
 
-`.dpi/agent-network/roles/researcher/AGENTS.md`：
+`agent-network/roles/researcher/AGENTS.md`：
 
 ```markdown
 # Role: researcher
@@ -117,7 +117,7 @@ mkdir -p .dpi/agent-network/roles/reviewer/skills
 ```
 ```
 
-`.dpi/agent-network/roles/writer/AGENTS.md`：
+`agent-network/roles/writer/AGENTS.md`：
 
 ```markdown
 # Role: writer
@@ -138,7 +138,7 @@ mkdir -p .dpi/agent-network/roles/reviewer/skills
 - 建议 commit message（Conventional Commits 格式）
 ```
 
-`.dpi/agent-network/roles/reviewer/AGENTS.md`：
+`agent-network/roles/reviewer/AGENTS.md`：
 
 ```markdown
 # Role: reviewer
@@ -170,8 +170,8 @@ mkdir -p .dpi/agent-network/roles/reviewer/skills
 
 ```bash
 # researcher: git bisect
-mkdir -p .dpi/agent-network/roles/researcher/skills/git-bisect
-cat > .dpi/agent-network/roles/researcher/skills/git-bisect/SKILL.md <<'SKILL_EOF'
+mkdir -p agent-network/roles/researcher/skills/git-bisect
+cat > agent-network/roles/researcher/skills/git-bisect/SKILL.md <<'SKILL_EOF'
 ---
 name: git-bisect
 description: 用 git bisect 找引入 bug 的 commit
@@ -186,8 +186,8 @@ description: 用 git bisect 找引入 bug 的 commit
 SKILL_EOF
 
 # writer: markdown style
-mkdir -p .dpi/agent-network/roles/writer/skills/markdown-style
-cat > .dpi/agent-network/roles/writer/skills/markdown-style/SKILL.md <<'SKILL_EOF'
+mkdir -p agent-network/roles/writer/skills/markdown-style
+cat > agent-network/roles/writer/skills/markdown-style/SKILL.md <<'SKILL_EOF'
 ---
 name: markdown-style
 description: d-pi 文档站用的 markdown 风格（中文，6 段模板）
@@ -208,8 +208,8 @@ description: d-pi 文档站用的 markdown 风格（中文，6 段模板）
 SKILL_EOF
 
 # reviewer: PR checklist
-mkdir -p .dpi/agent-network/roles/reviewer/skills/pr-checklist
-cat > .dpi/agent-network/roles/reviewer/skills/pr-checklist/SKILL.md <<'SKILL_EOF'
+mkdir -p agent-network/roles/reviewer/skills/pr-checklist
+cat > agent-network/roles/reviewer/skills/pr-checklist/SKILL.md <<'SKILL_EOF'
 ---
 name: pr-checklist
 description: PR review 检查清单
@@ -275,8 +275,8 @@ sleep 3
 **Step 1：网络级（所有 agent 共享）**
 
 ```bash
-mkdir -p .dpi/agent-network/skills/bash-style
-cat > .dpi/agent-network/AGENTS.md <<'AGENTS_EOF'
+mkdir -p agent-network/skills/bash-style
+cat > agent-network/AGENTS.md <<'AGENTS_EOF'
 # 项目约定
 
 ## 代码风格
@@ -296,7 +296,7 @@ cat > .dpi/agent-network/AGENTS.md <<'AGENTS_EOF'
 - 1 commit 1 件事
 AGENTS_EOF
 
-cat > .dpi/agent-network/skills/bash-style/SKILL.md <<'SKILL_EOF'
+cat > agent-network/skills/bash-style/SKILL.md <<'SKILL_EOF'
 ---
 name: bash-style
 description: d-pi 项目的 bash 脚本风格
@@ -314,8 +314,8 @@ SKILL_EOF
 **Step 2：role 放专项（继承网络级 + 自己的）**
 
 ```bash
-mkdir -p .dpi/agent-network/roles/security-auditor/skills
-cat > .dpi/agent-network/roles/security-auditor/AGENTS.md <<'AGENTS_EOF'
+mkdir -p agent-network/roles/security-auditor/skills
+cat > agent-network/roles/security-auditor/AGENTS.md <<'AGENTS_EOF'
 # Role: security-auditor
 
 在项目约定基础上，专门做安全审计。
@@ -331,7 +331,7 @@ cat > .dpi/agent-network/roles/security-auditor/AGENTS.md <<'AGENTS_EOF'
 按发现严重度排序，critical 放最前。
 AGENTS_EOF
 
-cat > .dpi/agent-network/roles/security-auditor/skills/owasp-top10/SKILL.md <<'SKILL_EOF'
+cat > agent-network/roles/security-auditor/skills/owasp-top10/SKILL.md <<'SKILL_EOF'
 ---
 name: owasp-top10
 description: OWASP Top 10 检查清单
@@ -369,10 +369,10 @@ SKILL_EOF
 子 agent `create_agent(roles=["security-auditor"])` 启动时，effective context 包含（**按顺序**）：
 
 1. workspace 级 `AGENTS.md`（如果存在）
-2. **网络级** `.dpi/agent-network/AGENTS.md`（项目约定）
-3. **网络级** `.dpi/agent-network/skills/bash-style/`（bash 风格）
-4. **Role 级** `.dpi/agent-network/roles/security-auditor/AGENTS.md`（角色指令）
-5. **Role 级** `.dpi/agent-network/roles/security-auditor/skills/owasp-top10/`（OWASP checklist）
+2. **网络级** `agent-network/AGENTS.md`（项目约定）
+3. **网络级** `agent-network/skills/bash-style/`（bash 风格）
+4. **Role 级** `agent-network/roles/security-auditor/AGENTS.md`（角色指令）
+5. **Role 级** `agent-network/roles/security-auditor/skills/owasp-top10/`（OWASP checklist）
 6. agent 级 `agents/&lt;name&gt;/AGENTS.md`（agent 自己的）
 
 **Step 5：验证**
