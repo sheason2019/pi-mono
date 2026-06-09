@@ -12,7 +12,7 @@ sidebar_position: 3
 | 命令 | 用途 | 文档 |
 |---|---|---|
 | `/sources` | 图形化查看 hub 上所有 source | [Sources → /sources](../sources/slash-sources) |
-| `/agents` | 图形化查看 agent 树并切换 | [Remote Execution → /agents](../remote-execution/slash-agents) |
+| `/agents` | 图形化查看 agent 树并切换 | [Remote Execution → /agents](../remote-execution/slash-agents)（实现） —语义见 [Multi Agent → agent_network](../multi-agent/agent-network) |
 
 ## pi 内置命令（透传）
 
