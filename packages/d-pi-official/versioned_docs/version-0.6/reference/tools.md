@@ -46,7 +46,7 @@ sidebar_position: 2
 
 |工具 |用途 |文档 |
 |---|---|---|
-| `reload` |运行时重新加载 skills / system prompt / AGENTS.md / extensions | [PR23 inline extension] |
+| `reload` |运行时重新加载 skills / system prompt / AGENTS.md / extensions | [reload](./reload) |
 
 `reload` 是 PR23 inline extension引入的 LLM-callable工具，让 agent 不重启 hub也能刷新自己的上下文资源。但 **不**触发 `agent-network/roles/<role>/` 重读——role目录加载发生在 agent创建时，role修改仍需 destroy+recreate 或重启 hub。
 
