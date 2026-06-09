@@ -3,11 +3,11 @@ name: Release d-pi
 on:
   push:
     tags:
-      - 'v*'
+      - 'd-pi-v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g., v0.6.0-alpha.2)'
+        description: 'Tag to release (e.g., d-pi-v0.6.0-alpha.3)'
         required: true
         type: string
 

@@ -3,11 +3,11 @@ name: Build Binaries
 on:
   push:
     tags:
-      - 'v*'
+      - 'd-pi-v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to build (e.g., v0.12.0)'
+        description: 'Tag to build (e.g., d-pi-v0.6.0-alpha.3)'
         required: true
         type: string
       source_ref:
