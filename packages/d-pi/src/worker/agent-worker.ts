@@ -203,7 +203,7 @@ async function runAgentWorker(): Promise<void> {
 			services,
 			sessionManager: opts.sessionManager,
 			model: resolvedModel,
-			tools: config.tools,
+			tools: config.includeTools,
 			excludeTools: config.excludeTools,
 		});
 
