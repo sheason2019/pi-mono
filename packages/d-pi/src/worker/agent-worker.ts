@@ -21,6 +21,7 @@ import {
 	generateBanner,
 	LocalAgentSessionProxy,
 } from "@sheason/pi-coding-agent/d-pi-worker";
+import { DPI_META_PROMPT } from "../dpi-meta.ts";
 import { createDPiExtension, createReloadExtension, type HubChannel } from "../extension/index.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 
@@ -123,10 +124,16 @@ async function runAgentWorker(): Promise<void> {
 
 	// 3. Build the runtime factory (mirrors main.ts pattern)
 	const createRuntime = async (opts: { cwd: string; agentDir: string; sessionManager: SessionManager }) => {
-		// Build resourceLoaderOptions from workspace context
-		const appendSystemPrompt = config.workspaceContext?.appendSystemPrompt
-			? [config.workspaceContext.appendSystemPrompt]
-			: undefined;
+		// Build resourceLoaderOptions from workspace context.
+		// APPEND_SYSTEM.md workspace content and d-pi meta are concatenated into
+		// the same ResourceLoader.appendSystemPrompt array — the same path used
+		// by ResourceLoader for every other source-level system-prompt block.
+		// d-pi meta is in-source (dpi-meta.ts) rather than an external .md file,
+		// so it ships with the package and is regenerated per build via
+		// scripts/inject-build-meta.mjs.
+		const appendSystemPrompt = [config.workspaceContext?.appendSystemPrompt, DPI_META_PROMPT].filter(
+			(s): s is string => Boolean(s),
+		);
 		const additionalAgentsFiles = config.workspaceContext?.additionalAgentsFiles ?? [];
 		const additionalSkillPaths = config.workspaceContext?.additionalSkillPaths ?? [];
 		const additionalExtensionPaths = [
