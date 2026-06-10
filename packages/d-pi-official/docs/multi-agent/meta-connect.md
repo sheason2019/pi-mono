@@ -58,7 +58,7 @@ connect9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d
 
 ## 相关
 
-- [agent_network](../multi-agent/agent-network) —查 agent id / name
+- [group_architecture](../multi-agent/group-architecture) —查 agent id / name
 - [/agents命令](../remote-execution/slash-agents) —图形化切换（走 select面板，本质也是 respawn）
 
 ##注意事项

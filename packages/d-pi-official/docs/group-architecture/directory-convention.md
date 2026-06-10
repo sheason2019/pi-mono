@@ -5,12 +5,12 @@ sidebar_position: 2
 
 #目录约定
 
-一句话：`agent-network/`下面**支持哪些文件、每个文件被 d-pi怎么用、不支持什么**——这是 d-pi跟项目作者之间的契约。
+一句话：`group-architecture/`下面**支持哪些文件、每个文件被 d-pi怎么用、不支持什么**——这是 d-pi跟项目作者之间的契约。
 
 ##完整布局
 
 ```
-agent-network/
+group-architecture/
 ├── AGENTS.md # 网络级共享上下文（所有 agent共享）
 ├── skills/ # 网络级 skill池
 │ ├── <skill-name>/ # 一个 skill 一个目录
@@ -27,13 +27,13 @@ agent-network/
  └── ...
 ```
 
-**结构是 `agent-network/` → `AGENTS.md / skills/ / extensions/ / roles/<name>/{AGENTS.md, skills/, extensions/}`**——**网络级**和 **role级**的子结构**完全对称**（都是 AGENTS.md + skills + extensions三件套）。
+**结构是 `group-architecture/` → `AGENTS.md / skills/ / extensions/ / roles/<name>/{AGENTS.md, skills/, extensions/}`**——**网络级**和 **role级**的子结构**完全对称**（都是 AGENTS.md + skills + extensions三件套）。
 
-注：`agent-network/` 在 workspace根（**不**在 `.dpi/` 下）；workspace顶级还有 `skills/` `extensions/`目录（也不在 `.dpi/` 下）作为 fallback 网络级 skill/extension池。
+注：`group-architecture/` 在 workspace根（**不**在 `.dpi/` 下）；workspace顶级还有 `skills/` `extensions/`目录（也不在 `.dpi/` 下）作为 fallback 网络级 skill/extension池。
 
 ## 每类文件的支持能力
 
-### `agent-network/AGENTS.md`（网络级）
+### `group-architecture/AGENTS.md`（网络级）
 
 |维度 | 说明 |
 |---|---|
@@ -44,7 +44,7 @@ agent-network/
 | **不读它** | 是没写这个文件 |
 | **不写 markdown以外的格式** |写了 d-pi不解析（如 `AGENTS.txt`、JSON都不会被加载） |
 
-### `agent-network/skills/<skill>/SKILL.md`（网络级）
+### `group-architecture/skills/<skill>/SKILL.md`（网络级）
 
 |维度 | 说明 |
 |---|---|
@@ -55,7 +55,7 @@ agent-network/
 | **约定** | 一个 skill一个目录，目录里**至少**要 `SKILL.md` |
 | **不读它** | 文件名不是 `SKILL.md`（如 `README.md` / `skill.md` / 大小写错） |
 
-### `agent-network/extensions/<ext>`（网络级）
+### `group-architecture/extensions/<ext>`（网络级）
 
 |维度 | 说明 |
 |---|---|
@@ -66,7 +66,7 @@ agent-network/
 | **约定** |详见 pi扩展文档；典型内容是 `defineTool`注册的工具 |
 | **递归扫描** | 单文件、目录（有 `package.json` + `pi.extensions` manifest 或 `index.ts`/`index.js`）、任意 `.ts`/`.js` 子文件都会被加载 |
 
-### `agent-network/roles/<name>/{AGENTS.md, skills/, extensions/}`（role级）
+### `group-architecture/roles/<name>/{AGENTS.md, skills/, extensions/}`（role级）
 
 跟网络级三件套**完全对称**——同名目录、同样支持能力，**只**对**套了此 role 的 agent**生效。
 
@@ -81,9 +81,9 @@ agent-network/
 
 | 你写的 |期望 |实际 |
 |---|---|---|
-| `agent-network/README.md` | 网络级说明 | d-pi不读（只读 `AGENTS.md`） |
-| `agent-network/skills/skill.md`（小写） | skill加载 | d-pi不读（固定 `SKILL.md`） |
-| `agent-network/roles/root/AGENTS.md` 里写"我是 root" | root自动套 | 是的，root会自动套（详见 [roles文档](./roles) 的「root 的 implicit规则」），但**名字最好别叫 root**（命名冲突 +跟"root agent"概念混淆） |
+| `group-architecture/README.md` | 网络级说明 | d-pi不读（只读 `AGENTS.md`） |
+| `group-architecture/skills/skill.md`（小写） | skill加载 | d-pi不读（固定 `SKILL.md`） |
+| `group-architecture/roles/root/AGENTS.md` 里写"我是 root" | root自动套 | 是的，root会自动套（详见 [roles文档](./roles) 的「root 的 implicit规则」），但**名字最好别叫 root**（命名冲突 +跟"root agent"概念混淆） |
 
 ## merge顺序详解
 
@@ -96,9 +96,9 @@ context.agentsFiles = []
 context.skillPaths = []
 context.extensionPaths = []
 
-pushAgentsFileIfExists(agentsFiles, agent-network/AGENTS.md) # 网络级 AGENTS.md
-pushIfExists(skillPaths, agent-network/skills) # 网络级 skills
-pushExtensionEntriesIfExists(extensionPaths, agent-network/extensions) # 网络级 extensions
+pushAgentsFileIfExists(agentsFiles, group-architecture/AGENTS.md) # 网络级 AGENTS.md
+pushIfExists(skillPaths, group-architecture/skills) # 网络级 skills
+pushExtensionEntriesIfExists(extensionPaths, group-architecture/extensions) # 网络级 extensions
 
 for each role in effective_roles:
  if role.dir 不存在:
@@ -115,10 +115,10 @@ pushExtensionEntriesIfExists(extensionPaths, workspace顶级 extensions/)
 **最终 context**（按追加顺序）：
 
 1. workspace 级 `APPEND_SYSTEM.md`
-2. **网络级** `agent-network/AGENTS.md`（如果有）
-3. **网络级** `agent-network/skills/`
-4. **网络级** `agent-network/extensions/`
-5. **Role级**（按 effective roles顺序）`agent-network/roles/<role>/{AGENTS.md, skills/, extensions/}`
+2. **网络级** `group-architecture/AGENTS.md`（如果有）
+3. **网络级** `group-architecture/skills/`
+4. **网络级** `group-architecture/extensions/`
+5. **Role级**（按 effective roles顺序）`group-architecture/roles/<role>/{AGENTS.md, skills/, extensions/}`
 6. **Workspace顶级** `skills/` + `extensions/`
 7. **Agent 级** `agents/<name>/AGENTS.md`（由 `loadWorkspaceContext` 调用方负责加，源在 `hub.createAgent` 的 `rebindSession`流程）
 
@@ -130,8 +130,8 @@ pushExtensionEntriesIfExists(extensionPaths, workspace顶级 extensions/)
 
 `hub.createAgent` 创建子 agent时（或 hub启动恢复 root 时）会做以下校验：
 
-1. **role必须存在** ——引用 `roles=["foo"]` 但 `agent-network/roles/foo/` 不存在 →抛 `Unknown agent role "foo": <path>`
-2. **implicit role缺失静默跳过** —— root 的 effective roles总是包含 implicit `"root"`，但 `agent-network/roles/root/`缺失时静默 continue（**不报错**）
+1. **role必须存在** ——引用 `roles=["foo"]` 但 `group-architecture/roles/foo/` 不存在 →抛 `Unknown agent role "foo": <path>`
+2. **implicit role缺失静默跳过** —— root 的 effective roles总是包含 implicit `"root"`，但 `group-architecture/roles/root/`缺失时静默 continue（**不报错**）
 3. **role名字重复** —— 不允许（同一 hub内），但**跨 hub允许**（不同 workspace独立）
 4. **agent名字重复** —— hub内 `create_agent(name="foo")` 时 `foo` 已存在 →抛 `Agent with name "foo" already exists`
 5. **空 role** ——允许（仅创建空目录没意义，但合法）

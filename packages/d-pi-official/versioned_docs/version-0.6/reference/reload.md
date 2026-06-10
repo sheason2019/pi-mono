@@ -30,7 +30,7 @@ Reload completed. Post-reload state: {"skills":7,"systemPrompt":"<truncated firs
 | `skills` |number | 当前加载的 skill数 |
 | `systemPrompt` |string |截断后的 system prompt首200字符 |
 | `appendSystemPrompt` |string |截断后的 APPEND_SYSTEM.md首200字符 |
-| `contextFiles` |number | 当前加载的 agents files 数（含 workspace + agent-network + role + agent级所有 AGENTS.md） |
+| `contextFiles` |number | 当前加载的 agents files 数（含 workspace + group-architecture + role + agent级所有 AGENTS.md） |
 
 ##示例
 
@@ -45,11 +45,11 @@ agent调 `reload()`，返回刷新后的 snapshot，确认 `contextFiles` 等数
 ##相关
 
 - [Agent工具参考 → Runtime工具](./tools#runtime工具reload)
-- Agent Network目录约定 →重新加载语义（见 docs/agent-network/directory-convention，v0.7计划引入）
+- Group Architecture 目录约定 →重新加载语义（见 docs/group-architecture/directory-convention，v0.7计划引入）
 
 ##注意事项
 
-- `reload` **不**触发 `agent-network/roles/<role>/` 重读——role目录加载发生在 `hub.createAgent`，role修改仍需 destroy + recreate 或重启 hub
+- `reload` **不**触发 `group-architecture/roles/<role>/` 重读——role目录加载发生在 `hub.createAgent`，role修改仍需 destroy + recreate 或重启 hub
 - `reload` **不**重新解析 `agents/<name>/agent.json`（agent wiring）——修改 `agent.json`（roles / model / tools / excludeTools）仍需重启 hub
 - `reload`跑在 in-flight turn 的当前 session；如果 agent正在跑 tool调用，会被 abort（in-flight turn abort 后下一 turn看到 reload后的 context）
 - `reload`失败时（e.g. resource loader还没初始化）返回 isError；agent看到错误后可以重试或 fallback 到手动重启 hub

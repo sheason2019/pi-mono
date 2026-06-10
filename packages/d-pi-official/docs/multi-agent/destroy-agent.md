@@ -44,7 +44,7 @@ Agent "researcher" destroyed
 ## 相关
 
 - [create_agent](./create-agent) —对面
-- [agent_network](./agent-network) —销毁前先确认
+- [group_architecture](./group-architecture) —销毁前先确认
 
 ##注意事项
 
