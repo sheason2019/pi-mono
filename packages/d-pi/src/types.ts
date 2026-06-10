@@ -64,8 +64,8 @@ export type HubToWorkerMessage =
 	  }
 	| { type: "destroy" };
 
-// === Agent Network Snapshot ===
-export interface AgentNetworkEntry {
+// === Group Architecture Snapshot ===
+export interface GroupArchitectureEntry {
 	id: string;
 	name: string;
 	parentId: string | undefined;
@@ -74,8 +74,8 @@ export interface AgentNetworkEntry {
 	children: string[];
 }
 
-export interface AgentNetworkSnapshot {
-	agents: AgentNetworkEntry[];
+export interface GroupArchitectureSnapshot {
+	agents: GroupArchitectureEntry[];
 	rootId: string;
 }
 

@@ -10,10 +10,10 @@ export {
 export { Hub } from "./hub/hub.ts";
 export { SourceManager } from "./hub/source-manager.ts";
 export type {
-	AgentNetworkEntry,
-	AgentNetworkSnapshot,
 	AgentStatus,
 	AgentWorkerConfig,
+	GroupArchitectureEntry,
+	GroupArchitectureSnapshot,
 	HubConfig,
 	HubToWorkerMessage,
 	SourceConfig,

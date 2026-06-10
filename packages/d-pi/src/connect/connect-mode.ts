@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { AGENT_SWITCH_FILE } from "../extension/index.ts";
-import type { AgentNetworkSnapshot } from "../types.ts";
+import type { GroupArchitectureSnapshot } from "../types.ts";
 import { createConnectSession } from "./connect-auth.ts";
 
 export interface DPiConnectOptions {
@@ -60,12 +60,12 @@ export async function runDPiConnectMode(options: DPiConnectOptions): Promise<voi
 	}
 	const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
 
-	// 1. Fetch agent network from Hub to resolve initial agent
-	const networkResponse = await fetch(`${url}/_hub/network`, { headers });
+	// 1. Fetch group architecture from Hub to resolve initial agent
+	const networkResponse = await fetch(`${url}/_hub/group-architecture`, { headers });
 	if (!networkResponse.ok) {
-		throw new Error(`Failed to fetch agent network: ${networkResponse.status} ${networkResponse.statusText}`);
+		throw new Error(`Failed to fetch group architecture: ${networkResponse.status} ${networkResponse.statusText}`);
 	}
-	const network = (await networkResponse.json()) as AgentNetworkSnapshot;
+	const network = (await networkResponse.json()) as GroupArchitectureSnapshot;
 
 	let currentAgentId = resolveAgentId(network, agentSpec);
 
@@ -252,7 +252,7 @@ export async function runConnectSession(opts: ConnectSessionSpawnOptions & { fet
 }
 
 /** Resolve agent ID from spec (UUID prefix or name) */
-function resolveAgentId(network: AgentNetworkSnapshot, agentSpec?: string): string {
+function resolveAgentId(network: GroupArchitectureSnapshot, agentSpec?: string): string {
 	if (agentSpec) {
 		const match = network.agents.find((a) => a.id === agentSpec || a.id.startsWith(agentSpec));
 		if (match) return match.id;

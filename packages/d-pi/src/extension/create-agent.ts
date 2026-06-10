@@ -18,7 +18,7 @@ export function createCreateAgentTool(channel: HubChannel) {
 			),
 			roles: Type.Optional(
 				Type.Array(Type.String(), {
-					description: "Agent-network role names to apply from agent-network/roles/<role>/",
+					description: "Group architecture role names to apply from group-architecture/roles/<role>/",
 				}),
 			),
 			tools: Type.Optional(

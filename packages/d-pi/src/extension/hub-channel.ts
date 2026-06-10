@@ -1,4 +1,4 @@
-import type { AgentNetworkSnapshot, WorkerToHubMessage } from "../types.ts";
+import type { GroupArchitectureSnapshot, WorkerToHubMessage } from "../types.ts";
 
 type DeliverAsMode = "steer" | "followUp" | "prompt";
 type DrainMode = "all" | "one-at-a-time";
@@ -69,9 +69,9 @@ export class HubChannel {
 		return this._callTool("destroy_agent", { agent_id: agentId });
 	}
 
-	/** Get the agent network snapshot */
-	getNetwork(): Promise<AgentNetworkSnapshot> {
-		return this._callTool("agent_network", {}) as Promise<AgentNetworkSnapshot>;
+	/** Get the group architecture snapshot */
+	getGroupArchitecture(): Promise<GroupArchitectureSnapshot> {
+		return this._callTool("group_architecture", {}) as Promise<GroupArchitectureSnapshot>;
 	}
 
 	/** Create a new source */
