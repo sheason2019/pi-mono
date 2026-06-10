@@ -59,7 +59,7 @@ export async function main(): Promise<void> {
 		authToken: env.authToken,
 		connectId: env.connectId,
 		onCommand: async (event) => {
-			const result = await runner.run(event.tool, event.params);
+			const result = await runner.run(event.callId, event.tool, event.params);
 			await client.sendResult({
 				callId: event.callId,
 				...result,
