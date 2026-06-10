@@ -39,7 +39,7 @@ export class Hub {
 		const portStart = config.agentPortStart ?? DEFAULT_AGENT_PORT_START;
 		this._registry = new AgentRegistry(portStart);
 
-		this._sourceManager = new SourceManager((sourceName, content, subscriberAgentIds, deliverAs, drainMode) => {
+		this._sourceManager = new SourceManager((sourceName, content, subscriberAgentIds, mode) => {
 			const metaContent = injectMeta(content, "source", undefined, { sourceName });
 			for (const agentId of subscriberAgentIds) {
 				const record = this._registry.get(agentId);
@@ -49,8 +49,7 @@ export class Hub {
 						fromAgentId: `source:${sourceName}`,
 						content: metaContent,
 						sourceName,
-						deliverAs,
-						drainMode,
+						mode,
 					} satisfies HubToWorkerMessage);
 				}
 			}
@@ -370,16 +369,18 @@ export class Hub {
 
 			switch (tool) {
 				case "send_message": {
-					const p = params as { agent_id: string; message: string };
+					const p = params as { agent_id: string; message: string; mode?: "next" | "steer" };
 					const targetAgent = this._registry.get(p.agent_id) ?? this._registry.getByName(p.agent_id);
 					if (!targetAgent) {
 						result = { ok: false, error: `Agent not found: ${p.agent_id}` } satisfies SendMessageResult;
 					} else {
 						const metaContent = injectMeta(p.message, "agent", undefined, { agentId: fromAgentId });
+						const mode = p.mode ?? "next";
 						targetAgent.worker.postMessage({
 							type: "message",
 							fromAgentId,
 							content: metaContent,
+							mode,
 						} satisfies HubToWorkerMessage);
 						result = { ok: true } satisfies SendMessageResult;
 					}

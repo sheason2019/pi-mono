@@ -59,8 +59,7 @@ export type HubToWorkerMessage =
 			fromAgentId: string;
 			content: string;
 			sourceName?: string;
-			deliverAs?: "steer" | "followUp" | "prompt";
-			drainMode?: "all" | "one-at-a-time";
+			mode?: "next" | "steer";
 	  }
 	| { type: "destroy" };
 

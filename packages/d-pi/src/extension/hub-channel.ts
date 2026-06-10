@@ -1,14 +1,19 @@
 import type { AgentNetworkSnapshot, WorkerToHubMessage } from "../types.ts";
 
-type DeliverAsMode = "steer" | "followUp" | "prompt";
-type DrainMode = "all" | "one-at-a-time";
+/**
+ * Message routing mode — mirrors the user-facing TUI Enter / Ctrl+Enter
+ * distinction. `next` queues the message at the start of the next agent
+ * turn (default, equivalent to pressing Enter in the TUI). `steer`
+ * interrupts the current turn to inject the message immediately
+ * (equivalent to Ctrl+Enter in the TUI).
+ *
+ * Internal deliverAs routing (steer queue / followUp queue / new turn)
+ * is owned by the downstream extension — callers (sources, the
+ * send_message tool) just declare which mode they want.
+ */
+type MessageMode = "next" | "steer";
 
-type IncomingMessageHandler = (
-	content: string,
-	sourceName?: string,
-	deliverAs?: DeliverAsMode,
-	drainMode?: DrainMode,
-) => void;
+type IncomingMessageHandler = (content: string, sourceName?: string, mode?: MessageMode) => void;
 
 /**
  * Communication channel from extension tools to the Hub.
@@ -43,13 +48,13 @@ export class HubChannel {
 	}
 
 	/** Deliver an incoming message — called by agent-worker, handled by extension */
-	deliverMessage(content: string, sourceName?: string, deliverAs?: DeliverAsMode, drainMode?: DrainMode): void {
-		this._onIncomingMessage?.(content, sourceName, deliverAs, drainMode);
+	deliverMessage(content: string, sourceName?: string, mode?: MessageMode): void {
+		this._onIncomingMessage?.(content, sourceName, mode);
 	}
 
-	/** Send a message to another agent */
-	sendMessage(toAgentId: string, content: string): Promise<unknown> {
-		return this._callTool("send_message", { agent_id: toAgentId, message: content });
+	/** Send a message to another agent. mode defaults to "next" (Enter-style). */
+	sendMessage(toAgentId: string, content: string, mode: MessageMode = "next"): Promise<unknown> {
+		return this._callTool("send_message", { agent_id: toAgentId, message: content, mode });
 	}
 
 	/** Create a new child agent */
