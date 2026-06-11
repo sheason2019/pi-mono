@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Release pipeline only ships `@sheason/*` packages.** `scripts/publish.mjs`, `scripts/local-release.mjs`, and `.github/workflows/release.yml` no longer reference the upstream `@earendil-works/pi-{ai,tui,agent-core}` packages. The d-pi release matrix now publishes exactly two npm packages: `@sheason/pi-coding-agent` and `@sheason/d-pi`. The three upstream packages remain runtime dependencies (pulled from the public npm registry at install time) and are still built in CI to satisfy the workspace tsconfig paths, but they are not packed, not published, and not attached to the GitHub release artifacts. The d-pi lockstep `-sheason.<d-pi-version>` suffix on `@sheason/pi-coding-agent` is preserved (it documents the fork's pairing with `@sheason/d-pi`) but is no longer asserted at publish time, since each `@sheason/*` package can now be released on its own cadence. We have no npm publish permission to the `@earendil-works` scope, so this change is what makes the next d-pi release publishable at all.
+
 ### Fixed
 
 - Source `stderr` is no longer forwarded to subscribed agents. Previously every stderr line from a source subprocess was wrapped as `[stderr] <line>` and pushed as a "source message", flooding agents with subprocess chatter (e.g. `lark-cli` ready markers, heartbeats). Now stderr is logged to the d-pi supervisor's own stderr only; the JSON-RPC boundary is the only thing agents see. Pairs with the per-source `forwardStderr: true` opt-in (future) if a source genuinely needs stderr surfaced to its agent.

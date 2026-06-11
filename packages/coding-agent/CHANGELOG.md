@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Release pipeline no longer ships the upstream `@earendil-works/*` packages.** The d-pi release pipeline (`scripts/publish.mjs`, `scripts/local-release.mjs`, `.github/workflows/release.yml`) now only publishes the two `@sheason/*` packages (`@sheason/pi-coding-agent`, `@sheason/d-pi`). The upstream `@earendil-works/pi-{ai,tui,agent-core}` packages remain runtime dependencies that the npm install pulls from the public registry; they are still built locally to satisfy workspace tsconfig paths, but they are not packed, not published, and not attached to the GitHub release. The fork does not have npm publish permission to the `@earendil-works` scope.
+
 ### Fixed
 
 - Fixed `/tree` in d-pi connect mode crashing with "Cannot read properties of undefined (reading 'role' | 'content' | ...)" on the first non-message tree entry. The wire-format `TreeNodeData` (used by `LocalAgentSessionProxy.getTree()` → `RemoteAgentSessionProxy.fetchTree()` → `InteractiveMode._convertTreeDataToNodes()`) now forwards every type-specific field the TUI's `TreeSelectorComponent` dereferences (`message`, `summary`, `tokensBefore`, `customType`, `content`, `provider`, `modelId`, `thinkingLevel`, `targetId`, `name`), and `_convertTreeDataToNodes` copies them through onto the reconstructed `entry`. `LocalAgentSessionProxy._convertTreeNode` also guards `entry.message` against runtime-missing cases with a `"(message)"` preview fallback.

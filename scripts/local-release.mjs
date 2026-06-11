@@ -5,10 +5,11 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
+// The d-pi release pipeline only ships @sheason/* scoped packages. The
+// upstream @earendil-works/* packages (pi-ai, pi-tui, pi-agent-core) are
+// pulled from the public npm registry at install time, not packed into
+// the local release artifact, so we don't `npm pack` them here.
 const packages = [
-	{ directory: "packages/ai", name: "@earendil-works/pi-ai" },
-	{ directory: "packages/tui", name: "@earendil-works/pi-tui" },
-	{ directory: "packages/agent", name: "@earendil-works/pi-agent-core" },
 	{ directory: "packages/coding-agent", name: "@sheason/pi-coding-agent" },
 	{ directory: "packages/d-pi", name: "@sheason/d-pi" },
 ];
