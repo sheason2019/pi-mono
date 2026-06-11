@@ -90,9 +90,8 @@ describe("SourceManager mode coercion", () => {
 	});
 
 	it("coerces missing mode to 'next'", async () => {
-		const line = emitLine("no-mode", undefined, { marker: "no-mode" });
-		// remove the explicit undefined by stringifying manually so the field
-		// is omitted entirely from the notification.
+		// build the notification without the explicit `undefined` so the
+		// mode field is omitted entirely from the wire payload.
 		const noFieldLine = JSON.stringify({
 			jsonrpc: "2.0",
 			method: "events.emit",
@@ -102,10 +101,7 @@ describe("SourceManager mode coercion", () => {
 				data: { marker: "no-mode" },
 			},
 		});
-		manager.createSource(
-			{ name: "no-mode", command: "sh", args: ["-c", `echo '${noFieldLine}'`] },
-			CREATOR,
-		);
+		manager.createSource({ name: "no-mode", command: "sh", args: ["-c", `echo '${noFieldLine}'`] }, CREATOR);
 
 		await waitFor(() => broadcasts.some((b) => b.sourceName === "no-mode"), 3_000, 20);
 		const b = broadcasts.find((b) => b.sourceName === "no-mode");

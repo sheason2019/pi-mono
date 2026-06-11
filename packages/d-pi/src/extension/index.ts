@@ -121,9 +121,7 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 			// = interrupt). For non-streaming (i.e. a normal Enter key
 			// press arriving as a complete user message), default to
 			// "next" — equivalent to triggerTurn=true.
-			const options = event.streamingBehavior === "steer"
-				? { deliverAs: "steer" as const }
-				: { triggerTurn: true };
+			const options = event.streamingBehavior === "steer" ? { deliverAs: "steer" as const } : { triggerTurn: true };
 			pi.sendMessage(
 				{
 					customType: "d-pi-message",

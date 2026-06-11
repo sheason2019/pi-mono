@@ -26,8 +26,7 @@ interface BroadcastCall {
 	sourceName: string;
 	line: string;
 	subscriberAgentIds: string[];
-	deliverAs: "next" | "steer";
-	drainMode: "all" | "one-at-a-time";
+	mode: "next" | "steer";
 }
 
 const CREATOR = "integration-creator";
