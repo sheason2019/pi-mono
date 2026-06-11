@@ -214,9 +214,10 @@ export function initWorkspace(dir: string): void {
 	mkdirSync(dpiDir, { recursive: true });
 
 	// Write .dpi/config.json — strict JSON, no comments.
-	// Optional keys (defaultModel) are documented in the workspace-level
-	// AGENTS.md below. Tool allow/deny lists are agent-only (see agent.json
-	// schema) and intentionally have no workspace-level fallback.
+	// Currently only the `version` marker is emitted. `version` is reserved as
+	// a migration marker for future workspace-level fields. Tool allow/deny
+	// lists are agent-only (see agent.json schema) and intentionally have no
+	// workspace-level fallback.
 	writeFileSync(
 		join(dpiDir, CONFIG_FILE),
 		`{
@@ -258,8 +259,7 @@ Add project-specific instructions, conventions, and guidelines here.
 
 Strict JSON — no comments, no trailing commas. Top-level keys:
 
-- \`version\` (required, must be \`1\`)
-- \`defaultModel\` (optional): e.g. \`"anthropic/claude-sonnet-4"\` — default model for all agents.
+- \`version\` (required, must be \`1\`) — reserved as a migration marker for future workspace-level fields
 
 ## Agent Configuration (\`agents/<name>/agent.json\`)
 

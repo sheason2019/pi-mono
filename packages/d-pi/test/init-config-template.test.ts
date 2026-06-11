@@ -80,7 +80,7 @@ describe("init template: strict-JSON output", () => {
 			configPath,
 			`{
 	"version": 1,
-	// "defaultModel": "anthropic/claude-sonnet-4"
+	// "someFutureField": "example"
 }
 `,
 		);
@@ -93,14 +93,15 @@ describe("init template: strict-JSON output", () => {
 		initWorkspace(workspace);
 
 		const agentsMd = readFileSync(join(workspace, "AGENTS.md"), "utf-8");
-		// Workspace-level keys (version is required, defaultModel is the only optional one)
+		// Workspace-level keys — only `version` is documented (reserved as a
+		// migration marker)
 		expect(agentsMd).toMatch(/version/);
-		expect(agentsMd).toMatch(/defaultModel/);
 		// includeTools / excludeTools are agent-only — they should NOT appear
 		// under the Workspace Configuration section header
 		const workspaceSection = agentsMd.split("## Agent Configuration")[0];
 		expect(workspaceSection).not.toMatch(/includeTools/);
 		expect(workspaceSection).not.toMatch(/excludeTools/);
+		expect(workspaceSection).not.toMatch(/defaultModel/);
 		// Agent-level keys
 		expect(agentsMd).toMatch(/parentName/);
 		expect(agentsMd).toMatch(/includeTools/);
