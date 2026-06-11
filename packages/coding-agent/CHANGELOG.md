@@ -2,7 +2,7 @@
 
 ## [0.79.1] - 2026-06-09
 
-## [Unreleased]
+## [0.79.1-sheason.0.6.0-alpha.4] - 2026-06-11
 
 ### Changed
 
@@ -48,6 +48,8 @@
 - Fixed CLI help and version output, including plain redirected `--help`/`--version` output and simplified `list`/`config` help text.
 - Fixed `/new` from ephemeral sessions to keep the new session ephemeral instead of persisting it by default ([#5045](https://github.com/earendil-works/pi/issues/5045)).
 - Clarified custom model docs that `name` and `modelOverrides.name` do not replace model IDs in the footer or primary model lists ([#4841](https://github.com/earendil-works/pi/issues/4841)).
+
+## [Unreleased]
 
 ## [0.79.0] - 2026-06-08
 
