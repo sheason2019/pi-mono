@@ -16,8 +16,6 @@ export interface AgentConfig {
 export interface WorkspaceConfig {
 	version: 1;
 	defaultModel?: string;
-	includeTools?: string[];
-	excludeTools?: string[];
 }
 
 export interface WorkspaceContext {

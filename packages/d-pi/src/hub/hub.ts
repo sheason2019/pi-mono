@@ -180,9 +180,10 @@ export class Hub {
 		// Compute isolated session directory
 		const sessionDir = join(this._config.workspaceRoot, ".dpi-sessions", options.name);
 
-		// Merge tools config: workspace defaults + agent overrides
-		const includeTools = options.includeTools ?? this._config.workspaceConfig.includeTools;
-		const excludeTools = options.excludeTools ?? this._config.workspaceConfig.excludeTools;
+		// Tools config is agent-only — declared in agent.json and passed via
+		// the create_agent tool call. There is no workspace-level fallback.
+		const includeTools = options.includeTools;
+		const excludeTools = options.excludeTools;
 
 		process.stderr.write(
 			`[d-pi hub] Creating agent "${options.name}" (${agentId}) on port ${port}, cwd=${agentDir}\n`,
