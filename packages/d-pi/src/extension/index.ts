@@ -116,7 +116,14 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 			}
 			const metaContent = injectMeta(event.text, "connect");
 			const extracted = extractMeta(metaContent);
-			const options = event.streamingBehavior ? { deliverAs: event.streamingBehavior } : { triggerTurn: true };
+			// Connect-mode / TUI input maps streaming behaviour to the
+			// "next" vs "steer" mode (next = turn-start injection, steer
+			// = interrupt). For non-streaming (i.e. a normal Enter key
+			// press arriving as a complete user message), default to
+			// "next" — equivalent to triggerTurn=true.
+			const options = event.streamingBehavior === "steer"
+				? { deliverAs: "steer" as const }
+				: { triggerTurn: true };
 			pi.sendMessage(
 				{
 					customType: "d-pi-message",
@@ -129,7 +136,7 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 			return { action: "handled" };
 		});
 
-		channel.onIncomingMessage((content, sourceName, deliverAs, drainMode) => {
+		channel.onIncomingMessage((content, sourceName, mode) => {
 			if (sourceName) {
 				process.stderr.write(`[d-pi extension] Received source message from "${sourceName}"\n`);
 			}
@@ -138,29 +145,15 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 				: injectMeta(content, sourceName ? "source" : "connect", undefined, { sourceName });
 			const extracted = extractMeta(metaContent);
 			// Routing decision lives in SourceManager (parsed + coerced from
-			// params.deliverAs on the validated JSONRPC notification).
-			// Extension just maps the source-declared mode to pi.sendMessage
-			// options — no "is agent running?" fallback, no per-event
-			// branching. The 1:1 mapping is:
-			//   steer    → { deliverAs: "steer" }    → /steer endpoint
-			//   followUp → { deliverAs: "followUp" } → /prompt endpoint
-			//   prompt   → { triggerTurn: true }    → /prompt (new turn)
-			const options: { deliverAs?: "steer" | "followUp"; triggerTurn?: boolean } =
-				deliverAs === "steer"
-					? { deliverAs: "steer" }
-					: deliverAs === "prompt"
-						? { triggerTurn: true }
-						: { deliverAs: "followUp" };
-			// drainMode is accepted here and flows through the IPC chain,
-			// but the current upstream coding-agent `pi.sendMessage` API
-			// has no slot for it (a follow-up PR to packages/coding-agent
-			// will expose drainMode on sendCustomMessage). Until that
-			// lands the extension just logs the value for observability
-			// and drops it on the floor — the schema is in place so
-			// source-side declarations don't get silently lost.
-			if (drainMode !== undefined) {
-				process.stderr.write(`[d-pi extension] (passthrough) drainMode=${drainMode}\n`);
-			}
+			// params.mode on the validated JSONRPC notification, mirroring
+			// the TUI's Enter / Ctrl+Enter vocabulary). Extension just maps
+			// the source-declared mode to pi.sendMessage options — no
+			// "is agent running?" fallback, no per-event branching. The
+			// 1:1 mapping is:
+			//   steer → { deliverAs: "steer" }    → /steer endpoint
+			//   next  → { triggerTurn: true }    → /prompt (new turn)
+			const options: { deliverAs?: "steer"; triggerTurn?: boolean } =
+				mode === "steer" ? { deliverAs: "steer" } : { triggerTurn: true };
 			pi.sendMessage(
 				{
 					customType: "d-pi-message",

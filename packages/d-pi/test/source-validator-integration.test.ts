@@ -26,7 +26,7 @@ interface BroadcastCall {
 	sourceName: string;
 	line: string;
 	subscriberAgentIds: string[];
-	deliverAs: "steer" | "followUp" | "prompt";
+	deliverAs: "next" | "steer";
 	drainMode: "all" | "one-at-a-time";
 }
 
@@ -54,8 +54,8 @@ async function waitFor(predicate: () => boolean, timeoutMs: number, intervalMs =
 
 function makeManager() {
 	const broadcasts: BroadcastCall[] = [];
-	const manager = new SourceManager((sourceName, line, subscriberAgentIds, deliverAs, drainMode) => {
-		broadcasts.push({ sourceName, line, subscriberAgentIds, deliverAs, drainMode });
+	const manager = new SourceManager((sourceName, line, subscriberAgentIds, mode) => {
+		broadcasts.push({ sourceName, line, subscriberAgentIds, mode });
 	}, FAST_BACKOFF);
 	return { manager, broadcasts };
 }
@@ -221,23 +221,21 @@ echo '{"jsonrpc":"2.0","method":"events.emit","params":{"type":"cycle","data":"e
 		expect(cycleBroadcasts.some((b) => b.line.includes("GARBAGE"))).toBe(false);
 	});
 
-	it("end-to-end: source emits deliverAs + drainMode, both surface in broadcast", async () => {
+	it("end-to-end: source emits mode='steer', surfaces in broadcast", async () => {
 		const line = JSON.stringify({
 			jsonrpc: "2.0",
 			method: "events.emit",
 			params: {
-				type: "integration.drainMode",
-				id: "ev-dm",
-				deliverAs: "steer",
-				drainMode: "one-at-a-time",
-				data: { marker: "dm" },
+				type: "integration.mode",
+				id: "ev-mode",
+				mode: "steer",
+				data: { marker: "mode" },
 			},
 		});
-		manager.createSource({ name: "drainmode-e2e", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
+		manager.createSource({ name: "mode-e2e", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
 
-		await waitFor(() => broadcasts.some((b) => b.sourceName === "drainmode-e2e"), 3_000, 20);
-		const b = broadcasts.find((b) => b.sourceName === "drainmode-e2e");
-		expect(b?.deliverAs).toBe("steer");
-		expect(b?.drainMode).toBe("one-at-a-time");
+		await waitFor(() => broadcasts.some((b) => b.sourceName === "mode-e2e"), 3_000, 20);
+		const b = broadcasts.find((b) => b.sourceName === "mode-e2e");
+		expect(b?.mode).toBe("steer");
 	});
 });

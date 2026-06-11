@@ -194,17 +194,18 @@ describe("d-pi message renderer", () => {
 		expect(header).not.toContain("connect abc-123");
 	});
 
-	it("queues incoming messages as follow-ups until agent_end", () => {
+	it("queues incoming messages with default 'next' mode (triggerTurn) until agent_end", () => {
 		const harness = createWorkerHarness();
 
 		harness.emit("agent_start");
 		harness.emit("turn_start");
 		harness.emit("turn_end");
+		// No mode → defaults to "next" → extension maps to { triggerTurn: true }
 		harness.channel.deliverMessage("queued during run", "source-a");
 
 		expect(harness.sendMessageCalls).toHaveLength(1);
 		const queuedContent = messageContentText(harness.sendMessageCalls[0].message.content);
-		expect(harness.sendMessageCalls[0].options).toEqual({ deliverAs: "followUp" });
+		expect(harness.sendMessageCalls[0].options).toEqual({ triggerTurn: true });
 		expect(queuedContent).toContain("queued during run");
 		expect(queuedContent).toContain("[meta(");
 		expect(harness.sendMessageCalls[0].message.details).toMatchObject({
@@ -213,26 +214,28 @@ describe("d-pi message renderer", () => {
 		});
 
 		harness.emit("agent_end");
-		harness.channel.deliverMessage("after run", "source-a", "prompt");
+		// After agent_end, deliver with explicit "steer" mode → extension
+		// maps to { deliverAs: "steer" }.
+		harness.channel.deliverMessage("after run", "source-a", "steer");
 
-		expect(harness.sendMessageCalls[1].options).toEqual({ triggerTurn: true });
+		expect(harness.sendMessageCalls[1].options).toEqual({ deliverAs: "steer" });
 	});
 
 	it("wraps interactive input as meta-bearing custom messages", () => {
 		const harness = createWorkerHarness();
 
 		const result = harness.emitInput({
-			text: "connect follow-up",
+			text: "connect next-turn",
 			source: "interactive",
-			streamingBehavior: "followUp",
+			// No streamingBehaviour → defaults to { triggerTurn: true }
 		});
 
 		expect(result).toEqual({ action: "handled" });
 		expect(harness.sendMessageCalls).toHaveLength(1);
-		expect(harness.sendMessageCalls[0].options).toEqual({ deliverAs: "followUp" });
+		expect(harness.sendMessageCalls[0].options).toEqual({ triggerTurn: true });
 		expect(harness.sendMessageCalls[0].message.customType).toBe("d-pi-message");
 		const queuedContent = messageContentText(harness.sendMessageCalls[0].message.content);
-		expect(queuedContent).toContain("connect follow-up");
+		expect(queuedContent).toContain("connect next-turn");
 		expect(queuedContent).toContain("[meta(");
 		expect(harness.sendMessageCalls[0].message.details).toMatchObject({ sourceType: "connect" });
 	});

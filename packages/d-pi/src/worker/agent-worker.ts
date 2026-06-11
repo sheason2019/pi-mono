@@ -49,7 +49,7 @@ port.on("message", (message: HubToWorkerMessage) => {
 			hubChannel?.resolveCall(message.callId, message.result);
 			break;
 		case "message":
-			hubChannel?.deliverMessage(message.content, message.sourceName, message.deliverAs, message.drainMode);
+			hubChannel?.deliverMessage(message.content, message.sourceName, message.mode);
 			break;
 		case "destroy":
 			gracefulShutdown();
@@ -236,13 +236,14 @@ async function runAgentWorker(): Promise<void> {
 	// creates a CustomMessage instead of a UserMessageComponent (which has OSC133 markers
 	// that produce unwanted editor divider lines in the TUI).
 	//
-	// deliverAs is set to "prompt" explicitly: TUI /prompt and HTTP /prompt are
-	// user-driven new-turn requests, so they should map to {triggerTurn: true}
-	// at the extension layer (the 1:1 mapping committed in 14103e179). Without
-	// this, deliverMessage would fall through to followUp and the agent would
-	// never pick up the queued message while idle.
+	// mode is set to "next" explicitly: TUI /prompt and HTTP /prompt are
+	// user-driven new-turn requests (equivalent to the TUI Enter key), so they
+	// should map to {triggerTurn: true} at the extension layer. Without this,
+	// deliverMessage would fall through to the default "next" path which the
+	// extension then maps to {triggerTurn: true} anyway — but the explicit
+	// declaration documents the intent at the call site.
 	proxy.prompt = async (_text: string, _options?: { images?: Array<{ url: string; mediaType?: string }> }) => {
-		hubChannel?.deliverMessage(_text, undefined, "prompt");
+		hubChannel?.deliverMessage(_text, undefined, "next");
 	};
 
 	httpServer = new AgentHttpServer(proxy);

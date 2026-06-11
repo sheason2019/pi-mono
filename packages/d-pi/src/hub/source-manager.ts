@@ -34,56 +34,37 @@ export interface SourceManagerOptions {
 }
 
 /**
- * Source-message routing mode. Sources declare a per-event `params.deliverAs`
+ * Source-message routing mode. Sources declare a per-event `params.mode`
  * in their JSONRPC notification; SourceManager parses + coerces it and
  * forwards the resolved mode to the broadcast callback as the 4th
  * argument. The downstream extension maps it 1:1 to `pi.sendMessage`
  * options — the routing decision is fully owned by SourceManager.
  *
- * - "steer":    interrupt the current turn and inject immediately (urgent
- *               events). Routes to the agent's `/steer` endpoint.
- * - "followUp": queue after the current turn (default for most messages,
- *               e.g. lark chats, health reports). Routes to `/prompt`.
- * - "prompt":   same routing as followUp but the source explicitly flagged
- *               it as a prompt-shaped event — kept as a distinct value so
- *               future tools can tell the two apart. Maps to
- *               `{ triggerTurn: true }` at the extension layer.
+ * The vocabulary mirrors the user-facing TUI Enter / Ctrl+Enter
+ * distinction so source authors don't have to think about internal
+ * queue mechanics:
+ *
+ * - "next":  queue at the start of the agent's next turn (default for
+ *            most messages, e.g. lark chats, health reports). Maps to
+ *            `{ triggerTurn: true }` at the extension layer.
+ * - "steer": interrupt the current turn and inject immediately
+ *            (urgent events). Maps to `{ deliverAs: "steer" }` at the
+ *            extension layer.
+ *
+ * The previous `params.deliverAs` ("steer" | "followUp" | "prompt")
+ * and `params.drainMode` ("all" | "one-at-a-time") fields have been
+ * collapsed into this single `mode` field. drainMode is no longer
+ * exposed at the source layer — the extension always batches
+ * ("all") internally.
  */
-export type DeliverAsMode = "steer" | "followUp" | "prompt";
+export type MessageMode = "next" | "steer";
 
-/** Coerce a JSONRPC `params.deliverAs` value into a valid mode (default: followUp). */
-function coerceDeliverAs(raw: unknown): DeliverAsMode {
-	if (raw === "steer" || raw === "followUp" || raw === "prompt") {
+/** Coerce a JSONRPC `params.mode` value into a valid mode (default: "next"). */
+function coerceMode(raw: unknown): MessageMode {
+	if (raw === "next" || raw === "steer") {
 		return raw;
 	}
-	return "followUp";
-}
-
-/**
- * Source-message queueing mode. Sources declare a per-event
- * `params.drainMode` in their JSONRPC notification; SourceManager
- * parses + coerces it and forwards the resolved mode to the broadcast
- * callback as the 5th argument. Mirrors the upstream coding-agent
- * `PendingMessageQueue.mode` enum (see `packages/coding-agent/src/core/
- * agent-session.ts`).
- *
- * - "all":            drain a batch of queued messages together (default
- *                     — same effective behaviour as before this field
- *                     existed; the agent loop processes them as a single
- *                     batched context window).
- * - "one-at-a-time":  each queued message is processed in its own
- *                     discrete turn. Use for interactive sources where
- *                     each event deserves its own response.
- *
- * Unknown values (wrong case, wrong type, missing) coerce to `"all"`
- * so a misbehaving source can never accidentally degrade agent
- * batching behaviour.
- */
-export type DrainMode = "all" | "one-at-a-time";
-
-/** Coerce a JSONRPC `params.drainMode` value into a valid mode (default: "all"). */
-function coerceDrainMode(raw: unknown): DrainMode {
-	return raw === "all" || raw === "one-at-a-time" ? raw : "all";
+	return "next";
 }
 
 export class SourceManager {
@@ -92,8 +73,7 @@ export class SourceManager {
 		sourceName: string,
 		line: string,
 		subscriberAgentIds: string[],
-		deliverAs: DeliverAsMode,
-		drainMode: DrainMode,
+		mode: MessageMode,
 	) => void;
 	private readonly _initialRestartDelayMs: number;
 	private readonly _maxRestartDelayMs: number;
@@ -357,35 +337,32 @@ export class SourceManager {
 
 		const subscriberIds = Array.from(record.subscribers);
 
-		// Parse the JSONRPC notification so we can extract deliverAs +
-		// drainMode. The validator already classified this line as a
-		// notification, so JSON.parse should succeed — but stay defensive
-		// (try/catch) so a parsing bug can never crash the supervisor.
-		let deliverAs: DeliverAsMode = "followUp";
-		let drainMode: DrainMode = "all";
+		// Parse the JSONRPC notification so we can extract the mode.
+		// The validator already classified this line as a notification,
+		// so JSON.parse should succeed — but stay defensive (try/catch)
+		// so a parsing bug can never crash the supervisor.
+		let mode: MessageMode = "next";
 		try {
 			const parsed = JSON.parse(line) as {
-				params?: { deliverAs?: unknown; drainMode?: unknown };
+				params?: { mode?: unknown };
 			};
 			if (parsed && typeof parsed === "object" && parsed.params && typeof parsed.params === "object") {
-				deliverAs = coerceDeliverAs(parsed.params.deliverAs);
-				drainMode = coerceDrainMode(parsed.params.drainMode);
+				mode = coerceMode(parsed.params.mode);
 			}
 		} catch {
 			// Shouldn't happen for validated notifications, but stay safe.
-			deliverAs = "followUp";
-			drainMode = "all";
+			mode = "next";
 		}
 
-		this._onBroadcast(sourceName, line, subscriberIds, deliverAs, drainMode);
+		this._onBroadcast(sourceName, line, subscriberIds, mode);
 	}
 
 	private _notifyCreator(record: SourceRecord, message: string): void {
 		if (!record.creatorAgentId) return;
 		// Supervisor-error notifications are operational infra, not source
-		// content — use followUp + "all" defaults so they flow with normal
-		// delivery and don't accidentally degrade batching behaviour.
-		this._onBroadcast(record.name, `[source-error] ${message}`, [record.creatorAgentId], "followUp", "all");
+		// content — use the default "next" mode so they flow with normal
+		// delivery (turn-start injection, batches with other queue items).
+		this._onBroadcast(record.name, `[source-error] ${message}`, [record.creatorAgentId], "next");
 	}
 
 	private _closeReaders(record: SourceRecord): void {
