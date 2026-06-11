@@ -127,17 +127,28 @@ jobs:
       - name: Compute npm dist-tag from release tag
         id: dist-tag
         run: |
-          TAG="${RELEASE_TAG#v}"
+          # The release tag can be either a plain semver tag
+          # ("v0.6.0-alpha.4") or a d-pi-prefixed one
+          # ("d-pi-v0.6.0-alpha.4"), depending on whether it came
+          # from a `git tag v0.6.0-alpha.4` push or a
+          # `git tag d-pi-v0.6.0-alpha.4` push. Both shapes are
+          # accepted by the workflow's `on.push.tags: d-pi-v*`
+          # trigger, so the parser has to handle both.
+          #
+          # Strip the optional `v` prefix and the optional `d-pi-`
+          # prefix, leaving the bare semver string for the regex.
+          TAG="${RELEASE_TAG#d-pi-v}"
+          TAG="${TAG#v}"
           if [[ "$TAG" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-(alpha|beta|rc)\.([0-9]+)$ ]]; then
             DIST_TAG="${BASH_REMATCH[4]}"
           elif [[ "$TAG" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
             DIST_TAG="latest"
           else
-            echo "::error::Unrecognized release tag format: $TAG (expected vX.Y.Z or vX.Y.Z-{alpha,beta,rc}.N)"
+            echo "::error::Unrecognized release tag format: ${RELEASE_TAG} (after stripping prefixes: ${TAG}; expected vX.Y.Z or d-pi-vX.Y.Z, with optional -{alpha,beta,rc}.N)"
             exit 1
           fi
           echo "dist-tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
-          echo "Resolved ${TAG} -> npm dist-tag '${DIST_TAG}'"
+          echo "Resolved ${RELEASE_TAG} -> ${TAG} -> npm dist-tag '${DIST_TAG}'"
 
       - name: Build ${{ matrix.package }} (idempotent rebuild of own workspace)
         working-directory: ${{ matrix.pkg_path }}
