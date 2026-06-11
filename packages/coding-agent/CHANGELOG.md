@@ -7,6 +7,7 @@
 ### Fixed
 
 - Fixed `/tree` in d-pi connect mode crashing with "Cannot read properties of undefined (reading 'role' | 'content' | ...)" on the first non-message tree entry. The wire-format `TreeNodeData` (used by `LocalAgentSessionProxy.getTree()` → `RemoteAgentSessionProxy.fetchTree()` → `InteractiveMode._convertTreeDataToNodes()`) now forwards every type-specific field the TUI's `TreeSelectorComponent` dereferences (`message`, `summary`, `tokensBefore`, `customType`, `content`, `provider`, `modelId`, `thinkingLevel`, `targetId`, `name`), and `_convertTreeDataToNodes` copies them through onto the reconstructed `entry`. `LocalAgentSessionProxy._convertTreeNode` also guards `entry.message` against runtime-missing cases with a `"(message)"` preview fallback.
+- Fixed the connect-mode TUI footer silently omitting the `CHxx.x%` (cache hit rate) segment. `LocalAgentSessionProxy.getSnapshot()` and `AgentSession._emitStateUpdate()` now both compute `latestCacheHitRate` from the most recent assistant turn (matching the local interactive mode's calculation) and forward it in the wire `TokenUsage`. `FooterComponent._renderFromSnapshot()` renders the `CH` segment when `cacheRead`/`cacheWrite > 0` and the rate is defined, exactly as the local render path does.
 
 ### New Features
 

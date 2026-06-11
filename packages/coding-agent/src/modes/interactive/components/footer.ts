@@ -281,6 +281,9 @@ export class FooterComponent implements Component {
 		if (tokenUsage.output) statsParts.push(`↓${formatTokens(tokenUsage.output)}`);
 		if (tokenUsage.cacheRead) statsParts.push(`R${formatTokens(tokenUsage.cacheRead)}`);
 		if (tokenUsage.cacheWrite) statsParts.push(`W${formatTokens(tokenUsage.cacheWrite)}`);
+		if ((tokenUsage.cacheRead > 0 || tokenUsage.cacheWrite > 0) && tokenUsage.latestCacheHitRate !== undefined) {
+			statsParts.push(`CH${tokenUsage.latestCacheHitRate.toFixed(1)}%`);
+		}
 
 		if (tokenUsage.cost || tokenUsage.usingSubscription) {
 			const costStr = `$${tokenUsage.cost.toFixed(3)}${tokenUsage.usingSubscription ? " (sub)" : ""}`;

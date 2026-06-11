@@ -576,6 +576,11 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 		let totalCacheRead = 0;
 		let totalCacheWrite = 0;
 		let totalCost = 0;
+		// Track the cache hit rate of the MOST RECENT assistant turn, so the
+		// TUI footer can show the same `CHxx.x%` segment it shows in local
+		// interactive mode. Without forwarding this, the connect-mode footer
+		// silently omits the CH% column.
+		let latestCacheHitRate: number | undefined;
 		for (const entry of session.sessionManager.getEntries()) {
 			if (entry.type === "message" && entry.message.role === "assistant") {
 				totalInput += entry.message.usage.input;
@@ -583,6 +588,11 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 				totalCacheRead += entry.message.usage.cacheRead;
 				totalCacheWrite += entry.message.usage.cacheWrite;
 				totalCost += entry.message.usage.cost.total;
+
+				const latestPromptTokens =
+					entry.message.usage.input + entry.message.usage.cacheRead + entry.message.usage.cacheWrite;
+				latestCacheHitRate =
+					latestPromptTokens > 0 ? (entry.message.usage.cacheRead / latestPromptTokens) * 100 : undefined;
 			}
 		}
 		const usingSubscription = model ? session.modelRegistry.isUsingOAuth(model) : false;
@@ -593,6 +603,7 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 			cacheWrite: totalCacheWrite,
 			cost: totalCost,
 			usingSubscription,
+			latestCacheHitRate,
 		};
 
 		// Compute context usage

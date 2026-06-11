@@ -503,6 +503,12 @@ export class AgentSession {
 		let totalCacheRead = 0;
 		let totalCacheWrite = 0;
 		let totalCost = 0;
+		// Track the cache hit rate of the most recent assistant turn so the
+		// TUI footer can show the same `CHxx.x%` segment it shows in local
+		// interactive mode. The wire snapshot (used by the d-pi connect TUI)
+		// only has access to the fields we forward here, so we must include
+		// it in the state_update event, not just the local `getSnapshot()`.
+		let latestCacheHitRate: number | undefined;
 		for (const entry of this.sessionManager.getEntries()) {
 			if (entry.type === "message" && entry.message.role === "assistant") {
 				totalInput += entry.message.usage.input;
@@ -510,6 +516,11 @@ export class AgentSession {
 				totalCacheRead += entry.message.usage.cacheRead;
 				totalCacheWrite += entry.message.usage.cacheWrite;
 				totalCost += entry.message.usage.cost.total;
+
+				const latestPromptTokens =
+					entry.message.usage.input + entry.message.usage.cacheRead + entry.message.usage.cacheWrite;
+				latestCacheHitRate =
+					latestPromptTokens > 0 ? (entry.message.usage.cacheRead / latestPromptTokens) * 100 : undefined;
 			}
 		}
 
@@ -529,6 +540,7 @@ export class AgentSession {
 				cacheWrite: totalCacheWrite,
 				cost: totalCost,
 				usingSubscription,
+				latestCacheHitRate,
 			},
 			contextUsage: rawContextUsage
 				? {

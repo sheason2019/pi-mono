@@ -80,6 +80,14 @@ export interface TokenUsage {
 	cacheWrite: number;
 	cost: number;
 	usingSubscription: boolean;
+	/**
+	 * Cache hit rate of the most recent assistant turn, expressed as a
+	 * percentage in [0, 100]. `undefined` if there are no prompt tokens
+	 * (input + cacheRead + cacheWrite === 0) on the latest turn. Forwarded
+	 * so the connect-mode TUI footer can render the same `CHxx.x%` segment
+	 * the local interactive mode shows.
+	 */
+	latestCacheHitRate?: number;
 }
 
 /** Context window usage info for the current branch. */
