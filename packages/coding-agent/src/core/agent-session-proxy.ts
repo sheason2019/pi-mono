@@ -1,5 +1,5 @@
-import type { AgentMessage, ThinkingLevel } from "@sheason/pi-agent-core";
-import type { Api } from "@sheason/pi-ai";
+import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { Api } from "@earendil-works/pi-ai";
 import type { AgentSessionEvent } from "./agent-session.ts";
 import type { SourceInfo } from "./source-info.ts";
 

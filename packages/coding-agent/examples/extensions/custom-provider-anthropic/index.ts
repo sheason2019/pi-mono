@@ -42,7 +42,7 @@ import {
 	type Tool,
 	type ToolCall,
 	type ToolResultMessage,
-} from "@sheason/pi-ai";
+} from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@sheason/pi-coding-agent";
 
 // =============================================================================

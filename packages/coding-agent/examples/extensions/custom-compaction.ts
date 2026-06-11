@@ -13,7 +13,7 @@
  *   pi --extension examples/extensions/custom-compaction.ts
  */
 
-import { complete } from "@sheason/pi-ai";
+import { complete } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@sheason/pi-coding-agent";
 import { convertToLlm, serializeConversation } from "@sheason/pi-coding-agent";
 

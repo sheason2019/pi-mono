@@ -180,7 +180,7 @@ export default function (pi: ExtensionAPI) {
 
 **Use StringEnum for string parameters** (required for Google API compatibility):
 ```typescript
-import { StringEnum } from "@sheason/pi-ai";
+import { StringEnum } from "@earendil-works/pi-ai";
 
 // Good
 action: StringEnum(["list", "add"] as const)

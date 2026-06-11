@@ -5,14 +5,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const packages = [
-	{ directory: "packages/ai", name: "@sheason/pi-ai" },
-	{ directory: "packages/agent", name: "@sheason/pi-agent-core" },
-	{ directory: "packages/tui", name: "@sheason/pi-tui" },
+	{ directory: "packages/ai", name: "@earendil-works/pi-ai" },
+	{ directory: "packages/agent", name: "@earendil-works/pi-agent-core" },
+	{ directory: "packages/tui", name: "@earendil-works/pi-tui" },
 	{ directory: "packages/coding-agent", name: "@sheason/pi-coding-agent" },
 	{ directory: "packages/d-pi", name: "@sheason/d-pi" },
 ];
 
-const piPackageNames = ["@sheason/pi-ai", "@sheason/pi-agent-core", "@sheason/pi-tui", "@sheason/pi-coding-agent"];
+const piPackageNames = ["@earendil-works/pi-ai", "@earendil-works/pi-agent-core", "@earendil-works/pi-tui", "@sheason/pi-coding-agent"];
 const dPiPackageName = "@sheason/d-pi";
 
 const dryRun = process.argv.includes("--dry-run");

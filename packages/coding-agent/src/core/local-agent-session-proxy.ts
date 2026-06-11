@@ -1,5 +1,5 @@
-import type { AgentMessage, ThinkingLevel } from "@sheason/pi-agent-core";
-import type { ImageContent } from "@sheason/pi-ai";
+import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent } from "./agent-session.ts";
 import type {
 	AgentSessionProxy,

@@ -8,7 +8,7 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
-import type { Model } from "@sheason/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@sheason/pi-coding-agent";
 import { AuthStorage, getAgentDir, ModelRegistry, SessionManager, SettingsManager } from "@sheason/pi-coding-agent";
 import {

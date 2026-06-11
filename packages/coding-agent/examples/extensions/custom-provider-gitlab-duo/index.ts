@@ -21,7 +21,7 @@ import {
 	streamSimpleAnthropic,
 	streamSimpleOpenAIResponses,
 	type ThinkingLevelMap,
-} from "@sheason/pi-ai";
+} from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@sheason/pi-coding-agent";
 
 // =============================================================================

@@ -13,15 +13,16 @@ export default defineConfig({
 		globals: true,
 		environment: "node",
 		testTimeout: 30000,
+		exclude: ["**/node_modules/**", "**/dist/**", "test/release-package-metadata.test.mjs"],
 	},
 	resolve: {
 		alias: [
-			{ find: /^@sheason\/pi-ai$/, replacement: aiSrcIndex },
-			{ find: /^@sheason\/pi-ai\/oauth$/, replacement: aiSrcOAuth },
-			{ find: /^@sheason\/pi-agent-core$/, replacement: agentSrcIndex },
-			{ find: /^@sheason\/pi-coding-agent$/, replacement: codingAgentSrcIndex },
-			{ find: /^@sheason\/pi-coding-agent\/d-pi-worker$/, replacement: codingAgentSrcWorker },
-			{ find: /^@sheason\/pi-tui$/, replacement: tuiSrcIndex },
+			{ find: /^@earendil-works\/pi-ai$/, replacement: aiSrcIndex },
+			{ find: /^@earendil-works\/pi-ai\/oauth$/, replacement: aiSrcOAuth },
+			{ find: /^@earendil-works\/pi-agent-core$/, replacement: agentSrcIndex },
+			{ find: /^@earendil-works\/pi-coding-agent$/, replacement: codingAgentSrcIndex },
+			{ find: /^@earendil-works\/pi-coding-agent\/d-pi-worker$/, replacement: codingAgentSrcWorker },
+			{ find: /^@earendil-works\/pi-tui$/, replacement: tuiSrcIndex },
 		],
 	},
 });
