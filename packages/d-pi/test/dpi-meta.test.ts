@@ -32,4 +32,44 @@ describe("d-pi meta prompt", () => {
 		expect(DPI_META_PROMPT).toMatch(/commit=`[a-f0-9]+`/);
 		expect(DPI_META_PROMPT).toMatch(/built=`\d{4}-\d{2}-\d{2}T/);
 	});
+
+	// === Accuracy regression tests (added when fixing prompt drift) ===
+
+	it("does not mention the removed deliverAs term", () => {
+		// deliverAs was renamed to mode in PR #29. Any reappearance in
+		// the prompt would mislead the agent.
+		expect(DPI_META_PROMPT).not.toMatch(/deliverAs/i);
+	});
+
+	it("documents send_message mode semantics aligned with TUI", () => {
+		// Agents should know `next` ≈ TUI Enter, `steer` ≈ TUI Ctrl+Enter.
+		expect(DPI_META_PROMPT).toContain("next");
+		expect(DPI_META_PROMPT).toContain("steer");
+		expect(DPI_META_PROMPT).toContain("TUI Enter");
+		expect(DPI_META_PROMPT).toContain("TUI Ctrl+Enter");
+	});
+
+	it("documents the create_agent includeTools/excludeTools mutex", () => {
+		expect(DPI_META_PROMPT).toContain("includeTools");
+		expect(DPI_META_PROMPT).toContain("excludeTools");
+		expect(DPI_META_PROMPT).toMatch(/both.*rejected|passing\s+BOTH/i);
+	});
+
+	it("documents the reload limitations (no agent.json / role reload)", () => {
+		expect(DPI_META_PROMPT).toContain("Does NOT re-parse");
+		expect(DPI_META_PROMPT).toContain("agent.json");
+		expect(DPI_META_PROMPT).toMatch(/hub restart/);
+	});
+
+	it("lists only the real TUI slash commands (/sources and /agents)", () => {
+		// The previous prompt falsely claimed "slash-command interface
+		// mirroring each d-pi tool" — only /sources and /agents are
+		// registered (see packages/d-pi/src/extension/index.ts).
+		expect(DPI_META_PROMPT).toContain("`/sources`");
+		expect(DPI_META_PROMPT).toContain("`/agents`");
+	});
+
+	it("documents the executor tool signature", () => {
+		expect(DPI_META_PROMPT).toContain("(toolCallId, params, signal, onUpdate, ctx)");
+	});
 });
