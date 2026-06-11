@@ -1,5 +1,5 @@
-import type { AgentMessage, ThinkingLevel } from "@sheason/pi-agent-core";
-import type { Api } from "@sheason/pi-ai";
+import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { Api } from "@earendil-works/pi-ai";
 import type { AgentSessionEvent } from "./agent-session.ts";
 import type { SourceInfo } from "./source-info.ts";
 
@@ -80,6 +80,14 @@ export interface TokenUsage {
 	cacheWrite: number;
 	cost: number;
 	usingSubscription: boolean;
+	/**
+	 * Cache hit rate of the most recent assistant turn, expressed as a
+	 * percentage in [0, 100]. `undefined` if there are no prompt tokens
+	 * (input + cacheRead + cacheWrite === 0) on the latest turn. Forwarded
+	 * so the connect-mode TUI footer can render the same `CHxx.x%` segment
+	 * the local interactive mode shows.
+	 */
+	latestCacheHitRate?: number;
 }
 
 /** Context window usage info for the current branch. */
@@ -153,7 +161,7 @@ export interface RemoteSettings {
 	warnings: Record<string, unknown>;
 }
 
-/** Lightweight tree node for wire transport (no full message content). */
+/** Lightweight tree node for wire transport. */
 export interface TreeNodeData {
 	id: string;
 	type: string;
@@ -163,6 +171,22 @@ export interface TreeNodeData {
 	/** Preview text for message entries */
 	preview?: string;
 	children: TreeNodeData[];
+	// Type-specific fields required by the TUI's TreeSelectorComponent to
+	// render each entry shape. The component dereferences these directly
+	// (entry.message.role, entry.content for custom_message, entry.modelId,
+	// entry.thinkingLevel, entry.summary, entry.label, entry.name, etc.). In
+	// connect mode the client only has this wire snapshot, not the live
+	// session manager, so the server must forward these fields verbatim.
+	message?: unknown;
+	summary?: string;
+	tokensBefore?: number;
+	customType?: string;
+	content?: unknown;
+	provider?: string;
+	modelId?: string;
+	thinkingLevel?: string;
+	targetId?: string;
+	name?: string;
 }
 
 /** User message item for fork selector. */

@@ -7,7 +7,7 @@ import {
 	createAssistantMessageEventStream,
 	type Model,
 	type SimpleStreamOptions,
-} from "@sheason/pi-ai";
+} from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
@@ -119,10 +119,10 @@ describe("createAgentSession stream options", () => {
 		expect(options?.timeoutMs).toBe(1234);
 	});
 
-	it("does not default timeoutMs from httpIdleTimeoutMs for other providers", async () => {
+	it("defaults timeoutMs from httpIdleTimeoutMs for all providers", async () => {
 		const options = await captureStreamOptions("openai-completions", { httpIdleTimeoutMs: 1234 });
 
-		expect(options?.timeoutMs).toBeUndefined();
+		expect(options?.timeoutMs).toBe(1234);
 	});
 
 	it("lets request timeoutMs override httpIdleTimeoutMs for OpenAI Codex", async () => {

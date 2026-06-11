@@ -4,7 +4,7 @@
  * Replace everything - no discovery, explicit configuration.
  */
 
-import { getModel } from "@sheason/pi-ai";
+import { getModel } from "@earendil-works/pi-ai";
 import {
 	AuthStorage,
 	createAgentSession,

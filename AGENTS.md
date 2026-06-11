@@ -23,42 +23,6 @@
 - Never hardcode key checks (e.g. `matchesKey(keyData, "ctrl+x")`). Add defaults to `DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS` so they stay configurable.
 - Never modify `packages/ai/src/models.generated.ts` directly; update `packages/ai/scripts/generate-models.ts` instead, then regenerate. Including the resulting `models.generated.ts` diff is always OK, even if regeneration includes unrelated upstream model metadata changes.
 
-## Source design
-
-d-pi sources are loose, long-running commands that emit **JSON-RPC 2.0
-notifications** on stdout, one per line. The hub parses every line
-through `packages/d-pi/src/hub/source-validator.ts` and forwards only
-`notification` shapes to subscribed agents — requests/responses and
-invalid lines are silently dropped.
-
-Full design: `docs/superpowers/specs/2026-06-07-source-redesign-design.md`.
-
-Quick reference for new sources:
-
-- One JSON-RPC 2.0 notification per stdout line. Use `\n` (not `\r\n`).
-- Required: `jsonrpc: "2.0"`, `method: "events.emit"`, `params.type`.
-- Optional but standard: `params.id` (event id for ack/dedup), `params.data` (arbitrary payload), `params.deliverAs` (routing mode — see below).
-- Notifications must NOT carry `id`, `result`, or `error` fields — those mark the message as a request/response and the hub will drop it.
-- Anything that fails to parse is silently dropped — not the hub's problem to diagnose. Per the "only valuable output" principle, no stderr warning either. Sources must not crash on hub-side rejection — the hub catches validator throws and keeps the source alive.
-- Sources can be written in Node / Python / Bash / Rust / anything. The hub only spawns the command (argv vector, no shell). For pipes / redirects / env vars, wrap in `sh -c`.
-- Shim/wrappers for specific protocols (e.g. Lark) live outside d-pi — at the Agent layer in your own workspace. d-pi ships protocol-agnostic infrastructure only.
-
-`params.deliverAs` routes the notification through the agent's `pi.sendMessage` to a specific executor endpoint. Three values, default `followUp`:
-
-- `"steer"` — interrupt the agent's current turn and inject immediately. Use for urgent events where queueing would lose value (operator pokes, kill switches, security alerts).
-- `"followUp"` — queue after the current turn finishes (default for most sources: lark chats, health reports, low-priority ambient data).
-- `"prompt"` — same routing as `followUp` but flagged for tools that want to distinguish an explicit prompt from a passive follow-up. Sources that intentionally drive a turn (e.g. user-driven chat) should declare `prompt` instead of leaving it as default.
-
-Routing decision is fully owned by SourceManager: it parses `params.deliverAs` from the validated JSONRPC notification, coerces unknown values (wrong case, wrong type, missing) to `followUp`, and passes the resolved mode to the broadcast callback. The downstream extension performs a 1:1 mapping to `pi.sendMessage` options — no per-event branching, no "is agent running?" heuristic. Supervisor-error broadcasts (e.g. `[source-error] ...` lines) always use `followUp` regardless of source content — they are operational infra, not user-visible messages.
-
-In addition to `deliverAs`, one optional `params` field controls how the agent session drains the queued message. Mirrors the upstream coding-agent `PendingMessageQueue.mode` enum.
-
-- `params.drainMode` — `"all" | "one-at-a-time"` (default `"all"`). `"all"` means a batch of queued messages from the same source is drained together (the agent loop processes them as a combined context window); `"one-at-a-time"` means each queued message is processed in its own discrete turn. Use `"one-at-a-time"` for interactive sources where each event deserves its own response (e.g. chat-like sources with back-to-back user turns).
-
-Like `deliverAs`, `drainMode` is parsed + coerced by SourceManager. Unknown values (wrong case, wrong type, missing) coerce to `"all"` so a misbehaving source can never accidentally degrade batching behaviour. Supervisor-error broadcasts always use `"all"` regardless of source content.
-
-Note: as of PR #25, the downstream `pi.sendMessage` API in `packages/coding-agent` does not yet expose a slot for `drainMode`. The field flows through the IPC chain and the extension logs it for observability, but the actual queueing behaviour is still driven by the upstream default. A follow-up PR to `packages/coding-agent` will expose `drainMode` on `sendCustomMessage` so this PR's plumbing activates end-to-end. Until that lands, treat the field as a forward-compatible schema declaration — sources can declare it now and it will start working the moment the coding-agent side lands.
-
 ## Commands
 
 - After code changes (not docs): `npm run check` (full output, no tail). Fix all errors, warnings, and infos before committing. Does not run tests.
@@ -69,10 +33,6 @@ Note: as of PR #25, the downstream `pi.sendMessage` API in `packages/coding-agen
 - Put issue-specific regressions under `packages/coding-agent/test/suite/regressions/` named `<issue-number>-<short-slug>.test.ts`.
 - For ad-hoc scripts, `write` them to a temp file (e.g. `/tmp`), run, edit if needed, remove when done. Don't embed multi-line scripts in `bash` commands.
 - Never commit unless the user asks.
-
-### Skipped tests
-
-- `packages/d-pi/src/executor/client.ts:170` calls `process.exit(0)` on SSE end. The corresponding test in `packages/d-pi/test/executor-client.test.ts` is `it.skip`'d because vitest treats `process.exit` calls in child processes as unhandled errors. We rely on the OS to clean up the process (acceptable for SSE-end behavior; not worth the test infrastructure complexity).
 
 ## Dependency and Install Security
 
@@ -92,6 +52,7 @@ Committing:
 - Stage explicit paths (`git add <path1> <path2>`); never `git add -A` / `git add .`.
 - Before committing, run `git status` and verify you are only staging your files.
 - `packages/ai/src/models.generated.ts` may always be included alongside your files.
+- Message format: `{feat,fix,docs}[(ai,tui,agent,coding-agent)]: <commit message> (optionally multiple lines)`. Message is informative and concise.
 
 Never run (destroys other agents' work or bypasses checks):
 
@@ -195,48 +156,6 @@ Attribution:
 4. **CI publishes npm packages**: pushing the `vX.Y.Z` tag triggers `.github/workflows/build-binaries.yml`. The `publish-npm` job uses npm trusted publishing through GitHub Actions OIDC with environment `npm-publish`; no local `npm publish`, `npm whoami`, OTP, or WebAuthn flow is required.
 
 5. **If CI publish fails**: inspect the failed `publish-npm` job. The publish helper is idempotent and skips package versions already present on npm, so rerun the tag workflow after fixing CI or transient npm issues. Do not rerun `npm run release:patch` or `npm run release:minor` for the same version.
-
-## Releasing d-pi (fork-specific)
-
-`sheason2019/pi-mono` is a fork. **Five** packages under the `@sheason` npm scope are maintained here as forks of upstream pi-mono: `@sheason/pi-ai`, `@sheason/pi-tui`, `@sheason/pi-agent-core`, `@sheason/pi-coding-agent`, `@sheason/d-pi`. The docusaurus docs site at `packages/d-pi-official` is **not** part of the release pipeline and is deployed independently (Vercel / Cloudflare Pages / GitHub Pages) — tracked by a follow-up issue. The `## Releasing` section above describes the upstream-style flow that uses `npm run release:patch` / `release:minor` and `scripts/release.mjs` to bump versions across the lockstep set. `.github/workflows/release.yml` is the d-pi-tag-push trigger that does the actual publishing for this fork.
-
-Workflow: `.github/workflows/release.yml`. Triggers on `v*` tag push or `workflow_dispatch` with a `tag` input. Three jobs:
-
-1. `test` — `npm ci --ignore-scripts` + `npm run build` + `npm run check` + `npm test` (same as `ci.yml`).
-2. `publish` (matrix over the five packages, **serial** via `max-parallel: 1`) — order is fixed by the dependency graph:
-   1. `@sheason/pi-ai` (`packages/ai`)
-   2. `@sheason/pi-tui` (`packages/tui`)
-   3. `@sheason/pi-agent-core` (`packages/agent`)
-   4. `@sheason/pi-coding-agent` (`packages/coding-agent`)
-   5. `@sheason/d-pi` (`packages/d-pi`)
-
-   Serial execution is required: downstream packages (pi-coding-agent, d-pi) read upstream `dist/` from the filesystem via `tsconfig` `paths`. Before the matrix runs, the job runs `npm run build` (root chain: `tui → ai → agent → coding-agent → d-pi`) so every package's `dist/` exists on disk for the matrix. Each matrix row then re-runs its own `npm run build` (idempotent) and resolves the npm `dist-tag` from the tag name (`v1.2.3` → `latest`, `v1.2.3-alpha.N` → `alpha`, `v1.2.3-beta.N` → `beta`, `v1.2.3-rc.N` → `rc`). The five publishable rows run `npm publish --access public --tag <tag> --provenance --ignore-scripts` (npm trusted publishing configured against `@sheason` org + `sheason2019/pi-mono` repo, environment `npm-publish`). Each row uploads its build output as a workflow artifact (`pkg-<name>`).
-3. `github-release` — downloads the five build artifacts and creates a GitHub Release via `softprops/action-gh-release@v2` with auto-generated notes (`generate_release_notes: true`) and the `dist/` directories attached (`overwrite_files: true` + `fail_on_unmatched_files: false` for idempotent re-runs alongside the 6 platform binaries from `build-binaries.yml`).
-
-Required secret on the fork repo (Settings → Secrets and variables → Actions):
-
-- `NPM_TOKEN` — a single npm access token with **Automation** permission, publish scope limited to `@sheason`. Used for all five packages. The `id-token: write` permission is requested for npm provenance, which also requires configuring npm trusted publishing for the `@sheason` org against this repo (Settings → Environments → `npm-publish`).
-- `GITHUB_TOKEN` is provided automatically; no extra token needed for the GitHub Release step.
-
-Cut a release:
-
-1. Bump versions in `packages/*/package.json` (all five packages stay lockstep on the d-pi version) and refresh the lockfile + shrinkwrap:
-   ```bash
-   # edit each packages/*/package.json by hand — do not use `npm version` (it would auto-tag)
-   npm install --package-lock-only --ignore-scripts
-   npm run shrinkwrap:coding-agent
-   ```
-2. Commit and push to `main`:
-   ```bash
-   git commit -m "chore(release): bump version to <X>"
-   git push origin main
-   ```
-3. Tag and push (triggers `.github/workflows/release.yml`):
-   ```bash
-   git tag -a v<X> -m "Release v<X>" <commit-sha>
-   git push origin v<X>
-   ```
-4. CI runs `test` → `publish` (five matrix rows, serial) → `github-release`. `.github/workflows/release.yml` is the **only** publishing path on the fork: `.github/workflows/build-binaries.yml` still runs on `v*` tag push for the binary artifacts, but its `publish-npm` job has been removed to avoid double-publishing. The upstream `## Releasing` section above remains the source of truth for the bump/commit/tag ritual.
 
 ## User Override
 

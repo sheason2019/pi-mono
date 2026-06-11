@@ -1,11 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.79.1] - 2026-06-09
+
+## [0.79.0] - 2026-06-08
 
 ### Fixed
 
-- Fixed npm publish E422 due to missing `repository.url` (will be in v0.6.0-alpha.3)
-- Fixed pre-existing 19+1 vitest false positives via `@sheason/*` alias in vitest config
+- Fixed the compaction summarization system prompt to use neutral AI assistant wording for non-coding agents ([#5401](https://github.com/earendil-works/pi/issues/5401)).
+
+## [0.78.1] - 2026-06-04
 
 ## [0.78.0] - 2026-05-29
 

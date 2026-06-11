@@ -4,8 +4,8 @@
  * Escape in editor returns to options, Escape in options cancels
  */
 
+import { Editor, type EditorTheme, Key, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@sheason/pi-coding-agent";
-import { Editor, type EditorTheme, Key, matchesKey, Text, truncateToWidth } from "@sheason/pi-tui";
 import { Type } from "typebox";
 
 interface OptionWithDesc {
@@ -41,7 +41,7 @@ export default function question(pi: ExtensionAPI) {
 		parameters: QuestionParams,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			if (!ctx.hasUI) {
+			if (ctx.mode !== "tui") {
 				return {
 					content: [{ type: "text", text: "Error: UI not available (running in non-interactive mode)" }],
 					details: {

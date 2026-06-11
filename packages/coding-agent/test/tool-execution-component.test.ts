@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { Text, type TUI } from "@sheason/pi-tui";
+import { Text, type TUI } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { beforeAll, describe, expect, test } from "vitest";
 import { getReadmePath } from "../src/config.ts";
@@ -65,6 +65,37 @@ describe("ToolExecutionComponent parity", () => {
 		const rendered = stripAnsi(component.render(120).join("\n"));
 		expect(rendered).toContain("custom call");
 		expect(rendered).toContain("custom result");
+	});
+
+	test("self-rendered empty tool rows take no layout space", () => {
+		const toolDefinition: ToolDefinition = {
+			...createBaseToolDefinition(),
+			renderShell: "self",
+			renderCall: () => new Text("", 0, 0),
+			renderResult: () => new Text("", 0, 0),
+		};
+
+		const component = new ToolExecutionComponent(
+			"custom_tool",
+			"tool-empty-self-render",
+			{},
+			{},
+			toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+		expect(component.render(120)).toEqual([]);
+
+		component.updateResult(
+			{
+				content: [],
+				details: {},
+				isError: false,
+			},
+			false,
+		);
+
+		expect(component.render(120)).toEqual([]);
 	});
 
 	test("uses built-in rendering for built-in overrides without custom renderers", () => {

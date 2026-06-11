@@ -6,7 +6,7 @@ import {
 	type MarkdownTheme,
 	type SelectListTheme,
 	type SettingsListTheme,
-} from "@sheason/pi-tui";
+} from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";

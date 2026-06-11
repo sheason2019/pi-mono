@@ -1,5 +1,5 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { type Component, truncateToWidth, visibleWidth } from "@sheason/pi-tui";
+import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { AgentSession } from "../../../core/agent-session.ts";
 import type { SessionStateSnapshot } from "../../../core/agent-session-proxy.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
@@ -110,6 +110,7 @@ export class FooterComponent implements Component {
 		let totalCacheRead = 0;
 		let totalCacheWrite = 0;
 		let totalCost = 0;
+		let latestCacheHitRate: number | undefined;
 
 		for (const entry of this.session.sessionManager.getEntries()) {
 			if (entry.type === "message" && entry.message.role === "assistant") {
@@ -118,6 +119,11 @@ export class FooterComponent implements Component {
 				totalCacheRead += entry.message.usage.cacheRead;
 				totalCacheWrite += entry.message.usage.cacheWrite;
 				totalCost += entry.message.usage.cost.total;
+
+				const latestPromptTokens =
+					entry.message.usage.input + entry.message.usage.cacheRead + entry.message.usage.cacheWrite;
+				latestCacheHitRate =
+					latestPromptTokens > 0 ? (entry.message.usage.cacheRead / latestPromptTokens) * 100 : undefined;
 			}
 		}
 
@@ -149,6 +155,9 @@ export class FooterComponent implements Component {
 		if (totalOutput) statsParts.push(`↓${formatTokens(totalOutput)}`);
 		if (totalCacheRead) statsParts.push(`R${formatTokens(totalCacheRead)}`);
 		if (totalCacheWrite) statsParts.push(`W${formatTokens(totalCacheWrite)}`);
+		if ((totalCacheRead > 0 || totalCacheWrite > 0) && latestCacheHitRate !== undefined) {
+			statsParts.push(`CH${latestCacheHitRate.toFixed(1)}%`);
+		}
 
 		// Show cost with "(sub)" indicator if using OAuth subscription
 		const usingSubscription = state.model ? this.session.modelRegistry.isUsingOAuth(state.model) : false;
@@ -272,6 +281,9 @@ export class FooterComponent implements Component {
 		if (tokenUsage.output) statsParts.push(`↓${formatTokens(tokenUsage.output)}`);
 		if (tokenUsage.cacheRead) statsParts.push(`R${formatTokens(tokenUsage.cacheRead)}`);
 		if (tokenUsage.cacheWrite) statsParts.push(`W${formatTokens(tokenUsage.cacheWrite)}`);
+		if ((tokenUsage.cacheRead > 0 || tokenUsage.cacheWrite > 0) && tokenUsage.latestCacheHitRate !== undefined) {
+			statsParts.push(`CH${tokenUsage.latestCacheHitRate.toFixed(1)}%`);
+		}
 
 		if (tokenUsage.cost || tokenUsage.usingSubscription) {
 			const costStr = `$${tokenUsage.cost.toFixed(3)}${tokenUsage.usingSubscription ? " (sub)" : ""}`;

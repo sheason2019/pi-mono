@@ -1,6 +1,6 @@
 {
-	"name": "@sheason/pi-ai",
-	"version": "0.78.0-sheason.0.6.0-alpha.3",
+	"name": "@earendil-works/pi-ai",
+	"version": "0.79.1",
 	"description": "Unified LLM API with automatic model discovery and provider configuration",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -92,7 +92,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/sheason2019/pi-mono.git",
+		"url": "git+https://github.com/earendil-works/pi.git",
 		"directory": "packages/ai"
 	},
 	"engines": {

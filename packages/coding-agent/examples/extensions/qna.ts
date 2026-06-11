@@ -7,7 +7,7 @@
  * 3. Loads the result into the editor for user to fill in answers
  */
 
-import { complete, type UserMessage } from "@sheason/pi-ai";
+import { complete, type UserMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@sheason/pi-coding-agent";
 import { BorderedLoader } from "@sheason/pi-coding-agent";
 
@@ -31,7 +31,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("qna", {
 		description: "Extract questions from last assistant message into editor",
 		handler: async (_args, ctx) => {
-			if (!ctx.hasUI) {
+			if (ctx.mode !== "tui") {
 				ctx.ui.notify("qna requires interactive mode", "error");
 				return;
 			}

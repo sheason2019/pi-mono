@@ -257,13 +257,13 @@ export class SourceManager {
 		const stderrReader = createInterface({ input: child.stderr! });
 		stderrReader.on("line", (line) => {
 			// Stderr is operational / debug output, NOT source content.
-			// Forwarding it as a "source message" floods subscribed
-			// agents with noise (subprocess heartbeats, ready markers,
-			// per-line debug logs). Log to the d-pi supervisor's own
-			// stderr (visible in the hub's terminal / journal) and
-			// stop there. Agents that need stderr visibility can opt
-			// in via a future `forwardStderr: true` source option, but
-			// the default must be silent.
+			// Forwarding it as a "source message" floods subscribed agents
+			// with noise (subprocess heartbeats, ready markers, per-line
+			// debug logs). Log to the d-pi supervisor's own stderr
+			// (visible in the hub's terminal / journal) and stop there.
+			// Agents that need stderr visibility can opt in via a future
+			// `forwardStderr: true` source option, but the default must
+			// be silent.
 			process.stderr.write(`[d-pi source:${record.name}] ${line}\n`);
 		});
 		record.stderrReader = stderrReader;

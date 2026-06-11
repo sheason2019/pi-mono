@@ -1,4 +1,4 @@
-# @sheason/pi-tui
+# @earendil-works/pi-tui
 
 Minimal terminal UI framework with differential rendering and synchronized output for flicker-free interactive CLI applications.
 
@@ -16,7 +16,7 @@ Minimal terminal UI framework with differential rendering and synchronized outpu
 ## Quick Start
 
 ```typescript
-import { TUI, Text, Editor, ProcessTerminal, matchesKey } from "@sheason/pi-tui";
+import { TUI, Text, Editor, ProcessTerminal, matchesKey } from "@earendil-works/pi-tui";
 
 // Create terminal
 const terminal = new ProcessTerminal();
@@ -116,8 +116,20 @@ handle.setHidden(true);     // Temporarily hide (can show again)
 handle.setHidden(false);    // Show again after hiding
 handle.isHidden();          // Check if temporarily hidden
 handle.focus();             // Focus and bring to visual front
-handle.unfocus();           // Release focus to previous target
+handle.unfocus();           // Release focus to normal fallback
+handle.unfocus({ target: baseComponent }); // Release this overlay to a specific component
+handle.unfocus({ target: null });   // Release this overlay and leave focus empty
 handle.isFocused();         // Check if overlay has focus
+
+handle.unfocus();
+// Overlay loses focus; TUI falls back to another visible capturing overlay or the previous focus target.
+
+handle.unfocus({ target: null });
+// Overlay loses focus; no component receives input until focus is set again.
+
+// A focused visible overlay reclaims keyboard input after temporary replacement UI
+// releases focus. If you want a specific component to receive input while overlays remain
+// visible, call handle.unfocus({ target: component }).
 
 // Hide topmost overlay
 tui.hideOverlay();
@@ -159,7 +171,7 @@ The TUI appends a full SGR reset and OSC 8 reset at the end of each rendered lin
 Components that display a text cursor and need IME (Input Method Editor) support should implement the `Focusable` interface:
 
 ```typescript
-import { CURSOR_MARKER, type Component, type Focusable } from "@sheason/pi-tui";
+import { CURSOR_MARKER, type Component, type Focusable } from "@earendil-works/pi-tui";
 
 class MyInput implements Component, Focusable {
   focused: boolean = false;  // Set by TUI when focus changes
@@ -183,7 +195,7 @@ The cursor remains hidden by default. This keeps the fake cursor rendering, whil
 **Container components with embedded inputs:** When a container component (dialog, selector, etc.) contains an `Input` or `Editor` child, the container must implement `Focusable` and propagate the focus state to the child:
 
 ```typescript
-import { Container, type Focusable, Input } from "@sheason/pi-tui";
+import { Container, type Focusable, Input } from "@earendil-works/pi-tui";
 
 class SearchDialog extends Container implements Focusable {
   private searchInput: Input;
@@ -530,7 +542,7 @@ Supported formats: PNG, JPEG, GIF, WebP. Dimensions are parsed from the image he
 Supports both slash commands and file paths.
 
 ```typescript
-import { CombinedAutocompleteProvider } from "@sheason/pi-tui";
+import { CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
 
 const provider = new CombinedAutocompleteProvider(
   [
@@ -555,7 +567,7 @@ editor.setAutocompleteProvider(provider);
 Use `matchesKey()` with the `Key` helper for detecting keyboard input (supports Kitty keyboard protocol):
 
 ```typescript
-import { matchesKey, Key } from "@sheason/pi-tui";
+import { matchesKey, Key } from "@earendil-works/pi-tui";
 
 if (matchesKey(data, Key.ctrl("c"))) {
   process.exit(0);
@@ -613,7 +625,7 @@ interface Terminal {
 ## Utilities
 
 ```typescript
-import { visibleWidth, truncateToWidth, wrapTextWithAnsi } from "@sheason/pi-tui";
+import { visibleWidth, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 // Get visible width of string (ignoring ANSI codes)
 const width = visibleWidth("\x1b[31mHello\x1b[0m"); // 5
@@ -638,8 +650,8 @@ When creating custom components, **each line returned by `render()` must not exc
 Use `matchesKey()` with the `Key` helper for keyboard input:
 
 ```typescript
-import { matchesKey, Key, truncateToWidth } from "@sheason/pi-tui";
-import type { Component } from "@sheason/pi-tui";
+import { matchesKey, Key, truncateToWidth } from "@earendil-works/pi-tui";
+import type { Component } from "@earendil-works/pi-tui";
 
 class MyInteractiveComponent implements Component {
   private selectedIndex = 0;
@@ -674,8 +686,8 @@ class MyInteractiveComponent implements Component {
 Use the provided utilities to ensure lines fit:
 
 ```typescript
-import { visibleWidth, truncateToWidth } from "@sheason/pi-tui";
-import type { Component } from "@sheason/pi-tui";
+import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
+import type { Component } from "@earendil-works/pi-tui";
 
 class MyComponent implements Component {
   private text: string;

@@ -4,16 +4,19 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+// The d-pi release pipeline only publishes @sheason/* scoped packages. The
+// upstream @earendil-works/* packages (pi-ai, pi-tui, pi-agent-core) are
+// runtime dependencies of @sheason/d-pi and @sheason/pi-coding-agent, but
+// they are published by upstream pi-mono to the public npm registry, not
+// by this fork. We have no npm publish permission to the @earendil-works
+// scope, so including them here would always fail.
 const packages = [
-	{ directory: "packages/ai", name: "@sheason/pi-ai" },
-	{ directory: "packages/agent", name: "@sheason/pi-agent-core" },
-	{ directory: "packages/tui", name: "@sheason/pi-tui" },
 	{ directory: "packages/coding-agent", name: "@sheason/pi-coding-agent" },
 	{ directory: "packages/d-pi", name: "@sheason/d-pi" },
 ];
 
-const piPackageNames = ["@sheason/pi-ai", "@sheason/pi-agent-core", "@sheason/pi-tui", "@sheason/pi-coding-agent"];
 const dPiPackageName = "@sheason/d-pi";
+const codingAgentPackageName = "@sheason/pi-coding-agent";
 
 const dryRun = process.argv.includes("--dry-run");
 const unknownArgs = process.argv.slice(2).filter((arg) => arg !== "--dry-run");
@@ -22,6 +25,8 @@ if (unknownArgs.length > 0) {
 	console.error(`Usage: node scripts/publish.mjs [--dry-run]`);
 	process.exit(1);
 }
+
+const SEMVER_RE = /^\d+\.\d+\.\d+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$/;
 
 function commandForPlatform(command) {
 	return process.platform === "win32" ? `${command}.cmd` : command;
@@ -82,23 +87,34 @@ function useProvenance() {
 }
 
 function assertReleaseVersions(packageVersions) {
-	const piVersions = [...new Set(piPackageNames.map((name) => packageVersions.get(name)))];
-	if (piVersions.length !== 1) {
-		throw new Error(`pi packages are not lockstep versioned: ${piVersions.join(", ")}`);
-	}
-
 	const dPiVersion = packageVersions.get(dPiPackageName);
 	if (!dPiVersion) {
 		throw new Error(`${dPiPackageName} version is missing`);
 	}
 
-	const piVersion = piVersions[0];
-	const expectedSuffix = `-sheason.${dPiVersion}`;
-	if (!piVersion.endsWith(expectedSuffix)) {
-		throw new Error(`${piPackageNames.join(", ")} version ${piVersion} must end with ${expectedSuffix}`);
+	const codingAgentVersion = packageVersions.get(codingAgentPackageName);
+	if (!codingAgentVersion) {
+		throw new Error(`${codingAgentPackageName} version is missing`);
 	}
 
-	return { dPiVersion, piVersion };
+	// The two @sheason/* packages are versioned independently. The fork
+	// bumped them lockstep in the v0.78.x → v0.79.x sync (the coding-agent
+	// version ended with `-sheason.<d-pi-version>` to prove the pairing)
+	// but that suffix was only meaningful while we also published the
+	// upstream @earendil-works/* packages under the same release train.
+	// Now that the upstream packages are no longer in this pipeline, the
+	// lockstep requirement is gone; each package is released on its own
+	// cadence. We still sanity-check that both versions parse as semver
+	// so the caller gets a clear error if either is malformed.
+
+	if (!SEMVER_RE.test(dPiVersion)) {
+		throw new Error(`${dPiPackageName} version ${dPiVersion} is not semver`);
+	}
+	if (!SEMVER_RE.test(codingAgentVersion)) {
+		throw new Error(`${codingAgentPackageName} version ${codingAgentVersion} is not semver`);
+	}
+
+	return { dPiVersion, codingAgentVersion };
 }
 
 const packageVersions = new Map();
@@ -110,9 +126,11 @@ for (const pkg of packages) {
 	packageVersions.set(pkg.name, packageJson.version);
 }
 
-const { dPiVersion, piVersion } = assertReleaseVersions(packageVersions);
+const { dPiVersion, codingAgentVersion } = assertReleaseVersions(packageVersions);
 
-console.log(`Publishing pi packages at ${piVersion} and ${dPiPackageName} at ${dPiVersion}${dryRun ? " (dry run)" : ""}\n`);
+console.log(
+	`Publishing ${codingAgentPackageName} at ${codingAgentVersion} and ${dPiPackageName} at ${dPiVersion}${dryRun ? " (dry run)" : ""}\n`,
+);
 
 for (const pkg of packages) {
 	const version = packageVersions.get(pkg.name);

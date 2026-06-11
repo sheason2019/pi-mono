@@ -7,7 +7,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentMessage } from "@sheason/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
 	type AssistantMessage,
 	getProviders,
@@ -17,7 +17,7 @@ import {
 	type OAuthProviderId,
 	type OAuthSelectPrompt,
 	type Transport,
-} from "@sheason/pi-ai";
+} from "@earendil-works/pi-ai";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -28,7 +28,7 @@ import type {
 	OverlayHandle,
 	OverlayOptions,
 	SlashCommand,
-} from "@sheason/pi-tui";
+} from "@earendil-works/pi-tui";
 import {
 	CombinedAutocompleteProvider,
 	type Component,
@@ -49,7 +49,7 @@ import {
 	TruncatedText,
 	TUI,
 	visibleWidth,
-} from "@sheason/pi-tui";
+} from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { spawn, spawnSync } from "child_process";
 import {
@@ -79,6 +79,7 @@ import type {
 	ExtensionUIContext,
 	ExtensionUIDialogOptions,
 	ExtensionWidgetOptions,
+	ProjectTrustContext,
 } from "../../core/extensions/index.ts";
 import { ExtensionRunner as ExtensionRunnerImpl } from "../../core/extensions/runner.ts";
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
@@ -95,7 +96,8 @@ import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
-import { getChangelogPath, getNewEntries, parseChangelog } from "../../utils/changelog.ts";
+import { hasProjectConfigDir, hasProjectTrustInputs, ProjectTrustStore } from "../../core/trust-manager.ts";
+import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
 import { parseGitUrl } from "../../utils/git.ts";
@@ -132,6 +134,7 @@ import { SettingsSelectorComponent } from "./components/settings-selector.ts";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import { TreeSelectorComponent } from "./components/tree-selector.ts";
+import { TrustSelectorComponent } from "./components/trust-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.ts";
 import {
@@ -260,6 +263,8 @@ export interface InteractiveModeOptions {
 	migratedProviders?: string[];
 	/** Warning message if session model couldn't be restored */
 	modelFallbackMessage?: string;
+	/** Cwd to trust after reload if it gained a .pi directory during this implicitly trusted session. */
+	autoTrustOnReloadCwd?: string;
 	/** Initial message to send on startup (can include @file content) */
 	initialMessage?: string;
 	/** Images to attach to the initial message */
@@ -389,6 +394,7 @@ export class InteractiveMode {
 	private customHeader: (Component & { dispose?(): void }) | undefined = undefined;
 
 	private options: InteractiveModeOptions;
+	private autoTrustOnReloadCwd: string | undefined;
 
 	/** Proxy for connect mode — when set, core operations go through the proxy */
 	private proxy: AgentSessionProxy | undefined;
@@ -430,6 +436,7 @@ export class InteractiveMode {
 		this.runtimeHost = runtimeHost;
 		this.options = options;
 		this.proxy = options.proxy;
+		this.autoTrustOnReloadCwd = options.autoTrustOnReloadCwd;
 
 		// Only register runtime callbacks when NOT using proxy (connect mode)
 		if (this.runtimeHost) {
@@ -611,8 +618,13 @@ export class InteractiveMode {
 
 	private setupAutocompleteProvider(): void {
 		let provider = this.createBaseAutocompleteProvider();
+		const triggerCharacters: string[] = [];
 		for (const wrapProvider of this.autocompleteProviderWrappers) {
 			provider = wrapProvider(provider);
+			triggerCharacters.push(...(provider.triggerCharacters ?? []));
+		}
+		if (triggerCharacters.length > 0) {
+			provider.triggerCharacters = [...new Set(triggerCharacters)];
 		}
 
 		this.autocompleteProvider = provider;
@@ -1160,7 +1172,7 @@ export class InteractiveMode {
 		if (newEntries.length > 0) {
 			this.settingsManager!.setLastChangelogVersion(VERSION);
 			this.reportInstallTelemetry(VERSION);
-			return newEntries.map((e) => e.content).join("\n\n");
+			return newEntries.map((e) => normalizeChangelogLinks(e.content, e)).join("\n\n");
 		}
 
 		return undefined;
@@ -1766,6 +1778,7 @@ export class InteractiveMode {
 		const uiContext = this.createExtensionUIContext();
 		await this.session!.bindExtensions({
 			uiContext,
+			mode: "tui",
 			abortHandler: () => {
 				this.restoreQueuedMessagesToEditor({ abort: true });
 			},
@@ -1897,6 +1910,7 @@ export class InteractiveMode {
 				{
 					getModel: () => undefined,
 					isIdle: () => true,
+					isProjectTrusted: () => true,
 					getSignal: () => undefined,
 					abort: () => {
 						this.proxy!.abort();
@@ -2016,13 +2030,16 @@ export class InteractiveMode {
 		// Create a context for shortcut handlers
 		const createContext = (): ExtensionContext => ({
 			ui: this.createExtensionUIContext(),
+			mode: "tui",
 			hasUI: true,
 			cwd: this.sessionManager!.getCwd(),
 			sessionManager: this.sessionManager!,
 			modelRegistry: this.session!.modelRegistry,
 			model: this.session!.model,
 			isIdle: () => !this.session!.isStreaming,
+			isProjectTrusted: () => this.settingsManager!.isProjectTrusted(),
 			signal: this.session!.agent.signal,
+
 			abort: () => {
 				this.restoreQueuedMessagesToEditor({ abort: true });
 			},
@@ -2353,6 +2370,21 @@ export class InteractiveMode {
 	 * Create the ExtensionUIContext for extensions.
 	 * In connect mode (proxy set), returns a headless implementation that rejects interactive dialogs.
 	 */
+	private createProjectTrustContext(cwd: string): ProjectTrustContext {
+		const ui = this.createExtensionUIContext();
+		return {
+			cwd,
+			mode: "tui",
+			hasUI: true,
+			ui: {
+				select: ui.select,
+				confirm: ui.confirm,
+				input: ui.input,
+				notify: ui.notify,
+			},
+		};
+	}
+
 	private createExtensionUIContext(): ExtensionUIContext {
 		// Connect mode: real UI for non-interactive operations, defaults for dialogs
 		if (this.proxy) {
@@ -2997,6 +3029,11 @@ export class InteractiveMode {
 			}
 			if (text === "/tree") {
 				this.showTreeSelector();
+				this.editor.setText("");
+				return;
+			}
+			if (text === "/trust") {
+				this.showTrustSelector();
 				this.editor.setText("");
 				return;
 			}
@@ -3740,6 +3777,7 @@ export class InteractiveMode {
 						this.chatContainer.addChild(component);
 						// Render user message separately if present
 						if (skillBlock.userMessage) {
+							this.chatContainer.addChild(new Spacer(1));
 							const userComponent = new UserMessageComponent(
 								skillBlock.userMessage,
 								this.getMarkdownThemeWithSettings(),
@@ -3867,6 +3905,7 @@ export class InteractiveMode {
 			updateFooter: true,
 			populateHistory: true,
 		});
+		this.renderProjectTrustWarningIfNeeded();
 
 		// Show compaction info if session was compacted
 		const allEntries = this.sessionManager!.getEntries();
@@ -3875,6 +3914,26 @@ export class InteractiveMode {
 			const times = compactionCount === 1 ? "1 time" : `${compactionCount} times`;
 			this.showStatus(`Session compacted ${times}`);
 		}
+	}
+
+	private renderProjectTrustWarningIfNeeded(): void {
+		if (this.settingsManager!.isProjectTrusted() || !hasProjectTrustInputs(this.sessionManager!.getCwd())) {
+			return;
+		}
+
+		if (this.chatContainer.children.length > 0) {
+			this.chatContainer.addChild(new Spacer(1));
+		}
+		this.chatContainer.addChild(
+			new Text(
+				theme.fg(
+					"warning",
+					"This project is not trusted. Project .pi resources and packages are ignored. Use /trust to save a trust decision, then restart pi.",
+				),
+				1,
+				0,
+			),
+		);
 	}
 
 	async getUserInput(): Promise<string> {
@@ -4612,6 +4671,7 @@ export class InteractiveMode {
 					doubleEscapeAction: this.settingsManager!.getDoubleEscapeAction(),
 					treeFilterMode: this.settingsManager!.getTreeFilterMode(),
 					showHardwareCursor: this.settingsManager!.getShowHardwareCursor(),
+					defaultProjectTrust: this.settingsManager!.getDefaultProjectTrust(),
 					editorPaddingX: this.settingsManager!.getEditorPaddingX(),
 					autocompleteMaxVisible: this.settingsManager!.getAutocompleteMaxVisible(),
 					quietStartup: this.settingsManager!.getQuietStartup(),
@@ -4704,6 +4764,9 @@ export class InteractiveMode {
 					},
 					onQuietStartupChange: (enabled) => {
 						this.settingsManager!.setQuietStartup(enabled);
+					},
+					onDefaultProjectTrustChange: (defaultProjectTrust) => {
+						this.settingsManager!.setDefaultProjectTrust(defaultProjectTrust);
 					},
 					onDoubleEscapeActionChange: (action) => {
 						this.settingsManager!.setDoubleEscapeAction(action);
@@ -4828,6 +4891,57 @@ export class InteractiveMode {
 		} catch {
 			// Ignore auth lookup failures for warning-only checks.
 		}
+	}
+
+	private maybeSaveImplicitProjectTrustAfterReload(): boolean {
+		const cwd = this.sessionManager!.getCwd()!;
+		if (this.autoTrustOnReloadCwd !== cwd) {
+			return false;
+		}
+		if (!this.settingsManager!.isProjectTrusted() || !hasProjectConfigDir(cwd)) {
+			return false;
+		}
+
+		const trustStore = new ProjectTrustStore(this.runtimeHost!.services.agentDir);
+		try {
+			if (trustStore.get(cwd) !== null) {
+				this.autoTrustOnReloadCwd = undefined;
+				return false;
+			}
+			trustStore.set(cwd, true);
+			this.autoTrustOnReloadCwd = undefined;
+			return true;
+		} catch (error) {
+			this.showWarning(
+				`Could not save project trust after reload: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			return false;
+		}
+	}
+
+	private showTrustSelector(): void {
+		const cwd = this.sessionManager!.getCwd()!;
+		const trustStore = new ProjectTrustStore(this.runtimeHost!.services.agentDir);
+		const savedDecision = trustStore.getEntry(cwd);
+		this.showSelector((done) => {
+			const selector = new TrustSelectorComponent({
+				cwd,
+				savedDecision,
+				projectTrusted: this.settingsManager!.isProjectTrusted(),
+				onSelect: (selection) => {
+					trustStore.setMany(selection.updates);
+					done();
+					this.showStatus(
+						`Saved trust decision: ${selection.trusted ? "trusted" : "untrusted"}. Restart pi for this to take effect.`,
+					);
+				},
+				onCancel: () => {
+					done();
+					this.ui.requestRender();
+				},
+			});
+			return { component: selector, focus: selector };
+		});
 	}
 
 	private showModelSelector(initialSearchInput?: string): void {
@@ -5011,8 +5125,8 @@ export class InteractiveMode {
 			this.showStatus("Tree selector not available in connect mode");
 			return;
 		}
-		const tree = this.sessionManager.getTree();
-		const realLeafId = this.sessionManager.getLeafId();
+		const tree = this.sessionManager!.getTree();
+		const realLeafId = this.sessionManager!.getLeafId();
 		const initialFilterMode = this.settingsManager!.getTreeFilterMode();
 
 		if (tree.length === 0) {
@@ -5201,6 +5315,7 @@ export class InteractiveMode {
 					availableThemes: [...rs.availableThemes],
 					hideThinkingBlock: rs.hideThinkingBlock,
 					collapseChangelog: rs.collapseChangelog,
+					defaultProjectTrust: "ask",
 					enableInstallTelemetry: rs.enableInstallTelemetry,
 					doubleEscapeAction: rs.doubleEscapeAction,
 					treeFilterMode: rs.treeFilterMode as "default" | "no-tools" | "user-only" | "labeled-only" | "all",
@@ -5287,6 +5402,9 @@ export class InteractiveMode {
 					},
 					onWarningsChange: (v) => {
 						this.proxy!.updateSettings({ warnings: v });
+					},
+					onDefaultProjectTrustChange: () => {
+						// Project trust is server-side in connect mode; no-op.
 					},
 					onCancel: done,
 				},
@@ -5464,16 +5582,52 @@ export class InteractiveMode {
 		}
 	}
 
-	/** Convert wire-format TreeNodeData to SessionTreeNode for TreeSelectorComponent */
+	/** Convert wire-format TreeNodeData to SessionTreeNode for TreeSelectorComponent.
+	 *
+	 * The wire format intentionally omits the full AgentMessage body and other
+	 * heavy fields to keep the payload small for sessions with thousands of
+	 * entries. But TreeSelectorComponent dereferences `entry.message.role` /
+	 * `entry.message.content` (and `entry.content` for custom_message,
+	 * `entry.modelId`, `entry.thinkingLevel`, `entry.summary`, `entry.label`,
+	 * `entry.name`, etc.) directly to render each entry shape. The client only
+	 * has this wire snapshot — it cannot reach the live session manager — so
+	 * the server must forward these fields. The fields the server includes on
+	 * TreeNodeData are copied through here as-is onto the `entry` object. */
 	private _convertTreeDataToNodes(data: TreeNodeData[]): SessionTreeNode[] {
-		return data.map(
-			(node) =>
-				({
-					entry: { id: node.id, type: node.type, parentId: node.parentId, timestamp: node.timestamp },
-					children: this._convertTreeDataToNodes(node.children),
-					label: node.label,
-				}) as SessionTreeNode,
-		);
+		return data.map((node) => {
+			const baseEntry: Record<string, unknown> = {
+				id: node.id,
+				type: node.type,
+				parentId: node.parentId,
+				timestamp: node.timestamp,
+			};
+			// Forward every type-specific field the server provided. The list
+			// mirrors the SessionEntry union: message, summary, tokensBefore,
+			// customType, content, provider, modelId, thinkingLevel, targetId,
+			// name. We copy whatever is present rather than enumerating so the
+			// server can add new fields without changing the client.
+			for (const key of [
+				"message",
+				"summary",
+				"tokensBefore",
+				"customType",
+				"content",
+				"provider",
+				"modelId",
+				"thinkingLevel",
+				"targetId",
+				"name",
+			] as const) {
+				if (node[key] !== undefined) {
+					baseEntry[key] = node[key];
+				}
+			}
+			return {
+				entry: baseEntry as unknown as SessionTreeNode["entry"],
+				children: this._convertTreeDataToNodes(node.children),
+				label: node.label,
+			} as SessionTreeNode;
+		});
 	}
 
 	/** Show session selector in connect mode */
@@ -5564,6 +5718,7 @@ export class InteractiveMode {
 		try {
 			const result = await this.runtimeHost!.switchSession(sessionPath, {
 				withSession: options?.withSession,
+				projectTrustContextFactory: (cwd) => this.createProjectTrustContext(cwd),
 			});
 			if (result.cancelled) {
 				return result;
@@ -5581,6 +5736,7 @@ export class InteractiveMode {
 				const result = await this.runtimeHost!.switchSession(sessionPath, {
 					cwdOverride: selectedCwd,
 					withSession: options?.withSession,
+					projectTrustContextFactory: (cwd) => this.createProjectTrustContext(cwd),
 				});
 				if (result.cancelled) {
 					return result;
@@ -6072,11 +6228,17 @@ export class InteractiveMode {
 				force: false,
 				showDiagnosticsWhenQuiet: true,
 			});
+			const savedImplicitProjectTrust = this.maybeSaveImplicitProjectTrustAfterReload();
 			const modelsJsonError = this.session!.modelRegistry.getError();
+
 			if (modelsJsonError) {
 				this.showError(`models.json error: ${modelsJsonError}`);
 			}
-			this.showStatus("Reloaded keybindings, extensions, skills, prompts, themes");
+			this.showStatus(
+				savedImplicitProjectTrust
+					? "Reloaded keybindings, extensions, skills, prompts, themes; saved project trust"
+					: "Reloaded keybindings, extensions, skills, prompts, themes",
+			);
 		} catch (error) {
 			dismissReloadBox(previousEditor as Component);
 			this.showError(`Reload failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -6352,7 +6514,7 @@ export class InteractiveMode {
 			allEntries.length > 0
 				? allEntries
 						.reverse()
-						.map((e) => e.content)
+						.map((e) => normalizeChangelogLinks(e.content, e))
 						.join("\n\n")
 				: "No changelog entries found.";
 
@@ -6426,7 +6588,7 @@ export class InteractiveMode {
 **Navigation**
 | Key | Action |
 |-----|--------|
-| \`${cursorUp}\` / \`${cursorDown}\` / \`${cursorLeft}\` / \`${cursorRight}\` | Move cursor / browse history (Up when empty) |
+| \`${cursorUp}\` / \`${cursorDown}\` / \`${cursorLeft}\` / \`${cursorRight}\` | Move cursor / browse history |
 | \`${cursorWordLeft}\` / \`${cursorWordRight}\` | Move by word |
 | \`${cursorLineStart}\` | Start of line |
 | \`${cursorLineEnd}\` | End of line |

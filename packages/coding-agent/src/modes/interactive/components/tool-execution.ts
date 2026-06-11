@@ -1,4 +1,4 @@
-import { Box, type Component, Container, getCapabilities, Image, Spacer, Text, type TUI } from "@sheason/pi-tui";
+import { Box, type Component, Container, getCapabilities, Image, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
 import type { ToolDefinition, ToolRenderContext } from "../../../core/extensions/types.ts";
 import { createAllToolDefinitions, type ToolName } from "../../../core/tools/index.ts";
 import { getTextOutput as getRenderedTextOutput } from "../../../core/tools/render-utils.ts";
@@ -222,6 +222,31 @@ export class ToolExecutionComponent extends Container {
 		if (this.hideComponent) {
 			return [];
 		}
+
+		if (this.hasRendererDefinition() && this.getRenderShell() === "self") {
+			const contentLines = this.selfRenderContainer.render(width);
+			if (contentLines.length === 0 && this.imageComponents.length === 0) {
+				return [];
+			}
+
+			const lines: string[] = [];
+			if (contentLines.length > 0) {
+				lines.push("");
+				lines.push(...contentLines);
+			}
+			for (let i = 0; i < this.imageComponents.length; i++) {
+				const spacer = this.imageSpacers[i];
+				if (spacer) {
+					lines.push(...spacer.render(width));
+				}
+				const imageComponent = this.imageComponents[i];
+				if (imageComponent) {
+					lines.push(...imageComponent.render(width));
+				}
+			}
+			return lines;
+		}
+
 		return super.render(width);
 	}
 

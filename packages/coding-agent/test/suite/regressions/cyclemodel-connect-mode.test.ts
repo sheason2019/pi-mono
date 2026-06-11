@@ -11,7 +11,7 @@
  * equivalent methods should be invoked with the expected arguments.
  */
 
-import type { ThinkingLevel } from "@sheason/pi-agent-core";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSession, ModelCycleResult } from "../../../src/core/agent-session.ts";
 import type { AgentSessionProxy } from "../../../src/core/agent-session-proxy.ts";

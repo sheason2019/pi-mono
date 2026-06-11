@@ -1,12 +1,17 @@
 import { join } from "node:path";
-import type { ThinkingLevel } from "@sheason/pi-agent-core";
-import type { Model } from "@sheason/pi-ai";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { Model } from "@earendil-works/pi-ai";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { AuthStorage } from "./auth-storage.ts";
 import type { SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { ModelRegistry } from "./model-registry.ts";
-import { DefaultResourceLoader, type DefaultResourceLoaderOptions, type ResourceLoader } from "./resource-loader.ts";
+import {
+	DefaultResourceLoader,
+	type DefaultResourceLoaderOptions,
+	type ResourceLoader,
+	type ResourceLoaderReloadOptions,
+} from "./resource-loader.ts";
 import { type CreateAgentSessionOptions, type CreateAgentSessionResult, createAgentSession } from "./sdk.ts";
 import type { SessionManager } from "./session-manager.ts";
 import { SettingsManager } from "./settings-manager.ts";
@@ -38,6 +43,7 @@ export interface CreateAgentSessionServicesOptions {
 	modelRegistry?: ModelRegistry;
 	extensionFlagValues?: Map<string, boolean | string>;
 	resourceLoaderOptions?: Omit<DefaultResourceLoaderOptions, "cwd" | "agentDir" | "settingsManager">;
+	resourceLoaderReloadOptions?: ResourceLoaderReloadOptions;
 }
 
 /**
@@ -142,7 +148,7 @@ export async function createAgentSessionServices(
 		agentDir,
 		settingsManager,
 	});
-	await resourceLoader.reload();
+	await resourceLoader.reload(options.resourceLoaderReloadOptions);
 
 	const diagnostics: AgentSessionRuntimeDiagnostic[] = [];
 	const extensionsResult = resourceLoader.getExtensions();

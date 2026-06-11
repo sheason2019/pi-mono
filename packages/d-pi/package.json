@@ -1,35 +1,35 @@
 {
-	"name": "@sheason/d-pi",
-	"version": "0.6.0-alpha.3",
-	"description": "Multi-agent tree orchestrator built on pi serve mode",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/sheason2019/pi-mono.git",
-		"directory": "packages/d-pi"
-	},
-	"type": "module",
-	"bin": {
-		"d-pi": "dist/cli.js"
-	},
-	"main": "./dist/index.js",
-	"types": "./dist/index.d.ts",
-	"scripts": {
-		"clean": "shx rm -rf dist",
-		"prebuild": "node scripts/inject-build-meta.mjs",
-		"build": "tsgo -p tsconfig.build.json && shx chmod +x dist/cli.js",
-		"inject-build-meta": "node scripts/inject-build-meta.mjs",
-		"test": "vitest --run"
-	},
-	"dependencies": {
-		"@sheason/pi-coding-agent": "0.78.0-sheason.0.6.0-alpha.3",
-		"@sheason/pi-agent-core": "0.78.0-sheason.0.6.0-alpha.3",
-		"@sheason/pi-ai": "0.78.0-sheason.0.6.0-alpha.3",
-		"@sheason/pi-tui": "0.78.0-sheason.0.6.0-alpha.3",
-		"typebox": "1.1.38"
-	},
-	"devDependencies": {
-		"@types/node": "24.12.4",
-		"shx": "0.4.0",
-		"typescript": "5.9.3"
-	}
+  "name": "@sheason/d-pi",
+  "version": "0.6.0-alpha.3",
+  "description": "Multi-agent tree orchestrator built on pi serve mode",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sheason2019/pi-mono.git",
+    "directory": "packages/d-pi"
+  },
+  "type": "module",
+  "bin": {
+    "d-pi": "dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "clean": "shx rm -rf dist",
+    "prebuild": "node scripts/inject-build-meta.mjs",
+    "build": "tsgo -p tsconfig.build.json && shx chmod +x dist/cli.js",
+    "inject-build-meta": "node scripts/inject-build-meta.mjs",
+    "test": "vitest --run"
+  },
+  "dependencies": {
+    "@sheason/pi-coding-agent": "0.78.0-sheason.0.6.0-alpha.3",
+    "@earendil-works/pi-agent-core": "^0.78.0",
+    "@earendil-works/pi-ai": "^0.78.0",
+    "@earendil-works/pi-tui": "^0.78.0",
+    "typebox": "1.1.38"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.4",
+    "shx": "0.4.0",
+    "typescript": "5.9.3"
+  }
 }

@@ -71,24 +71,19 @@ jobs:
       # upstream dist/ on the filesystem to compile (tsconfig paths).
       max-parallel: 1
       matrix:
-        # Order matters: pi-ai -> pi-tui -> pi-agent-core -> pi-coding-agent
-        # -> d-pi (matches dependency order).
+        # Only @sheason/* scoped packages are published by this fork. The
+        # upstream @earendil-works/* packages (pi-ai, pi-tui, pi-agent-core)
+        # are runtime dependencies that get pulled from the public npm
+        # registry at install time; they are not in this matrix because we
+        # have no npm publish permission to the @earendil-works scope, and
+        # because the d-pi workspace tsconfigs reference them as workspace
+        # peers (path imports to packages/ai, packages/tui, packages/agent)
+        # only for the build step, not for the published artifact.
+        #
+        # Order matters: pi-coding-agent must publish before d-pi so the
+        # npm-installed `@sheason/d-pi` can resolve its `pi-coding-agent`
+        # peer dep.
         include:
-          - package: ai
-            npm_name: '@sheason/pi-ai'
-            pkg_path: packages/ai
-            dist_dir: dist
-            publish_npm: true
-          - package: tui
-            npm_name: '@sheason/pi-tui'
-            pkg_path: packages/tui
-            dist_dir: dist
-            publish_npm: true
-          - package: agent
-            npm_name: '@sheason/pi-agent-core'
-            pkg_path: packages/agent
-            dist_dir: dist
-            publish_npm: true
           - package: coding-agent
             npm_name: '@sheason/pi-coding-agent'
             pkg_path: packages/coding-agent
@@ -121,9 +116,12 @@ jobs:
       - name: Install monorepo dependencies
         run: npm ci --ignore-scripts
 
-      - name: Build monorepo (tui -> ai -> agent -> coding-agent -> d-pi)
+      - name: Build monorepo (coding-agent -> d-pi)
         # The root `npm run build` chain produces the dist/ trees that the
-        # downstream `d-pi` matrix row reads via tsconfig paths.
+        # downstream `d-pi` matrix row reads via tsconfig paths. Upstream
+        # packages/ai, packages/tui, packages/agent are still built because
+        # d-pi's tsconfig paths reference them, but their dist/ is not
+        # published or attached to the GitHub release.
         run: npm run build
 
       - name: Compute npm dist-tag from release tag
@@ -193,29 +191,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download pi-ai build
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-        # Artifact names must match the upload side; the publish job uploads
-        # them as `pkg-<short-slug>` (e.g. "pkg-ai"), NOT `pkg-@sheason/...`,
-        # because GitHub Actions artifact names reject forward slashes.
-        with:
-          name: pkg-ai
-          path: release-artifacts/pi-ai
-
-      - name: Download pi-tui build
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-        with:
-          name: pkg-tui
-          path: release-artifacts/pi-tui
-
-      - name: Download pi-agent-core build
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-        with:
-          name: pkg-agent
-          path: release-artifacts/pi-agent-core
-
       - name: Download pi-coding-agent build
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        # Artifact names must match the upload side; the publish job uploads
+        # them as `pkg-<short-slug>` (e.g. "pkg-coding-agent"), NOT
+        # `pkg-@sheason/...`, because GitHub Actions artifact names reject
+        # forward slashes.
         with:
           name: pkg-coding-agent
           path: release-artifacts/pi-coding-agent
@@ -232,16 +213,13 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           generate_release_notes: true
-          # Idempotent re-run: allow overwriting existing assets (6 platform
-          # binaries from build-binaries.yml share the same release; without
-          # this flag softprops tries to delete then recreate, which 404s on
-          # the second re-run).
+          # Idempotent re-run: allow overwriting existing assets (the
+          # cross-platform pi binaries from build-binaries.yml share the
+          # same release; without this flag softprops tries to delete
+          # then recreate, which 404s on the second re-run).
           overwrite_files: true
           fail_on_unmatched_files: false
           files: |
-            release-artifacts/pi-ai/**
-            release-artifacts/pi-tui/**
-            release-artifacts/pi-agent-core/**
             release-artifacts/pi-coding-agent/**
             release-artifacts/d-pi/**
         env:
