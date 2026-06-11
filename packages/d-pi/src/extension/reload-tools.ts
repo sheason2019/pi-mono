@@ -29,7 +29,7 @@ export function createReloadTools(deps: ReloadToolsDeps): ToolDefinition {
 		name: "reload",
 		label: "Reload Resources",
 		description:
-			"Reload d-pi resources (skills, system prompt, AGENTS.md / CLAUDE.md context files, extensions) at runtime without restarting the hub or worker. Returns a JSON snapshot of the post-reload state so the caller can verify what changed. Takes effect on the next agent turn — the in-flight turn is aborted.",
+			"Reload d-pi resources (skills, system prompt, AGENTS.md / CLAUDE.md context files, extensions) at runtime without restarting the hub or worker. Returns a JSON snapshot of the post-reload state so the caller can verify what changed. Takes effect on the next agent turn — the in-flight turn is aborted. Does NOT re-parse agents/<name>/agent.json (changes to roles / model / includeTools / excludeTools require a hub restart) and does NOT re-read group-architecture role directories (require destroy + recreate or hub restart).",
 		parameters: Type.Object({}),
 		async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
 			const reloadFn = deps.getReloadFn();
