@@ -6,6 +6,7 @@
 
 - Fixed npm publish E422 due to missing `repository.url` (will be in v0.6.0-alpha.3)
 - Fixed pre-existing 19+1 vitest false positives via `@sheason/*` alias in vitest config
+- Stopped forwarding source-process stderr as source messages (was previously flooding subscribed agents' context with lark-bridge heartbeats / connect-ready markers). stderr is now written to the d-pi supervisor's own stderr (`[d-pi source:<name>] ...`) and not delivered to any agent.
 
 ### Removed
 

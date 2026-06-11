@@ -153,7 +153,7 @@ export interface RemoteSettings {
 	warnings: Record<string, unknown>;
 }
 
-/** Lightweight tree node for wire transport (no full message content). */
+/** Lightweight tree node for wire transport. */
 export interface TreeNodeData {
 	id: string;
 	type: string;
@@ -163,6 +163,22 @@ export interface TreeNodeData {
 	/** Preview text for message entries */
 	preview?: string;
 	children: TreeNodeData[];
+	// Type-specific fields required by the TUI's TreeSelectorComponent to
+	// render each entry shape. The component dereferences these directly
+	// (entry.message.role, entry.content for custom_message, entry.modelId,
+	// entry.thinkingLevel, entry.summary, entry.label, entry.name, etc.). In
+	// connect mode the client only has this wire snapshot, not the live
+	// session manager, so the server must forward these fields verbatim.
+	message?: unknown;
+	summary?: string;
+	tokensBefore?: number;
+	customType?: string;
+	content?: unknown;
+	provider?: string;
+	modelId?: string;
+	thinkingLevel?: string;
+	targetId?: string;
+	name?: string;
 }
 
 /** User message item for fork selector. */

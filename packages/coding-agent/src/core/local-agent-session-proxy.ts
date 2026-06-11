@@ -368,27 +368,65 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 	}): TreeNodeData {
 		let preview: string | undefined;
 		const entry = node.entry;
+		// Copy type-specific fields the TUI's TreeSelectorComponent needs to
+		// render this entry. The wire TreeNodeData must be self-contained —
+		// the client cannot re-derive them, because in connect mode the client
+		// only has the cached snapshot, not the live session manager. Without
+		// these fields, the TUI throws "Cannot read properties of undefined
+		// (reading 'role' | 'content' | 'modelId' | ...)" the moment the user
+		// opens /tree.
+		const extra: Record<string, unknown> = {};
 		if (entry.type === "message") {
 			const msg = (
 				entry as unknown as {
-					type: "message";
-					message: { role: string; content: string | Array<{ type: string; text?: string }> };
+					message?: { role: string; content: string | Array<{ type: string; text?: string }> };
 				}
 			).message;
-			if (msg.role === "user") {
-				preview =
-					typeof msg.content === "string"
-						? msg.content.slice(0, 80)
-						: msg.content
-								.filter((p): p is { type: "text"; text: string } => p.type === "text")
-								.map((p) => p.text)
-								.join(" ")
-								.slice(0, 80);
-			} else if (msg.role === "assistant") {
-				preview = "(assistant)";
+			if (msg) {
+				extra.message = msg;
+				if (msg.role === "user") {
+					preview =
+						typeof msg.content === "string"
+							? msg.content.slice(0, 80)
+							: msg.content
+									.filter((p): p is { type: "text"; text: string } => p.type === "text")
+									.map((p) => p.text)
+									.join(" ")
+									.slice(0, 80);
+				} else if (msg.role === "assistant") {
+					preview = "(assistant)";
+				}
+			} else {
+				preview = "(message)";
 			}
 		} else if (entry.type === "compaction") {
 			preview = "(compaction)";
+			extra.summary = (entry as unknown as { summary?: string }).summary;
+			extra.tokensBefore = (entry as unknown as { tokensBefore?: number }).tokensBefore;
+		} else if (entry.type === "custom_message") {
+			preview = "[custom message]";
+			extra.customType = (entry as unknown as { customType?: string }).customType;
+			extra.content = (entry as unknown as { content?: unknown }).content;
+		} else if (entry.type === "branch_summary") {
+			preview = "[branch summary]";
+			extra.summary = (entry as unknown as { summary?: string }).summary;
+		} else if (entry.type === "model_change") {
+			preview = "[model change]";
+			extra.provider = (entry as unknown as { provider?: string }).provider;
+			extra.modelId = (entry as unknown as { modelId?: string }).modelId;
+		} else if (entry.type === "thinking_level_change") {
+			preview = "[thinking level change]";
+			extra.thinkingLevel = (entry as unknown as { thinkingLevel?: string }).thinkingLevel;
+		} else if (entry.type === "custom") {
+			preview = "[custom]";
+			extra.customType = (entry as unknown as { customType?: string }).customType;
+		} else if (entry.type === "label") {
+			preview = "[label]";
+			extra.targetId = (entry as unknown as { targetId?: string }).targetId;
+			extra.label = (entry as unknown as { label?: string | undefined }).label;
+		} else if (entry.type === "session_info") {
+			preview = "[session info]";
+			extra.name = (entry as unknown as { name?: string }).name;
 		}
 		return {
 			id: entry.id,
@@ -397,6 +435,7 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 			timestamp: entry.timestamp,
 			label: node.label,
 			preview,
+			...extra,
 			children: (node.children as unknown[]).map((child) =>
 				this._convertTreeNode(child as Parameters<typeof this._convertTreeNode>[0]),
 			),

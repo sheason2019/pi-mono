@@ -2,6 +2,12 @@
 
 ## [0.79.1] - 2026-06-09
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed `/tree` in d-pi connect mode crashing with "Cannot read properties of undefined (reading 'role' | 'content' | ...)" on the first non-message tree entry. The wire-format `TreeNodeData` (used by `LocalAgentSessionProxy.getTree()` → `RemoteAgentSessionProxy.fetchTree()` → `InteractiveMode._convertTreeDataToNodes()`) now forwards every type-specific field the TUI's `TreeSelectorComponent` dereferences (`message`, `summary`, `tokensBefore`, `customType`, `content`, `provider`, `modelId`, `thinkingLevel`, `targetId`, `name`), and `_convertTreeDataToNodes` copies them through onto the reconstructed `entry`. `LocalAgentSessionProxy._convertTreeNode` also guards `entry.message` against runtime-missing cases with a `"(message)"` preview fallback.
+
 ### New Features
 
 - **Claude Fable 5** - Claude Fable 5 is now available on the Anthropic and Amazon Bedrock providers, with adaptive thinking and `xhigh` effort support.

@@ -5582,16 +5582,52 @@ export class InteractiveMode {
 		}
 	}
 
-	/** Convert wire-format TreeNodeData to SessionTreeNode for TreeSelectorComponent */
+	/** Convert wire-format TreeNodeData to SessionTreeNode for TreeSelectorComponent.
+	 *
+	 * The wire format intentionally omits the full AgentMessage body and other
+	 * heavy fields to keep the payload small for sessions with thousands of
+	 * entries. But TreeSelectorComponent dereferences `entry.message.role` /
+	 * `entry.message.content` (and `entry.content` for custom_message,
+	 * `entry.modelId`, `entry.thinkingLevel`, `entry.summary`, `entry.label`,
+	 * `entry.name`, etc.) directly to render each entry shape. The client only
+	 * has this wire snapshot — it cannot reach the live session manager — so
+	 * the server must forward these fields. The fields the server includes on
+	 * TreeNodeData are copied through here as-is onto the `entry` object. */
 	private _convertTreeDataToNodes(data: TreeNodeData[]): SessionTreeNode[] {
-		return data.map(
-			(node) =>
-				({
-					entry: { id: node.id, type: node.type, parentId: node.parentId, timestamp: node.timestamp },
-					children: this._convertTreeDataToNodes(node.children),
-					label: node.label,
-				}) as SessionTreeNode,
-		);
+		return data.map((node) => {
+			const baseEntry: Record<string, unknown> = {
+				id: node.id,
+				type: node.type,
+				parentId: node.parentId,
+				timestamp: node.timestamp,
+			};
+			// Forward every type-specific field the server provided. The list
+			// mirrors the SessionEntry union: message, summary, tokensBefore,
+			// customType, content, provider, modelId, thinkingLevel, targetId,
+			// name. We copy whatever is present rather than enumerating so the
+			// server can add new fields without changing the client.
+			for (const key of [
+				"message",
+				"summary",
+				"tokensBefore",
+				"customType",
+				"content",
+				"provider",
+				"modelId",
+				"thinkingLevel",
+				"targetId",
+				"name",
+			] as const) {
+				if (node[key] !== undefined) {
+					baseEntry[key] = node[key];
+				}
+			}
+			return {
+				entry: baseEntry as unknown as SessionTreeNode["entry"],
+				children: this._convertTreeDataToNodes(node.children),
+				label: node.label,
+			} as SessionTreeNode;
+		});
 	}
 
 	/** Show session selector in connect mode */
