@@ -50,7 +50,7 @@ agent调 `reload()`，返回刷新后的 snapshot，确认 `contextFiles` 等数
 ##注意事项
 
 - `reload` **不**触发 `group-architecture/roles/<role>/` 重读——role目录加载发生在 `hub.createAgent`，role修改仍需 destroy + recreate 或重启 hub
-- `reload` **不**重新解析 `agents/<name>/agent.json`（agent wiring）——修改 `agent.json`（roles / model / tools / excludeTools）仍需重启 hub
+- `reload` **不**重新解析 `agents/<name>/agent.json`（agent wiring）——修改 `agent.json`（roles / model / includeTools / excludeTools）仍需重启 hub
 - `reload`跑在 in-flight turn 的当前 session；如果 agent正在跑 tool调用，会被 abort（in-flight turn abort 后下一 turn看到 reload后的 context）
 - `reload`失败时（e.g. resource loader还没初始化）返回 isError；agent看到错误后可以重试或 fallback 到手动重启 hub
 - `reload` 是 PR23 inline extension的一部分（commit `0b93eab91`），由 `extension/reload-tools.ts:createReloadTools` 注册

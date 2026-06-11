@@ -214,8 +214,10 @@ export function initWorkspace(dir: string): void {
 	mkdirSync(dpiDir, { recursive: true });
 
 	// Write .dpi/config.json — strict JSON, no comments.
-	// Optional keys (includeTools, excludeTools, defaultModel) are documented in
-	// the workspace-level AGENTS.md below.
+	// Currently only the `version` marker is emitted. `version` is reserved as
+	// a migration marker for future workspace-level fields. Tool allow/deny
+	// lists are agent-only (see agent.json schema) and intentionally have no
+	// workspace-level fallback.
 	writeFileSync(
 		join(dpiDir, CONFIG_FILE),
 		`{
@@ -257,10 +259,7 @@ Add project-specific instructions, conventions, and guidelines here.
 
 Strict JSON — no comments, no trailing commas. Top-level keys:
 
-- \`version\` (required, must be \`1\`)
-- \`defaultModel\` (optional): e.g. \`"anthropic/claude-sonnet-4"\` — default model for all agents.
-- \`includeTools\` (optional): allowlist of tool names available to every agent. Omit to allow all.
-- \`excludeTools\` (optional): denylist applied after the allowlist.
+- \`version\` (required, must be \`1\`) — reserved as a migration marker for future workspace-level fields
 
 ## Agent Configuration (\`agents/<name>/agent.json\`)
 
@@ -270,8 +269,9 @@ Strict JSON. Top-level keys:
 - \`parentName\` (required, may be \`null\`): name of the parent agent.
 - \`model\` (optional): overrides the workspace default model for this agent.
 - \`roles\` (optional): array of role names — see \`.dpi/group-architecture/roles/\`.
-- \`includeTools\` (optional): allowlist that overrides the workspace allowlist.
-- \`excludeTools\` (optional): denylist that overrides the workspace denylist.
+- \`includeTools\` (optional): allowlist of tool names. When provided, only these tools are exposed to the agent.
+- \`excludeTools\` (optional): denylist of tool names. These tools will not be exposed.
+  Mutually exclusive with \`includeTools\` — see [create_agent docs](../../multi-agent/create-agent) for the rejection rules.
 - \`sessionId\` (optional, managed by the hub): used to resume sessions across restarts.
 `,
 		);

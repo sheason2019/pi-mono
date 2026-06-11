@@ -21,7 +21,7 @@ sidebar_position: 2
 | `roles` | string[] |否 | 从 `group-architecture/roles/<name>/`应用的 role列表 |
 | `includeTools` | string[] |否 |工具白名单，限制子 agent只能调这些工具 |
 | `excludeTools` | string[] |否 |工具黑名单，从全部工具里排除这些 |
-| `includeTools` / `excludeTools` | — | — | 互斥：只能传其中一个。都不传 = 继承 workspace 默认 / 全部启用。|
+| `includeTools` / `excludeTools` | — | — | 互斥：只能传其中一个。都不传 = 全部启用。|
 
 **注意**：父 agent **不能**在工具调用里显式指定 ——父是 caller agent 自动隐式确定。要「把 agent挂在别的 parent下」，需要重建时显式传。
 
@@ -77,4 +77,4 @@ create_agent(name="auditor", roles=["reviewer"], exclude_tools=["write", "edit",
 - `roles`指定的 role 必须存在于 `group-architecture/roles/<name>/`，否则会抛 `Unknown agent role "<name>"`
 -同一个 agent可以同时有多个 role，资源按"靠后覆盖"合并
 - `roles` / `model` / `includeTools` / `excludeTools` 配置被持久化到 `agents/<name>/agent.json`，hub重启后自动恢复
-- `includeTools` / `excludeTools`优先级：agent自己的 > workspace配置
+- `includeTools` / `excludeTools` 是 agent-only 配置 — workspace 级（`.dpi/config.json`）不提供 fallback
