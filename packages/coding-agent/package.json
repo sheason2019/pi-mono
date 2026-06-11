@@ -1,6 +1,6 @@
 {
   "name": "@sheason/pi-coding-agent",
-  "version": "0.78.0-sheason.0.6.0-alpha.3",
+  "version": "0.79.1-sheason.0.6.0-alpha.3",
   "description": "Coding agent CLI with read, bash, edit, write tools and session management",
   "type": "module",
   "piConfig": {
@@ -16,10 +16,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./hooks": {
-      "types": "./dist/core/hooks/index.d.ts",
-      "import": "./dist/core/hooks/index.js"
-    },
     "./d-pi-worker": {
       "types": "./dist/d-pi-worker.d.ts",
       "import": "./dist/d-pi-worker.js"
@@ -29,6 +25,7 @@
     "dist",
     "docs",
     "examples",
+    "containerization.md",
     "CHANGELOG.md",
     "npm-shrinkwrap.json"
   ],
@@ -43,9 +40,9 @@
     "prepublishOnly": "npm run clean && npm run build && npm run shrinkwrap"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "^0.78.0",
-    "@earendil-works/pi-ai": "^0.78.0",
-    "@earendil-works/pi-tui": "^0.78.0",
+    "@earendil-works/pi-agent-core": "^0.79.1",
+    "@earendil-works/pi-ai": "^0.79.1",
+    "@earendil-works/pi-tui": "^0.79.1",
     "@silvia-odwyer/photon-node": "0.3.4",
     "chalk": "5.6.2",
     "cross-spawn": "7.0.6",
@@ -89,7 +86,7 @@
     "tui",
     "agent"
   ],
-  "author": "Mario Zechner",
+  "author": "sheason2019",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -4,6 +4,9 @@ import { defineConfig } from "vitest/config";
 const aiSrcIndex = fileURLToPath(new URL("../ai/src/index.ts", import.meta.url));
 const aiSrcOAuth = fileURLToPath(new URL("../ai/src/oauth.ts", import.meta.url));
 const agentSrcIndex = fileURLToPath(new URL("../agent/src/index.ts", import.meta.url));
+const codingAgentSrcIndex = fileURLToPath(new URL("./src/index.ts", import.meta.url));
+const codingAgentSrcWorker = fileURLToPath(new URL("./src/d-pi-worker.ts", import.meta.url));
+const tuiSrcIndex = fileURLToPath(new URL("../tui/src/index.ts", import.meta.url));
 
 export default defineConfig({
 	test: {
@@ -21,13 +24,13 @@ export default defineConfig({
 			{ find: /^@earendil-works\/pi-ai$/, replacement: aiSrcIndex },
 			{ find: /^@earendil-works\/pi-ai\/oauth$/, replacement: aiSrcOAuth },
 			{ find: /^@earendil-works\/pi-agent-core$/, replacement: agentSrcIndex },
+			{ find: /^@earendil-works\/pi-tui$/, replacement: tuiSrcIndex },
 			{ find: /^@mariozechner\/pi-ai$/, replacement: aiSrcIndex },
 			{ find: /^@mariozechner\/pi-ai\/oauth$/, replacement: aiSrcOAuth },
 			{ find: /^@mariozechner\/pi-agent-core$/, replacement: agentSrcIndex },
-			{ find: /^@sheason\/pi-ai$/, replacement: aiSrcIndex },
-			{ find: /^@sheason\/pi-ai\/oauth$/, replacement: aiSrcOAuth },
-			{ find: /^@sheason\/pi-agent-core$/, replacement: agentSrcIndex },
-			{ find: /^@sheason\/pi-tui$/, replacement: fileURLToPath(new URL("../tui/src/index.ts", import.meta.url)) },
+			{ find: /^@mariozechner\/pi-tui$/, replacement: tuiSrcIndex },
+			{ find: /^@sheason\/pi-coding-agent$/, replacement: codingAgentSrcIndex },
+			{ find: /^@sheason\/pi-coding-agent\/d-pi-worker$/, replacement: codingAgentSrcWorker },
 		],
 	},
 });
