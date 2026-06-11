@@ -7,11 +7,19 @@ export class ToolRunner {
 	constructor(tools: ToolDefinition[]) {
 		this.byName = new Map(tools.map((t) => [t.name, t]));
 	}
-	async run(name: string, params: unknown): Promise<RunnerResult> {
+	async run(callId: string, name: string, params: unknown): Promise<RunnerResult> {
 		const tool = this.byName.get(name);
 		if (!tool) return { ok: false, error: `Unknown tool: ${name}` };
 		try {
-			const result = await (tool.execute as (a: unknown) => unknown)(params);
+			// pi-coding-agent ToolDefinition.execute is 5-arg:
+			//   (toolCallId, params, signal, onUpdate, ctx).
+			// The executor runs without a parent AgentToolUpdate callback and
+			// without a parent ExtensionContext, so signal / onUpdate / ctx
+			// are undefined here. This matches the connect-mode path used by
+			// the agent-side remote-tools wrapper.
+			const result = await (
+				tool.execute as unknown as (id: string, p: unknown, signal: undefined, onUpdate: undefined) => unknown
+			)(callId, params, undefined, undefined);
 			return { ok: true, result };
 		} catch (e) {
 			return { ok: false, error: e instanceof Error ? e.message : String(e) };
