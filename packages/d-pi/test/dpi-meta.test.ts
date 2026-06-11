@@ -16,7 +16,7 @@ describe("d-pi meta prompt", () => {
 			"create_agent",
 			"destroy_agent",
 			"send_message",
-			"agent_network",
+			"group_architecture",
 			"reload",
 		];
 		for (const t of tools) {

@@ -72,7 +72,13 @@ export function loadWorkspaceContext(
 	const additionalSkillPaths: string[] = [];
 	const additionalExtensionPaths: string[] = [];
 
-	collectGroupArchitectureContext(resolved, options, additionalAgentsFiles, additionalSkillPaths, additionalExtensionPaths);
+	collectGroupArchitectureContext(
+		resolved,
+		options,
+		additionalAgentsFiles,
+		additionalSkillPaths,
+		additionalExtensionPaths,
+	);
 	pushIfExists(additionalSkillPaths, join(resolved, SKILLS_DIR));
 	pushExtensionEntriesIfExists(additionalExtensionPaths, join(resolved, EXTENSIONS_DIR));
 

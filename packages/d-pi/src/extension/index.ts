@@ -4,12 +4,18 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionFactory, MessageRenderer } from "@sheason/pi-coding-agent";
 import { getMarkdownTheme } from "@sheason/pi-coding-agent";
 import { Box, Container, Markdown, Text } from "@sheason/pi-tui";
-import type { AgentStatus, GroupArchitectureEntry, GroupArchitectureSnapshot, SourceInfo, WorkerToHubMessage } from "../types.ts";
-import { createGroupArchitectureTool } from "./group-architecture.ts";
+import type {
+	AgentStatus,
+	GroupArchitectureEntry,
+	GroupArchitectureSnapshot,
+	SourceInfo,
+	WorkerToHubMessage,
+} from "../types.ts";
 import { createCreateAgentTool } from "./create-agent.ts";
 import { createCreateSourceTool } from "./create-source.ts";
 import { createDestroyAgentTool } from "./destroy-agent.ts";
 import { createDestroySourceTool } from "./destroy-source.ts";
+import { createGroupArchitectureTool } from "./group-architecture.ts";
 import { HubChannel } from "./hub-channel.ts";
 import { createListSourcesTool } from "./list-sources.ts";
 import type { MessageMeta } from "./message-meta.ts";

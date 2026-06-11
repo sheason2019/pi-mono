@@ -32,10 +32,7 @@ describe("group-architecture workspace context", () => {
 		const workspaceRoot = createWorkspace();
 		write(join(workspaceRoot, "group-architecture", "AGENTS.md"), "architecture global");
 		touch(join(workspaceRoot, "group-architecture", "skills"));
-		write(
-			join(workspaceRoot, "group-architecture", "extensions", "architecture.js"),
-			"export default function() {}",
-		);
+		write(join(workspaceRoot, "group-architecture", "extensions", "architecture.js"), "export default function() {}");
 		write(join(workspaceRoot, "group-architecture", "roles", "root", "AGENTS.md"), "root role");
 		touch(join(workspaceRoot, "group-architecture", "roles", "root", "skills"));
 		write(
