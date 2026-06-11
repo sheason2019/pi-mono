@@ -15,7 +15,9 @@
 	"types": "./dist/index.d.ts",
 	"scripts": {
 		"clean": "shx rm -rf dist",
+		"prebuild": "node scripts/inject-build-meta.mjs",
 		"build": "tsgo -p tsconfig.build.json && shx chmod +x dist/cli.js",
+		"inject-build-meta": "node scripts/inject-build-meta.mjs",
 		"test": "vitest --run"
 	},
 	"dependencies": {
