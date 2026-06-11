@@ -104,7 +104,7 @@ describe("d-pi gateway auth", () => {
 			expect(sessionResponse.status).toBe(200);
 			const session = (await sessionResponse.json()) as { token: string };
 
-			const authorized = await fetch(`${url}/_hub/network`, {
+			const authorized = await fetch(`${url}/_hub/group-architecture`, {
 				headers: { Authorization: `Bearer ${session.token}` },
 			});
 			expect(authorized.status).toBe(200);

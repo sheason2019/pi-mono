@@ -50,9 +50,9 @@ Agent network (4)
 
 ## 相关
 
-- Agent Network目录约定 →概览（见 docs/agent-network/overview，v0.7计划引入） ——怎么设计 agent-network目录让 `/agents` 有东西可看
+- Group Architecture 目录约定 →概览（见 docs/group-architecture/overview，v0.7计划引入） ——怎么设计 group-architecture 目录让 `/agents` 有东西可看
 - [connect &lt;id&gt;](../multi-agent/meta-connect) —命令行等价
-- [agent_network工具](../multi-agent/agent-network) — agent用
+- [group_architecture 工具](../multi-agent/group-architecture) — agent用
 
 ##注意事项
 

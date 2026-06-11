@@ -11,7 +11,7 @@ sidebar_position: 2
 
 |工具 |用途 |文档 |
 |---|---|---|
-| `agent_network` |查整个 agent树 | [多 Agent → agent_network](../multi-agent/agent-network) |
+| `group_architecture` |查整个 agent树 | [多 Agent → group_architecture](../multi-agent/group-architecture) |
 | `create_agent` |创建子 agent | [多 Agent → create_agent](../multi-agent/create-agent) |
 | `send_message` |派活给 agent | [多 Agent → send_message](../multi-agent/send-message) |
 | `destroy_agent` |销毁 agent | [多 Agent → destroy_agent](../multi-agent/destroy-agent) |
@@ -48,7 +48,7 @@ sidebar_position: 2
 |---|---|---|
 | `reload` |运行时重新加载 skills / system prompt / AGENTS.md / extensions | [reload](./reload) |
 
-`reload` 是 PR23 inline extension引入的 LLM-callable工具，让 agent 不重启 hub也能刷新自己的上下文资源。但 **不**触发 `agent-network/roles/<role>/` 重读——role目录加载发生在 agent创建时，role修改仍需 destroy+recreate 或重启 hub。
+`reload` 是 PR23 inline extension引入的 LLM-callable工具，让 agent 不重启 hub也能刷新自己的上下文资源。但 **不**触发 `group-architecture/roles/<role>/` 重读——role目录加载发生在 agent创建时，role修改仍需 destroy+recreate 或重启 hub。
 
 ## pi原生工具
 

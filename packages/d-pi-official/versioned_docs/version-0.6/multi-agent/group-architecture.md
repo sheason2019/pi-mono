@@ -1,15 +1,15 @@
 ---
-title: agent_network
+title: group_architecture
 sidebar_position: 4
 ---
 
-# agent_network
+# group_architecture
 
 一句话：查整个 agent 树，返回所有 agent 的状态、父子关系。
 
 ## 用法
 
-工具名 `agent_network`。无参数，立即返回当前 hub 上的拓扑快照。
+工具名 `group_architecture`。无参数，立即返回当前 hub 上的拓扑快照。
 
 ## 参数
 
@@ -38,7 +38,7 @@ sidebar_position: 4
 **场景**：root agent 派活前先查一下子 agent 是否已存在。
 
 ```bash
-agent_network()
+group_architecture()
 ```
 
 **预期返回**：

@@ -55,7 +55,7 @@ describe("d-pi worker factory registers /agents and /sources", () => {
 		const commands = captureWorkerCommands();
 		const agents = commands.find((c) => c.name === "agents");
 		expect(agents, "worker factory must register /agents").toBeDefined();
-		expect(agents?.description).toBe("Switch to a different agent in the network");
+		expect(agents?.description).toBe("Switch to a different agent in the group architecture");
 	});
 
 	it("does not call fetch or any network from the worker-side handler", async () => {

@@ -14,7 +14,7 @@ import type { SourceManager } from "./source-manager.ts";
  *   /_hub/agents       GET  → list all agents
  *   /_hub/agents       POST → create agent
  *   /_hub/agents/{id}  DELETE → destroy agent
- *   /_hub/network      GET  → network snapshot
+ *   /_hub/group-architecture  GET  → group architecture snapshot
  *   /_hub/sources      GET  → list all sources
  *   /_hub/sources      POST → create source
  *   /_hub/sources/{name} DELETE → destroy source
@@ -336,7 +336,7 @@ export class HubGateway {
 
 		// GET /_hub/agents — list all agents
 		if (path === "/_hub/agents" && req.method === "GET") {
-			const snapshot = this._registry.getSnapshot();
+			const snapshot = this._registry.getGroupArchitectureSnapshot();
 			res.writeHead(200, { "Content-Type": "application/json" });
 			res.end(JSON.stringify(snapshot.agents));
 			return;
@@ -413,9 +413,9 @@ export class HubGateway {
 			return;
 		}
 
-		// GET /_hub/network — network snapshot
-		if (path === "/_hub/network" && req.method === "GET") {
-			const snapshot = this._registry.getSnapshot();
+		// GET /_hub/group-architecture — group architecture snapshot
+		if (path === "/_hub/group-architecture" && req.method === "GET") {
+			const snapshot = this._registry.getGroupArchitectureSnapshot();
 			res.writeHead(200, { "Content-Type": "application/json" });
 			res.end(JSON.stringify(snapshot));
 			return;

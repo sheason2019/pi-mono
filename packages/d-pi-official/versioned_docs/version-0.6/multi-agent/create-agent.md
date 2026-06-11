@@ -18,7 +18,7 @@ sidebar_position: 2
 | `name` | string |是 | 子 agent名字，hub内唯一 |
 | `cwd` | string |否 | 子 agent工作目录（默认 `workspace/agents/<name>/`） |
 | `model` | string |否 | 子 agent的 model（e.g. `anthropic/claude-sonnet-4`）；省略 = workspace default |
-| `roles` | string[] |否 | 从 `agent-network/roles/<name>/`应用的 role列表 |
+| `roles` | string[] |否 | 从 `group-architecture/roles/<name>/`应用的 role列表 |
 | `tools` | string[] |否 |工具白名单，限制子 agent只能调这些工具 |
 | `excludeTools` | string[] |否 |工具黑名单，从全部工具里排除这些 |
 
@@ -32,7 +32,7 @@ sidebar_position: 2
 Created agent "researcher" (ID:9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d)
 ```
 
-`details.agentId`字段是结构化的 UUID，供后续 `send_message` / `destroy_agent` / `agent_network` 用。
+`details.agentId`字段是结构化的 UUID，供后续 `send_message` / `destroy_agent` / `group_architecture` 用。
 
 ## 示例
 
@@ -48,13 +48,13 @@ create_agent(name="researcher")
 Created agent "researcher" (ID:9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d)
 ```
 
-**场景2**：派一个 reviewer角色做代码审查（套用 `agent-network/roles/reviewer/`下的预设）。
+**场景2**：派一个 reviewer角色做代码审查（套用 `group-architecture/roles/reviewer/`下的预设）。
 
 ```bash
 create_agent(name="cr-1", roles=["reviewer"])
 ```
 
-`cr-1` 子 agent启动时会自动加载 reviewer role目录下的 AGENTS.md / skills / extensions。详见 角色Roles — 见 docs/agent-network/roles（v0.7计划引入）。
+`cr-1` 子 agent启动时会自动加载 reviewer role目录下的 AGENTS.md / skills / extensions。详见 角色Roles — 见 docs/group-architecture/roles（v0.7计划引入）。
 
 **场景3**：派一个只读权限的子 agent（不能写、不能改）。
 
@@ -64,16 +64,16 @@ create_agent(name="auditor", roles=["reviewer"], exclude_tools=["write", "edit",
 
 ## 相关
 
-- [agent_network](./agent-network) —查子 agent是否已存在
+- [group_architecture](./group-architecture) —查子 agent是否已存在
 - [send_message](./send-message) —派活给子 agent
 - [destroy_agent](./destroy-agent) —收尾时清理
-- 角色Roles — 见 docs/agent-network/roles（v0.7计划引入） — `roles`参数详解
+- 角色Roles — 见 docs/group-architecture/roles（v0.7计划引入） — `roles`参数详解
 
 ##注意事项
 
 - 子 agent创建后会进入 `starting`状态，等首个 LLM 调用完成才进入 `ready`
 - `name` 一旦指定不可改；如需重命名，destroy + create
-- `roles`指定的 role 必须存在于 `agent-network/roles/<name>/`，否则会抛 `Unknown agent role "<name>"`
+- `roles`指定的 role 必须存在于 `group-architecture/roles/<name>/`，否则会抛 `Unknown agent role "<name>"`
 -同一个 agent可以同时有多个 role，资源按"靠后覆盖"合并
 - `roles` / `model` / `tools` / `excludeTools` 配置被持久化到 `agents/<name>/agent.json`，hub重启后自动恢复
 - `tools` / `excludeTools`优先级：agent自己的 > workspace配置

@@ -1,5 +1,5 @@
 import { createServer } from "node:net";
-import type { AgentNetworkSnapshot, AgentRecord, AgentStatus } from "../types.ts";
+import type { AgentRecord, AgentStatus, GroupArchitectureSnapshot } from "../types.ts";
 
 export class AgentRegistry {
 	private readonly _agents = new Map<string, AgentRecord>();
@@ -88,7 +88,7 @@ export class AgentRegistry {
 		}
 	}
 
-	getSnapshot(): AgentNetworkSnapshot {
+	getGroupArchitectureSnapshot(): GroupArchitectureSnapshot {
 		let rootId = "";
 		const agents = Array.from(this._agents.values()).map((a) => {
 			if (a.name === "root") rootId = a.id;

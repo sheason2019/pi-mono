@@ -1,15 +1,15 @@
 ---
-title: agent_network
+title: group_architecture
 sidebar_position: 4
 ---
 
-# agent_network
+# group_architecture
 
 一句话：查整个 agent 树，返回所有 agent 的状态、父子关系。
 
 ## 用法
 
-工具名 `agent_network`。无参数，立即返回当前 hub 上的拓扑快照。
+工具名 `group_architecture`。无参数，立即返回当前 hub 上的拓扑快照。
 
 ## 参数
 
@@ -22,7 +22,7 @@ sidebar_position: 4
 ### 给 LLM 看的文本格式
 
 ```text
-Agent Network:
+Group Architecture:
   root [ready] → [r-2]
   researcher [busy]
   writer [ready]
@@ -90,13 +90,13 @@ Use agent names (e.g. "root") for destroy_agent and send_message.
 **场景**：root agent 派活前先查一下子 agent 是否已存在。
 
 ```bash
-agent_network()
+group_architecture()
 ```
 
 **预期返回**（LLM 看到的 text）：
 
 ```text
-Agent Network:
+Group Architecture:
   root [ready] → [r-2]
   researcher [busy]
 
@@ -112,7 +112,7 @@ snapshot 是**扁平列表**，不是嵌套对象。树形来自 `parentId` + `c
 1. 从 `rootId` 开始深度优先遍历 `children[]`
 2. 把没被遍历到的 agent 追加为"孤立节点"（孤儿）
 
-`agent_network` 工具走类似路径，但输出是缩进文本：
+`group_architecture` 工具走类似路径，但输出是缩进文本：
 
 ```
 root [ready] → [r-2, r-3]
@@ -125,7 +125,7 @@ root [ready] → [r-2, r-3]
 
 - [create_agent](./create-agent) — 创建后这里能看到
 - [destroy_agent](./destroy-agent) — 销毁后这里看不到
-- [角色 Roles](../agent-network/roles) — agent 关联的 role 不在 snapshot 里（看 `agents/<name>/agent.json`）
+- [角色 Roles](../group-architecture/roles) — agent 关联的 role 不在 snapshot 里（看 `agents/<name>/agent.json`）
 
 ## 注意事项
 

@@ -2,16 +2,16 @@ import { Type } from "@sheason/pi-ai";
 import { defineTool } from "@sheason/pi-coding-agent";
 import type { HubChannel } from "./hub-channel.ts";
 
-export function createAgentNetworkTool(channel: HubChannel) {
+export function createGroupArchitectureTool(channel: HubChannel) {
 	return defineTool({
-		name: "agent_network",
-		label: "Agent Network",
+		name: "group_architecture",
+		label: "Group Architecture",
 		description:
-			"Get the current agent network topology. Returns a snapshot of all agents, their parent-child relationships, and their statuses. Use agent **names** (not IDs) when calling destroy_agent or send_message.",
+			"List the current group architecture snapshot — agents, their parent/child relationships, roles, and connection status. Use agent **names** (not IDs) when calling destroy_agent or send_message.",
 		parameters: Type.Object({}),
 		async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
 			try {
-				const snapshot = await channel.getNetwork();
+				const snapshot = await channel.getGroupArchitecture();
 				const lines = snapshot.agents.map((a) => {
 					const depth = getDepth(snapshot, a.id);
 					const indent = "  ".repeat(depth);
@@ -22,7 +22,7 @@ export function createAgentNetworkTool(channel: HubChannel) {
 					content: [
 						{
 							type: "text" as const,
-							text: `Agent Network:\n${lines.join("\n")}\n\nUse agent names (e.g. "${snapshot.agents.find((a) => a.name === "root")?.name}") for destroy_agent and send_message.`,
+							text: `Group Architecture:\n${lines.join("\n")}\n\nUse agent names (e.g. "${snapshot.agents.find((a) => a.name === "root")?.name}") for destroy_agent and send_message.`,
 						},
 					],
 					details: { agents: snapshot.agents },
@@ -32,7 +32,7 @@ export function createAgentNetworkTool(channel: HubChannel) {
 					content: [
 						{
 							type: "text" as const,
-							text: `Failed to get network: ${err instanceof Error ? err.message : String(err)}`,
+							text: `Failed to get group architecture: ${err instanceof Error ? err.message : String(err)}`,
 						},
 					],
 					details: {},

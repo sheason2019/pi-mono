@@ -5,7 +5,7 @@ import type { WorkspaceConfig, WorkspaceContext } from "../types.ts";
 const DPI_DIR = ".dpi";
 const CONFIG_FILE = "config.json";
 const AGENTS_DIR = "agents";
-const AGENT_NETWORK_DIR = "agent-network";
+const GROUP_ARCHITECTURE_DIR = "group-architecture";
 const SKILLS_DIR = "skills";
 const EXTENSIONS_DIR = "extensions";
 const ROLES_DIR = "roles";
@@ -72,7 +72,7 @@ export function loadWorkspaceContext(
 	const additionalSkillPaths: string[] = [];
 	const additionalExtensionPaths: string[] = [];
 
-	collectAgentNetworkContext(resolved, options, additionalAgentsFiles, additionalSkillPaths, additionalExtensionPaths);
+	collectGroupArchitectureContext(resolved, options, additionalAgentsFiles, additionalSkillPaths, additionalExtensionPaths);
 	pushIfExists(additionalSkillPaths, join(resolved, SKILLS_DIR));
 	pushExtensionEntriesIfExists(additionalExtensionPaths, join(resolved, EXTENSIONS_DIR));
 
@@ -85,23 +85,23 @@ export function loadWorkspaceContext(
 	};
 }
 
-function collectAgentNetworkContext(
+function collectGroupArchitectureContext(
 	workspaceRoot: string,
 	options: LoadWorkspaceContextOptions,
 	additionalAgentsFiles: Array<{ path: string; content: string }>,
 	additionalSkillPaths: string[],
 	additionalExtensionPaths: string[],
 ): void {
-	const networkDir = join(workspaceRoot, AGENT_NETWORK_DIR);
-	if (!existsSync(networkDir)) {
+	const architectureDir = join(workspaceRoot, GROUP_ARCHITECTURE_DIR);
+	if (!existsSync(architectureDir)) {
 		return;
 	}
-	pushAgentsFileIfExists(additionalAgentsFiles, join(networkDir, AGENTS_MD));
-	pushIfExists(additionalSkillPaths, join(networkDir, SKILLS_DIR));
-	pushExtensionEntriesIfExists(additionalExtensionPaths, join(networkDir, EXTENSIONS_DIR));
+	pushAgentsFileIfExists(additionalAgentsFiles, join(architectureDir, AGENTS_MD));
+	pushIfExists(additionalSkillPaths, join(architectureDir, SKILLS_DIR));
+	pushExtensionEntriesIfExists(additionalExtensionPaths, join(architectureDir, EXTENSIONS_DIR));
 
 	for (const role of getEffectiveRoles(options)) {
-		const roleDir = join(networkDir, ROLES_DIR, role.name);
+		const roleDir = join(architectureDir, ROLES_DIR, role.name);
 		if (!existsSync(roleDir)) {
 			if (role.implicit) {
 				continue;
@@ -263,7 +263,7 @@ Strict JSON. Top-level keys:
 - \`name\` (required): unique agent name.
 - \`parentName\` (required, may be \`null\`): name of the parent agent.
 - \`model\` (optional): overrides the workspace default model for this agent.
-- \`roles\` (optional): array of role names — see \`.dpi/agent-network/roles/\`.
+- \`roles\` (optional): array of role names — see \`.dpi/group-architecture/roles/\`.
 - \`includeTools\` (optional): allowlist that overrides the workspace allowlist.
 - \`excludeTools\` (optional): denylist that overrides the workspace denylist.
 - \`sessionId\` (optional, managed by the hub): used to resume sessions across restarts.

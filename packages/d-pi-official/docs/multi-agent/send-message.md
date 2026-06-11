@@ -47,11 +47,11 @@ Message sent to agent researcher. Result:{"ok":true}
 ## 相关
 
 - [create_agent](./create-agent) —创建目标 agent
-- [agent_network](./agent-network) —查 agent id
+- [group_architecture](./group-architecture) —查 agent id
 
 ##注意事项
 
 - **异步语义**：消息成功派发即返回，**不等**目标 agent完成
--想等目标 agent完成再继续：先用 `agent_network`轮询，或在 message里写「完成后请通知我」
+-想等目标 agent完成再继续：先用 `group_architecture`轮询，或在 message里写「完成后请通知我」
 - `agent_id` 支持用 name自动解析；如果有重名会失败
 - **不**共享工具调用历史 ——目标 agent不会自动看到源 agent 的工具输出历史；源 agent要把发现摘要**显式 send_message 转写**过去

@@ -6,11 +6,11 @@ import { DEFAULT_AGENT_PORT_START, DEFAULT_HUB_PORT } from "../defaults.ts";
 import { injectMeta } from "../extension/message-meta.ts";
 import type {
 	AgentConfig,
-	AgentNetworkSnapshot,
 	CreateAgentResult,
 	CreateSourceResult,
 	DestroyAgentResult,
 	DestroySourceResult,
+	GroupArchitectureSnapshot,
 	HubConfig,
 	HubToWorkerMessage,
 	ListSourcesResult,
@@ -432,8 +432,8 @@ export class Hub {
 					break;
 				}
 
-				case "agent_network": {
-					result = this._registry.getSnapshot() satisfies AgentNetworkSnapshot;
+				case "group_architecture": {
+					result = this._registry.getGroupArchitectureSnapshot() satisfies GroupArchitectureSnapshot;
 					break;
 				}
 

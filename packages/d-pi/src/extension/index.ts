@@ -4,8 +4,8 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionFactory, MessageRenderer } from "@sheason/pi-coding-agent";
 import { getMarkdownTheme } from "@sheason/pi-coding-agent";
 import { Box, Container, Markdown, Text } from "@sheason/pi-tui";
-import type { AgentNetworkEntry, AgentNetworkSnapshot, AgentStatus, SourceInfo, WorkerToHubMessage } from "../types.ts";
-import { createAgentNetworkTool } from "./agent-network.ts";
+import type { AgentStatus, GroupArchitectureEntry, GroupArchitectureSnapshot, SourceInfo, WorkerToHubMessage } from "../types.ts";
+import { createGroupArchitectureTool } from "./group-architecture.ts";
 import { createCreateAgentTool } from "./create-agent.ts";
 import { createCreateSourceTool } from "./create-source.ts";
 import { createDestroyAgentTool } from "./destroy-agent.ts";
@@ -77,7 +77,7 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 		pi.registerTool(createSendMessageTool(channel));
 		pi.registerTool(createCreateAgentTool(channel));
 		pi.registerTool(createDestroyAgentTool(channel));
-		pi.registerTool(createAgentNetworkTool(channel));
+		pi.registerTool(createGroupArchitectureTool(channel));
 		pi.registerTool(createCreateSourceTool(channel));
 		pi.registerTool(createDestroySourceTool(channel));
 		pi.registerTool(createSubscribeSourceTool(channel));
@@ -101,7 +101,7 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 			},
 		});
 		pi.registerCommand("agents", {
-			description: "Switch to a different agent in the network",
+			description: "Switch to a different agent in the group architecture",
 			async handler(_args: string, _ctx): Promise<void> {
 				// Intentionally a no-op: the client extension intercepts this
 				// command on the TUI side. The TUI's command flow checks the
@@ -208,22 +208,22 @@ function createClientFactory(config: DPiClientConfig): ExtensionFactory {
 
 		// Client only: /agents command
 		pi.registerCommand("agents", {
-			description: "Switch to a different agent in the network",
+			description: "Switch to a different agent in the group architecture",
 			async handler(_args: string, ctx): Promise<void> {
 				try {
 					const headers: Record<string, string> = {};
 					if (config.authToken) {
 						headers.Authorization = `Bearer ${config.authToken}`;
 					}
-					const response = await fetch(`${config.hubUrl}/_hub/network`, { headers });
+					const response = await fetch(`${config.hubUrl}/_hub/group-architecture`, { headers });
 					if (!response.ok) {
-						ctx.ui.notify(`Failed to fetch agent network: ${response.status}`, "error");
+						ctx.ui.notify(`Failed to fetch group architecture: ${response.status}`, "error");
 						return;
 					}
-					const network = (await response.json()) as AgentNetworkSnapshot;
+					const network = (await response.json()) as GroupArchitectureSnapshot;
 
 					if (network.agents.length === 0) {
-						ctx.ui.notify("No agents in network", "info");
+						ctx.ui.notify("No agents in group architecture", "info");
 						return;
 					}
 
@@ -351,7 +351,7 @@ function statusIndicator(status: AgentStatus): string {
 }
 
 /** Format a single agent entry for the selector. */
-function formatAgentEntry(agent: AgentNetworkEntry, depth: number, isLast: boolean, isCurrent: boolean): string {
+function formatAgentEntry(agent: GroupArchitectureEntry, depth: number, isLast: boolean, isCurrent: boolean): string {
 	let indent = "";
 	if (depth > 0) {
 		indent = "\u2502 ".repeat(depth - 1); // │ for ancestor levels
