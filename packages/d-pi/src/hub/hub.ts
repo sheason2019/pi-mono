@@ -100,7 +100,7 @@ export class Hub {
 						roles: agentConfig.roles,
 						model: agentConfig.model,
 						sessionId: agentConfig.sessionId,
-						tools: agentConfig.tools,
+						includeTools: agentConfig.includeTools,
 						excludeTools: agentConfig.excludeTools,
 					});
 				} catch (err) {
@@ -132,10 +132,20 @@ export class Hub {
 			model?: string;
 			roles?: string[];
 			sessionId?: string;
-			tools?: string[];
+			includeTools?: string[];
 			excludeTools?: string[];
 		},
 	): Promise<CreateAgentResult> {
+		// Mutex validation: includeTools and excludeTools cannot both be set.
+		// This is a defensive second-layer check — the extension layer also
+		// rejects the combination, but in-process callers (e.g. agent
+		// restoration on hub restart) go through this code path directly.
+		if (options.includeTools && options.excludeTools) {
+			throw new Error(
+				"includeTools and excludeTools are mutually exclusive; provide at most one. Both omitted = inherit all tools.",
+			);
+		}
+
 		// Check name uniqueness
 		if (this._registry.getByName(options.name)) {
 			throw new Error(`Agent with name "${options.name}" already exists`);
@@ -162,7 +172,7 @@ export class Hub {
 			roles: options.roles,
 			model: options.model,
 			sessionId: options.sessionId,
-			tools: options.tools,
+			includeTools: options.includeTools,
 			excludeTools: options.excludeTools,
 		};
 		writeFileSync(join(agentDir, AGENT_CONFIG_FILE), `${JSON.stringify(agentConfig, null, "\t")}\n`);
@@ -171,7 +181,7 @@ export class Hub {
 		const sessionDir = join(this._config.workspaceRoot, ".dpi-sessions", options.name);
 
 		// Merge tools config: workspace defaults + agent overrides
-		const tools = options.tools ?? this._config.workspaceConfig.tools;
+		const includeTools = options.includeTools ?? this._config.workspaceConfig.includeTools;
 		const excludeTools = options.excludeTools ?? this._config.workspaceConfig.excludeTools;
 
 		process.stderr.write(
@@ -190,7 +200,7 @@ export class Hub {
 				workspaceContext,
 				sessionId: options.sessionId,
 				sessionDir,
-				tools,
+				includeTools,
 				excludeTools,
 			},
 		});
@@ -393,7 +403,7 @@ export class Hub {
 						cwd?: string;
 						model?: string;
 						roles?: string[];
-						tools?: string[];
+						includeTools?: string[];
 						excludeTools?: string[];
 					};
 					const created = await this.createAgent(fromAgentId, {
@@ -401,7 +411,7 @@ export class Hub {
 						cwd: p.cwd,
 						model: p.model,
 						roles: p.roles,
-						tools: p.tools,
+						includeTools: p.includeTools,
 						excludeTools: p.excludeTools,
 					});
 					result = { agentId: created.agentId, name: created.name } satisfies CreateAgentResult;

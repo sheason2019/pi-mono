@@ -8,7 +8,7 @@ export interface AgentConfig {
 	roles?: string[];
 	model?: string;
 	sessionId?: string;
-	tools?: string[];
+	includeTools?: string[];
 	excludeTools?: string[];
 }
 
@@ -16,7 +16,7 @@ export interface AgentConfig {
 export interface WorkspaceConfig {
 	version: 1;
 	defaultModel?: string;
-	tools?: string[];
+	includeTools?: string[];
 	excludeTools?: string[];
 }
 
@@ -39,7 +39,7 @@ export interface AgentWorkerConfig {
 	workspaceContext?: WorkspaceContext;
 	sessionId?: string;
 	sessionDir?: string;
-	tools?: string[];
+	includeTools?: string[];
 	excludeTools?: string[];
 }
 

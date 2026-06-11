@@ -208,7 +208,7 @@ export function initWorkspace(dir: string): void {
 	mkdirSync(dpiDir, { recursive: true });
 
 	// Write .dpi/config.json — strict JSON, no comments.
-	// Optional keys (tools, excludeTools, defaultModel) are documented in
+	// Optional keys (includeTools, excludeTools, defaultModel) are documented in
 	// the workspace-level AGENTS.md below.
 	writeFileSync(
 		join(dpiDir, CONFIG_FILE),
@@ -224,7 +224,7 @@ export function initWorkspace(dir: string): void {
 	mkdirSync(rootAgentDir, { recursive: true });
 
 	// Write agents/root/agent.json — strict JSON, no comments.
-	// Optional keys (model, tools, excludeTools, roles, sessionId) are
+	// Optional keys (model, includeTools, excludeTools, roles, sessionId) are
 	// documented in the workspace-level AGENTS.md below.
 	writeFileSync(
 		join(rootAgentDir, "agent.json"),
@@ -253,7 +253,7 @@ Strict JSON — no comments, no trailing commas. Top-level keys:
 
 - \`version\` (required, must be \`1\`)
 - \`defaultModel\` (optional): e.g. \`"anthropic/claude-sonnet-4"\` — default model for all agents.
-- \`tools\` (optional): allowlist of tool names available to every agent. Omit to allow all.
+- \`includeTools\` (optional): allowlist of tool names available to every agent. Omit to allow all.
 - \`excludeTools\` (optional): denylist applied after the allowlist.
 
 ## Agent Configuration (\`agents/<name>/agent.json\`)
@@ -264,7 +264,7 @@ Strict JSON. Top-level keys:
 - \`parentName\` (required, may be \`null\`): name of the parent agent.
 - \`model\` (optional): overrides the workspace default model for this agent.
 - \`roles\` (optional): array of role names — see \`.dpi/agent-network/roles/\`.
-- \`tools\` (optional): allowlist that overrides the workspace allowlist.
+- \`includeTools\` (optional): allowlist that overrides the workspace allowlist.
 - \`excludeTools\` (optional): denylist that overrides the workspace denylist.
 - \`sessionId\` (optional, managed by the hub): used to resume sessions across restarts.
 `,

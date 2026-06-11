@@ -21,25 +21,39 @@ export function createCreateAgentTool(channel: HubChannel) {
 					description: "Agent-network role names to apply from agent-network/roles/<role>/",
 				}),
 			),
-			tools: Type.Optional(
+			includeTools: Type.Optional(
 				Type.Array(Type.String(), {
-					description: "Allowlist of tool names. When provided, only these tools are exposed to the agent.",
+					description:
+						"Allowlist of tool names. When provided, only these tools are exposed to the agent; all other tools are disabled.",
 				}),
 			),
 			excludeTools: Type.Optional(
 				Type.Array(Type.String(), {
-					description: "Denylist of tool names. These tools will not be exposed to the agent.",
+					description:
+						"Denylist of tool names. These tools will not be exposed; all other tools remain available.",
 				}),
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+			if (params.includeTools && params.excludeTools) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: "includeTools and excludeTools are mutually exclusive; provide at most one. Both omitted = inherit all tools.",
+						},
+					],
+					details: {},
+					isError: true,
+				};
+			}
 			try {
 				const raw = await channel.createAgent(
 					params.name,
 					params.cwd,
 					params.model,
 					params.roles,
-					params.tools,
+					params.includeTools,
 					params.excludeTools,
 				);
 				const result = raw as { agentId?: string; name?: string; error?: string };
