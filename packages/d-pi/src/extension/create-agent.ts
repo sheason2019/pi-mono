@@ -24,13 +24,13 @@ export function createCreateAgentTool(channel: HubChannel) {
 			includeTools: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
-						"Allowlist of tool names. When provided, only these tools are exposed to the agent; all other tools are disabled.",
+						"Allowlist of tool names. When provided, only these tools are exposed to the agent; all other tools are disabled. Mutually exclusive with excludeTools — passing both is rejected with isError.",
 				}),
 			),
 			excludeTools: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
-						"Denylist of tool names. These tools will not be exposed; all other tools remain available.",
+						"Denylist of tool names. These tools will not be exposed; all other tools remain available. Mutually exclusive with includeTools — passing both is rejected with isError. If both are omitted, the agent inherits all available tools.",
 				}),
 			),
 		}),
