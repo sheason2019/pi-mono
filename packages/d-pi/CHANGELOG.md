@@ -2,13 +2,9 @@
 
 ## [0.6.0-alpha.4] - 2026-06-11
 
-### Removed
-
-- Dropped the `github-release` job (and the `Upload build artifacts` step) from `.github/workflows/release.yml`. The d-pi release pipeline now ends at npm publish; the GitHub release page (with downloadable dist/ artifacts) is out of scope for this fork. softprops/action-gh-release was tripping GitHub's secondary rate limit on artifact upload, which caused the workflow's last job to fail even though the publish step had already succeeded — making the run look failed when it wasn't. The npm publish + OIDC trusted publishing flow is the only thing that needs to succeed for a release to be useful, and that path is unaffected. If we ever want release-page artifacts back, the right path is the cross-platform binary workflow (`.github/workflows/build-binaries.yml`) wiring its outputs into a release, not the npm publish job uploading its own dist/.
-
 ### Changed
 
-- **Release pipeline only ships `@sheason/*` packages.** `scripts/publish.mjs`, `scripts/local-release.mjs`, and `.github/workflows/release.yml` no longer reference the upstream `@earendil-works/pi-{ai,tui,agent-core}` packages. The d-pi release matrix now publishes exactly two npm packages: `@sheason/pi-coding-agent` and `@sheason/d-pi`. The three upstream packages remain runtime dependencies (pulled from the public npm registry at install time) and are still built in CI to satisfy the workspace tsconfig paths, but they are not packed, not published, and not attached to the release. The d-pi lockstep `-sheason.<d-pi-version>` suffix on `@sheason/pi-coding-agent` is preserved (it documents the fork's pairing with `@sheason/d-pi`) but is no longer asserted at publish time, since each `@sheason/*` package can now be released on its own cadence. We have no npm publish permission to the `@earendil-works` scope, so this change is what makes the next d-pi release publishable at all.
+- **Release pipeline only ships `@sheason/*` packages.** `scripts/publish.mjs`, `scripts/local-release.mjs`, and `.github/workflows/release.yml` no longer reference the upstream `@earendil-works/pi-{ai,tui,agent-core}` packages. The d-pi release matrix now publishes exactly two npm packages: `@sheason/pi-coding-agent` and `@sheason/d-pi`. The three upstream packages remain runtime dependencies (pulled from the public npm registry at install time) and are still built in CI to satisfy the workspace tsconfig paths, but they are not packed, not published, and not attached to the GitHub release artifacts. The d-pi lockstep `-sheason.<d-pi-version>` suffix on `@sheason/pi-coding-agent` is preserved (it documents the fork's pairing with `@sheason/d-pi`) but is no longer asserted at publish time, since each `@sheason/*` package can now be released on its own cadence. We have no npm publish permission to the `@earendil-works` scope, so this change is what makes the next d-pi release publishable at all.
 
 ### Fixed
 
