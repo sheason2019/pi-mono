@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Source-triggered messages (e.g. from the lark bridge via `events.emit`) now wake an idle agent. The d-pi worker extension's `channel.onIncomingMessage` and TUI `input` handlers now pass `triggerTurn: true` on every `pi.sendMessage(...)` call. Previously, a source message with `mode: "steer"` was forwarded with `{ deliverAs: "steer" }` only; `sendCustomMessage` in the agent's session would then queue the message only if the agent was already streaming, and for an idle agent the message would land as a bare session entry without ever prompting the agent. `deliverAs` is still set to `"steer"` when the source-declared mode is `"steer"`, so busy agents still get the correct queueing behavior (steer vs followUp). The TUI input path (the `enter` vs `alt+enter` keyboard vocabulary) is fixed the same way.
+
 ## [0.6.0-alpha.4] - 2026-06-11
 
 ### Changed
