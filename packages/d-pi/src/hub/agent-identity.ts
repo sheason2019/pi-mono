@@ -37,6 +37,49 @@ export function readAgentConfig(agentDir: string): AgentConfig | undefined {
 }
 
 /**
+ * Read the per-agent `.d-pi-subscribed-events` allowlist file
+ * from the agent's cwd. Returns the set of EventKey strings the
+ * agent has opted into, or `null` if the file is absent (i.e.
+ * the agent has no per-workspace opt-in and should fall back to
+ * whatever is in `agent.json`, ultimately defaulting to
+ * "subscribe to everything").
+ *
+ * File format: one EventKey per line. Blank lines and lines
+ * starting with `#` are ignored. The literal `*` is permitted
+ * for symmetry with `subscribedEvents: ["*"]` in agent.json —
+ * it means "subscribe to everything" and is treated identically
+ * to the file's absence.
+ *
+ * The file is intentionally a leading-dotfile at the workspace
+ * scope (`agents/<name>/.d-pi-subscribed-events`) so the standard
+ * workspace `.gitignore` (`agents/*`) keeps it out of any
+ * outer git tree. Operators who want the rule to follow the
+ * agent across machines and clones should put the list in
+ * `agent.json`'s `subscribedEvents` field instead.
+ *
+ * Returns an empty Set (not null) if the file exists but is
+ * empty or only contains comments — that's a deliberate "I want
+ * zero events" opt-in, distinct from "I have no opt-in" (null).
+ */
+export function readSubscribedEventsFile(agentDir: string): Set<string> | null {
+	const filePath = join(agentDir, ".d-pi-subscribed-events");
+	let raw: string;
+	try {
+		raw = readFileSync(filePath, "utf-8");
+	} catch {
+		return null;
+	}
+	const events = new Set<string>();
+	for (const line of raw.split(/\r?\n/)) {
+		const trimmed = line.trim();
+		if (trimmed === "" || trimmed.startsWith("#")) continue;
+		if (trimmed === "*") return new Set(["*"]);
+		events.add(trimmed);
+	}
+	return events;
+}
+
+/**
  * Format a parsed `agent.json` as the "## Agent identity" section
  * that the worker appends to the agent's system prompt.
  *

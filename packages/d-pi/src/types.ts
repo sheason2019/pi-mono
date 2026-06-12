@@ -22,6 +22,27 @@ export interface AgentConfig {
 	sessionId?: string;
 	includeTools?: string[];
 	excludeTools?: string[];
+	/**
+	 * Optional allowlist of source-event EventKeys this agent
+	 * wants to receive from any source it's subscribed to. The
+	 * hub drops source events whose `params.type` is not in this
+	 * list before they're broadcast to the agent's worker.
+	 *
+	 * - Omitted (the default): the agent receives every event
+	 *   from every source it's subscribed to. Backwards compatible.
+	 * - Empty array `[]` or the literal string `*`: same as
+	 *   omitted — receive everything. (Provided for operators
+	 *   who'd rather be explicit.)
+	 * - Non-empty array: only events whose type is in the list.
+	 *
+	 * Stays in agent.json (committed) when you want the rule to
+	 * follow the agent across machines and clones; lives in
+	 * `agents/<name>/.d-pi-subscribed-events` (gitignored) when
+	 * you'd rather scope it to a single workspace. The two
+	 * mechanisms compose: the file overrides agent.json when both
+	 * are present.
+	 */
+	subscribedEvents?: string[];
 }
 
 // === Workspace Configuration ===

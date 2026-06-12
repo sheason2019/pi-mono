@@ -1,5 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { createInterface, type Interface as ReadlineInterface } from "node:readline";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { SourceConfig, SourceInfo, SourceStatus } from "../types.ts";
 import {
 	deleteSourceConfig,
@@ -415,12 +417,16 @@ export class SourceManager {
 		// something parseable instead of a rejected notification.
 		let mode: MessageMode = "next";
 		let payload: string;
+		let eventType: string | undefined;
 		try {
 			const parsed = JSON.parse(line) as {
-				params?: { mode?: unknown; data?: unknown };
+				params?: { mode?: unknown; data?: unknown; type?: unknown };
 			};
 			if (parsed && typeof parsed === "object" && parsed.params && typeof parsed.params === "object") {
 				mode = coerceMode(parsed.params.mode);
+				if (typeof parsed.params.type === "string") {
+					eventType = parsed.params.type;
+				}
 				payload =
 					parsed.params.data === undefined
 						? line
@@ -436,6 +442,32 @@ export class SourceManager {
 			payload = line;
 		}
 
+		// Per-subscriber EventKey filtering. If `eventType` is known
+		// (the bridge's notification has it) and the subscriber has
+		// declared an explicit allowlist (via agent.json's
+		// `subscribedEvents` field, or the workspace-local
+		// `agents/<name>/.d-pi-subscribed-events` file), we drop the
+		// event for subscribers whose allowlist does not include it.
+		// This is the mechanism that lets an agent opt out of noisy
+		// auto-generated events (read receipts, reactions, calendar
+		// notifications, etc.) without filtering on the source side.
+		if (eventType) {
+			const allowedSubscribers: string[] = [];
+			for (const agentName of subscriberIds) {
+				if (this._isEventAllowed(agentName, eventType)) {
+					allowedSubscribers.push(agentName);
+				}
+			}
+			if (allowedSubscribers.length === 0) {
+				// No one wants this event. Drop it silently — the
+				// hub's source-supervisor still has full visibility
+				// via its own stderr log if it ever needs to debug.
+				return;
+			}
+			this._onBroadcast(sourceName, payload, allowedSubscribers, mode);
+			return;
+		}
+
 		this._onBroadcast(sourceName, payload, subscriberIds, mode);
 	}
 
@@ -445,6 +477,112 @@ export class SourceManager {
 		// content — use the default "next" mode so they flow with normal
 		// delivery (turn-start injection, batches with other queue items).
 		this._onBroadcast(record.name, `[source-error] ${message}`, [record.creatorName], "next");
+	}
+
+	/**
+	 * Per-agent EventKey allowlist resolver.
+	 *
+	 * Returns `true` if the given agent should receive events of
+	 * the given EventKey from this source. The allowlist is
+	 * sourced in this order:
+	 *
+	 *   1. `agents/<name>/.d-pi-subscribed-events` (a dotfile the
+	 *      operator can drop into a specific workspace; not in git
+	 *      because the workspace's standard `agents/*` gitignore
+	 *      catches it). One EventKey per line; `#` comments
+	 *      allowed; literal `*` means "all".
+	 *   2. `agent.json`'s `subscribedEvents` field (committed
+	 *      alongside the agent config when you want the rule to
+	 *      follow the agent across machines / clones).
+	 *
+	 * If neither is present (or both are absent / empty), the
+	 * agent receives every event — full backwards compat. The
+	 * decision is per-(source, agent) and is evaluated on every
+	 * line so the operator can edit the dotfile and the change
+	 * takes effect on the very next event without a hub restart.
+	 *
+	 * The agent directory is `<workspaceRoot>/agents/<agentName>/`,
+	 * mirrored from the layout the hub uses to persist
+	 * `agent.json`. If the workspace root is unknown (e.g. in
+	 * unit tests that pass a partial context), we fall back to
+	 * "allow everything" rather than denying.
+	 */
+	private _isEventAllowed(agentName: string, eventType: string): boolean {
+		// The literal "*" in any allowlist means "all events". If
+		// either source resolves to "*", short-circuit to true.
+		const allowFromFile = this._readFileAllowlist(agentName);
+		if (allowFromFile !== null) {
+			// Empty Set from the file (file exists but is all
+			// comments or empty lines) is a deliberate "I want
+			// zero events" opt-in — distinct from the file
+			// being absent (which we already handled above by
+			// returning null). So an empty Set means: drop
+			// everything, even if the type would be allowed by
+			// agent.json. The file is authoritative.
+			if (allowFromFile.has("*")) return true;
+			return allowFromFile.has(eventType);
+		}
+		// No file override. Fall through to agent.json. We don't
+		// read agent.json here directly (it could be 50 lines of
+		// other stuff); we look for the `subscribedEvents` field
+		// at a known path. agent.json is written by the hub at
+		// create-time and updated by `update_agent`; the field is
+		// present iff the operator explicitly set it.
+		const fromConfig = this._readConfigAllowlist(agentName);
+		if (fromConfig !== null) {
+			// Same semantics for agent.json: empty array is an
+			// explicit zero-events opt-in; '*' is subscribe-all.
+			if (fromConfig.includes("*")) return true;
+			return fromConfig.includes(eventType);
+		}
+		// No allowlist anywhere — default to "subscribe to all".
+		// Backwards compatible with agents that don't know about
+		// this feature.
+		return true;
+	}
+
+	private _readFileAllowlist(agentName: string): Set<string> | null {
+		if (!this._workspaceRoot) return null;
+		const filePath = join(this._workspaceRoot, "agents", agentName, ".d-pi-subscribed-events");
+		let raw: string;
+		try {
+			raw = readFileSync(filePath, "utf-8");
+		} catch {
+			return null;
+		}
+		// Empty file (or all-comment) is treated as an explicit
+		// zero-events opt-in, distinct from file absence (which
+		// would have early-returned null above). Per the helper
+		// docstring, that's a deliberate "I want zero events" signal.
+		const events = new Set<string>();
+		for (const line of raw.split(/\r?\n/)) {
+			const trimmed = line.trim();
+			if (trimmed === "" || trimmed.startsWith("#")) continue;
+			if (trimmed === "*") return new Set(["*"]);
+			events.add(trimmed);
+		}
+		return events;
+	}
+
+	private _readConfigAllowlist(agentName: string): string[] | null {
+		if (!this._workspaceRoot) return null;
+		const configPath = join(this._workspaceRoot, "agents", agentName, "agent.json");
+		if (!existsSync(configPath)) return null;
+		let raw: string;
+		try {
+			raw = readFileSync(configPath, "utf-8");
+		} catch {
+			return null;
+		}
+		try {
+			const parsed = JSON.parse(raw) as { subscribedEvents?: unknown };
+			if (!parsed || !Array.isArray(parsed.subscribedEvents)) return null;
+			// Trust the field if it's a string array; skip
+			// non-strings silently rather than throwing.
+			return parsed.subscribedEvents.filter((s): s is string => typeof s === "string");
+		} catch {
+			return null;
+		}
 	}
 
 	private _closeReaders(record: SourceRecord): void {
