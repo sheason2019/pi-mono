@@ -156,6 +156,15 @@ export class LocalAgentSessionProxy implements AgentSessionProxy {
 		this.session.abortBash();
 	}
 
+	clearQueue(): { steering: string[]; followUp: string[] } {
+		// The underlying session.clearQueue() is synchronous: it snapshots
+		// the current steering/follow-up queues into local arrays, empties
+		// them on the session, and asks the agent loop to drop the
+		// references. The snapshots are exactly what the editor needs to
+		// repaint "restored" queued messages.
+		return this.session.clearQueue();
+	}
+
 	// =========================================================================
 	// State queries
 	// =========================================================================

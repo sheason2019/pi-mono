@@ -203,6 +203,45 @@ export class RemoteAgentSessionProxy implements AgentSessionProxy {
 		});
 	}
 
+	/**
+	 * Clear the server-side steering + follow-up queues. Synchronous
+	 * return shape matches the local proxy: snapshot what the TUI is
+	 * currently showing, then fire-and-forget the server-side clear.
+	 *
+	 * The returned snapshots are from the most recent `state_update`
+	 * SSE event (or the initial `/state` fetch on connect). They may
+	 * be slightly stale relative to the server's true queue if more
+	 * messages arrived in the gap between the snapshot and this call,
+	 * but in practice the TUI is the one driving the editor and the
+	 * gap is sub-frame. If the user is editing the same messages on
+	 * the server side via a second connect client, the second
+	 * client's edit will be reflected in the next `state_update` event
+	 * — there's no commit-collision logic for queued messages, and
+	 * the editor shows what the user typed, not what the server has.
+	 */
+	clearQueue(): { steering: string[]; followUp: string[] } {
+		const snapshot = {
+			steering: [...this._state.steeringMessages],
+			followUp: [...this._state.followUpMessages],
+		};
+		// Fire-and-forget the server-side clear. We don't await because
+		// the interface is sync; the caller's promise chain (e.g. the
+		// TUI's `restoreQueuedMessagesToEditor`) doesn't depend on the
+		// server's confirmation — it just needs the local snapshot to
+		// put into the editor. If the POST fails, stderr is the only
+		// signal (matching how other void proxy methods behave).
+		this._post("clear-queue")
+			.then(() => {
+				// Wipe the local cache so subsequent state_update events
+				// don't re-show the messages we just removed.
+				this._state = { ...this._state, steeringMessages: [], followUpMessages: [] };
+			})
+			.catch((e: Error) => {
+				process.stderr.write(`[connect] clearQueue failed: ${e.message}\n`);
+			});
+		return snapshot;
+	}
+
 	// State queries
 	get model(): string {
 		return this._state.model;

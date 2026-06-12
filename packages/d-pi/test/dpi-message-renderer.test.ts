@@ -215,10 +215,14 @@ describe("d-pi message renderer", () => {
 
 		harness.emit("agent_end");
 		// After agent_end, deliver with explicit "steer" mode → extension
-		// maps to { deliverAs: "steer" }.
+		// maps to { deliverAs: "steer", triggerTurn: true } so an idle
+		// agent wakes up immediately. The `triggerTurn` is the Bug 2 fix;
+		// pre-fix this would have just been { deliverAs: "steer" } and the
+		// message would have landed as a bare session entry without ever
+		// prompting the agent.
 		harness.channel.deliverMessage("after run", "source-a", "steer");
 
-		expect(harness.sendMessageCalls[1].options).toEqual({ deliverAs: "steer" });
+		expect(harness.sendMessageCalls[1].options).toEqual({ deliverAs: "steer", triggerTurn: true });
 	});
 
 	it("wraps interactive input as meta-bearing custom messages", () => {

@@ -4445,23 +4445,6 @@ export class InteractiveMode {
 	 * Clear all queued messages and return their contents.
 	 * Clears both session queue and compaction queue.
 	 */
-	private clearAllQueues(): { steering: string[]; followUp: string[] } {
-		const sessionQueued = this.proxy
-			? { steering: [...this.proxy.steeringMessages], followUp: [...this.proxy.followUpMessages] }
-			: this.session!.clearQueue();
-		const compactionSteering = this.compactionQueuedMessages
-			.filter((msg) => msg.mode === "steer")
-			.map((msg) => msg.text);
-		const compactionFollowUp = this.compactionQueuedMessages
-			.filter((msg) => msg.mode === "followUp")
-			.map((msg) => msg.text);
-		this.compactionQueuedMessages = [];
-		return {
-			steering: [...sessionQueued.steering, ...compactionSteering],
-			followUp: [...sessionQueued.followUp, ...compactionFollowUp],
-		};
-	}
-
 	private updatePendingMessagesDisplay(): void {
 		this.pendingMessagesContainer.clear();
 		const { steering: steeringMessages, followUp: followUpMessages } = this.getAllQueuedMessages();
@@ -4482,8 +4465,26 @@ export class InteractiveMode {
 	}
 
 	private restoreQueuedMessagesToEditor(options?: { abort?: boolean; currentText?: string }): number {
-		const { steering, followUp } = this.clearAllQueues();
-		const allQueued = [...steering, ...followUp];
+		// In connect mode, `this.proxy.clearQueue()` is the single
+		// point that drops the server-side steering + follow-up queues
+		// and returns what was dropped. The local snapshot is the
+		// thing the TUI repaints into the editor; the server's clear
+		// happens fire-and-forget on the proxy side, so the user
+		// gets immediate visual feedback even if the network round
+		// trip hasn't completed yet.
+		//
+		// In local mode, the snapshot path through the proxy is
+		// equivalent to the underlying `session.clearQueue()`.
+		//
+		// The `compactionQueuedMessages` list is local-only (queued
+		// by the editor while the agent was compacting) and lives
+		// outside the proxy's view, so we drain it here after the
+		// proxy/session clear.
+		const dropped = (this.proxy ?? this.session!).clearQueue();
+		const compactionSteering = this.compactionQueuedMessages.filter((m) => m.mode === "steer").map((m) => m.text);
+		const compactionFollowUp = this.compactionQueuedMessages.filter((m) => m.mode === "followUp").map((m) => m.text);
+		this.compactionQueuedMessages = [];
+		const allQueued = [...dropped.steering, ...compactionSteering, ...dropped.followUp, ...compactionFollowUp];
 		if (allQueued.length === 0) {
 			this.updatePendingMessagesDisplay();
 			if (options?.abort) {

@@ -127,7 +127,16 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 			// = interrupt). For non-streaming (i.e. a normal Enter key
 			// press arriving as a complete user message), default to
 			// "next" — equivalent to triggerTurn=true.
-			const options = event.streamingBehavior === "steer" ? { deliverAs: "steer" as const } : { triggerTurn: true };
+			// Same fix as `onIncomingMessage` below: always set
+			// `triggerTurn: true` so a TUI input can wake an idle agent.
+			// When the agent is already streaming, the downstream
+			// `sendCustomMessage()` interprets `deliverAs: "steer"` as
+			// "queue into the steering queue"; the streaming check is in
+			// the session, not here. So we get the right behavior at
+			// both ends: idle agents get a new turn immediately, busy
+			// agents get the message queued as a steer-or-followUp
+			// depending on `event.streamingBehavior`.
+			const isSteer = event.streamingBehavior === "steer";
 			pi.sendMessage(
 				{
 					customType: "d-pi-message",
@@ -135,7 +144,7 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 					display: true,
 					details: extracted?.meta,
 				},
-				options,
+				{ triggerTurn: true, deliverAs: isSteer ? ("steer" as const) : undefined },
 			);
 			return { action: "handled" };
 		});
@@ -150,14 +159,24 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 			const extracted = extractMeta(metaContent);
 			// Routing decision lives in SourceManager (parsed + coerced from
 			// params.mode on the validated JSONRPC notification, mirroring
-			// the TUI's Enter / Ctrl+Enter vocabulary). Extension just maps
-			// the source-declared mode to pi.sendMessage options — no
-			// "is agent running?" fallback, no per-event branching. The
-			// 1:1 mapping is:
-			//   steer → { deliverAs: "steer" }    → /steer endpoint
-			//   next  → { triggerTurn: true }    → /prompt (new turn)
-			const options: { deliverAs?: "steer"; triggerTurn?: boolean } =
-				mode === "steer" ? { deliverAs: "steer" } : { triggerTurn: true };
+			// the TUI's Enter / Ctrl+Enter vocabulary). The extension maps
+			// the source-declared mode to `pi.sendMessage` options, but
+			// always with `triggerTurn: true` so a source message can
+			// wake an idle agent. Without the trigger flag, `sendCustomMessage`
+			// in the agent's session only queues when the agent is already
+			// streaming; if the agent is idle, the message would land as a
+			// bare entry in the session log and the agent would never
+			// actually process it (Bug 2). The `deliverAs` field's
+			// meaning is "how to queue this if the agent is already mid-turn";
+			// when the agent is idle, every source message IS a new turn.
+			//
+			// The downstream sendCustomMessage() still interprets
+			// `deliverAs: "steer"` as "queue into the steering queue if
+			// currently streaming" — and the streaming detection is in the
+			// session, not here — so we get the right behavior at both
+			// ends: idle agents get a new turn immediately, busy agents
+			// get the message queued as a steer-or-followUp depending on
+			// `mode`.
 			pi.sendMessage(
 				{
 					customType: "d-pi-message",
@@ -165,7 +184,7 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 					display: true,
 					details: extracted?.meta,
 				},
-				options,
+				{ triggerTurn: true, deliverAs: mode === "steer" ? "steer" : undefined },
 			);
 		});
 	};

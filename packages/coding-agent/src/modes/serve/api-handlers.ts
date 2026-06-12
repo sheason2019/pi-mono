@@ -170,6 +170,16 @@ const handlers: Record<string, ApiHandler> = {
 		sendJson(res, 200, { ok: true });
 	},
 
+	async "clear-queue"(proxy, _body, res) {
+		// Drop both the steering and follow-up queues on the server.
+		// The proxy.clearQueue() returns the snapshots it just dropped
+		// so the TUI can put them back in the editor; we send them
+		// back to the connect client so its own state_update doesn't
+		// immediately re-show them.
+		const dropped = proxy.clearQueue();
+		sendJson(res, 200, { ok: true, dropped });
+	},
+
 	async compact(proxy, body, res) {
 		const { customInstructions } = body as { customInstructions?: string };
 		await proxy.compact(customInstructions);

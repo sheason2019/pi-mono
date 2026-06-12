@@ -259,6 +259,20 @@ export interface AgentSessionProxy {
 	followUp(text: string, images?: Array<{ url: string; mediaType?: string }>): void;
 	abort(): void;
 	abortBash(): void;
+	/**
+	 * Clear all queued messages (both steering and follow-up) and return
+	 * what was cleared, so the caller can put them back in the editor
+	 * (e.g. on `alt+up` "restore all queued messages" or on session
+	 * abort). The returned object always has both keys present; each is
+	 * an empty array if that queue was empty.
+	 *
+	 * This is a synchronous facade over the underlying session's async
+	 * `clearQueue()`; for local mode the implementation is `void`
+	 * (the queue is cleared synchronously), for connect mode it's a
+	 * round-trip to the server and the returned snapshots are what the
+	 * server had at the moment it processed the request.
+	 */
+	clearQueue(): { steering: string[]; followUp: string[] };
 
 	// State queries
 	readonly model: string;
