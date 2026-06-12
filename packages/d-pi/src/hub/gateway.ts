@@ -387,12 +387,27 @@ export class HubGateway {
 		// hub can dispatch /agents/{id}/remote-call requests to the executor
 		// registered for that connect id. Called by `d-pi connect` after the
 		// auth handshake.
+		//
+		// If a previous binding already exists for this agent (e.g. a
+		// session on another machine), the new session takes over — the
+		// old binding is dropped so the hub routes subsequent remote
+		// calls to the new executor. Stale cleanup of the dropped
+		// session's executor entry (in the ExecutorRegistry) happens
+		// when that session's SSE channel closes, not here.
 		const bindMatch = path.match(/^\/_hub\/agents\/([^/]+)\/bind$/);
 		if (bindMatch && req.method === "POST") {
 			try {
 				const body = await this._readBody(req);
 				const { connectId } = JSON.parse(body) as { connectId?: string };
 				if (!connectId) throw new Error("connectId is required");
+				// Allow overwrite: unbind any previous session for this
+				// agent before installing the new one. The previous
+				// session's executor, if still alive, will detect the
+				// loss of routing when its next remote call goes to the
+				// wrong connectId and exit on its own; its executor
+				// registry entry will then be cleaned up via the
+				// SSE-close path.
+				this.unbindAgent(bindMatch[1]!);
 				this.bindAgent(bindMatch[1]!, connectId);
 				res.writeHead(200, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ ok: true }));

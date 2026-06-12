@@ -78,7 +78,14 @@ export async function runDPiConnectMode(options: DPiConnectOptions): Promise<voi
 			agentUrl,
 			hubUrl: url,
 			authToken,
-			connectId: currentAgentName,
+			// Use a per-session UUID for connectId so multiple machines
+			// can connect to the same agent concurrently without
+			// colliding in the hub's ExecutorRegistry. The agent name
+			// is still used for routing (it goes in the URL path
+			// /agents/{id}/remote-call) and for the hub's
+			// _agentBindings map, but the connectId — which is the
+			// key for the executor registry — is session-unique.
+			connectId: crypto.randomUUID(),
 			cwd: process.cwd(),
 			fetchImpl: fetch,
 		});
