@@ -7,7 +7,7 @@ export function createCreateAgentTool(channel: HubChannel) {
 		name: "create_agent",
 		label: "Create Agent",
 		description:
-			"Create a new child agent in the network. The new agent will be a descendant of this agent and will have its own independent session.",
+			"Create a new child agent in the network. The new agent will be a direct child of this agent (the caller) and will have its own independent session. You cannot specify the parent — the parent is always the agent that called this tool. The agent tree is enforced as a strict parent/child topology: each new agent becomes a direct child of the caller, never a sibling, never a grandchild, never an orphan.",
 		parameters: Type.Object({
 			name: Type.String({ description: "Human-readable name for the new agent" }),
 			cwd: Type.Optional(

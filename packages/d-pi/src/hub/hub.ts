@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { AuthSessionManager } from "../auth/auth-session.ts";
@@ -23,6 +23,7 @@ import { loadWorkspaceContext } from "../workspace/workspace.ts";
 import { AgentRegistry } from "./agent-registry.ts";
 import { ExecutorRegistry } from "./executor-registry.ts";
 import { HubGateway } from "./gateway.ts";
+import { discoverPersistedAgents, orderAgentsForRestore } from "./restore-agents.ts";
 import { SourceManager } from "./source-manager.ts";
 
 const AGENT_CONFIG_FILE = "agent.json";
@@ -74,42 +75,7 @@ export class Hub {
 		await this._gateway.start(hubPort);
 
 		// 2. Discover and start persisted agents from agents/ directory
-		const agentsDir = join(this._config.workspaceRoot, "agents");
-		if (existsSync(agentsDir)) {
-			const entries = readdirSync(agentsDir, { withFileTypes: true });
-			for (const entry of entries) {
-				if (!entry.isDirectory()) continue;
-				const configPath = join(agentsDir, entry.name, AGENT_CONFIG_FILE);
-				if (!existsSync(configPath)) continue;
-
-				try {
-					// Strict JSON parse. The init template (and every persisted
-					// agent.json) is canonical JSON emitted by JSON.stringify, so
-					// no comment-stripping workaround is needed. A SyntaxError
-					// here means the file is corrupt or hand-edited with `//` /
-					// trailing commas — surface it instead of papering over it.
-					const agentRaw = readFileSync(configPath, "utf-8");
-					const agentConfig: AgentConfig = JSON.parse(agentRaw);
-					process.stderr.write(`[d-pi hub] Restoring agent "${agentConfig.name}" from ${entry.name}/\n`);
-					// Resolve parentId from parentName in persisted config
-					const parentAgentId = agentConfig.parentName
-						? this._registry.getByName(agentConfig.parentName)?.id
-						: undefined;
-					await this.createAgent(parentAgentId, {
-						name: agentConfig.name,
-						roles: agentConfig.roles,
-						model: agentConfig.model,
-						sessionId: agentConfig.sessionId,
-						includeTools: agentConfig.includeTools,
-						excludeTools: agentConfig.excludeTools,
-					});
-				} catch (err) {
-					process.stderr.write(
-						`[d-pi hub] Failed to restore agent from ${entry.name}/: ${err instanceof Error ? err.message : String(err)}\n`,
-					);
-				}
-			}
-		}
+		await this._restorePersistedAgents();
 
 		// 3. Ensure root agent exists
 		if (!this._registry.getByName("root")) {
@@ -122,6 +88,72 @@ export class Hub {
 		process.stderr.write(`[d-pi hub] Workspace: ${this._config.workspaceRoot}\n`);
 		process.stderr.write(`[d-pi hub] Listening on port ${hubPort}\n`);
 		process.stderr.write(`[d-pi hub] Connect with: d-pi connect <local-user@http://localhost:${hubPort}>\n`);
+	}
+
+	/**
+	 * Discover and start persisted agents from `agents/<name>/agent.json`.
+	 *
+	 * Two-pass restore:
+	 *   1. Read every `agent.json` into a list (cheap, no I/O ordering issues).
+	 *   2. Sort by `parentName` chain depth (root = depth 0, then 1, 2, ...),
+	 *      then alphabetically by name. Process in that order so a child's
+	 *      `parentName` is always resolvable when it is restored.
+	 *
+	 * Why this matters: the old code iterated `readdirSync(agentsDir, ...)` in
+	 * raw filesystem order, which is not portable (e.g. on macOS HFS+/APFS the
+	 * order is insertion / case-insensitive / locale-dependent). If a child was
+	 * read before its parent, `getByName(parentName)` returned `undefined` and
+	 * the child was created as an orphan — the very bug the user reported, where
+	 * `llm-wiki` showed up at the same depth as `root` in the TUI's "Switch to
+	 * agent" selector. Sorting by depth makes the restore deterministic across
+	 * filesystems and immune to the directory entry order.
+	 *
+	 * Cycle detection: a cycle in the parent chain (e.g. A's parent is B and
+	 * B's parent is A) is treated as a corrupted config — the offending entry
+	 * is restored as an orphan (parentName becomes undefined) and a warning is
+	 * logged. This matches the spirit of the strict-JSON `//` comment handling:
+	 * surface corruption rather than paper over it.
+	 */
+	private async _restorePersistedAgents(): Promise<void> {
+		const discovered = discoverPersistedAgents(this._config.workspaceRoot);
+		const ordered = orderAgentsForRestore(discovered);
+
+		for (const d of ordered) {
+			let parentName = d.config.parentName;
+			if (d.cycle) {
+				process.stderr.write(
+					`[d-pi hub] Cycle detected in parent chain starting at "${d.config.name}" (${d.entryName}/); restoring as orphan.\n`,
+				);
+				parentName = undefined;
+			}
+			process.stderr.write(`[d-pi hub] Restoring agent "${d.config.name}" from ${d.entryName}/\n`);
+			const parentAgentId = parentName ? this._registry.getByName(parentName)?.id : undefined;
+			if (parentName && !parentAgentId) {
+				// parentName is set but the named parent didn't make it into
+				// the registry during this restore pass (e.g. its agent.json
+				// is missing or filtered out). Surface this loudly — the
+				// depth-sort above is supposed to prevent it, but we still
+				// want a clear signal if a parent agent.json is hand-deleted
+				// mid-edit.
+				process.stderr.write(
+					`[d-pi hub] Parent agent "${parentName}" not found while restoring "${d.config.name}" (${d.entryName}/); restoring as orphan.\n`,
+				);
+			}
+			try {
+				await this.createAgent(parentAgentId, {
+					name: d.config.name,
+					roles: d.config.roles,
+					model: d.config.model,
+					sessionId: d.config.sessionId,
+					includeTools: d.config.includeTools,
+					excludeTools: d.config.excludeTools,
+				});
+			} catch (err) {
+				process.stderr.write(
+					`[d-pi hub] Failed to restore agent from ${d.entryName}/: ${err instanceof Error ? err.message : String(err)}\n`,
+				);
+			}
+		}
 	}
 
 	async createAgent(
@@ -143,6 +175,26 @@ export class Hub {
 		if (options.includeTools && options.excludeTools) {
 			throw new Error(
 				"includeTools and excludeTools are mutually exclusive; provide at most one. Both omitted = inherit all tools.",
+			);
+		}
+
+		// Parent invariant: a non-undefined parentAgentId MUST refer to a live
+		// agent in the registry. The runtime create_agent path (worker → hub)
+		// already guarantees this because `fromAgentId` is the worker's own
+		// agentId from workerData. The persisted-restore path now guarantees
+		// it via the depth-sort in `_restorePersistedAgents`. This check is a
+		// third-line defense against in-process callers that hand us a stale
+		// or fabricated id.
+		//
+		// The design intent — documented in the create_agent tool description
+		// — is that every new agent is a DIRECT child of the caller, never a
+		// sibling or arbitrary depth. Anything else would break the agent
+		// tree's parent/child invariant and produce the "orphan at the same
+		// depth as the caller" bug.
+		if (parentAgentId !== undefined && !this._registry.get(parentAgentId)) {
+			throw new Error(
+				`Cannot create agent "${options.name}": parent agent id "${parentAgentId}" not found in registry. ` +
+					`The create_agent contract is that the new agent is a direct child of the caller; the caller's id must be a registered agent.`,
 			);
 		}
 
