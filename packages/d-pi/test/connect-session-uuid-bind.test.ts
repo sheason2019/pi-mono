@@ -3,11 +3,10 @@ import { SourceManager } from "../src/hub/source-manager.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { ExecutorRegistry } from "../src/hub/executor-registry.ts";
-import { SourceValidator } from "../src/hub/source-validator.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
 
 /**
@@ -42,8 +41,10 @@ describe("connectId is per-session (not per-agent)", () => {
 		workspaceRoot = mkdtempSync(join(tmpdir(), "d-pi-bind-"));
 		registry = new AgentRegistry(40000);
 		// Pre-create a fake "root" agent so the bind endpoint can be hit
-		// without the hub's createAgent dance.
-		registry.allocatePort("root");
+		// without the hub's createAgent dance. allocatePort on main
+		// is a 0-arg helper that picks the next free port; the
+		// returned value is for the registry's internal tracking.
+		await registry.allocatePort();
 		registry.updateStatus("root", "ready");
 		sourceManager = new SourceManager(
 			(_sourceName, _line, _subscriberIds, _mode) => {
@@ -74,7 +75,7 @@ describe("connectId is per-session (not per-agent)", () => {
 			const url = new URL(req.url ?? "/", "http://127.0.0.1");
 			const path = url.pathname;
 			// Mirror the small slice of start() we need.
-			(gateway as unknown as { _handleHubApi: (req: typeof req, res: typeof res, path: string) => Promise<void> })._handleHubApi(
+			(gateway as unknown as { _handleHubApi: (req: IncomingMessage, res: ServerResponse, path: string) => Promise<void> })._handleHubApi(
 				req,
 				res,
 				path,
@@ -188,9 +189,3 @@ describe("connectId is per-session (not per-agent)", () => {
 	});
 });
 
-// Touch SourceValidator so its import is exercised (some bundlers
-// tree-shake transitive imports and fail to compile if a path is
-// unused). It's not actually called here — the test path only
-// exercises the gateway + registry — but having the import keeps
-// the build deterministic.
-void SourceValidator;
