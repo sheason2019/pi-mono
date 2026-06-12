@@ -127,10 +127,17 @@ describe("SourceManager spawn argv (regression for sheason2019/pi-mono#7)", () =
 		// substring "hello world" must survive the JSONRPC encoding
 		// round-trip, proving that the inner-space argv token reached
 		// the child intact.
+		// After the source-manager redesign, only `params.data` is
+		// forwarded to subscribers — the JSONRPC envelope is wire-protocol
+		// detail and is stripped before broadcast. So the test asserts
+		// on the inner payload reaching the subscriber intact, which is
+		// what we actually care about (proving the inner-space argv
+		// token reached the child as a single element).
+		const data = { value: "hello world" };
 		const notification = JSON.stringify({
 			jsonrpc: "2.0",
 			method: "events.emit",
-			params: { type: "test.spawn_args", data: { value: "hello world" } },
+			params: { type: "test.spawn_args", data },
 		});
 		manager.createSource(
 			{
@@ -149,7 +156,9 @@ describe("SourceManager spawn argv (regression for sheason2019/pi-mono#7)", () =
 
 		const line = broadcasts.find((b) => b.sourceName === "whitespace" && b.line.includes("hello world"));
 		expect(line).toBeDefined();
-		expect(line?.line).toContain(notification);
+		// The forwarded body is exactly the unwrapped params.data
+		// (no jsonrpc/method/params envelope).
+		expect(line?.line).toBe(JSON.stringify(data));
 		// The child should not have exited yet — `echo` then idle. But the
 		// supervisor's restart timer will eventually fire on the idle
 		// exit (code 0) so we don't assert on `status` here.
@@ -196,10 +205,11 @@ describe("SourceManager spawn argv (regression for sheason2019/pi-mono#7)", () =
 		// docs/superpowers/specs/2026-06-07-source-redesign-design.md)
 		// and exits 11. Both the stdout broadcast and the exit code
 		// are asserted.
+		const data = { marker: "from-spacey-path" };
 		const notification = JSON.stringify({
 			jsonrpc: "2.0",
 			method: "events.emit",
-			params: { type: "test.spawn_args", data: { marker: "from-spacey-path" } },
+			params: { type: "test.spawn_args", data },
 		});
 		const spaceyDir = mkdtempSync(join(tmpdir(), "d-pi-spawn-spaces-"));
 		const scriptPath = join(spaceyDir, "my script.sh");
@@ -228,7 +238,9 @@ describe("SourceManager spawn argv (regression for sheason2019/pi-mono#7)", () =
 
 			const stdout = broadcasts.find((b) => b.sourceName === "spacey-path" && b.line.includes("from-spacey-path"));
 			expect(stdout).toBeDefined();
-			expect(stdout?.line).toContain(notification);
+			// Post-redesign: only params.data reaches subscribers. The
+			// forwarded body is the unwrapped data, not the full envelope.
+			expect(stdout?.line).toBe(JSON.stringify(data));
 
 			const exit = broadcasts.find((b) => b.sourceName === "spacey-path" && b.line.startsWith("[source-error]"));
 			expect(exit).toBeDefined();

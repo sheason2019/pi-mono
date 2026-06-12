@@ -402,24 +402,41 @@ export class SourceManager {
 
 		const subscriberIds = Array.from(record.subscribers);
 
-		// Parse the JSONRPC notification so we can extract the mode.
-		// The validator already classified this line as a notification,
-		// so JSON.parse should succeed — but stay defensive (try/catch)
-		// so a parsing bug can never crash the supervisor.
+		// Parse the JSONRPC notification to extract the routing mode AND
+		// the inner data payload. We forward ONLY the inner data to
+		// subscribers — the JSONRPC envelope (`jsonrpc`, `method`,
+		// `params.type`, `params.id`, `params.mode`) is wire-protocol
+		// detail that the LLM doesn't need to see. The hub-layer
+		// `injectMeta` call will still wrap whatever we send here in a
+		// `[meta({sourceName, ...})]\n` header for traceability, but
+		// the body is the raw upstream event JSON, not a JSONRPC
+		// notification. If the data is not an object, fall back to
+		// stringifying the parsed value so the agent still gets
+		// something parseable instead of a rejected notification.
 		let mode: MessageMode = "next";
+		let payload: string;
 		try {
 			const parsed = JSON.parse(line) as {
-				params?: { mode?: unknown };
+				params?: { mode?: unknown; data?: unknown };
 			};
 			if (parsed && typeof parsed === "object" && parsed.params && typeof parsed.params === "object") {
 				mode = coerceMode(parsed.params.mode);
+				payload =
+					parsed.params.data === undefined
+						? line
+						: typeof parsed.params.data === "string"
+							? parsed.params.data
+							: JSON.stringify(parsed.params.data);
+			} else {
+				payload = line;
 			}
 		} catch {
 			// Shouldn't happen for validated notifications, but stay safe.
 			mode = "next";
+			payload = line;
 		}
 
-		this._onBroadcast(sourceName, line, subscriberIds, mode);
+		this._onBroadcast(sourceName, payload, subscriberIds, mode);
 	}
 
 	private _notifyCreator(record: SourceRecord, message: string): void {
