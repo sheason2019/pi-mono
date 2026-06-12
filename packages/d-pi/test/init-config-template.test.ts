@@ -50,9 +50,14 @@ describe("init template: strict-JSON output", () => {
 		// The point of the regression: strict JSON.parse must accept the file.
 		// This is the exact path the hub uses when restoring persisted agents
 		// (see packages/d-pi/src/hub/hub.ts:start()).
-		const parsed = JSON.parse(raw) as { name: string; parentName: string | null };
+		const parsed = JSON.parse(raw) as { name: string; parentName: string | null; description?: string };
 		expect(parsed.name).toBe("root");
 		expect(parsed.parentName).toBeNull();
+		// The init template writes a `description` key (empty string by
+		// default) so the field is discoverable in the schema. The
+		// worker's identity section handles empty / whitespace values
+		// gracefully — it just omits the prose paragraph.
+		expect(parsed.description).toBe("");
 	});
 
 	it("validateWorkspace accepts the freshly-init config and reports version 1", () => {
@@ -107,5 +112,9 @@ describe("init template: strict-JSON output", () => {
 		expect(agentsMd).toMatch(/includeTools/);
 		expect(agentsMd).toMatch(/excludeTools/);
 		expect(agentsMd).toMatch(/sessionId/);
+		// description is documented in the agent-config section (added
+		// alongside the system-prompt-injection feature in
+		// `hub/agent-identity.ts`).
+		expect(agentsMd).toMatch(/description/);
 	});
 });

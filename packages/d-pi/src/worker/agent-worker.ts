@@ -23,6 +23,7 @@ import {
 } from "@sheason/pi-coding-agent/d-pi-worker";
 import { DPI_META_PROMPT } from "../dpi-meta.ts";
 import { createDPiExtension, createReloadExtension, type HubChannel } from "../extension/index.ts";
+import { formatAgentIdentitySection, readAgentConfig } from "../hub/agent-identity.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 
 const dPiClientExtensionPath = new URL(
@@ -125,15 +126,28 @@ async function runAgentWorker(): Promise<void> {
 	// 3. Build the runtime factory (mirrors main.ts pattern)
 	const createRuntime = async (opts: { cwd: string; agentDir: string; sessionManager: SessionManager }) => {
 		// Build resourceLoaderOptions from workspace context.
-		// APPEND_SYSTEM.md workspace content and d-pi meta are concatenated into
-		// the same ResourceLoader.appendSystemPrompt array — the same path used
-		// by ResourceLoader for every other source-level system-prompt block.
-		// d-pi meta is in-source (dpi-meta.ts) rather than an external .md file,
-		// so it ships with the package and is regenerated per build via
+		// APPEND_SYSTEM.md workspace content, the agent's own
+		// agent.json (rendered as "## Agent identity"), and d-pi
+		// meta are concatenated into the same
+		// ResourceLoader.appendSystemPrompt array — the same path
+		// used by ResourceLoader for every other source-level
+		// system-prompt block. d-pi meta is in-source (dpi-meta.ts)
+		// rather than an external .md file, so it ships with the
+		// package and is regenerated per build via
 		// scripts/inject-build-meta.mjs.
-		const appendSystemPrompt = [config.workspaceContext?.appendSystemPrompt, DPI_META_PROMPT].filter(
-			(s): s is string => Boolean(s),
-		);
+		//
+		// Order is workspace append → per-agent identity → d-pi
+		// runtime meta. The d-pi meta goes LAST so it lands just
+		// before the tool list / build stamp at the very end of
+		// the system prompt — a stable position across agents that
+		// doesn't get pushed around as identity content grows.
+		const agentConfig = readAgentConfig(cwd);
+		const agentIdentitySection = agentConfig ? formatAgentIdentitySection(agentConfig) : undefined;
+		const appendSystemPrompt = [
+			config.workspaceContext?.appendSystemPrompt,
+			agentIdentitySection,
+			DPI_META_PROMPT,
+		].filter((s): s is string => Boolean(s));
 		const additionalAgentsFiles = config.workspaceContext?.additionalAgentsFiles ?? [];
 		const additionalSkillPaths = config.workspaceContext?.additionalSkillPaths ?? [];
 		const additionalExtensionPaths = [

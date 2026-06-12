@@ -46,7 +46,7 @@ const fakeApi = {
 } as unknown as ExtensionAPI;
 
 describe("group_architecture tool", () => {
-	it("is named group_architecture (renamed from agent_network)", () => {
+	it("is named group_architecture", () => {
 		const tool = createGroupArchitectureTool(makeChannel().channel);
 		expect(tool.name).toBe("group_architecture");
 		expect(tool.label).toBe("Group Architecture");
@@ -68,6 +68,9 @@ describe("group_architecture tool", () => {
 		} as unknown as ExtensionAPI;
 		factory(api);
 		expect(registered).toContain("group_architecture");
+		// Drift guard: the tool was renamed from agent_network. Keep this
+		// assertion so a future "let's call it something else" PR cannot
+		// silently re-introduce the old wire name.
 		expect(registered).not.toContain("agent_network");
 	});
 
@@ -117,6 +120,9 @@ describe("group_architecture tool", () => {
 			tool: "group_architecture",
 			params: {},
 		});
+		// Drift guard: same as above — the wire name was renamed from
+		// agent_network and we want this test to fail loudly if anyone
+		// re-introduces the old name.
 		expect(posted[0]).not.toMatchObject({ tool: "agent_network" });
 
 		// Simulate hub returning the snapshot.

@@ -232,13 +232,19 @@ export function initWorkspace(dir: string): void {
 	mkdirSync(rootAgentDir, { recursive: true });
 
 	// Write agents/root/agent.json — strict JSON, no comments.
-	// Optional keys (model, includeTools, excludeTools, roles, sessionId) are
-	// documented in the workspace-level AGENTS.md below.
+	// Optional keys (description, model, includeTools, excludeTools,
+	// roles, sessionId) are documented in the workspace-level
+	// AGENTS.md below. `description` is empty by default so the
+	// agent still has a key to fill in (and the field is
+	// discoverable in the schema); the worker still injects the
+	// "## Agent identity" section when the value is empty, just
+	// without the prose paragraph.
 	writeFileSync(
 		join(rootAgentDir, "agent.json"),
 		`{
 \t"name": "root",
-\t"parentName": null
+\t"parentName": null,
+\t"description": ""
 }
 `,
 	);
@@ -267,6 +273,11 @@ Strict JSON. Top-level keys:
 
 - \`name\` (required): unique agent name.
 - \`parentName\` (required, may be \`null\`): name of the parent agent.
+- \`description\` (optional): free-form prose about what this agent is, who it serves,
+  and when to delegate to it. Injected into the agent's system prompt as the
+  "## Agent identity" section so the LLM has a self-description to refer to
+  during multi-agent coordination. Recommended: a few sentences in plain
+  English, no formatting.
 - \`model\` (optional): overrides the workspace default model for this agent.
 - \`roles\` (optional): array of role names — see \`.dpi/group-architecture/roles/\`.
 - \`includeTools\` (optional): allowlist of tool names. When provided, only these tools are exposed to the agent.

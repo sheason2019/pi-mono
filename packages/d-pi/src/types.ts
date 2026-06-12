@@ -2,9 +2,21 @@
 export type AgentStatus = "starting" | "ready" | "busy" | "error" | "destroyed";
 
 // === Agent Config (persisted as agent.json in each agent's cwd) ===
+//
+// The full contents of agent.json are injected into the agent's
+// system prompt as the "## Agent identity" section (see
+// `packages/d-pi/src/hub/agent-identity.ts` and the worker in
+// `packages/d-pi/src/worker/agent-worker.ts`). Keep that in mind
+// when adding fields here: every key becomes part of the agent's
+// self-description, and cache invalidation is acceptable when the
+// file changes (the agent's session is resumed against a new
+// snapshot each time).
 export interface AgentConfig {
 	name: string;
 	parentName: string | undefined;
+	// Free-form prose about what this agent is, who it serves, and
+	// when to delegate to it. Intended for the LLM to read.
+	description?: string;
 	roles?: string[];
 	model?: string;
 	sessionId?: string;
