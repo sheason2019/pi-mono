@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0-alpha.6] - 2026-06-12
+
 ### Added
 
 - **Source persistence: sources survive hub restart.** Previously, every `d-pi serve` start ran with an empty `SourceManager` — any source registered via `create_source` (lark-bridge, webhooks, `tail -f`, ...) was lost the moment the hub exited. Sources are now persisted to `sources/<name>/source.json` on the workspace root, with the same lifecycle semantics as `agents/<name>/agent.json`:
