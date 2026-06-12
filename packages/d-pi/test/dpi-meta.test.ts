@@ -50,4 +50,39 @@ describe("DPI_META_PROMPT stays lean", () => {
 		expect(DPI_META_PROMPT).not.toMatch(/`\/sources`/);
 		expect(DPI_META_PROMPT).not.toMatch(/`\/agents`/);
 	});
+
+	// === Multi-agent orchestration guidance ===
+
+	it("documents the multi-agent / long-lived lifecycle framing", () => {
+		// The user explicitly asked for guidance that each agent is a
+		// long-lived node in a larger tree, not a one-shot tool call.
+		// If a future "lean it down" PR tries to remove this, the test
+		// catches it.
+		expect(DPI_META_PROMPT).toContain("Multi-agent behavior");
+		expect(DPI_META_PROMPT).toMatch(/long-lived tree of agents/i);
+		expect(DPI_META_PROMPT).toMatch(/orchestration cost/i);
+	});
+
+	it("encourages proactive collaboration and points at group_architecture for discovery", () => {
+		// The user asked for two things in this section:
+		//   1. Agents should reach out to peers proactively, not just react.
+		//   2. Agents should use group_architecture to see who else is alive.
+		expect(DPI_META_PROMPT).toContain("Collaboration");
+		expect(DPI_META_PROMPT).toMatch(/proactively push results/i);
+		expect(DPI_META_PROMPT).toMatch(/group_architecture/);
+		// Sanity: still no backticks around the tool name.
+		expect(DPI_META_PROMPT).not.toMatch(/`group_architecture`/);
+	});
+
+	it("warns about multi-agent dispatch latency and points at the meta createTime", () => {
+		// The user observed that messages from peers / sources can be
+		// minutes or hours old by the time they reach the agent, and
+		// the LLM must not act on stale "current state" assertions.
+		// The mechanism exposed for freshness checking is the
+		// [meta(...)] header's createTime.
+		expect(DPI_META_PROMPT).toContain("Latency and freshness");
+		expect(DPI_META_PROMPT).toMatch(/not real-time/i);
+		expect(DPI_META_PROMPT).toMatch(/createTime/);
+		expect(DPI_META_PROMPT).toMatch(/\[meta\(\.\.\.\)\]/);
+	});
 });
