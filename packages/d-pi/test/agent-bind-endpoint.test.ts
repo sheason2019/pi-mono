@@ -35,7 +35,7 @@ async function startHub(workspaceRoot: string): Promise<StartedHub> {
 	const gateway = new HubGateway(
 		new AgentRegistry(0),
 		new SourceManager(() => {}),
-		async () => ({ agentId: "created", name: "created" }),
+		async () => ({ agentName: "created" }),
 		async () => {},
 		new AuthSessionManager(workspaceRoot),
 		executorRegistry,
@@ -167,7 +167,7 @@ describe("hub endpoint POST /_hub/agents/{id}/bind", () => {
 		const g = new HubGateway(
 			new AgentRegistry(0),
 			new SourceManager(() => {}),
-			async () => ({ agentId: "x", name: "x" }),
+			async () => ({ agentName: "x" }),
 			async () => {},
 		);
 		g.bindAgent("agent-1", "c1");
@@ -196,7 +196,7 @@ describe("hub endpoint POST /_hub/agents/{id}/bind", () => {
 		const gw = new HubGateway(
 			new AR(0),
 			new SourceManager(() => {}),
-			async () => ({ agentId: "x", name: "x" }),
+			async () => ({ agentName: "x" }),
 			async () => {},
 			new AuthSessionManager(tempDir!),
 			execReg,

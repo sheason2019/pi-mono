@@ -28,7 +28,7 @@ interface CapturedCall {
 function makeChannel(): Parameters<typeof createDPiExtension>[0] {
 	return {
 		mode: "worker",
-		agentId: "test-agent",
+		agentName: "test-agent",
 		postToHub: vi.fn(),
 	};
 }

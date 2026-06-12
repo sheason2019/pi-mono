@@ -13,7 +13,7 @@ export function createGroupArchitectureTool(channel: HubChannel) {
 			try {
 				const snapshot = await channel.getGroupArchitecture();
 				const lines = snapshot.agents.map((a) => {
-					const depth = getDepth(snapshot, a.id);
+					const depth = getDepth(snapshot, a.name);
 					const indent = "  ".repeat(depth);
 					const children = a.children.length > 0 ? ` → [${a.children.join(", ")}]` : "";
 					return `${indent}${a.name} [${a.status}]${children}`;
@@ -43,13 +43,13 @@ export function createGroupArchitectureTool(channel: HubChannel) {
 	});
 }
 
-function getDepth(snapshot: { agents: Array<{ id: string; parentId?: string }> }, agentId: string): number {
-	const agentMap = new Map(snapshot.agents.map((a) => [a.id, a]));
+function getDepth(snapshot: { agents: Array<{ name: string; parentName?: string }> }, agentName: string): number {
+	const agentMap = new Map(snapshot.agents.map((a) => [a.name, a]));
 	let depth = 0;
-	let current = agentMap.get(agentId);
-	while (current?.parentId) {
+	let current = agentMap.get(agentName);
+	while (current?.parentName) {
 		depth++;
-		current = agentMap.get(current.parentId);
+		current = agentMap.get(current.parentName);
 	}
 	return depth;
 }

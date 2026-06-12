@@ -45,7 +45,7 @@ describe("bindAgentOnHub", () => {
 		const gateway = new HubGateway(
 			new AgentRegistry(0),
 			new SourceManager(() => {}),
-			async () => ({ agentId: "a", name: "a" }),
+			async () => ({ agentName: "a" }),
 			async () => {},
 			new AuthSessionManager(tempDir!),
 			execReg,

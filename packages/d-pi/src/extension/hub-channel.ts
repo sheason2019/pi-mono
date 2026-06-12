@@ -18,13 +18,16 @@ type IncomingMessageHandler = (content: string, sourceName?: string, mode?: Mess
 /**
  * Communication channel from extension tools to the Hub.
  *
- * Each worker creates a HubChannel with its agentId and a postToHub callback
- * (which calls parentPort.postMessage). Tools call channel methods which
- * post tool_call messages to the Hub and return Promises that resolve when
- * the Hub sends back tool_result with the matching callId.
+ * Each worker creates a HubChannel with its agentName and a postToHub
+ * callback (which calls parentPort.postMessage). Tools call channel
+ * methods which post tool_call messages to the Hub and return Promises
+ * that resolve when the Hub sends back tool_result with the matching
+ * callId. The "agentName" field on tool_call / tool_call_timeout
+ * messages is the agent's identity (name is the unique key — see
+ * "name is identity" in the changelog).
  */
 export class HubChannel {
-	private readonly _agentId: string;
+	private readonly _agentName: string;
 	private readonly _postToHub: (message: WorkerToHubMessage) => void;
 	private readonly _pendingCalls = new Map<
 		string,
@@ -33,13 +36,13 @@ export class HubChannel {
 	private _callIdCounter = 0;
 	private _onIncomingMessage?: IncomingMessageHandler;
 
-	constructor(agentId: string, postToHub: (message: WorkerToHubMessage) => void) {
-		this._agentId = agentId;
+	constructor(agentName: string, postToHub: (message: WorkerToHubMessage) => void) {
+		this._agentName = agentName;
 		this._postToHub = postToHub;
 	}
 
-	get agentId(): string {
-		return this._agentId;
+	get agentName(): string {
+		return this._agentName;
 	}
 
 	/** Register handler for incoming messages from the Hub */
@@ -52,9 +55,9 @@ export class HubChannel {
 		this._onIncomingMessage?.(content, sourceName, mode);
 	}
 
-	/** Send a message to another agent. mode defaults to "next" (Enter-style). */
-	sendMessage(toAgentId: string, content: string, mode: MessageMode = "next"): Promise<unknown> {
-		return this._callTool("send_message", { agent_id: toAgentId, message: content, mode });
+	/** Send a message to another agent (by name). mode defaults to "next" (Enter-style). */
+	sendMessage(toAgentName: string, content: string, mode: MessageMode = "next"): Promise<unknown> {
+		return this._callTool("send_message", { agent_id: toAgentName, message: content, mode });
 	}
 
 	/** Create a new child agent */
@@ -69,9 +72,9 @@ export class HubChannel {
 		return this._callTool("create_agent", { name, cwd, model, roles, includeTools, excludeTools });
 	}
 
-	/** Destroy an agent */
-	destroyAgent(agentId: string): Promise<unknown> {
-		return this._callTool("destroy_agent", { agent_id: agentId });
+	/** Destroy an agent (by name) */
+	destroyAgent(agentName: string): Promise<unknown> {
+		return this._callTool("destroy_agent", { agent_id: agentName });
 	}
 
 	/** Get the group architecture snapshot */
@@ -134,15 +137,18 @@ export class HubChannel {
 	}
 
 	private _callTool(tool: string, params: unknown): Promise<unknown> {
-		const callId = `${this._agentId}-${++this._callIdCounter}`;
+		// callId is scoped to this worker; the agentName prefix is for log
+		// readability and to make overlapping tool calls from different
+		// workers trivially distinguishable in the hub's stderr.
+		const callId = `${this._agentName}-${++this._callIdCounter}`;
 		return new Promise<unknown>((resolve, reject) => {
 			this._pendingCalls.set(callId, { resolve, reject });
-			this._postToHub({ type: "tool_call", agentId: this._agentId, tool, params, callId });
+			this._postToHub({ type: "tool_call", agentName: this._agentName, tool, params, callId });
 			// Timeout after 60s — clean up and notify hub
 			const timer = setTimeout(() => {
 				if (this._pendingCalls.has(callId)) {
 					this._pendingCalls.delete(callId);
-					this._postToHub({ type: "tool_call_timeout", agentId: this._agentId, callId });
+					this._postToHub({ type: "tool_call_timeout", agentName: this._agentName, callId });
 					reject(new Error(`Tool call ${tool} timed out`));
 				}
 			}, 60_000);

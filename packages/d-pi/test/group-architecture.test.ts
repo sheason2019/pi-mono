@@ -57,7 +57,7 @@ describe("group_architecture tool", () => {
 		const postCalls: WorkerToHubMessage[] = [];
 		const { factory } = createDPiExtension({
 			mode: "worker",
-			agentId: "agent-1",
+			agentName: "agent-1",
 			postToHub: (msg) => postCalls.push(msg),
 		});
 		const api = {
@@ -79,20 +79,18 @@ describe("group_architecture tool", () => {
 		const tool = createGroupArchitectureTool(channel);
 
 		const snapshot: GroupArchitectureSnapshot = {
-			rootId: "agent-root",
+			rootName: "root",
 			agents: [
 				{
-					id: "agent-root",
 					name: "root",
-					parentId: undefined,
+					parentName: undefined,
 					status: "ready",
 					model: "anthropic/claude-sonnet-4",
-					children: ["agent-child"],
+					children: ["worker"],
 				},
 				{
-					id: "agent-child",
 					name: "worker",
-					parentId: "agent-root",
+					parentName: "root",
 					status: "busy",
 					model: undefined,
 					children: [],
@@ -116,7 +114,7 @@ describe("group_architecture tool", () => {
 		expect(posted).toHaveLength(1);
 		expect(posted[0]).toMatchObject({
 			type: "tool_call",
-			agentId: "agent-test",
+			agentName: "agent-test",
 			tool: "group_architecture",
 			params: {},
 		});

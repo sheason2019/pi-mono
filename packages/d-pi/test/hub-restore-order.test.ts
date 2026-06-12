@@ -154,11 +154,14 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			const actual = await vi.importActual<typeof import("node:worker_threads")>("node:worker_threads");
 			class FakeWorker {
 				private listeners: Array<(msg: unknown) => void> = [];
-				constructor(_url: unknown, options?: { workerData?: { agentId?: string; port?: number } }) {
-					const agentId = options?.workerData?.agentId;
+				constructor(
+					_url: unknown,
+					options?: { workerData?: { agentName?: string; parentName?: string; port?: number } },
+				) {
+					const agentName = options?.workerData?.agentName;
 					const port = options?.workerData?.port ?? 0;
 					queueMicrotask(() => {
-						for (const l of this.listeners) l({ type: "ready", agentId, port });
+						for (const l of this.listeners) l({ type: "ready", agentName, port });
 					});
 				}
 				on(event: string, handler: (msg: unknown) => void): void {
@@ -183,8 +186,8 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
 			workspaceConfig: { version: 1 },
 		});
-		await expect(hub.createAgent("nonexistent-uuid-xxx", { name: "child" })).rejects.toThrow(
-			/parent agent id "nonexistent-uuid-xxx" not found/,
+		await expect(hub.createAgent("nonexistent-name-xxx", { name: "child" })).rejects.toThrow(
+			/parent agent "nonexistent-name-xxx" not found/,
 		);
 	});
 
@@ -202,12 +205,13 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 		});
 		// Skip the restore pass — we just want the createAgent defensive
 		// check in isolation. Inject a root record directly via the registry.
+		// The registry is now name-keyed (see the "name is identity"
+		// rationale in the changelog), so the root is registered under
+		// the name "root" — there is no separate id.
 		const registry = (hub as unknown as { _registry: InstanceType<typeof AgentRegistry> })._registry;
-		const rootId = "00000000-0000-0000-0000-000000000001";
 		registry.register({
-			id: rootId,
 			name: "root",
-			parentId: undefined,
+			parentName: undefined,
 			children: [],
 			port: 39091,
 			status: "ready",
@@ -215,10 +219,10 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			worker: { postMessage: () => {}, on: () => {}, off: () => {} } as never,
 			cwd: workspace,
 		});
-		const result = await hub.createAgent(rootId, { name: "direct-child" });
-		expect(result.name).toBe("direct-child");
+		const result = await hub.createAgent("root", { name: "direct-child" });
+		expect(result.agentName).toBe("direct-child");
 		const child = registry.getByName("direct-child");
-		expect(child?.parentId).toBe(rootId);
-		expect(registry.get(rootId)?.children).toContain(child?.id);
+		expect(child?.parentName).toBe("root");
+		expect(registry.get("root")?.children).toContain(child?.name);
 	});
 });

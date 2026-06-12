@@ -47,7 +47,7 @@ function postToHub(message: WorkerToHubMessage): void {
 port.on("message", (message: HubToWorkerMessage) => {
 	switch (message.type) {
 		case "tool_result":
-			process.stderr.write(`[d-pi worker ${config.agentId}] Received tool_result for callId=${message.callId}\n`);
+			process.stderr.write(`[d-pi worker ${config.agentName}] Received tool_result for callId=${message.callId}\n`);
 			hubChannel?.resolveCall(message.callId, message.result);
 			break;
 		case "message":
@@ -103,22 +103,24 @@ function persistSessionId(agentCwd: string, sessionId: string): void {
 }
 
 async function runAgentWorker(): Promise<void> {
-	const { agentId, port: agentPort, cwd, model: modelSpec, agentName } = config;
+	// `agentName` is the worker's identity — there is no separate id.
+	// See "name is identity" in the changelog for the rationale.
+	const { agentName, port: agentPort, cwd, model: modelSpec } = config;
 	const agentDir = getAgentDir();
 
-	process.stderr.write(`[d-pi worker ${agentId}] Starting agent "${agentName}"...\n`);
+	process.stderr.write(`[d-pi worker ${agentName}] Starting agent "${agentName}"...\n`);
 
 	// 1. Create infrastructure
 	const authStorage = AuthStorage.create();
 	const settingsManager = SettingsManager.create(cwd, agentDir);
 	const modelRegistry = ModelRegistry.create(authStorage);
 
-	process.stderr.write(`[d-pi worker ${agentId}] Infrastructure created\n`);
+	process.stderr.write(`[d-pi worker ${agentName}] Infrastructure created\n`);
 
 	// 2. Create the d-pi extension factory and shared HubChannel
 	const { factory: extensionFactory, channel } = createDPiExtension({
 		mode: "worker",
-		agentId,
+		agentName,
 		postToHub,
 	});
 	hubChannel = channel;
@@ -155,7 +157,7 @@ async function runAgentWorker(): Promise<void> {
 			...(config.workspaceContext?.additionalExtensionPaths ?? []),
 		];
 
-		process.stderr.write(`[d-pi worker ${agentId}] Creating session services...\n`);
+		process.stderr.write(`[d-pi worker ${agentName}] Creating session services...\n`);
 
 		const services = await createAgentSessionServices({
 			cwd: opts.cwd,
@@ -192,7 +194,7 @@ async function runAgentWorker(): Promise<void> {
 			},
 		});
 
-		process.stderr.write(`[d-pi worker ${agentId}] Session services created, resolving model...\n`);
+		process.stderr.write(`[d-pi worker ${agentName}] Session services created, resolving model...\n`);
 
 		// Resolve model
 		let resolvedModel: Model<any> | undefined;
@@ -218,7 +220,7 @@ async function runAgentWorker(): Promise<void> {
 			resolvedModel = result.model;
 		}
 
-		process.stderr.write(`[d-pi worker ${agentId}] Model resolved: ${resolvedModel?.id ?? "unknown"}\n`);
+		process.stderr.write(`[d-pi worker ${agentName}] Model resolved: ${resolvedModel?.id ?? "unknown"}\n`);
 
 		const created = await createAgentSessionFromServices({
 			services,
@@ -228,7 +230,7 @@ async function runAgentWorker(): Promise<void> {
 			excludeTools: config.excludeTools,
 		});
 
-		process.stderr.write(`[d-pi worker ${agentId}] Session created from services\n`);
+		process.stderr.write(`[d-pi worker ${agentName}] Session created from services\n`);
 
 		return { ...created, services, diagnostics: services.diagnostics };
 	};
@@ -295,7 +297,7 @@ async function runAgentWorker(): Promise<void> {
 				// No UI to reset in worker mode
 			},
 			onError: (err) => {
-				process.stderr.write(`[d-pi worker ${agentId}] Extension error (${err.extensionPath}): ${err.error}\n`);
+				process.stderr.write(`[d-pi worker ${agentName}] Extension error (${err.extensionPath}): ${err.error}\n`);
 			},
 		});
 	};
@@ -321,28 +323,28 @@ async function runAgentWorker(): Promise<void> {
 	// 8b. Subscribe to session events to report streaming status to Hub
 	proxy.subscribe((event) => {
 		if (event.type === "turn_start") {
-			postToHub({ type: "status_update", agentId, status: "busy" });
+			postToHub({ type: "status_update", agentName, status: "busy" });
 		} else if (event.type === "turn_end" || event.type === "agent_end") {
-			postToHub({ type: "status_update", agentId, status: "ready" });
+			postToHub({ type: "status_update", agentName, status: "ready" });
 		} else if (event.type === "compaction_start") {
-			postToHub({ type: "status_update", agentId, status: "busy" });
+			postToHub({ type: "status_update", agentName, status: "busy" });
 		} else if (event.type === "compaction_end") {
-			postToHub({ type: "status_update", agentId, status: "ready" });
+			postToHub({ type: "status_update", agentName, status: "ready" });
 		}
 	});
 
 	// 9. Signal ready to Hub
-	postToHub({ type: "ready", agentId, port: agentPort });
-	postToHub({ type: "status_update", agentId, status: "ready" });
+	postToHub({ type: "ready", agentName, port: agentPort });
+	postToHub({ type: "status_update", agentName, status: "ready" });
 
-	process.stderr.write(`[d-pi worker] Agent "${agentName}" (${agentId}) ready on port ${agentPort}\n`);
+	process.stderr.write(`[d-pi worker] Agent "${agentName}" ready on port ${agentPort}\n`);
 
 	// Keep alive
 	return new Promise(() => {});
 }
 
 async function gracefulShutdown(): Promise<void> {
-	postToHub({ type: "status_update", agentId: config.agentId, status: "destroyed" });
+	postToHub({ type: "status_update", agentName: config.agentName, status: "destroyed" });
 	try {
 		await httpServer?.stop();
 	} catch {
@@ -353,6 +355,6 @@ async function gracefulShutdown(): Promise<void> {
 }
 
 runAgentWorker().catch((err: unknown) => {
-	postToHub({ type: "error", agentId: config.agentId, error: String(err) });
+	postToHub({ type: "error", agentName: config.agentName, error: String(err) });
 	process.exit(1);
 });

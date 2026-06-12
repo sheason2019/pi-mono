@@ -67,18 +67,18 @@ export async function runDPiConnectMode(options: DPiConnectOptions): Promise<voi
 	}
 	const network = (await networkResponse.json()) as GroupArchitectureSnapshot;
 
-	let currentAgentId = resolveAgentId(network, agentSpec);
+	let currentAgentName = resolveAgentName(network, agentSpec);
 
 	// 2. Agent switching loop — each iteration spawns a fresh session
 	while (true) {
-		const agentUrl = `${url}/agents/${currentAgentId}`;
+		const agentUrl = `${url}/agents/${currentAgentName}`;
 
 		await runConnectSession({
 			cliPath,
 			agentUrl,
 			hubUrl: url,
 			authToken,
-			connectId: currentAgentId,
+			connectId: currentAgentName,
 			cwd: process.cwd(),
 			fetchImpl: fetch,
 		});
@@ -87,9 +87,9 @@ export async function runDPiConnectMode(options: DPiConnectOptions): Promise<voi
 		// vs a normal quit (file absent)
 		if (existsSync(AGENT_SWITCH_FILE)) {
 			try {
-				const newAgentId = readFileSync(AGENT_SWITCH_FILE, "utf-8").trim();
+				const newAgentName = readFileSync(AGENT_SWITCH_FILE, "utf-8").trim();
 				unlinkSync(AGENT_SWITCH_FILE);
-				currentAgentId = newAgentId;
+				currentAgentName = newAgentName;
 				// Clear terminal before spawning new child so previous session content is removed
 				process.stdout.write("\x1B[2J\x1B[H");
 				continue;
@@ -251,14 +251,12 @@ export async function runConnectSession(opts: ConnectSessionSpawnOptions & { fet
 	}
 }
 
-/** Resolve agent ID from spec (UUID prefix or name) */
-function resolveAgentId(network: GroupArchitectureSnapshot, agentSpec?: string): string {
+/** Resolve agent name from spec (the only valid identifier now). */
+function resolveAgentName(network: GroupArchitectureSnapshot, agentSpec?: string): string {
 	if (agentSpec) {
-		const match = network.agents.find((a) => a.id === agentSpec || a.id.startsWith(agentSpec));
-		if (match) return match.id;
 		const byName = network.agents.find((a) => a.name === agentSpec);
-		if (byName) return byName.id;
+		if (byName) return byName.name;
 		throw new Error(`Agent not found: ${agentSpec}. Available: ${network.agents.map((a) => a.name).join(", ")}`);
 	}
-	return network.rootId;
+	return network.rootName;
 }

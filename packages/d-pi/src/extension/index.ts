@@ -28,14 +28,25 @@ import { createUnsubscribeSourceTool } from "./unsubscribe-source.ts";
 
 export interface DPiWorkerConfig {
 	mode: "worker";
-	agentId: string;
+	/**
+	 * The worker's identity — the agent's NAME. Names are the unique
+	 * key (see the "name is identity" rationale in the changelog);
+	 * there is no separate UUID. The worker uses this to label every
+	 * IPC message and every persisted `agent.json`.
+	 */
+	agentName: string;
 	postToHub: (message: WorkerToHubMessage) => void;
 }
 
 export interface DPiClientConfig {
 	mode: "client";
 	hubUrl: string;
-	currentAgentId?: string;
+	/**
+	 * The currently connected agent's NAME (same identity rule as
+	 * DPiWorkerConfig.agentName). Used by the /agents selector to
+	 * mark the active entry.
+	 */
+	currentAgentName?: string;
 	/**
 	 * Bearer token for the hub. Required when the hub is running with auth
 	 * enabled (the default). Omit in dev mode (hub without auth).
@@ -45,7 +56,7 @@ export interface DPiClientConfig {
 
 export type DPiExtensionConfig = DPiWorkerConfig | DPiClientConfig;
 
-/** File where the selected agent ID is written before triggering shutdown.
+/** File where the selected agent name is written before triggering shutdown.
  *  The parent process checks for this file to determine if the child exited
  *  due to an agent switch (file exists) or a normal quit (file absent). */
 export const AGENT_SWITCH_FILE = join(tmpdir(), "d-pi-agent-switch.txt");
@@ -64,7 +75,7 @@ export const AGENT_SWITCH_FILE = join(tmpdir(), "d-pi-agent-switch.txt");
  */
 export function createDPiExtension(config: DPiExtensionConfig): { factory: ExtensionFactory; channel?: HubChannel } {
 	if (config.mode === "worker") {
-		const channel = new HubChannel(config.agentId, config.postToHub);
+		const channel = new HubChannel(config.agentName, config.postToHub);
 		const factory = createWorkerFactory(channel);
 		return { factory, channel };
 	}
@@ -126,7 +137,7 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 			// "next" vs "steer" mode (next = turn-start injection, steer
 			// = interrupt). For non-streaming (i.e. a normal Enter key
 			// press arriving as a complete user message), default to
-			// "next" — equivalent to triggerTurn=true.
+			// "next" — équivalent to triggerTurn=true.
 			// Same fix as `onIncomingMessage` below: always set
 			// `triggerTurn: true` so a TUI input can wake an idle agent.
 			// When the agent is already streaming, the downstream
@@ -253,33 +264,34 @@ function createClientFactory(config: DPiClientConfig): ExtensionFactory {
 					}
 
 					// Build tree-ordered options by walking from root
-					const agentMap = new Map(network.agents.map((a) => [a.id, a]));
+					// (network uses `name` as the key, not a separate id)
+					const agentMap = new Map(network.agents.map((a) => [a.name, a]));
 					const options: string[] = [];
 
-					const walkTree = (agentId: string, depth: number, isLast = true): void => {
-						const agent = agentMap.get(agentId);
+					const walkTree = (agentName: string, depth: number, isLast = true): void => {
+						const agent = agentMap.get(agentName);
 						if (!agent) return;
-						options.push(formatAgentEntry(agent, depth, isLast, agent.id === config.currentAgentId));
+						options.push(formatAgentEntry(agent, depth, isLast, agent.name === config.currentAgentName));
 						for (let i = 0; i < agent.children.length; i++) {
 							walkTree(agent.children[i], depth + 1, i === agent.children.length - 1);
 						}
 					};
 
 					// Walk from root first
-					if (network.rootId) {
-						walkTree(network.rootId, 0);
+					if (network.rootName) {
+						walkTree(network.rootName, 0);
 					}
 					// Then add any orphan agents (no parent in the tree)
 					const visited = new Set<string>();
-					const collectVisited = (agentId: string): void => {
-						visited.add(agentId);
-						const agent = agentMap.get(agentId);
-						if (agent) for (const childId of agent.children) collectVisited(childId);
+					const collectVisited = (agentName: string): void => {
+						visited.add(agentName);
+						const agent = agentMap.get(agentName);
+						if (agent) for (const childName of agent.children) collectVisited(childName);
 					};
-					if (network.rootId) collectVisited(network.rootId);
+					if (network.rootName) collectVisited(network.rootName);
 					for (const agent of network.agents) {
-						if (!visited.has(agent.id)) {
-							options.push(formatAgentEntry(agent, 0, true, agent.id === config.currentAgentId));
+						if (!visited.has(agent.name)) {
+							options.push(formatAgentEntry(agent, 0, true, agent.name === config.currentAgentName));
 						}
 					}
 
@@ -287,12 +299,12 @@ function createClientFactory(config: DPiClientConfig): ExtensionFactory {
 					const selected = await ctx.ui.select(title, options);
 					if (!selected) return;
 
-					// Extract agent ID from the tab-separated suffix
-					const agentId = parseAgentId(selected);
-					if (!agentId) return;
+					// Extract agent name from the tab-separated suffix
+					const agentName = parseAgentName(selected);
+					if (!agentName) return;
 
-					// Write selected agent ID to temp file, then trigger graceful shutdown
-					writeFileSync(AGENT_SWITCH_FILE, agentId, "utf-8");
+					// Write selected agent name to temp file, then trigger graceful shutdown
+					writeFileSync(AGENT_SWITCH_FILE, agentName, "utf-8");
 					ctx.shutdown();
 				} catch (err) {
 					ctx.ui.notify(`Failed to switch agent: ${err instanceof Error ? err.message : String(err)}`, "error");
@@ -313,19 +325,19 @@ function registerDPiMessageRenderer(pi: ExtensionAPI): void {
 		const textContent = extracted?.text ?? rawText;
 
 		// Build meta label: sourceType[:name] · authName · timeString.
-		// Contract: at most one of {connectId, sourceName, agentId} is set per
-		// message, keyed off sourceType — `connectId` only appears with
-		// sourceType "connect", `sourceName` with "source", and `agentId`
-		// with "agent". The chain below relies on that mutual exclusion, so
-		// do not generalize it (e.g. by appending more suffixes) without also
-		// widening the contract.
+		// Contract: at most one of {connectId, sourceName, agentName} is
+		// set per message, keyed off sourceType — `connectId` only
+		// appears with sourceType "connect", `sourceName` with "source",
+		// and `agentName` with "agent". The chain below relies on that
+		// mutual exclusion, so do not generalize it (e.g. by appending
+		// more suffixes) without also widening the contract.
 		let source: string = meta.sourceType;
 		if (meta.sourceType === "connect" && meta.connectId) {
 			source = `${source} ${meta.connectId}`;
 		} else if (meta.sourceName) {
 			source = `${source}:${meta.sourceName}`;
-		} else if (meta.agentId) {
-			source = `${source}:${meta.agentId}`;
+		} else if (meta.agentName) {
+			source = `${source}:${meta.agentName}`;
 		}
 		const headerParts = [source, meta.auth?.name, meta.createTime].filter((part) => part?.trim());
 
@@ -385,11 +397,11 @@ function formatAgentEntry(agent: GroupArchitectureEntry, depth: number, isLast: 
 	const indicator = statusIndicator(agent.status);
 	const model = agent.model ? ` (${agent.model})` : "";
 	const current = isCurrent ? " \u25C0" : ""; // ◀
-	return `${indent}${indicator} ${agent.name}${model}${current}\t${agent.id}`;
+	return `${indent}${indicator} ${agent.name}${model}${current}\t${agent.name}`;
 }
 
-/** Extract agent ID from a formatted selector entry (after the tab). */
-function parseAgentId(selected: string): string | undefined {
+/** Extract agent name from a formatted selector entry (after the tab). */
+function parseAgentName(selected: string): string | undefined {
 	const tabIdx = selected.lastIndexOf("\t");
 	if (tabIdx === -1) return undefined;
 	return selected.slice(tabIdx + 1);

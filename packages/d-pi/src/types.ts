@@ -41,13 +41,18 @@ export interface WorkspaceContext {
 }
 
 // === Worker Configuration (passed via workerData) ===
+//
+// The `agentName` is the agent's identity; there is no separate id.
+// `parentName` (when set) must match an existing agent's name — same
+// uniqueness rule as `name` itself, enforced by the hub at restore
+// time. The worker uses `agentName` to label every IPC message and
+// every persisted `agent.json`.
 export interface AgentWorkerConfig {
-	agentId: string;
+	agentName: string;
+	parentName?: string;
 	port: number;
 	cwd: string;
 	model?: string;
-	parentAgentId?: string;
-	agentName: string;
 	workspaceContext?: WorkspaceContext;
 	sessionId?: string;
 	sessionDir?: string;
@@ -56,19 +61,23 @@ export interface AgentWorkerConfig {
 }
 
 // === Worker → Hub IPC Messages ===
+//
+// All agent-identity fields are names (not UUIDs). The hub dispatches
+// `tool_call` back to the in-memory worker via the `agentName` field,
+// which must match the registry key.
 export type WorkerToHubMessage =
-	| { type: "ready"; agentId: string; port: number }
-	| { type: "error"; agentId: string; error: string }
-	| { type: "tool_call"; agentId: string; tool: string; params: unknown; callId: string }
-	| { type: "tool_call_timeout"; agentId: string; callId: string }
-	| { type: "status_update"; agentId: string; status: AgentStatus };
+	| { type: "ready"; agentName: string; port: number }
+	| { type: "error"; agentName: string; error: string }
+	| { type: "tool_call"; agentName: string; tool: string; params: unknown; callId: string }
+	| { type: "tool_call_timeout"; agentName: string; callId: string }
+	| { type: "status_update"; agentName: string; status: AgentStatus };
 
 // === Hub → Worker IPC Messages ===
 export type HubToWorkerMessage =
 	| { type: "tool_result"; callId: string; result: unknown }
 	| {
 			type: "message";
-			fromAgentId: string;
+			fromAgentName: string;
 			content: string;
 			sourceName?: string;
 			mode?: "next" | "steer";
@@ -77,9 +86,8 @@ export type HubToWorkerMessage =
 
 // === Group Architecture Snapshot ===
 export interface GroupArchitectureEntry {
-	id: string;
 	name: string;
-	parentId: string | undefined;
+	parentName: string | undefined;
 	status: AgentStatus;
 	model: string | undefined;
 	children: string[];
@@ -87,14 +95,19 @@ export interface GroupArchitectureEntry {
 
 export interface GroupArchitectureSnapshot {
 	agents: GroupArchitectureEntry[];
-	rootId: string;
+	rootName: string;
 }
 
 // === Agent Record (Hub-internal) ===
+//
+// `name` is the unique key — see the "name is identity" rationale
+// in the changelog. We deliberately don't carry a separate UUID; every
+// cross-reference (parent, children, subscribers, meta) uses the name
+// directly, which means persisted `agent.json`s and in-memory state
+// can be joined back together by name without an indirection table.
 export interface AgentRecord {
-	id: string;
 	name: string;
-	parentId: string | undefined;
+	parentName: string | undefined;
 	children: string[];
 	port: number;
 	status: AgentStatus;
@@ -121,8 +134,7 @@ export interface SendMessageResult {
 }
 
 export interface CreateAgentResult {
-	agentId: string;
-	name: string;
+	agentName: string;
 }
 
 export interface DestroyAgentResult {

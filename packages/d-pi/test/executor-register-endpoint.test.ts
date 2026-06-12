@@ -39,7 +39,7 @@ async function startHubWithAuth(workspaceRoot: string): Promise<StartedHub> {
 	const gateway = new HubGateway(
 		registry,
 		sourceManager,
-		async () => ({ agentId: "created", name: "created" }),
+		async () => ({ agentName: "created" }),
 		async () => {},
 		new AuthSessionManager(workspaceRoot),
 		executorRegistry,

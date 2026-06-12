@@ -40,14 +40,14 @@ export class Hub {
 		const portStart = config.agentPortStart ?? DEFAULT_AGENT_PORT_START;
 		this._registry = new AgentRegistry(portStart);
 
-		this._sourceManager = new SourceManager((sourceName, content, subscriberAgentIds, mode) => {
+		this._sourceManager = new SourceManager((sourceName, content, subscriberNames, mode) => {
 			const metaContent = injectMeta(content, "source", undefined, { sourceName });
-			for (const agentId of subscriberAgentIds) {
-				const record = this._registry.get(agentId);
+			for (const agentName of subscriberNames) {
+				const record = this._registry.get(agentName);
 				if (record) {
 					record.worker.postMessage({
 						type: "message",
-						fromAgentId: `source:${sourceName}`,
+						fromAgentName: `source:${sourceName}`,
 						content: metaContent,
 						sourceName,
 						mode,
@@ -61,8 +61,8 @@ export class Hub {
 		this._gateway = new HubGateway(
 			this._registry,
 			this._sourceManager,
-			(parentId, options) => this.createAgent(parentId, options),
-			(agentId) => this.destroyAgent(agentId),
+			(parentName, options) => this.createAgent(parentName, options),
+			(agentName) => this.destroyAgent(agentName),
 			new AuthSessionManager(config.workspaceRoot),
 			this._executorRegistry,
 		);
@@ -127,8 +127,8 @@ export class Hub {
 				parentName = undefined;
 			}
 			process.stderr.write(`[d-pi hub] Restoring agent "${d.config.name}" from ${d.entryName}/\n`);
-			const parentAgentId = parentName ? this._registry.getByName(parentName)?.id : undefined;
-			if (parentName && !parentAgentId) {
+			const parentNameForCreate = parentName;
+			if (parentName && !this._registry.getByName(parentName)) {
 				// parentName is set but the named parent didn't make it into
 				// the registry during this restore pass (e.g. its agent.json
 				// is missing or filtered out). Surface this loudly — the
@@ -140,7 +140,7 @@ export class Hub {
 				);
 			}
 			try {
-				await this.createAgent(parentAgentId, {
+				await this.createAgent(parentNameForCreate, {
 					name: d.config.name,
 					roles: d.config.roles,
 					model: d.config.model,
@@ -157,7 +157,7 @@ export class Hub {
 	}
 
 	async createAgent(
-		parentAgentId: string | undefined,
+		parentName: string | undefined,
 		options: {
 			name: string;
 			cwd?: string;
@@ -178,46 +178,45 @@ export class Hub {
 			);
 		}
 
-		// Parent invariant: a non-undefined parentAgentId MUST refer to a live
+		// Parent invariant: a non-undefined parentName MUST refer to a live
 		// agent in the registry. The runtime create_agent path (worker → hub)
-		// already guarantees this because `fromAgentId` is the worker's own
-		// agentId from workerData. The persisted-restore path now guarantees
-		// it via the depth-sort in `_restorePersistedAgents`. This check is a
-		// third-line defense against in-process callers that hand us a stale
-		// or fabricated id.
+		// already guarantees this because the worker passes its own name
+		// from workerData. The persisted-restore path now guarantees it
+		// via the depth-sort in `_restorePersistedAgents`. This check is a
+		// third-line defense against in-process callers that hand us a
+		// stale or fabricated name.
 		//
 		// The design intent — documented in the create_agent tool description
 		// — is that every new agent is a DIRECT child of the caller, never a
 		// sibling or arbitrary depth. Anything else would break the agent
 		// tree's parent/child invariant and produce the "orphan at the same
 		// depth as the caller" bug.
-		if (parentAgentId !== undefined && !this._registry.get(parentAgentId)) {
+		if (parentName !== undefined && !this._registry.get(parentName)) {
 			throw new Error(
-				`Cannot create agent "${options.name}": parent agent id "${parentAgentId}" not found in registry. ` +
-					`The create_agent contract is that the new agent is a direct child of the caller; the caller's id must be a registered agent.`,
+				`Cannot create agent "${options.name}": parent agent "${parentName}" not found in registry. ` +
+					`The create_agent contract is that the new agent is a direct child of the caller; the caller must be a registered agent.`,
 			);
 		}
 
-		// Check name uniqueness
+		// Check name uniqueness (names are the unique key, see the
+		// "name is identity" rationale in the changelog)
 		if (this._registry.getByName(options.name)) {
 			throw new Error(`Agent with name "${options.name}" already exists`);
 		}
 
-		const agentId = crypto.randomUUID();
 		const port = await this._registry.allocatePort();
 
 		// Agent cwd: workspaceRoot/agents/<name>/ (create if needed)
 		const agentDir = options.cwd ?? join(this._config.workspaceRoot, "agents", options.name);
 		mkdirSync(agentDir, { recursive: true });
 
-		// Resolve parent name for persistence
-		const parentName = parentAgentId ? this._registry.get(parentAgentId)?.name : undefined;
 		const workspaceContext = loadWorkspaceContext(this._config.workspaceRoot, {
 			agentName: options.name,
 			roles: options.roles,
 		});
 
-		// Write agent.json
+		// Write agent.json — parentName is already what we have (no
+		// remap needed; the on-disk format is names all the way down)
 		const agentConfig: AgentConfig = {
 			name: options.name,
 			parentName,
@@ -237,19 +236,16 @@ export class Hub {
 		const includeTools = options.includeTools;
 		const excludeTools = options.excludeTools;
 
-		process.stderr.write(
-			`[d-pi hub] Creating agent "${options.name}" (${agentId}) on port ${port}, cwd=${agentDir}\n`,
-		);
+		process.stderr.write(`[d-pi hub] Creating agent "${options.name}" on port ${port}, cwd=${agentDir}\n`);
 
-		// Create worker
+		// Create worker — `agentName` is the agent's identity (no separate id)
 		const worker = new Worker(new URL("../worker/agent-worker.js", import.meta.url), {
 			workerData: {
-				agentId,
+				agentName: options.name,
+				parentName,
 				port,
 				cwd: agentDir,
 				model: options.model,
-				parentAgentId,
-				agentName: options.name,
 				workspaceContext,
 				sessionId: options.sessionId,
 				sessionDir,
@@ -264,22 +260,21 @@ export class Hub {
 		});
 
 		worker.on("error", (err) => {
-			process.stderr.write(`[d-pi hub] Worker ${agentId} error: ${err.message}\n`);
-			this._registry.updateStatus(agentId, "error");
+			process.stderr.write(`[d-pi hub] Worker ${options.name} error: ${err.message}\n`);
+			this._registry.updateStatus(options.name, "error");
 		});
 
 		worker.on("exit", (code) => {
 			if (code !== 0) {
-				process.stderr.write(`[d-pi hub] Worker ${agentId} exited with code ${code}\n`);
+				process.stderr.write(`[d-pi hub] Worker ${options.name} exited with code ${code}\n`);
 			}
-			this._registry.updateStatus(agentId, "destroyed");
+			this._registry.updateStatus(options.name, "destroyed");
 		});
 
-		// Register in registry (status: starting)
+		// Register in registry (status: starting) — keyed by name
 		this._registry.register({
-			id: agentId,
 			name: options.name,
-			parentId: parentAgentId,
+			parentName,
 			children: [],
 			port,
 			status: "starting",
@@ -292,22 +287,22 @@ export class Hub {
 		return new Promise((resolve, reject) => {
 			const timeout = setTimeout(() => {
 				worker.off("message", readyHandler);
-				process.stderr.write(`[d-pi hub] Worker ${agentId} startup timeout after 120s\n`);
-				reject(new Error(`Worker ${agentId} startup timeout`));
+				process.stderr.write(`[d-pi hub] Worker ${options.name} startup timeout after 120s\n`);
+				reject(new Error(`Worker ${options.name} startup timeout`));
 			}, 120_000);
 
 			const readyHandler = (message: WorkerToHubMessage) => {
-				if (message.type === "ready" && message.agentId === agentId) {
+				if (message.type === "ready" && message.agentName === options.name) {
 					clearTimeout(timeout);
-					this._registry.updateStatus(agentId, "ready");
+					this._registry.updateStatus(options.name, "ready");
 					worker.off("message", readyHandler);
-					process.stderr.write(`[d-pi hub] Agent "${options.name}" (${agentId}) is ready\n`);
-					resolve({ agentId, name: options.name });
+					process.stderr.write(`[d-pi hub] Agent "${options.name}" is ready\n`);
+					resolve({ agentName: options.name });
 				}
-				if (message.type === "error" && message.agentId === agentId) {
+				if (message.type === "error" && message.agentName === options.name) {
 					clearTimeout(timeout);
 					worker.off("message", readyHandler);
-					process.stderr.write(`[d-pi hub] Agent "${options.name}" (${agentId}) error: ${message.error}\n`);
+					process.stderr.write(`[d-pi hub] Agent "${options.name}" error: ${message.error}\n`);
 					reject(new Error(message.error));
 				}
 			};
@@ -315,24 +310,25 @@ export class Hub {
 		});
 	}
 
-	async destroyAgent(agentIdOrName: string): Promise<void> {
-		// Resolve by name if not a UUID
-		const record = this._registry.get(agentIdOrName) ?? this._registry.getByName(agentIdOrName);
+	async destroyAgent(agentName: string): Promise<void> {
+		// Names are the unique key; the registry is name-keyed, so a single
+		// lookup suffices. The previous "name or id" fallback is no longer
+		// needed — the only valid identifier IS the name.
+		const record = this._registry.get(agentName);
 		if (!record) {
-			throw new Error(`Agent not found: ${agentIdOrName}`);
+			throw new Error(`Agent not found: ${agentName}`);
 		}
-		const agentId = record.id;
 
 		// Safety check: agent must not have children
 		if (record.children.length > 0) {
-			const childNames = record.children.map((cid) => this._registry.get(cid)?.name ?? cid).join(", ");
+			const childNames = record.children.map((cname) => this._registry.get(cname)?.name ?? cname).join(", ");
 			throw new Error(
 				`Cannot destroy agent "${record.name}": it has ${record.children.length} child agent(s) (${childNames}). Destroy all children first.`,
 			);
 		}
 
 		// Safety check: agent must not be creator of any active source
-		const createdSources = this._sourceManager.getSourcesByCreator(agentId);
+		const createdSources = this._sourceManager.getSourcesByCreator(agentName);
 		if (createdSources.length > 0) {
 			throw new Error(
 				`Cannot destroy agent "${record.name}": it is the creator of source(s) [${createdSources.join(", ")}]. Destroy or transfer ownership of those sources first.`,
@@ -340,21 +336,17 @@ export class Hub {
 		}
 
 		// Auto-unsubscribe from all sources
-		this._sourceManager.removeAgentSubscriptions(agentId);
+		this._sourceManager.removeAgentSubscriptions(agentName);
 
 		// Collect all workers to terminate before unregister removes them from registry
-		const destroyedIds = [agentId];
-
-		const workersToTerminate: Array<{ id: string; worker: Worker; cwd: string }> = [];
-		for (const id of destroyedIds) {
-			const r = this._registry.get(id);
-			if (r) {
-				workersToTerminate.push({ id, worker: r.worker, cwd: r.cwd });
-			}
+		const workersToTerminate: Array<{ name: string; worker: Worker; cwd: string }> = [];
+		const r = this._registry.get(agentName);
+		if (r) {
+			workersToTerminate.push({ name: agentName, worker: r.worker, cwd: r.cwd });
 		}
 
 		// Unregister (no descendants since children check passed)
-		this._registry.unregister(agentId);
+		this._registry.unregister(agentName);
 
 		// Remove agent.json and directory for all destroyed agents
 		for (const { cwd } of workersToTerminate) {
@@ -370,14 +362,18 @@ export class Hub {
 		}
 
 		// Send destroy to all workers and wait for confirmation (or timeout)
-		const destroyPromises = workersToTerminate.map(async ({ id, worker }) => {
+		const destroyPromises = workersToTerminate.map(async ({ name, worker }) => {
 			try {
 				worker.postMessage({ type: "destroy" } satisfies HubToWorkerMessage);
 				// Wait for worker to exit or timeout after 5s
 				await Promise.race([
 					new Promise<void>((resolve) => {
 						const handler = (message: WorkerToHubMessage) => {
-							if (message.type === "status_update" && message.agentId === id && message.status === "destroyed") {
+							if (
+								message.type === "status_update" &&
+								message.agentName === name &&
+								message.status === "destroyed"
+							) {
 								worker.off("message", handler);
 								resolve();
 							}
@@ -402,28 +398,28 @@ export class Hub {
 				break;
 
 			case "error":
-				process.stderr.write(`[d-pi hub] Agent ${message.agentId} error: ${message.error}\n`);
-				this._registry.updateStatus(message.agentId, "error");
+				process.stderr.write(`[d-pi hub] Agent ${message.agentName} error: ${message.error}\n`);
+				this._registry.updateStatus(message.agentName, "error");
 				break;
 
 			case "status_update":
-				this._registry.updateStatus(message.agentId, message.status);
+				this._registry.updateStatus(message.agentName, message.status);
 				break;
 
 			case "tool_call":
-				this._handleToolCall(message.callId, message.tool, message.params, message.agentId);
+				this._handleToolCall(message.callId, message.tool, message.params, message.agentName);
 				break;
 
 			case "tool_call_timeout":
-				process.stderr.write(`[d-pi hub] Tool call ${message.callId} from agent ${message.agentId} timed out\n`);
+				process.stderr.write(`[d-pi hub] Tool call ${message.callId} from agent ${message.agentName} timed out\n`);
 				break;
 		}
 	}
 
-	private async _handleToolCall(callId: string, tool: string, params: unknown, fromAgentId: string): Promise<void> {
-		const agent = this._registry.get(fromAgentId);
+	private async _handleToolCall(callId: string, tool: string, params: unknown, fromAgentName: string): Promise<void> {
+		const agent = this._registry.get(fromAgentName);
 		if (!agent) {
-			process.stderr.write(`[d-pi hub] _handleToolCall: agent not found for ${fromAgentId}\n`);
+			process.stderr.write(`[d-pi hub] _handleToolCall: agent not found for ${fromAgentName}\n`);
 			return;
 		}
 
@@ -433,15 +429,20 @@ export class Hub {
 			switch (tool) {
 				case "send_message": {
 					const p = params as { agent_id: string; message: string; mode?: "next" | "steer" };
-					const targetAgent = this._registry.get(p.agent_id) ?? this._registry.getByName(p.agent_id);
+					// Names are the unique key — the registry is name-keyed
+					// so a single get() lookup suffices. No more "name or id"
+					// disambiguation; the user always passes the agent's name.
+					const targetAgent = this._registry.get(p.agent_id);
 					if (!targetAgent) {
 						result = { ok: false, error: `Agent not found: ${p.agent_id}` } satisfies SendMessageResult;
 					} else {
-						const metaContent = injectMeta(p.message, "agent", undefined, { agentId: fromAgentId });
+						const metaContent = injectMeta(p.message, "agent", undefined, {
+							agentName: fromAgentName,
+						});
 						const mode = p.mode ?? "next";
 						targetAgent.worker.postMessage({
 							type: "message",
-							fromAgentId,
+							fromAgentName,
 							content: metaContent,
 							mode,
 						} satisfies HubToWorkerMessage);
@@ -459,7 +460,7 @@ export class Hub {
 						includeTools?: string[];
 						excludeTools?: string[];
 					};
-					const created = await this.createAgent(fromAgentId, {
+					const created = await this.createAgent(fromAgentName, {
 						name: p.name,
 						cwd: p.cwd,
 						model: p.model,
@@ -467,7 +468,7 @@ export class Hub {
 						includeTools: p.includeTools,
 						excludeTools: p.excludeTools,
 					});
-					result = { agentId: created.agentId, name: created.name } satisfies CreateAgentResult;
+					result = { agentName: created.agentName } satisfies CreateAgentResult;
 					break;
 				}
 
@@ -507,7 +508,7 @@ export class Hub {
 								cwd: p.cwd,
 								env: p.env,
 							},
-							fromAgentId,
+							fromAgentName,
 						);
 						result = { ok: true } satisfies CreateSourceResult;
 					} catch (err) {
@@ -536,7 +537,7 @@ export class Hub {
 				case "subscribe_source": {
 					const p = params as { source_name: string };
 					try {
-						this._sourceManager.subscribe(p.source_name, fromAgentId);
+						this._sourceManager.subscribe(p.source_name, fromAgentName);
 						result = { ok: true } satisfies SubscribeSourceResult;
 					} catch (err) {
 						result = {
@@ -550,7 +551,7 @@ export class Hub {
 				case "unsubscribe_source": {
 					const p = params as { source_name: string };
 					try {
-						this._sourceManager.unsubscribe(p.source_name, fromAgentId);
+						this._sourceManager.unsubscribe(p.source_name, fromAgentName);
 						result = { ok: true } satisfies UnsubscribeSourceResult;
 					} catch (err) {
 						result = {

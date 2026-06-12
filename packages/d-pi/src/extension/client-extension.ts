@@ -13,7 +13,7 @@ export function client(pi: ExtensionAPI): void {
 	createDPiExtension({
 		mode: "client",
 		hubUrl,
-		currentAgentId: process.env.DPI_CURRENT_AGENT_ID,
+		currentAgentName: process.env.DPI_CURRENT_AGENT_NAME,
 		authToken: process.env.DPI_AUTH_TOKEN,
 	}).factory(pi);
 }

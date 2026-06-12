@@ -27,7 +27,7 @@ function captureWorkerCommands(): RegisteredCommand[] {
 	const commands = new Map<string, RegisteredCommand>();
 	const { factory } = createDPiExtension({
 		mode: "worker",
-		agentId: "agent-1",
+		agentName: "agent-1",
 		postToHub: () => {},
 	});
 	const api = {
@@ -161,9 +161,14 @@ async function startHub(workspaceRoot: string, agentPort: number): Promise<Start
 	});
 	const registry = new AgentRegistry(0);
 	registry.register({
-		id: "agent-1",
+		// "root" is the default proxy target for hub-rooted /commands
+		// calls (the gateway's catch-all / proxy looks up `getRootAgent()`).
+		// Earlier versions of this test used "agent-1" as a stand-in,
+		// but with the name-as-identity refactor the root name IS the
+		// proxy key — it must literally be "root" for the default route
+		// to land here.
 		name: "root",
-		parentId: undefined,
+		parentName: undefined,
 		children: [],
 		port: agentPort,
 		status: "ready",
@@ -174,7 +179,7 @@ async function startHub(workspaceRoot: string, agentPort: number): Promise<Start
 	const gateway = new HubGateway(
 		registry,
 		new SourceManager(() => {}),
-		async () => ({ agentId: "created", name: "created" }),
+		async () => ({ agentName: "created" }),
 		async () => {},
 		new AuthSessionManager(workspaceRoot),
 	);

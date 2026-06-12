@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Agent identity refactored: names are now the unique key, UUIDs are gone.** Previously, every agent had a generated `id` (UUID) AND a `name`, with the registry map keyed by `id` and parent/children cross-references also stored as `id`s. This required a parallel indirection: persisted `agent.json` already used `parentName` (because the existing restore code had to bridge the disk format back to a fresh in-memory `id`), and the meta header carried both `agentId` and `agentName` for the same agent. With names unique by project invariant, the UUIDs were dead weight. The refactor drops the `id` field from `AgentRecord` entirely and keys the registry map by `name`; `parentId` becomes `parentName`, `creatorAgentId` becomes `creatorName`, the `MessageMeta.agentId` field becomes `MessageMeta.agentName`, the `HubToWorkerMessage.fromAgentId` becomes `fromAgentName`, and `WorkerToHubMessage`'s `agentId` fields become `agentName`. `createAgent` now returns `{ agentName }` (no separate `id`). The on-disk `agent.json` shape is unchanged (it already used `parentName`), so no migration is required for existing persisted agents. The bind/unbind endpoint URL pattern (`/_hub/agents/{name}/bind`) already used the agent's name, just the variable name in the gateway was renamed for clarity. Tool-side: `send_message(agent_id=...)` and `destroy_agent(agent_id=...)` now take the agent's name (the only valid identifier); the previous "name or id" fallback that looked up by `getByName` after a miss is removed because it is no longer reachable (names are the only key). All 201 d-pi vitest cases + 1412 coding-agent vitest cases pass.
+
 ## [0.6.0-alpha.5] - 2026-06-12
 
 ### Changed

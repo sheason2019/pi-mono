@@ -1,7 +1,7 @@
 export interface MessageMeta {
 	createTime: string;
 	sourceType: "connect" | "agent" | "source";
-	agentId?: string;
+	agentName?: string;
 	sourceName?: string;
 	connectId?: string;
 	auth?: {
@@ -13,7 +13,7 @@ export interface MessageMeta {
 
 export interface MessageMetaOptions {
 	connectId?: string;
-	agentId?: string;
+	agentName?: string;
 	sourceName?: string;
 }
 
@@ -37,7 +37,7 @@ export function injectMeta(
 	const meta: MessageMeta = {
 		createTime: formatTime(new Date()),
 		sourceType,
-		...(options?.agentId && { agentId: options.agentId }),
+		...(options?.agentName && { agentName: options.agentName }),
 		...(options?.sourceName && { sourceName: options.sourceName }),
 		// connectId is meaningful only for connect-typed meta
 		...(sourceType === "connect" && options?.connectId && { connectId: options.connectId }),
@@ -64,7 +64,7 @@ export function extractMeta(text: string): { meta: MessageMeta; text: string } |
 export function buildMetaContent(meta: MessageMeta): string {
 	switch (meta.sourceType) {
 		case "agent":
-			return `Message from agent "${meta.agentId}". ${meta.tips}`;
+			return `Message from agent "${meta.agentName}". ${meta.tips}`;
 		case "source":
 			return `Message from external source "${meta.sourceName}". ${meta.tips}`;
 		case "connect":

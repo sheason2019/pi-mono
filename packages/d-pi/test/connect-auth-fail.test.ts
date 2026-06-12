@@ -58,7 +58,7 @@ describe("d-pi connect auth failure handling", () => {
 		const gateway = new HubGateway(
 			new AgentRegistry(0),
 			new SourceManager(() => {}),
-			async () => ({ agentId: "a", name: "a" }),
+			async () => ({ agentName: "a" }),
 			async () => {},
 			new AuthSessionManager(workspaceRoot),
 		);
@@ -96,7 +96,7 @@ describe("d-pi connect auth failure handling", () => {
 		const gateway = new HubGateway(
 			new AgentRegistry(0),
 			new SourceManager(() => {}),
-			async () => ({ agentId: "a", name: "a" }),
+			async () => ({ agentName: "a" }),
 			async () => {},
 			new AuthSessionManager(workspaceRoot),
 		);
@@ -191,7 +191,7 @@ describe("d-pi connect auth failure handling", () => {
 		const gateway = new HubGateway(
 			new AgentRegistry(0),
 			new SourceManager(() => {}),
-			async () => ({ agentId: "a", name: "a" }),
+			async () => ({ agentName: "a" }),
 			async () => {},
 			new AuthSessionManager(workspaceRoot),
 		);
@@ -225,7 +225,7 @@ describe("d-pi connect auth failure handling", () => {
 		const gateway = new HubGateway(
 			new AgentRegistry(0),
 			new SourceManager(() => {}),
-			async () => ({ agentId: "a", name: "a" }),
+			async () => ({ agentName: "a" }),
 			async () => {},
 			new AuthSessionManager(workspaceRoot),
 		);

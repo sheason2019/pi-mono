@@ -33,10 +33,10 @@ export class HubGateway {
 	private readonly _registry: AgentRegistry;
 	private readonly _sourceManager: SourceManager;
 	private readonly _onCreateAgent: (
-		parentAgentId: string | undefined,
+		parentName: string | undefined,
 		options: { name: string; cwd?: string; model?: string; roles?: string[] },
-	) => Promise<{ agentId: string; name: string }>;
-	private readonly _onDestroyAgent: (agentId: string) => Promise<void>;
+	) => Promise<{ agentName: string }>;
+	private readonly _onDestroyAgent: (agentName: string) => Promise<void>;
 	private readonly _auth: AuthSessionManager | undefined;
 	private readonly _executorRegistry: ExecutorRegistry | undefined;
 	private readonly _agentBindings: Map<string, string> = new Map();
@@ -72,9 +72,9 @@ export class HubGateway {
 					return;
 				}
 
-				// /agents/{id}/remote-call — dispatch to the bound executor and block
+				// /agents/{name}/remote-call — dispatch to the bound executor and block
 				// until the executor POSTs the result back. Must be checked BEFORE the
-				// generic /agents/{id}/* proxy below. Auth is required: without it,
+				// generic /agents/{name}/* proxy below. Auth is required: without it,
 				// anyone reachable on the hub port could invoke remote tools on a
 				// connected user's machine (RCE via the executor).
 				const remoteCallMatch = path.match(/^\/agents\/([^/]+)\/remote-call$/);
@@ -84,8 +84,8 @@ export class HubGateway {
 						res.end(JSON.stringify({ error: "Unauthorized" }));
 						return;
 					}
-					const agentId = remoteCallMatch[1]!;
-					const connectId = this._agentBindings.get(agentId);
+					const agentName = remoteCallMatch[1]!;
+					const connectId = this._agentBindings.get(agentName);
 					if (!connectId) {
 						res.writeHead(409, { "Content-Type": "application/json" });
 						res.end(JSON.stringify({ error: "Agent not in connect mode" }));
@@ -153,19 +153,19 @@ export class HubGateway {
 					}
 				}
 
-				// Agent routing: /agents/{id}/* → specific agent
+				// Agent routing: /agents/{name}/* → specific agent (by name)
 				const agentMatch = path.match(/^\/agents\/([^/]+)(\/.*)?$/);
 				if (agentMatch) {
-					const agentId = agentMatch[1];
+					const agentName = agentMatch[1];
 					const agentPath = agentMatch[2] ?? "/";
-					await this._proxyToAgent(req, res, agentId, agentPath);
+					await this._proxyToAgent(req, res, agentName, agentPath);
 					return;
 				}
 
 				// Default: /* → root agent
 				const rootAgent = this._registry.getRootAgent();
 				if (rootAgent) {
-					await this._proxyToAgent(req, res, rootAgent.id, path);
+					await this._proxyToAgent(req, res, rootAgent.name, path);
 					return;
 				}
 
@@ -186,14 +186,14 @@ export class HubGateway {
 		});
 	}
 
-	/** Bind an agentId to a connectId so remote tool calls can be dispatched. */
-	bindAgent(agentId: string, connectId: string): void {
-		this._agentBindings.set(agentId, connectId);
+	/** Bind an agent name to a connectId so remote tool calls can be dispatched. */
+	bindAgent(agentName: string, connectId: string): void {
+		this._agentBindings.set(agentName, connectId);
 	}
 
 	/** Remove the binding. */
-	unbindAgent(agentId: string): void {
-		this._agentBindings.delete(agentId);
+	unbindAgent(agentName: string): void {
+		this._agentBindings.delete(agentName);
 	}
 
 	/** Number of agent->connectId bindings currently held. Exposed for
@@ -203,8 +203,8 @@ export class HubGateway {
 	}
 
 	/** Resolve a single binding. Exposed for tests. */
-	getBinding(agentId: string): string | undefined {
-		return this._agentBindings.get(agentId);
+	getBinding(agentName: string): string | undefined {
+		return this._agentBindings.get(agentName);
 	}
 
 	/**
@@ -214,9 +214,9 @@ export class HubGateway {
 	 */
 	unbindByConnectId(connectId: string): number {
 		let removed = 0;
-		for (const [agentId, cid] of this._agentBindings) {
+		for (const [agentName, cid] of this._agentBindings) {
 			if (cid === connectId) {
-				this._agentBindings.delete(agentId);
+				this._agentBindings.delete(agentName);
 				removed++;
 			}
 		}
@@ -346,14 +346,14 @@ export class HubGateway {
 		if (path === "/_hub/agents" && req.method === "POST") {
 			const body = await this._readBody(req);
 			const params = JSON.parse(body) as {
-				parentAgentId?: string;
+				parentName?: string;
 				name: string;
 				cwd?: string;
 				model?: string;
 				roles?: string[];
 			};
 			try {
-				const result = await this._onCreateAgent(params.parentAgentId, {
+				const result = await this._onCreateAgent(params.parentName, {
 					name: params.name,
 					cwd: params.cwd,
 					model: params.model,
@@ -368,12 +368,12 @@ export class HubGateway {
 			return;
 		}
 
-		// DELETE /_hub/agents/{id} — destroy agent
+		// DELETE /_hub/agents/{name} — destroy agent
 		const deleteMatch = path.match(/^\/_hub\/agents\/([^/]+)$/);
 		if (deleteMatch && req.method === "DELETE") {
-			const agentId = deleteMatch[1];
+			const agentName = deleteMatch[1];
 			try {
-				await this._onDestroyAgent(agentId);
+				await this._onDestroyAgent(agentName);
 				res.writeHead(200, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ ok: true }));
 			} catch (err) {
@@ -587,13 +587,13 @@ export class HubGateway {
 	private async _proxyToAgent(
 		req: IncomingMessage,
 		res: ServerResponse,
-		agentId: string,
+		agentName: string,
 		path: string,
 	): Promise<void> {
-		const agent = this._registry.get(agentId);
+		const agent = this._registry.get(agentName);
 		if (!agent) {
 			res.writeHead(404, { "Content-Type": "application/json" });
-			res.end(JSON.stringify({ error: `Agent not found: ${agentId}` }));
+			res.end(JSON.stringify({ error: `Agent not found: ${agentName}` }));
 			return;
 		}
 		const auth = this._authenticate(req);

@@ -51,7 +51,7 @@ function createWorkerHarness(): {
 } {
 	const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => void>>();
 	const sendMessageCalls: SendMessageCall[] = [];
-	const { factory, channel } = createDPiExtension({ mode: "worker", agentId: "agent-1", postToHub: () => {} });
+	const { factory, channel } = createDPiExtension({ mode: "worker", agentName: "agent-1", postToHub: () => {} });
 	if (!channel) {
 		throw new Error("worker channel was not created");
 	}
@@ -102,7 +102,7 @@ describe("d-pi message renderer", () => {
 			{
 				role: "custom",
 				customType: "d-pi-message",
-				content: injectMeta("hello **world**", "agent", undefined, { agentId: "agent-1" }),
+				content: injectMeta("hello **world**", "agent", undefined, { agentName: "agent-1" }),
 				display: true,
 				details: undefined,
 				timestamp: Date.now(),

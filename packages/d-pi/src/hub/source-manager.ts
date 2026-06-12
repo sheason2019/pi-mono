@@ -11,8 +11,13 @@ interface SourceRecord {
 	env: Record<string, string> | undefined;
 	status: SourceStatus;
 	process: ChildProcess | undefined;
+	// Subscribers are agent NAMES (not UUIDs). With agent names
+	// as the unique key (see the "name is identity" rationale in
+	// the changelog), a persisted subscribers list is meaningful
+	// across hub restarts: a source can re-attach to the same
+	// agents on restart without an indirection table.
 	subscribers: Set<string>;
-	creatorAgentId: string | undefined;
+	creatorName: string | undefined;
 	restartCount: number;
 	restartTimer: ReturnType<typeof setTimeout> | undefined;
 	destroyed: boolean;
@@ -86,7 +91,7 @@ export class SourceManager {
 		this._maxRestartAttempts = options.maxRestartAttempts ?? MAX_RESTART_ATTEMPTS;
 	}
 
-	createSource(config: SourceConfig, creatorAgentId?: string): void {
+	createSource(config: SourceConfig, creatorName?: string): void {
 		if (this._sources.has(config.name)) {
 			throw new Error(`Source "${config.name}" already exists`);
 		}
@@ -100,7 +105,7 @@ export class SourceManager {
 			status: "running",
 			process: undefined,
 			subscribers: new Set(),
-			creatorAgentId,
+			creatorName,
 			restartCount: 0,
 			restartTimer: undefined,
 			destroyed: false,
@@ -108,9 +113,10 @@ export class SourceManager {
 			stderrReader: undefined,
 		};
 
-		// Auto-subscribe the creator agent
-		if (creatorAgentId) {
-			record.subscribers.add(creatorAgentId);
+		// Auto-subscribe the creator agent (by name, since the registry
+		// is name-keyed now)
+		if (creatorName) {
+			record.subscribers.add(creatorName);
 		}
 
 		this._sources.set(config.name, record);
@@ -131,20 +137,20 @@ export class SourceManager {
 		this._destroyRecord(record);
 	}
 
-	subscribe(sourceName: string, agentId: string): void {
+	subscribe(sourceName: string, agentName: string): void {
 		const record = this._sources.get(sourceName);
 		if (!record) {
 			throw new Error(`Source "${sourceName}" not found`);
 		}
-		record.subscribers.add(agentId);
+		record.subscribers.add(agentName);
 	}
 
-	unsubscribe(sourceName: string, agentId: string): void {
+	unsubscribe(sourceName: string, agentName: string): void {
 		const record = this._sources.get(sourceName);
 		if (!record) {
 			throw new Error(`Source "${sourceName}" not found`);
 		}
-		record.subscribers.delete(agentId);
+		record.subscribers.delete(agentName);
 	}
 
 	listSources(): SourceInfo[] {
@@ -172,17 +178,17 @@ export class SourceManager {
 		};
 	}
 
-	removeAgentSubscriptions(agentId: string): void {
+	removeAgentSubscriptions(agentName: string): void {
 		for (const record of this._sources.values()) {
-			record.subscribers.delete(agentId);
+			record.subscribers.delete(agentName);
 		}
 	}
 
 	/** Return names of sources whose creator is the given agent */
-	getSourcesByCreator(agentId: string): string[] {
+	getSourcesByCreator(agentName: string): string[] {
 		const result: string[] = [];
 		for (const record of this._sources.values()) {
-			if (record.creatorAgentId === agentId) {
+			if (record.creatorName === agentName) {
 				result.push(record.name);
 			}
 		}
@@ -190,10 +196,10 @@ export class SourceManager {
 	}
 
 	/** Return names of sources the given agent is subscribed to */
-	getAgentSubscriptions(agentId: string): string[] {
+	getAgentSubscriptions(agentName: string): string[] {
 		const result: string[] = [];
 		for (const record of this._sources.values()) {
-			if (record.subscribers.has(agentId)) {
+			if (record.subscribers.has(agentName)) {
 				result.push(record.name);
 			}
 		}
@@ -366,11 +372,11 @@ export class SourceManager {
 	}
 
 	private _notifyCreator(record: SourceRecord, message: string): void {
-		if (!record.creatorAgentId) return;
+		if (!record.creatorName) return;
 		// Supervisor-error notifications are operational infra, not source
 		// content — use the default "next" mode so they flow with normal
 		// delivery (turn-start injection, batches with other queue items).
-		this._onBroadcast(record.name, `[source-error] ${message}`, [record.creatorAgentId], "next");
+		this._onBroadcast(record.name, `[source-error] ${message}`, [record.creatorName], "next");
 	}
 
 	private _closeReaders(record: SourceRecord): void {

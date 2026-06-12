@@ -25,7 +25,7 @@ async function startGateway(workspaceRoot: string): Promise<{ url: string; gatew
 	const gateway = new HubGateway(
 		registry,
 		sourceManager,
-		async () => ({ agentId: "created", name: "created" }),
+		async () => ({ agentName: "created" }),
 		async () => {},
 		new AuthSessionManager(workspaceRoot),
 	);
@@ -127,9 +127,8 @@ describe("d-pi gateway auth", () => {
 		});
 		const registry = new AgentRegistry(19091);
 		registry.register({
-			id: "agent-1",
-			name: "root",
-			parentId: undefined,
+			name: "agent-1",
+			parentName: undefined,
 			children: [],
 			port: agentServer.port,
 			status: "ready",
@@ -140,7 +139,7 @@ describe("d-pi gateway auth", () => {
 		const gateway = new HubGateway(
 			registry,
 			new SourceManager(() => {}),
-			async () => ({ agentId: "created", name: "created" }),
+			async () => ({ agentName: "created" }),
 			async () => {},
 			new AuthSessionManager(workspaceRoot),
 		);

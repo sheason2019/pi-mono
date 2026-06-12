@@ -1,6 +1,21 @@
 import { createServer } from "node:net";
 import type { AgentRecord, AgentStatus, GroupArchitectureSnapshot } from "../types.ts";
 
+/**
+ * In-memory registry of running agents.
+ *
+ * The map is keyed by agent `name` (not a generated UUID) — see the
+ * "name is identity" rationale in the changelog for why we dropped
+ * UUIDs in favor of names. Every public lookup (`get`, `getByName`,
+ * `unregister`, `getDescendants`, etc.) takes a name. `getByName` is
+ * kept as an alias for the name-based lookup so existing call sites
+ * read naturally; it is now O(1) because the map is name-keyed.
+ *
+ * Parent/children references store the child / parent name string
+ * directly. The persisted `agent.json` already uses `parentName` (not
+ * `parentId`), so there is no migration step — restored records slot
+ * in without a remap.
+ */
 export class AgentRegistry {
 	private readonly _agents = new Map<string, AgentRecord>();
 	private _nextPort: number;
@@ -33,85 +48,85 @@ export class AgentRegistry {
 	}
 
 	register(record: AgentRecord): void {
-		this._agents.set(record.id, record);
-		// Add to parent's children list
-		if (record.parentId) {
-			const parent = this._agents.get(record.parentId);
-			if (parent && !parent.children.includes(record.id)) {
-				parent.children.push(record.id);
+		if (this._agents.has(record.name)) {
+			throw new Error(`Agent "${record.name}" already exists`);
+		}
+		this._agents.set(record.name, record);
+		// Add to parent's children list (by name, same as the map key)
+		if (record.parentName) {
+			const parent = this._agents.get(record.parentName);
+			if (parent && !parent.children.includes(record.name)) {
+				parent.children.push(record.name);
 			}
 		}
 	}
 
 	/**
 	 * Unregister an agent and all its descendants.
-	 * Returns the list of all destroyed agent IDs.
+	 * Returns the list of all destroyed agent names.
 	 */
-	unregister(agentId: string): string[] {
+	unregister(agentName: string): string[] {
 		const destroyed: string[] = [];
-		const toRemove = this.getDescendants(agentId);
-		toRemove.push(agentId);
+		const toRemove = this.getDescendants(agentName);
+		toRemove.push(agentName);
 
-		for (const id of toRemove) {
-			const record = this._agents.get(id);
+		for (const name of toRemove) {
+			const record = this._agents.get(name);
 			if (record) {
 				// Remove from parent's children list
-				if (record.parentId) {
-					const parent = this._agents.get(record.parentId);
+				if (record.parentName) {
+					const parent = this._agents.get(record.parentName);
 					if (parent) {
-						parent.children = parent.children.filter((c) => c !== id);
+						parent.children = parent.children.filter((c) => c !== name);
 					}
 				}
-				this._agents.delete(id);
-				destroyed.push(id);
+				this._agents.delete(name);
+				destroyed.push(name);
 			}
 		}
 
 		return destroyed;
 	}
 
-	get(agentId: string): AgentRecord | undefined {
-		return this._agents.get(agentId);
+	get(agentName: string): AgentRecord | undefined {
+		return this._agents.get(agentName);
 	}
 
 	getByName(name: string): AgentRecord | undefined {
-		for (const agent of this._agents.values()) {
-			if (agent.name === name) return agent;
-		}
-		return undefined;
+		// Map is name-keyed, so this is now O(1) — same as `get`.
+		return this._agents.get(name);
 	}
 
-	updateStatus(agentId: string, status: AgentStatus): void {
-		const record = this._agents.get(agentId);
+	updateStatus(agentName: string, status: AgentStatus): void {
+		const record = this._agents.get(agentName);
 		if (record) {
 			record.status = status;
 		}
 	}
 
 	getGroupArchitectureSnapshot(): GroupArchitectureSnapshot {
-		let rootId = "";
+		let rootName = "";
 		const agents = Array.from(this._agents.values()).map((a) => {
-			if (a.name === "root") rootId = a.id;
+			if (a.name === "root") rootName = a.name;
 			return {
-				id: a.id,
 				name: a.name,
-				parentId: a.parentId,
+				parentName: a.parentName,
 				status: a.status,
 				model: a.model,
 				children: [...a.children],
 			};
 		});
-		return { agents, rootId };
+		return { agents, rootName };
 	}
 
-	getDescendants(agentId: string): string[] {
+	getDescendants(agentName: string): string[] {
 		const result: string[] = [];
-		const record = this._agents.get(agentId);
+		const record = this._agents.get(agentName);
 		if (!record) return result;
 
-		for (const childId of record.children) {
-			result.push(childId);
-			result.push(...this.getDescendants(childId));
+		for (const childName of record.children) {
+			result.push(childName);
+			result.push(...this.getDescendants(childName));
 		}
 		return result;
 	}
