@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Source persistence: sources survive hub restart.** Previously, every `d-pi serve` start ran with an empty `SourceManager` — any source registered via `create_source` (lark-bridge, webhooks, `tail -f`, ...) was lost the moment the hub exited. Sources are now persisted to `sources/<name>/source.json` on the workspace root, with the same lifecycle semantics as `agents/<name>/agent.json`:
+  - `create_source` writes the file (idempotent overwrite).
+  - `subscribe_source` / `unsubscribe_source` /
+    `removeAgentSubscriptions` rewrite the file with the new
+    subscribers set (the subscribers list is now persisted, not
+    just the config).
+  - `destroy_source` removes the file before tearing down the
+    in-memory record.
+  - On `Hub.start()`, after the agent registry is fully restored,
+    `Hub._restorePersistedSources` calls
+    `SourceManager.restoreFromConfigs` which reads every
+    `source.json`, re-spawns the subprocess, and re-attaches to
+    every persisted subscriber that is still alive in the registry.
+    Persisted subscribers whose agent is no longer live are
+    silently dropped (the source's creator and the source
+    process itself can outlive the agents that once subscribed
+    to it; the operator can re-subscribe via `subscribe_source`
+    if needed).
+  - If an operator pre-registers a source with the same name
+    during a session (via the runtime `create_source` tool),
+    the persisted entry is skipped on restore — the runtime
+    source wins, since it has the live creator's actual config.
+  - Corrupt or unreadable `source.json` files are skipped with
+    a stderr warning; the hub continues to start with whatever it
+    can recover. The unit tests in `test/source-persistence.test.ts`
+    cover round-trip, delete, skip-on-corrupt, subscribe/unsubscribe
+    writes, destroy-on-disk removal, and the live-only-on-restore
+    subscriber rehydration logic (12 cases, all under 20ms).
+
 ### Changed
 
 - **Agent identity refactored: names are now the unique key, UUIDs are gone.** Previously, every agent had a generated `id` (UUID) AND a `name`, with the registry map keyed by `id` and parent/children cross-references also stored as `id`s. This required a parallel indirection: persisted `agent.json` already used `parentName` (because the existing restore code had to bridge the disk format back to a fresh in-memory `id`), and the meta header carried both `agentId` and `agentName` for the same agent. With names unique by project invariant, the UUIDs were dead weight. The refactor drops the `id` field from `AgentRecord` entirely and keys the registry map by `name`; `parentId` becomes `parentName`, `creatorAgentId` becomes `creatorName`, the `MessageMeta.agentId` field becomes `MessageMeta.agentName`, the `HubToWorkerMessage.fromAgentId` becomes `fromAgentName`, and `WorkerToHubMessage`'s `agentId` fields become `agentName`. `createAgent` now returns `{ agentName }` (no separate `id`). The on-disk `agent.json` shape is unchanged (it already used `parentName`), so no migration is required for existing persisted agents. The bind/unbind endpoint URL pattern (`/_hub/agents/{name}/bind`) already used the agent's name, just the variable name in the gateway was renamed for clarity. Tool-side: `send_message(agent_id=...)` and `destroy_agent(agent_id=...)` now take the agent's name (the only valid identifier); the previous "name or id" fallback that looked up by `getByName` after a miss is removed because it is no longer reachable (names are the only key). All 201 d-pi vitest cases + 1412 coding-agent vitest cases pass.

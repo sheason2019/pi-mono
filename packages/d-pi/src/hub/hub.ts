@@ -25,6 +25,7 @@ import { ExecutorRegistry } from "./executor-registry.ts";
 import { HubGateway } from "./gateway.ts";
 import { discoverPersistedAgents, orderAgentsForRestore } from "./restore-agents.ts";
 import { SourceManager } from "./source-manager.ts";
+import { discoverSourceConfigs } from "./source-persistence.ts";
 
 const AGENT_CONFIG_FILE = "agent.json";
 
@@ -40,21 +41,28 @@ export class Hub {
 		const portStart = config.agentPortStart ?? DEFAULT_AGENT_PORT_START;
 		this._registry = new AgentRegistry(portStart);
 
-		this._sourceManager = new SourceManager((sourceName, content, subscriberNames, mode) => {
-			const metaContent = injectMeta(content, "source", undefined, { sourceName });
-			for (const agentName of subscriberNames) {
-				const record = this._registry.get(agentName);
-				if (record) {
-					record.worker.postMessage({
-						type: "message",
-						fromAgentName: `source:${sourceName}`,
-						content: metaContent,
-						sourceName,
-						mode,
-					} satisfies HubToWorkerMessage);
+		this._sourceManager = new SourceManager(
+			(sourceName, content, subscriberNames, mode) => {
+				const metaContent = injectMeta(content, "source", undefined, { sourceName });
+				for (const agentName of subscriberNames) {
+					const record = this._registry.get(agentName);
+					if (record) {
+						record.worker.postMessage({
+							type: "message",
+							fromAgentName: `source:${sourceName}`,
+							content: metaContent,
+							sourceName,
+							mode,
+						} satisfies HubToWorkerMessage);
+					}
 				}
-			}
-		});
+			},
+			// Pass the workspace root so the source manager persists
+			// `sources/<name>/source.json` on createSource / subscribe /
+			// unsubscribe, and removes it on destroySource. Restore
+			// happens in `start()` via `restoreSourceConfigs()`.
+			{ workspaceRoot: config.workspaceRoot },
+		);
 
 		this._executorRegistry = new ExecutorRegistry();
 
@@ -84,6 +92,15 @@ export class Hub {
 				model: this._config.model,
 			});
 		}
+
+		// 4. Restore persisted sources (`sources/<name>/source.json`).
+		// Done AFTER the agent registry is fully populated so the
+		// subscriber-rehydration step can match persisted agent names
+		// against the live registry. Sources whose persisted creator
+		// / subscriber set has no remaining agents still come back
+		// online — the source subprocess is independent of agent
+		// lifecycle — but start with an empty subscribers set.
+		this._restorePersistedSources();
 
 		process.stderr.write(`[d-pi hub] Workspace: ${this._config.workspaceRoot}\n`);
 		process.stderr.write(`[d-pi hub] Listening on port ${hubPort}\n`);
@@ -154,6 +171,27 @@ export class Hub {
 				);
 			}
 		}
+	}
+
+	/**
+	 * Restore every persisted source from `sources/<name>/source.json`.
+	 * Re-spawns the subprocess and re-attaches to subscribers that
+	 * are still alive in the registry. See `SourceManager.restoreFromConfigs`
+	 * for the per-source details.
+	 *
+	 * Subscribers that were recorded but no longer have a live agent
+	 * (their `agent.json` was deleted, or the agent failed to start)
+	 * are silently dropped — the source can re-acquire them later
+	 * via the subscribe_source tool if the agent reappears.
+	 */
+	private _restorePersistedSources(): void {
+		const files = discoverSourceConfigs(this._config.workspaceRoot);
+		if (files.length === 0) return;
+		const liveAgentNames = new Set<string>();
+		for (const record of this._registry.getAll()) {
+			liveAgentNames.add(record.name);
+		}
+		this._sourceManager.restoreFromConfigs(files, liveAgentNames);
 	}
 
 	async createAgent(

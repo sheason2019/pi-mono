@@ -1,6 +1,12 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { createInterface, type Interface as ReadlineInterface } from "node:readline";
 import type { SourceConfig, SourceInfo, SourceStatus } from "../types.ts";
+import {
+	deleteSourceConfig,
+	type SourceConfigFile,
+	sourceConfigFileToConfig,
+	writeSourceConfig,
+} from "./source-persistence.ts";
 import { validateLine } from "./source-validator.ts";
 
 interface SourceRecord {
@@ -36,6 +42,18 @@ export interface SourceManagerOptions {
 	maxRestartDelayMs?: number;
 	/** Number of consecutive restart attempts before the source is marked failed. Default 5. */
 	maxRestartAttempts?: number;
+	/**
+	 * Workspace root. When set, the supervisor writes a
+	 * `sources/<name>/source.json` on `createSource` and removes it
+	 * on `destroySource`. On `restoreFromConfigs`, the supervisor
+	 * reads every such file, re-spawns the subprocess, and
+	 * re-subscribes any agents that are still alive in the registry.
+	 *
+	 * When `undefined` (e.g. in unit tests), the supervisor runs
+	 * purely in-memory and persists nothing — useful for tests
+	 * that don't want fs side-effects.
+	 */
+	workspaceRoot?: string;
 }
 
 /**
@@ -83,12 +101,14 @@ export class SourceManager {
 	private readonly _initialRestartDelayMs: number;
 	private readonly _maxRestartDelayMs: number;
 	private readonly _maxRestartAttempts: number;
+	private readonly _workspaceRoot: string | undefined;
 
 	constructor(onBroadcast: SourceManager["_onBroadcast"], options: SourceManagerOptions = {}) {
 		this._onBroadcast = onBroadcast;
 		this._initialRestartDelayMs = options.initialRestartDelayMs ?? INITIAL_RESTART_DELAY_MS;
 		this._maxRestartDelayMs = options.maxRestartDelayMs ?? MAX_RESTART_DELAY_MS;
 		this._maxRestartAttempts = options.maxRestartAttempts ?? MAX_RESTART_ATTEMPTS;
+		this._workspaceRoot = options.workspaceRoot;
 	}
 
 	createSource(config: SourceConfig, creatorName?: string): void {
@@ -119,6 +139,13 @@ export class SourceManager {
 			record.subscribers.add(creatorName);
 		}
 
+		// Persist the source config (with the just-computed subscribers
+		// set) so the hub can re-spawn it on restart. No-op when
+		// workspaceRoot isn't set (unit-test mode).
+		if (this._workspaceRoot) {
+			this._writePersistedConfig(record);
+		}
+
 		this._sources.set(config.name, record);
 		this._spawnProcess(record);
 	}
@@ -134,6 +161,16 @@ export class SourceManager {
 				`Cannot destroy source "${name}": ${record.subscribers.size} subscriber(s) still active (${subscriberList}). Unsubscribe all agents first.`,
 			);
 		}
+		// Remove the on-disk config BEFORE destroying the in-memory
+		// record; doing it last means an interrupted destroy could
+		// leave a non-running source on disk that the next restore
+		// would try to re-spawn. With the file gone first, the
+		// worst case is a "source exists in memory but not on disk"
+		// state that the next createSource (with the same name)
+		// can clean up.
+		if (this._workspaceRoot) {
+			deleteSourceConfig(this._workspaceRoot, name);
+		}
 		this._destroyRecord(record);
 	}
 
@@ -143,6 +180,9 @@ export class SourceManager {
 			throw new Error(`Source "${sourceName}" not found`);
 		}
 		record.subscribers.add(agentName);
+		if (this._workspaceRoot) {
+			this._writePersistedConfig(record);
+		}
 	}
 
 	unsubscribe(sourceName: string, agentName: string): void {
@@ -151,6 +191,9 @@ export class SourceManager {
 			throw new Error(`Source "${sourceName}" not found`);
 		}
 		record.subscribers.delete(agentName);
+		if (this._workspaceRoot) {
+			this._writePersistedConfig(record);
+		}
 	}
 
 	listSources(): SourceInfo[] {
@@ -181,6 +224,14 @@ export class SourceManager {
 	removeAgentSubscriptions(agentName: string): void {
 		for (const record of this._sources.values()) {
 			record.subscribers.delete(agentName);
+		}
+		// Persist the post-removal subscribers list for every source
+		// that was affected. Cheap; a typical destroy_agent on a leaf
+		// agent touches O(1) sources.
+		if (this._workspaceRoot) {
+			for (const record of this._sources.values()) {
+				this._writePersistedConfig(record);
+			}
 		}
 	}
 
@@ -427,5 +478,95 @@ export class SourceManager {
 				// Already dead
 			}
 		}, 3000);
+	}
+
+	/**
+	 * Re-spawn every persisted source and re-attach to subscribers
+	 * that are still alive. Called by `Hub.start()` after the agent
+	 * registry has been restored (so we can match persisted
+	 * subscriber names against the live registry).
+	 *
+	 * Per-source: skip if a runtime source with the same name
+	 * already exists (the operator may have started a fresh hub
+	 * session and the createSource tool might have re-registered
+	 * manually — in that case the persisted config is a no-op).
+	 *
+	 * Per-subscriber: skip names that don't resolve to a live
+	 * agent in `liveAgentNames`. The persisted subscriber set is
+	 * authoritative for "who was subscribed" but the hub can only
+	 * re-attach to currently-alive agents; a source whose creator
+	 * was destroyed before the restart can still come back online
+	 * (the source process is independent of the creator agent's
+	 * lifecycle) but starts with an empty subscribers set.
+	 */
+	restoreFromConfigs(files: SourceConfigFile[], liveAgentNames: Set<string>): void {
+		if (files.length === 0) return;
+
+		for (const file of files) {
+			if (this._sources.has(file.name)) {
+				// Operator pre-registered a fresh source with the same
+				// name during this hub session; leave the runtime one
+				// alone. Skip the persisted one (don't double-spawn).
+				process.stderr.write(`[d-pi source] Skipping restore of source "${file.name}": already registered\n`);
+				continue;
+			}
+
+			const config = sourceConfigFileToConfig(file);
+			const record: SourceRecord = {
+				name: file.name,
+				command: config.command,
+				args: config.args ?? [],
+				cwd: config.cwd,
+				env: config.env,
+				status: "running",
+				process: undefined,
+				subscribers: new Set(),
+				creatorName: file.creatorName,
+				restartCount: 0,
+				restartTimer: undefined,
+				destroyed: false,
+				stdoutReader: undefined,
+				stderrReader: undefined,
+			};
+
+			// Re-attach subscribers that are still alive in the
+			// registry. The persisted names are agent identities (no
+			// UUID indirection needed — see the "name is identity"
+			// rationale in the changelog). Dead names are silently
+			// dropped; the source can re-acquire them via
+			// subscribe_source after the operator creates a new agent
+			// with the same name.
+			for (const name of file.subscribers) {
+				if (liveAgentNames.has(name)) {
+					record.subscribers.add(name);
+				}
+			}
+
+			process.stderr.write(
+				`[d-pi source] Restoring source "${file.name}" (${record.subscribers.size} subscriber(s) still alive)\n`,
+			);
+
+			this._sources.set(record.name, record);
+			this._spawnProcess(record);
+		}
+	}
+
+	/**
+	 * Write the current record's persisted shape to disk. Idempotent.
+	 * No-op when the manager was constructed without `workspaceRoot`
+	 * (unit-test mode).
+	 */
+	private _writePersistedConfig(record: SourceRecord): void {
+		if (!this._workspaceRoot) return;
+		const file: SourceConfigFile = {
+			name: record.name,
+			command: record.command,
+			args: [...record.args],
+			cwd: record.cwd,
+			env: record.env,
+			subscribers: Array.from(record.subscribers),
+			creatorName: record.creatorName,
+		};
+		writeSourceConfig(this._workspaceRoot, file);
 	}
 }
