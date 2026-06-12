@@ -1,11 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Hub } from "../src/hub/hub.ts";
 import { SourceManager } from "../src/hub/source-manager.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { ExecutorRegistry } from "../src/hub/executor-registry.ts";
 import { SourceValidator } from "../src/hub/source-validator.ts";
-import { AuthSessionManager } from "../src/auth/allowed-users.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
