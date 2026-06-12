@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0-alpha.5] - 2026-06-12
+
 ### Fixed
 
 - **Connect-mode `Option+Up` (queue restore) now syncs to the server.** Previously the TUI's `restoreQueuedMessagesToEditor` could only wipe its own local copy of the steering/followUp queues; the server-side session kept the messages, so the next time the agent streamed they would re-fire as ghost injections. `AgentSessionProxy` now declares `clearQueue(): { steering: string[]; followUp: string[] }`, `LocalAgentSessionProxy` delegates to `session.clearQueue()`, and `RemoteAgentSessionProxy` snapshots local state and then fire-and-forgets a new `POST /clear-queue` on the serve-mode API. The TUI calls `(this.proxy ?? this.session!).clearQueue()` so the editor and server are in agreement. The local-only `compactionQueuedMessages` array is also drained, removing a small ghost path from the queue-restore flow.

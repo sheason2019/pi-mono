@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0-alpha.5] - 2026-06-12
+
 ### Changed
 
 - **`DPI_META_PROMPT` now teaches multi-agent orchestration principles.** Three new sections after the existing "d-pi runtime context" header: (1) **Multi-agent behavior** — each agent is a long-lived node in a larger tree, not a one-shot tool call; inbound messages may interleave with in-flight work, so the agent must identify which task a new message belongs to, who is asking, and whether in-flight work should be paused / combined / abandoned. (2) **Collaboration** — agents should proactively push results to peers that are waiting, ask for input rather than guess, and use `group_architecture` to discover who else is alive (names, ids, parent/child relationships, statuses) before reaching out. (3) **Latency and freshness** — multi-agent dispatch is not real-time; each inbound message's `[meta(...)]` header records the `createTime` of when the message was originally produced, not when it reached the agent; a message you just received may describe a state from minutes or hours ago, so agents must check `createTime` against their session timeline before acting on implied-current-state assertions. Per the existing `test/dpi-meta.test.ts` architectural-contract tests, the new sections contain no backticked tool names, no per-tool constraints (mutex / mode / executor signature), and no TUI-keyboard-vocabulary leaks — they are pure architectural guidance.
