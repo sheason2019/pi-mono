@@ -128,16 +128,15 @@ export class HubGateway {
 						// the pending call so the agent's tool.execute does not hang.
 						const timeoutMs = this._remoteCallTimeoutMs;
 						const timer = setTimeout(() => {
-							const pending = execReg.getPending(connectId, callId);
-							if (pending) {
-								execReg.clearPendingTimer(connectId, callId);
-								execReg.removePending(connectId, callId);
-								try {
-									pending.writeHead(504, { "Content-Type": "application/json" });
-									pending.end(JSON.stringify({ ok: false, error: "Remote call timed out" }));
-								} catch {
-									/* ignore */
-								}
+							// resolveOne returns false if the call was already
+							// resolved (e.g. a late result arrived just before
+							// the timer fired); in that case we skip our timeout
+							// path entirely.
+							const resolved = execReg.resolveOne(connectId, callId, {
+								ok: false,
+								error: "Remote call timed out",
+							});
+							if (resolved) {
 								process.stderr.write(`[hub] remote call ${callId} timed out after ${timeoutMs}ms\n`);
 							}
 						}, timeoutMs);
@@ -553,13 +552,8 @@ export class HubGateway {
 				if (!connectId || !callId || typeof ok !== "boolean") {
 					throw new Error("connectId, callId, and ok are required");
 				}
-				const pending = execReg.getPending(connectId, callId);
-				if (pending) {
-					pending.writeHead(200, { "Content-Type": "application/json" });
-					pending.end(JSON.stringify(ok ? { ok: true, result } : { ok: false, error }));
-					execReg.clearPendingTimer(connectId, callId);
-					execReg.removePending(connectId, callId);
-				} else {
+				const resolved = execReg.resolveOne(connectId, callId, ok ? { ok: true, result } : { ok: false, error: error ?? "Unknown error" });
+				if (!resolved) {
 					process.stderr.write(`[hub] dropping result for unknown callId ${callId}\n`);
 				}
 				res.writeHead(200, { "Content-Type": "application/json" });

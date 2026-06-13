@@ -125,6 +125,19 @@ export interface HubConfig {
 	workspaceRoot: string;
 	workspaceContext: WorkspaceContext;
 	workspaceConfig: WorkspaceConfig;
+	/**
+	 * Maximum time the hub will wait for a connected d-pi executor
+	 * to return a result for a dispatched tool call (whether
+	 * triggered from the public `/agents/{name}/remote-call` HTTP
+	 * endpoint or from the in-process `call_executor` IPC tool
+	 * used by `bash_remote` and similar). After this many
+	 * milliseconds the pending call is failed with
+	 * `"Remote call timed out"` (HTTP) or `"Executor call timed out"`
+	 * (IPC) so the LLM's tool call does not hang indefinitely.
+	 *
+	 * Default: 60_000 (60 seconds).
+	 */
+	remoteCallTimeoutMs?: number;
 }
 
 // === Tool Call Results ===

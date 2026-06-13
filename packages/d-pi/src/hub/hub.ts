@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { AuthSessionManager } from "../auth/auth-session.ts";
@@ -35,9 +36,17 @@ export class Hub {
 	private readonly _sourceManager: SourceManager;
 	private readonly _executorRegistry: ExecutorRegistry;
 	private readonly _config: HubConfig;
+	/**
+	 * Mirror of `HubConfig.remoteCallTimeoutMs` (default 60_000).
+	 * Shared by the gateway's HTTP path and the `_handleToolCall`
+	 * "call_executor" IPC path so both transports time out the
+	 * same way.
+	 */
+	private readonly _remoteCallTimeoutMs: number;
 
 	constructor(config: HubConfig) {
 		this._config = config;
+		this._remoteCallTimeoutMs = config.remoteCallTimeoutMs ?? 60_000;
 		const portStart = config.agentPortStart ?? DEFAULT_AGENT_PORT_START;
 		this._registry = new AgentRegistry(portStart);
 
@@ -73,6 +82,7 @@ export class Hub {
 			(agentName) => this.destroyAgent(agentName),
 			new AuthSessionManager(config.workspaceRoot),
 			this._executorRegistry,
+			{ remoteCallTimeoutMs: this._remoteCallTimeoutMs },
 		);
 	}
 
@@ -602,6 +612,97 @@ export class Hub {
 
 				case "list_sources": {
 					result = { sources: this._sourceManager.listSources() } satisfies ListSourcesResult;
+					break;
+				}
+
+				case "call_executor": {
+					// In-process sibling of the public
+					// /agents/{name}/remote-call HTTP endpoint. Used by the
+					// d-pi extension's `bash_remote` tool (and any future
+					// `*_remote` tools) to dispatch a tool through the
+					// bound executor without going through HTTP and
+					// without bypassing auth. The IPC call is the
+					// caller's own identity, so there is no separate
+					// authentication step: a tool_call from a worker
+					// that owns `fromAgentName` is by construction from
+					// that agent.
+					//
+					// Returns `{ ok: true, result: unknown }` on
+					// success and `{ ok: false, error: string }` on
+					// failure (no binding, no SSE channel, executor
+					// returned an error, timeout). The result is
+					// wrapped here so the LLM-facing tool layer does
+					// not have to know about the executor transport.
+					const p = params as { tool?: string; params?: unknown };
+					if (!p.tool) {
+						result = { ok: false, error: "tool is required" };
+						break;
+					}
+					const connectId = this._gateway?.getBinding(fromAgentName);
+					if (!connectId) {
+						result = {
+							ok: false,
+							error: `Agent "${fromAgentName}" is not bound to a d-pi client executor; cannot dispatch "${p.tool}" remotely. Ask the user to run \`d-pi connect\` and bind this agent, or fall back to the local built-in tool.`,
+						} satisfies { ok: false; error: string };
+						break;
+					}
+					const execReg = this._executorRegistry;
+					if (!execReg) {
+						result = { ok: false, error: "Executor registry not configured" } satisfies {
+							ok: false;
+							error: string;
+						};
+						break;
+					}
+					const handle = execReg.get(connectId);
+					if (!handle) {
+						result = { ok: false, error: "Executor not available" } satisfies {
+							ok: false;
+							error: string;
+						};
+						break;
+					}
+					if (!handle.sseConn) {
+						result = { ok: false, error: "Executor not yet ready" } satisfies {
+							ok: false;
+							error: string;
+						};
+						break;
+					}
+					// Generate a unique callId for the executor dispatch.
+					// It only needs to be unique within the executor
+					// registry's pendingCalls map; the original
+					// HubChannel callId (passed in `callId` argument)
+					// is a separate namespace used by the IPC layer.
+					const executorCallId = `${fromAgentName}-executor-${randomUUID()}`;
+					// Park a callback-based pending call. The resolver
+					// will be invoked from `_handleHubApi` when the
+					// executor POSTs `/_hub/executor/results`.
+					const dispatchResult = await new Promise<{ ok: true; result: unknown } | { ok: false; error: string }>(
+						(resolve) => {
+							execReg.addPendingCallback(connectId, executorCallId, resolve);
+							// Server-side timeout — mirror the HTTP path's
+							// I1 timeout so a stuck executor does not
+							// hang the LLM's tool call indefinitely.
+							const timer = setTimeout(() => {
+								const resolved = execReg.resolveOne(connectId, executorCallId, {
+									ok: false,
+									error: "Executor call timed out",
+								});
+								if (!resolved) return; // already resolved
+								process.stderr.write(
+									`[hub] executor call ${executorCallId} timed out after ${this._remoteCallTimeoutMs}ms\n`,
+								);
+							}, this._remoteCallTimeoutMs);
+							execReg.setPendingTimer(connectId, executorCallId, timer);
+							handle.sseConn!.send("remote-call", {
+								callId: executorCallId,
+								tool: p.tool,
+								params: p.params,
+							});
+						},
+					);
+					result = dispatchResult;
 					break;
 				}
 

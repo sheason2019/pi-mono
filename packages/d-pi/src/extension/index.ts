@@ -16,6 +16,7 @@ import { createCreateSourceTool } from "./create-source.ts";
 import { createDestroyAgentTool } from "./destroy-agent.ts";
 import { createDestroySourceTool } from "./destroy-source.ts";
 import { createGroupArchitectureTool } from "./group-architecture.ts";
+import { createBashRemoteTool } from "./bash-remote.ts";
 import { HubChannel } from "./hub-channel.ts";
 import { createListSourcesTool } from "./list-sources.ts";
 import type { MessageMeta } from "./message-meta.ts";
@@ -100,6 +101,13 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 		pi.registerTool(createSubscribeSourceTool(channel));
 		pi.registerTool(createUnsubscribeSourceTool(channel));
 		pi.registerTool(createListSourcesTool(channel));
+		// `bash_remote` is always registered so the LLM has a stable
+		// surface for "execute on the connected client". If no client
+		// is bound, calls fail with a clear error from the hub's
+		// `_handleToolCall("call_executor")` case — the tool's
+		// description and the system prompt guide the LLM to prefer
+		// it whenever a connect session is active.
+		pi.registerTool(createBashRemoteTool(channel));
 
 		// Server-side /sources and /agents commands — register the command
 		// names so they appear in the TUI slash menu (via the /commands
