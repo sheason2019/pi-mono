@@ -131,6 +131,16 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 			if (event.source !== "interactive") {
 				return { action: "continue" };
 			}
+			// TUI input is the user typing directly into the editor;
+			// `event.text` is the raw user content. We wrap it here
+			// (the connect-mode equivalent of an Enter press) so the
+			// LLM can see provenance via `details`. The wrapped form
+			// is what the renderer / display side wants, and the
+			// downstream session only ever reads it through sendCustomMessage
+			// so it never re-enters the steering/followUp queues from
+			// here — different code path from `onIncomingMessage`
+			// (which is the source-injection path with the meta-strip
+			// bug fix below).
 			const metaContent = injectMeta(event.text, "connect");
 			const extracted = extractMeta(metaContent);
 			// Connect-mode / TUI input maps streaming behaviour to the
@@ -164,10 +174,35 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 			if (sourceName) {
 				process.stderr.write(`[d-pi extension] Received source message from "${sourceName}"\n`);
 			}
+			// The hub already wraps source-bound content in a
+			// `[meta({sourceName, sourceType:"source", ...})]\n<text>`
+			// envelope before posting it to the worker (see hub.ts's
+			// SourceManager onBroadcast callback). The meta is meant
+			// for routing / display ONLY — it is not user content.
+			// Forwarding it inside `content` causes two user-visible
+			// bugs:
+			//
+			//   1. The LLM's context window is polluted by a literal
+			//      `[meta({...})]` block on every source event.
+			//   2. When the agent queues a steering message via
+			//      `deliverAs: "steer"` and the user later presses
+			//      `Alt+Up` (handleDequeue) to restore queued messages
+			//      into the editor, the meta block ends up in the
+			//      editor and gets sent on the next Enter press as if
+			//      it were user-typed text.
+			//
+			// Fix: extract the meta here, send the BARE inner text as
+			// `content`, and pass the parsed meta via `details` (where
+			// d-pi-message renderers can read it for display purposes
+			// without leaking into the LLM context or the editor).
+			// If `content` has no meta prefix (defensive — should not
+			// happen on the current hub path), wrap it the same way for
+			// consistent downstream handling.
 			const metaContent = extractMeta(content)
 				? content
 				: injectMeta(content, sourceName ? "source" : "connect", undefined, { sourceName });
 			const extracted = extractMeta(metaContent);
+			const userVisibleContent = extracted?.text ?? metaContent;
 			// Routing decision lives in SourceManager (parsed + coerced from
 			// params.mode on the validated JSONRPC notification, mirroring
 			// the TUI's Enter / Ctrl+Enter vocabulary). The extension maps
@@ -191,7 +226,7 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 			pi.sendMessage(
 				{
 					customType: "d-pi-message",
-					content: metaContent,
+					content: userVisibleContent,
 					display: true,
 					details: extracted?.meta,
 				},

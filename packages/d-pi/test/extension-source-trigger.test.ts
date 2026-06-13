@@ -148,3 +148,62 @@ describe("d-pi extension: source-message routing (Bug 2)", () => {
 		expect(opts.deliverAs).toBeUndefined();
 	});
 });
+
+/**
+ * The d-pi hub wraps source-bound content in a
+ * `[meta({sourceName, sourceType:"source", ...})]\n<text>` envelope
+ * before posting it to the worker (see hub.ts's SourceManager
+ * onBroadcast callback). The meta is meant for routing / display
+ * only \u2014 it is not user content. The extension must extract the
+ * inner text and pass it as `content` so the LLM context and any
+ * queued steering / followUp entries stay free of the meta prefix;
+ * the parsed meta moves to `details` for renderer access.
+ *
+ * Regression: previously `content` was the full meta-wrapped string,
+ * so the LLM saw the literal `[meta({...})]\n` block on every source
+ * event, and Alt+Up dequeue restored that block into the editor as
+ * if it were user-typed text.
+ */
+describe("d-pi extension: source message strips meta prefix from content", () => {
+	it("delivered content with meta prefix is unwrapped before sendMessage", () => {
+		const { pi, captured } = makePi();
+		const { factory, channel } = createDPiExtension(makeChannel());
+		factory(pi);
+
+		// Simulate the real hub path: hub.ts injects meta then
+		// posts the wrapped string. The worker's deliverMessage
+		// receives the wrapped string verbatim.
+		const rawText = JSON.stringify({
+			message: { chat_id: "oc_abc", content: "{\"text\":\"hi\"}" },
+		});
+		const metaContent = `[meta({"createTime":"2026/06/13 09:00:00","sourceType":"source","sourceName":"lark-bot","tips":"Message from an external source. Use unsubscribe_source to stop receiving."})]\n${rawText}`;
+
+		channel!.deliverMessage(metaContent, "lark-bot", "steer");
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].customType).toBe("d-pi-message");
+		// The fix: content is the inner text only \u2014 no meta prefix.
+		expect(captured[0].content).toBe(rawText);
+		// The parsed meta moves to `details` for renderer consumption.
+		const details = captured[0].details as { sourceName?: string; sourceType?: string };
+		expect(details?.sourceName).toBe("lark-bot");
+		expect(details?.sourceType).toBe("source");
+		// No literal "[meta(" block reaches the LLM context.
+		expect(JSON.stringify(captured[0].content)).not.toContain("[meta(");
+	});
+
+	it("delivered content without meta prefix is forwarded as-is (defensive)", () => {
+		// Defensive path: if the hub ever ships a non-wrapped content
+		// (shouldn't happen on the current code path, but the
+		// extension's check is robust to it), the bare text still
+		// goes through.
+		const { pi, captured } = makePi();
+		const { factory, channel } = createDPiExtension(makeChannel());
+		factory(pi);
+
+		channel!.deliverMessage("just plain text", "lark-bot", "steer");
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].content).toBe("just plain text");
+	});
+});

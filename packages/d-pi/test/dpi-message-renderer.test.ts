@@ -207,7 +207,11 @@ describe("d-pi message renderer", () => {
 		const queuedContent = messageContentText(harness.sendMessageCalls[0].message.content);
 		expect(harness.sendMessageCalls[0].options).toEqual({ triggerTurn: true });
 		expect(queuedContent).toContain("queued during run");
-		expect(queuedContent).toContain("[meta(");
+		// The fix: the meta prefix is parsed out of `content` so the
+		// LLM context and any queued steering/followUp entries stay
+		// free of the [meta(...)] envelope. Provenance moves to
+		// `details` for renderer access.
+		expect(queuedContent).not.toContain("[meta(");
 		expect(harness.sendMessageCalls[0].message.details).toMatchObject({
 			sourceName: "source-a",
 			sourceType: "source",

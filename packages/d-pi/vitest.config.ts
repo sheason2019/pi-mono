@@ -23,6 +23,8 @@ export default defineConfig({
 			{ find: /^@earendil-works\/pi-coding-agent$/, replacement: codingAgentSrcIndex },
 			{ find: /^@earendil-works\/pi-coding-agent\/d-pi-worker$/, replacement: codingAgentSrcWorker },
 			{ find: /^@earendil-works\/pi-tui$/, replacement: tuiSrcIndex },
+			{ find: /^@sheason\/pi-coding-agent$/, replacement: codingAgentSrcIndex },
+			{ find: /^@sheason\/pi-coding-agent\/d-pi-worker$/, replacement: codingAgentSrcWorker },
 		],
 	},
 });
