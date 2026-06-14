@@ -245,10 +245,7 @@ async function runAgentWorker(): Promise<void> {
 					// files win on conflicts.
 					const { freshWorkspaceContext } = readFreshDPiContext();
 					return {
-						agentsFiles: [
-							...(freshWorkspaceContext?.additionalAgentsFiles ?? []),
-							...base.agentsFiles,
-						],
+						agentsFiles: [...(freshWorkspaceContext?.additionalAgentsFiles ?? []), ...base.agentsFiles],
 					};
 				},
 				additionalSkillPaths,

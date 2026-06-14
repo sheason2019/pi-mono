@@ -30,7 +30,7 @@ async function hubFetch(
 ): Promise<Response> {
 	const url = new URL(href, hubUrl);
 	const headers: Record<string, string> = { ...init.headers };
-	if (authToken) headers.Authorization = "Bearer " + authToken;
+	if (authToken) headers.Authorization = `Bearer ${authToken}`;
 	if (init.body && !headers["Content-Type"]) {
 		headers["Content-Type"] = "application/json";
 	}
@@ -92,7 +92,7 @@ function readSseEvents(
 					// crashing the executor process.
 					Promise.resolve(onRemoteCall(event)).catch((e: unknown) => {
 						const msg = e instanceof Error ? e.message : String(e);
-						process.stderr.write("[executor] command failed: " + msg + "\n");
+						process.stderr.write(`[executor] command failed: ${msg}\n`);
 					});
 				} catch {
 					/* ignore malformed */
@@ -134,13 +134,13 @@ export class ExecutorClient {
 			body: JSON.stringify({ connectId: this.opts.connectId, cwd: process.cwd() }),
 		});
 		if (!regRes.ok) {
-			throw new Error("Failed to register executor: " + regRes.status + " " + (await regRes.text()));
+			throw new Error(`Failed to register executor: ${regRes.status} ${await regRes.text()}`);
 		}
 
 		// 2) Open SSE via raw http so we get a streaming body.
 		await new Promise<void>((resolve, reject) => {
 			const u = new URL(
-				"/_hub/executor/events?connectId=" + encodeURIComponent(this.opts.connectId),
+				`/_hub/executor/events?connectId=${encodeURIComponent(this.opts.connectId)}`,
 				this.opts.hubUrl,
 			);
 			const req = httpRequest(
@@ -149,11 +149,11 @@ export class ExecutorClient {
 					port: u.port,
 					path: u.pathname + u.search,
 					method: "GET",
-					headers: { Accept: "text/event-stream", Authorization: "Bearer " + this.opts.authToken },
+					headers: { Accept: "text/event-stream", Authorization: `Bearer ${this.opts.authToken}` },
 				},
 				(res: IncomingMessage) => {
 					if (res.statusCode !== 200) {
-						reject(new Error("SSE subscribe failed: " + res.statusCode));
+						reject(new Error(`SSE subscribe failed: ${res.statusCode}`));
 						return;
 					}
 					this.req = req;
@@ -183,7 +183,7 @@ export class ExecutorClient {
 			body: JSON.stringify({ connectId: this.opts.connectId, ...payload }),
 		});
 		if (!res.ok) {
-			throw new Error("Failed to post result: " + res.status + " " + (await res.text()));
+			throw new Error(`Failed to post result: ${res.status} ${await res.text()}`);
 		}
 	}
 

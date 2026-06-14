@@ -20,6 +20,7 @@ import { HubChannel } from "./hub-channel.ts";
 import { createListSourcesTool } from "./list-sources.ts";
 import type { MessageMeta } from "./message-meta.ts";
 import { extractMeta, injectMeta } from "./message-meta.ts";
+import { createRemoteTools } from "./remote-tools.ts";
 import { createSendMessageTool } from "./send-message.ts";
 import { createSubscribeSourceTool } from "./subscribe-source.ts";
 import { createUnsubscribeSourceTool } from "./unsubscribe-source.ts";
@@ -100,6 +101,15 @@ function createWorkerFactory(channel: HubChannel): ExtensionFactory {
 		pi.registerTool(createSubscribeSourceTool(channel));
 		pi.registerTool(createUnsubscribeSourceTool(channel));
 		pi.registerTool(createListSourcesTool(channel));
+		// `remote_*` tools (remote_bash / remote_read / ...) let the
+		// server agent run native tools on the connected client's
+		// machine via d-pi's IPC dispatch path. The tools are always
+		// registered; if no client is bound to this agent, calls
+		// return a clear error so the LLM can fall back to the local
+		// built-in tool.
+		for (const tool of createRemoteTools(channel)) {
+			pi.registerTool(tool);
+		}
 
 		// Server-side /sources and /agents commands — register the command
 		// names so they appear in the TUI slash menu (via the /commands

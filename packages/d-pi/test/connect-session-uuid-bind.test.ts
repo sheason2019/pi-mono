@@ -1,13 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SourceManager } from "../src/hub/source-manager.ts";
-import { HubGateway } from "../src/hub/gateway.ts";
-import { AgentRegistry } from "../src/hub/agent-registry.ts";
-import { ExecutorRegistry } from "../src/hub/executor-registry.ts";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { AddressInfo } from "node:net";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AgentRegistry } from "../src/hub/agent-registry.ts";
+import { ExecutorRegistry } from "../src/hub/executor-registry.ts";
+import { HubGateway } from "../src/hub/gateway.ts";
+import { SourceManager } from "../src/hub/source-manager.ts";
 
 /**
  * Tests for the "connectId is per-session, not per-agent" change.
@@ -75,16 +75,18 @@ describe("connectId is per-session (not per-agent)", () => {
 			const url = new URL(req.url ?? "/", "http://127.0.0.1");
 			const path = url.pathname;
 			// Mirror the small slice of start() we need.
-			(gateway as unknown as { _handleHubApi: (req: IncomingMessage, res: ServerResponse, path: string) => Promise<void> })._handleHubApi(
-				req,
-				res,
-				path,
-			).catch((err: unknown) => {
-				if (!res.headersSent) {
-					res.writeHead(500, { "Content-Type": "application/json" });
-					res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+			(
+				gateway as unknown as {
+					_handleHubApi: (req: IncomingMessage, res: ServerResponse, path: string) => Promise<void>;
 				}
-			});
+			)
+				._handleHubApi(req, res, path)
+				.catch((err: unknown) => {
+					if (!res.headersSent) {
+						res.writeHead(500, { "Content-Type": "application/json" });
+						res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+					}
+				});
 		});
 		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 		const addr = server.address() as AddressInfo;
@@ -115,7 +117,7 @@ describe("connectId is per-session (not per-agent)", () => {
 	it("first bind for an agent succeeds and records the connectId", async () => {
 		const { status, body } = await bind("root", "session-A");
 		expect(status).toBe(200);
-		expect(body).toContain("\"ok\":true");
+		expect(body).toContain('"ok":true');
 		expect(gateway.getBinding("root")).toBe("session-A");
 	});
 
@@ -188,4 +190,3 @@ describe("connectId is per-session (not per-agent)", () => {
 		expect(body.error).toMatch(/connectId is required/);
 	});
 });
-
