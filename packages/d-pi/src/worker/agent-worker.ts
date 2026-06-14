@@ -25,6 +25,7 @@ import { DPI_META_PROMPT } from "../dpi-meta.ts";
 import { createDPiExtension, createReloadExtension, type HubChannel } from "../extension/index.ts";
 import { formatAgentIdentitySection, readAgentConfig } from "../hub/agent-identity.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
+import { loadWorkspaceContext } from "../workspace/workspace.ts";
 
 const dPiClientExtensionPath = new URL(
 	`../extension/client-extension${import.meta.url.endsWith(".ts") ? ".ts" : ".js"}`,
@@ -143,19 +144,46 @@ async function runAgentWorker(): Promise<void> {
 		// before the tool list / build stamp at the very end of
 		// the system prompt — a stable position across agents that
 		// doesn't get pushed around as identity content grows.
-		const agentConfig = readAgentConfig(cwd);
-		const agentIdentitySection = agentConfig ? formatAgentIdentitySection(agentConfig) : undefined;
-		const appendSystemPrompt = [
-			config.workspaceContext?.appendSystemPrompt,
-			agentIdentitySection,
-			DPI_META_PROMPT,
-		].filter((s): s is string => Boolean(s));
-		const additionalAgentsFiles = config.workspaceContext?.additionalAgentsFiles ?? [];
+		//
+		// Bug fix (previously): the appendSystemPrompt array and the
+		// agentsFilesOverride closure both captured a snapshot of
+		// agent.json + APPEND_SYSTEM.md at session-start, so
+		// session.reload() re-ran resourceLoader.reload() but the
+		// d-pi-injected content stayed frozen at startup. Editing
+		// agent.json (description, roles, model name, tool allow/deny)
+		// or APPEND_SYSTEM.md and calling `reload` would NOT refresh
+		// the system prompt.
+		//
+		// Fix: pass `appendSystemPromptOverride` and
+		// `agentsFilesOverride` as closures that re-read
+		// loadWorkspaceContext + agent.json on every call. The
+		// ResourceLoader invokes these overrides inside its own
+		// reload(), so each `reload` re-computes the d-pi-injected
+		// sections from the live on-disk state.
+		const workspaceRoot = config.workspaceContext?.workspaceRoot;
 		const additionalSkillPaths = config.workspaceContext?.additionalSkillPaths ?? [];
 		const additionalExtensionPaths = [
 			dPiClientExtensionPath,
 			...(config.workspaceContext?.additionalExtensionPaths ?? []),
 		];
+
+		// Re-read the workspace context and this agent's identity
+		// from disk. Called on every reload (and once at startup)
+		// so that edits to APPEND_SYSTEM.md / group-architecture
+		// AGENTS.md / agent.json (description, roles, model name,
+		// tool allow/deny list) take effect without a hub restart.
+		// Returns `undefined` when there is no workspace context
+		// (e.g. ad-hoc session without a workspace root); the
+		// override closures handle that case by falling back to
+		// whatever the resourceLoader itself discovered.
+		const readFreshDPiContext = () => {
+			const freshAgentConfig = readAgentConfig(cwd);
+			const roles = freshAgentConfig?.roles;
+			const freshWorkspaceContext = workspaceRoot
+				? loadWorkspaceContext(workspaceRoot, { agentName, roles })
+				: undefined;
+			return { freshAgentConfig, freshWorkspaceContext };
+		};
 
 		process.stderr.write(`[d-pi worker ${agentName}] Creating session services...\n`);
 
@@ -181,14 +209,48 @@ async function runAgentWorker(): Promise<void> {
 								return session ? () => session.reload() : undefined;
 							},
 							getResourceLoader: () => runtime?.session?.resourceLoader,
+							// Also re-read ~/.pi/agent/models.json on reload so
+							// newly added providers / rotated keys become
+							// available in the same call, without a hub
+							// restart. The model registry is owned by the
+							// agent session, so we resolve it lazily at
+							// execute() time the same way we do for the
+							// session / resource loader.
+							getModelRegistry: () => runtime?.session?.modelRegistry,
 						}),
 						name: "<d-pi-built-in-reload-extension>",
 					},
 				],
-				appendSystemPrompt,
-				agentsFilesOverride: (base) => ({
-					agentsFiles: [...additionalAgentsFiles, ...base.agentsFiles],
-				}),
+				appendSystemPromptOverride: (base) => {
+					// `base` is what ResourceLoader itself discovered
+					// (e.g. ~/.pi/agent/APPEND_SYSTEM.md via
+					// discoverAppendSystemPromptFile). Keep it at the
+					// end so it stays in the same position relative
+					// to the d-pi-injected sections as before this fix.
+					const { freshAgentConfig, freshWorkspaceContext } = readFreshDPiContext();
+					return [
+						freshWorkspaceContext?.appendSystemPrompt,
+						freshAgentConfig ? formatAgentIdentitySection(freshAgentConfig) : undefined,
+						DPI_META_PROMPT,
+						...base,
+					].filter((s): s is string => Boolean(s));
+				},
+				agentsFilesOverride: (base) => {
+					// Re-read the workspace-level AGENTS.md / group-architecture
+					// AGENTS.md on every call so role / architecture edits
+					// surface without a hub restart. `base` is what
+					// ResourceLoader discovered itself (project-level
+					// AGENTS.md / CLAUDE.md via loadProjectContextFiles);
+					// keep it after the d-pi-injected files so user-level
+					// files win on conflicts.
+					const { freshWorkspaceContext } = readFreshDPiContext();
+					return {
+						agentsFiles: [
+							...(freshWorkspaceContext?.additionalAgentsFiles ?? []),
+							...base.agentsFiles,
+						],
+					};
+				},
 				additionalSkillPaths,
 				additionalExtensionPaths,
 			},

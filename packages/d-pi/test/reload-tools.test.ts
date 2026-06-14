@@ -295,3 +295,89 @@ describe("agent-worker integration (mock session.reload)", () => {
 		expect(parsed.systemPromptLen).toBe("post-reload system prompt".length);
 	});
 });
+
+/**
+ * Build a minimal ModelRegistry stub for the new getModelRegistry dep.
+ * Only exposes refresh() + getAll() — the only methods the reload
+ * tool touches.
+ */
+interface MockModelRegistry {
+	refresh: ReturnType<typeof vi.fn>;
+	getAll: ReturnType<typeof vi.fn>;
+	getError: ReturnType<typeof vi.fn>;
+}
+function makeMockModelRegistry(modelCount: number): MockModelRegistry {
+	return {
+		refresh: vi.fn(),
+		getAll: vi.fn().mockReturnValue(new Array(modelCount)),
+		getError: vi.fn().mockReturnValue(undefined),
+	};
+}
+
+describe("createReloadTools — getModelRegistry dep (Bug 1: models.json reload)", () => {
+	let mockReloadFn: ReturnType<typeof vi.fn>;
+	let mockLoader: ResourceLoader;
+
+	beforeEach(() => {
+		mockReloadFn = vi.fn().mockResolvedValue(undefined);
+		mockLoader = makeMockResourceLoader({});
+	});
+
+	it("calls modelRegistry.refresh() once and reports models count in snapshot when getModelRegistry is provided", async () => {
+		const mockRegistry = makeMockModelRegistry(42);
+		const tool = createReloadTools({
+			getReloadFn: () => mockReloadFn,
+			getResourceLoader: () => mockLoader,
+			getModelRegistry: () => mockRegistry as never,
+		});
+		const result = await tool.execute("c-reg-1", {}, undefined, undefined, makeCtx() as never);
+		expect(mockRegistry.refresh).toHaveBeenCalledTimes(1);
+		const parsed = JSON.parse(resultText(result)) as { models?: number; modelsError?: string };
+		expect(parsed.models).toBe(42);
+		expect(parsed.modelsError).toBeUndefined();
+	});
+
+	it("does NOT call modelRegistry when getModelRegistry is omitted (backward compat)", async () => {
+		const tool = createReloadTools({
+			getReloadFn: () => mockReloadFn,
+			getResourceLoader: () => mockLoader,
+		});
+		const result = await tool.execute("c-reg-2", {}, undefined, undefined, makeCtx() as never);
+		const parsed = JSON.parse(resultText(result)) as { models?: number; modelsError?: string };
+		expect(parsed.models).toBeUndefined();
+		expect(parsed.modelsError).toBeUndefined();
+	});
+
+	it("does NOT call modelRegistry when getModelRegistry returns undefined", async () => {
+		const tool = createReloadTools({
+			getReloadFn: () => mockReloadFn,
+			getResourceLoader: () => mockLoader,
+			getModelRegistry: () => undefined,
+		});
+		const result = await tool.execute("c-reg-3", {}, undefined, undefined, makeCtx() as never);
+		const parsed = JSON.parse(resultText(result)) as { models?: number; modelsError?: string };
+		expect(parsed.models).toBeUndefined();
+		expect(parsed.modelsError).toBeUndefined();
+	});
+
+	it("reports modelsError in snapshot when modelRegistry.refresh() throws (bad models.json)", async () => {
+		const failingRegistry = makeMockModelRegistry(0);
+		failingRegistry.refresh.mockImplementation(() => {
+			throw new Error("invalid models.json schema");
+		});
+		const tool = createReloadTools({
+			getReloadFn: () => mockReloadFn,
+			getResourceLoader: () => mockLoader,
+			getModelRegistry: () => failingRegistry as never,
+		});
+		const result = await tool.execute("c-reg-4", {}, undefined, undefined, makeCtx() as never);
+		// The reload itself succeeded (resources refreshed); only the
+		// models.json refresh failed. The snapshot surfaces the error
+		// without marking the whole call as isError, because the
+		// resource side still worked.
+		expect(isError(result)).toBe(false);
+		const parsed = JSON.parse(resultText(result)) as { models?: number; modelsError?: string };
+		expect(parsed.models).toBeUndefined();
+		expect(parsed.modelsError).toMatch(/invalid models\.json schema/);
+	});
+});
