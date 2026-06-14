@@ -1,79 +1,78 @@
-import { Type } from "@earendil-works/pi-ai";
-import { defineTool } from "@sheason/pi-coding-agent";
+import {
+	createBashToolDefinition,
+	createEditToolDefinition,
+	createFindToolDefinition,
+	createGrepToolDefinition,
+	createLsToolDefinition,
+	createReadToolDefinition,
+	createWriteToolDefinition,
+	defineTool,
+} from "@sheason/pi-coding-agent";
 import type { HubChannel } from "./hub-channel.ts";
 
 /**
- * Native tool name → registered `remote_*` tool name mapping.
+ * Map of native tool name → (tool definition factory, registered `remote_*` name).
  *
- * Mirrors `agent-extension/remote-tools.ts`'s TOOL_NAME_MAP so the LLM
- * sees the same surface on the server agent as the (now-removed)
- * HTTP-fetch variant would have presented. The executor on the client
- * side only knows the native names (the tool factories in
- * `buildNativeToolSet` register `bash`, `read`, ...); the hub's
- * `_handleToolCall("remote", ...)` unwraps the `tool` field back to
- * the native name before dispatching.
+ * We call each `create*ToolDefinition(cwd)` once to obtain the native
+ * `ToolDefinition`, then extract its `parameters` schema for the
+ * `remote_*` wrapper. The `execute` implementation of the native
+ * definition is not used — we dispatch to the client executor instead.
+ * The cwd argument only affects the native `execute` (file path
+ * resolution), which we bypass, so a placeholder is fine.
  */
-const TOOL_NAME_MAP = {
-	bash: "remote_bash",
-	read: "remote_read",
-	ls: "remote_ls",
-	grep: "remote_grep",
-	find: "remote_find",
-	write: "remote_write",
-	edit: "remote_edit",
-} as const;
+const TOOL_SPECS = [
+	{ native: "bash", remote: "remote_bash", factory: createBashToolDefinition },
+	{ native: "read", remote: "remote_read", factory: createReadToolDefinition },
+	{ native: "ls", remote: "remote_ls", factory: createLsToolDefinition },
+	{ native: "grep", remote: "remote_grep", factory: createGrepToolDefinition },
+	{ native: "find", remote: "remote_find", factory: createFindToolDefinition },
+	{ native: "write", remote: "remote_write", factory: createWriteToolDefinition },
+	{ native: "edit", remote: "remote_edit", factory: createEditToolDefinition },
+] as const;
 
 /**
  * Register the 7 `remote_*` tools on a server agent's extension API.
  *
- * Unlike the (now-removed) `agent-extension/remote-tools.ts` variant,
- * which dispatched via HTTP fetch to `/agents/{name}/remote-call`, this
- * version dispatches through the d-pi IPC channel
- * (`HubChannel.callRemote` → `parentPort.postMessage` →
- * `Hub._handleToolCall("remote", ...)`). The IPC path needs no auth
- * token because the worker thread is spawned and trusted by the hub,
- * and it avoids the TCP loopback overhead of an HTTP round-trip back
- * to the hub's own gateway. The HTTP `/agents/{name}/remote-call`
- * endpoint remains available for non-worker callers (e.g. external
- * scripts), but server agents use this IPC path.
+ * Each tool's `parameters` schema is **cloned from the native
+ * pi-coding-agent tool definition** so the LLM sees exactly the same
+ * argument schema as the built-in counterpart. The only difference
+ * from the built-in tool is the name prefix (`remote_`) and the
+ * `execute` implementation, which dispatches through the d-pi IPC
+ * channel instead of running locally.
  *
- * Each tool's `execute` is a thin wrapper around `channel.callRemote`:
- * it forwards the native tool name and the caller's params verbatim to
- * the hub, which dispatches them to the bound client executor. The
- * LLM-facing description tells the model to use these tools when the
- * task targets the user's connected client machine.
+ * Dispatch path: `HubChannel.callRemote` → `parentPort.postMessage`
+ * → `Hub._handleToolCall("remote", ...)` → executor SSE → client
+ * runs the native tool → POST result back → IPC resolve.
+ *
+ * No auth token is needed because the IPC channel is a trusted
+ * parent-child relationship (the hub spawned the worker). The HTTP
+ * `/agents/{name}/remote-call` endpoint remains available for
+ * external callers, but server agents use this IPC path.
  *
  * If no client is bound to this agent, `callRemote` rejects with a
- * clear error from the hub so the LLM can fall back to the local
- * built-in tool or ask the user to run `d-pi connect`.
- *
- * FIXME: parameter schemas (`parameters: {} as never`) — the LLM does
- * not see per-tool argument descriptions. The native schemas
- * (`bashSchema`, `readSchema`, ...) are not exported by
- * `@sheason/pi-coding-agent`, so we either need to re-declare them
- * here or have the upstream export them. Same FIXME as the old
- * `agent-extension/remote-tools.ts` carried.
+ * clear error from the hub.
  */
 export function createRemoteTools(channel: HubChannel): Array<ReturnType<typeof defineTool>> {
 	const tools: Array<ReturnType<typeof defineTool>> = [];
-	for (const [nativeName, registeredName] of Object.entries(TOOL_NAME_MAP)) {
+	for (const spec of TOOL_SPECS) {
+		const nativeDef = spec.factory("/");
 		tools.push(
 			defineTool({
-				name: registeredName,
-				label: `Remote ${nativeName}`,
+				name: spec.remote,
+				label: `Remote ${spec.native}`,
 				description:
-					`Run native ${nativeName} on the user's connected d-pi client. ` +
+					`Run native ${spec.native} on the user's connected d-pi client. ` +
 					"Same arguments as the built-in tool; the difference is the execution " +
 					"location: the built-in tool runs on the hub host, the `remote_*` " +
 					"variant runs on the d-pi client that is bound to this agent via " +
 					"`d-pi connect`. Pick the one that matches the resource the task " +
 					"targets — file paths and credentials on the user's laptop go " +
-					`through \`remote_${nativeName}\`; paths on the hub host go through ` +
-					`the built-in ${nativeName}. Requires a connected client; if no ` +
+					`through \`${spec.remote}\`; paths on the hub host go through ` +
+					`the built-in ${spec.native}. Requires a connected client; if no ` +
 					"client is bound, the call returns an error explaining the situation.",
-				parameters: Type.Object({}),
+				parameters: nativeDef.parameters,
 				async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-					const result = await channel.callRemote(nativeName, params);
+					const result = await channel.callRemote(spec.native, params);
 					const r = result as { ok?: boolean; result?: unknown; error?: string };
 					if (!r.ok) {
 						throw new Error(r.error ?? "Unknown remote tool error");
