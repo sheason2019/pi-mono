@@ -1,6 +1,6 @@
 {
 	"name": "@sheason/d-pi",
-	"version": "0.6.0-alpha.7",
+	"version": "0.6.0-alpha.8",
 	"description": "Multi-agent tree orchestrator built on pi serve mode",
 	"repository": {
 		"type": "git",
@@ -21,7 +21,7 @@
 		"test": "vitest --run"
 	},
 	"dependencies": {
-		"@sheason/pi-coding-agent": "0.79.1-sheason.0.6.0-alpha.7",
+		"@sheason/pi-coding-agent": "0.79.1-sheason.0.6.0-alpha.8",
 		"@earendil-works/pi-agent-core": "^0.78.0",
 		"@earendil-works/pi-ai": "^0.78.0",
 		"@earendil-works/pi-tui": "^0.78.0",
