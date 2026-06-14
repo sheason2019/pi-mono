@@ -280,7 +280,6 @@ export class SourceManager {
 			env: record.env ? { ...process.env, ...record.env } : process.env,
 			stdio: ["pipe", "pipe", "pipe"],
 			shell: false,
-			detached: true,
 		});
 
 		record.process = child;
@@ -477,20 +476,15 @@ export class SourceManager {
 
 		if (!child || child.killed) return;
 
-		const pid = child.pid;
-
-		// Kill the entire process group (detached: true ensures own group)
-		try {
-			if (pid) process.kill(-pid, "SIGTERM");
-		} catch {
-			child.kill("SIGTERM");
-		}
+		// Kill the child process. Without detached:true the child
+		// shares the hub's process group, so child.kill() is enough
+		// — the OS sends SIGTERM to just this child, not the hub.
+		child.kill("SIGTERM");
 
 		// Force-kill after 3s if SIGTERM wasn't enough
 		setTimeout(() => {
 			try {
-				if (pid) process.kill(-pid, 0);
-				if (pid) process.kill(-pid, "SIGKILL");
+				child.kill("SIGKILL");
 			} catch {
 				// Already dead
 			}

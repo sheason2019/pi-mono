@@ -7,6 +7,8 @@ import {
 	createLsToolDefinition,
 	createReadToolDefinition,
 	createWriteToolDefinition,
+	getAgentDir,
+	SettingsManager,
 } from "@sheason/pi-coding-agent";
 import { ExecutorClient } from "./client.ts";
 import { type ExecutorEnv, readExecutorEnv } from "./env.ts";
@@ -28,15 +30,22 @@ const exitOnSignal = (signal: NodeJS.Signals): void => {
 process.on("SIGTERM", exitOnSignal);
 process.on("SIGINT", exitOnSignal);
 
-/** Build the canonical native tool set, one per supported tool name. Each
- *  tool is constructed with the executor's cwd so file-system operations
- *  resolve relative paths the same way the agent worker's tools do. */
+/** Build the canonical native tool set, one per supported tool name.
+ *  Each tool is constructed with the executor's cwd so file-system
+ *  operations resolve relative paths the same way the agent worker's
+ *  tools do. The bash tool picks up `shellPath` and `commandPrefix`
+ *  from `~/.pi/agent/settings.json` via SettingsManager — same path
+ *  the server-side AgentSession uses — so a user who configures
+ *  `shellPath` on a non-standard bash location (scoop, cygwin, etc.)
+ *  gets consistent behavior on both ends. */
 export function buildNativeToolSet(cwd: string): Array<ToolDefinition> {
-	// The native tool factories return strongly-typed ToolDefinition<P, D, S>
-	// variants; we cast here so the executor's runner can treat them as the
-	// shape-erased interface it works with.
+	const agentDir = getAgentDir();
+	const settingsManager = SettingsManager.create(cwd, agentDir);
+	const shellPath = settingsManager.getShellPath();
+	const commandPrefix = settingsManager.getShellCommandPrefix();
+
 	const tools = [
-		createBashToolDefinition(cwd),
+		createBashToolDefinition(cwd, { shellPath, commandPrefix }),
 		createEditToolDefinition(cwd),
 		createFindToolDefinition(cwd),
 		createGrepToolDefinition(cwd),
