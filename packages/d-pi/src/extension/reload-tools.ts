@@ -1,10 +1,5 @@
 import { Type } from "@earendil-works/pi-ai";
-import type {
-	ExtensionAPI,
-	ModelRegistry,
-	ResourceLoader,
-	ToolDefinition,
-} from "@sheason/pi-coding-agent";
+import type { ExtensionAPI, ModelRegistry, ResourceLoader, ToolDefinition } from "@sheason/pi-coding-agent";
 import { defineTool } from "@sheason/pi-coding-agent";
 
 /**

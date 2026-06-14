@@ -81,10 +81,7 @@ describe("SourceManager unwraps JSONRPC envelope", () => {
 			mode: "steer",
 			data: larkEvent,
 		});
-		manager.createSource(
-			{ name: "lark-bot", command: "sh", args: ["-c", `echo '${line}'`] },
-			CREATOR,
-		);
+		manager.createSource({ name: "lark-bot", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
 
 		await waitFor(() => broadcasts.some((b) => b.sourceName === "lark-bot"), 3_000, 20);
 		const b = broadcasts.find((b) => b.sourceName === "lark-bot");
@@ -110,10 +107,7 @@ describe("SourceManager unwraps JSONRPC envelope", () => {
 			mode: "steer",
 			data: { hello: "world" },
 		});
-		manager.createSource(
-			{ name: "lark-bot", command: "sh", args: ["-c", `echo '${line}'`] },
-			CREATOR,
-		);
+		manager.createSource({ name: "lark-bot", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
 
 		await waitFor(() => broadcasts.some((b) => b.sourceName === "lark-bot"), 3_000, 20);
 		const b = broadcasts.find((b) => b.sourceName === "lark-bot");
@@ -128,10 +122,7 @@ describe("SourceManager unwraps JSONRPC envelope", () => {
 			mode: "next",
 			data: rawJson,
 		});
-		manager.createSource(
-			{ name: "string-data", command: "sh", args: ["-c", `echo '${line}'`] },
-			CREATOR,
-		);
+		manager.createSource({ name: "string-data", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
 
 		await waitFor(() => broadcasts.some((b) => b.sourceName === "string-data"), 3_000, 20);
 		const b = broadcasts.find((b) => b.sourceName === "string-data");
@@ -145,10 +136,7 @@ describe("SourceManager unwraps JSONRPC envelope", () => {
 			method: "events.emit",
 			params: { type: "test.event", id: "ev-no-data" },
 		});
-		manager.createSource(
-			{ name: "no-data", command: "sh", args: ["-c", `echo '${line}'`] },
-			CREATOR,
-		);
+		manager.createSource({ name: "no-data", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
 
 		await waitFor(() => broadcasts.some((b) => b.sourceName === "no-data"), 3_000, 20);
 		const b = broadcasts.find((b) => b.sourceName === "no-data");

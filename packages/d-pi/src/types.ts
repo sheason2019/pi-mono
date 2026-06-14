@@ -125,6 +125,14 @@ export interface HubConfig {
 	workspaceRoot: string;
 	workspaceContext: WorkspaceContext;
 	workspaceConfig: WorkspaceConfig;
+	/**
+	 * Max time (ms) the hub will wait for an executor to return a
+	 * result for a dispatched tool call, whether triggered from
+	 * the public `/agents/{name}/remote-call` HTTP endpoint or
+	 * from the in-process `remote` IPC tool used by `remote_*`
+	 * agent tools. Default: 60_000.
+	 */
+	remoteCallTimeoutMs?: number;
 }
 
 // === Tool Call Results ===

@@ -113,6 +113,27 @@ export class HubChannel {
 		return this._callTool("list_sources", {});
 	}
 
+	/**
+	 * Dispatch a remote tool call to the executor (the SSE-connected
+	 * d-pi client that has bound this agent). The hub looks up
+	 * `_agentBindings[agentName]`, routes the call to the matching
+	 * executor registry entry, which sends a `remote-call` event
+	 * over SSE to the client. The client runs the named tool locally
+	 * and POSTs the result back, which the hub uses to resolve the
+	 * in-flight `tool_call` and return the value through the regular
+	 * `tool_result` IPC path.
+	 *
+	 * `tool` is the native tool name on the client side
+	 * ("bash", "read", "edit", "write", "find", "grep", "ls").
+	 * `params` must match that tool's schema.
+	 *
+	 * If no client is bound to the agent, the call rejects with an
+	 * error from the hub's `_handleToolCall("remote")` case.
+	 */
+	callRemote(tool: string, params: unknown): Promise<unknown> {
+		return this._callTool("remote", { tool, params });
+	}
+
 	/** Resolve a pending tool call — called when Hub sends tool_result */
 	resolveCall(callId: string, result: unknown): void {
 		const pending = this._pendingCalls.get(callId);

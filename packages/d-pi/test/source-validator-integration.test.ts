@@ -201,16 +201,10 @@ echo '{"jsonrpc":"2.0","method":"events.emit","params":{"type":"cycle","data":"e
 			CREATOR,
 		);
 
-		await waitFor(
-			() => broadcasts.filter((b) => b.sourceName === "cycles" && b.line === "e").length >= 1,
-			3_000,
-			20,
-		);
+		await waitFor(() => broadcasts.filter((b) => b.sourceName === "cycles" && b.line === "e").length >= 1, 3_000, 20);
 
 		const cycleBroadcasts = broadcasts.filter((b) => b.sourceName === "cycles");
-		const notifications = cycleBroadcasts.filter(
-			(b) => b.line === "a" || b.line === "e",
-		);
+		const notifications = cycleBroadcasts.filter((b) => b.line === "a" || b.line === "e");
 		// We expect at least the first cycle's notifications to come through.
 		// Don't assert exact counts because the supervisor may restart the
 		// source between cycles — but the test would already have failed

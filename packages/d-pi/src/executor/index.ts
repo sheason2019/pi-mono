@@ -67,5 +67,5 @@ export async function main(): Promise<void> {
 		},
 	});
 	await client.start();
-	process.stderr.write("[executor] connected to " + env.hubUrl + " as " + env.connectId + " (cwd=" + env.cwd + ")\n");
+	process.stderr.write(`[executor] connected to ${env.hubUrl} as ${env.connectId} (cwd=${env.cwd})\n`);
 }
