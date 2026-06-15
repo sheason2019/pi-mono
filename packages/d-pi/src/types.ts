@@ -66,11 +66,13 @@ export interface AgentWorkerConfig {
 // `tool_call` back to the in-memory worker via the `agentName` field,
 // which must match the registry key.
 export type WorkerToHubMessage =
-	| { type: "ready"; agentName: string; port: number }
+	| { type: "ready"; agentName: string }
 	| { type: "error"; agentName: string; error: string }
 	| { type: "tool_call"; agentName: string; tool: string; params: unknown; callId: string }
 	| { type: "tool_call_timeout"; agentName: string; callId: string }
-	| { type: "status_update"; agentName: string; status: AgentStatus };
+	| { type: "status_update"; agentName: string; status: AgentStatus }
+	| { type: "http_response"; agentName: string; requestId: string; status: number; body: unknown }
+	| { type: "sse_event"; agentName: string; subscriberId: string; event: string; data: unknown };
 
 // === Hub → Worker IPC Messages ===
 export type HubToWorkerMessage =
@@ -82,7 +84,11 @@ export type HubToWorkerMessage =
 			sourceName?: string;
 			mode?: "next" | "steer";
 	  }
-	| { type: "destroy" };
+	| { type: "destroy" }
+	| { type: "http_request"; requestId: string; action: string; data: unknown }
+	| { type: "http_query"; requestId: string; query: string }
+	| { type: "sse_subscribe"; subscriberId: string }
+	| { type: "sse_unsubscribe"; subscriberId: string };
 
 // === Group Architecture Snapshot ===
 export interface GroupArchitectureEntry {
