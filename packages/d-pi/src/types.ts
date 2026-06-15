@@ -50,7 +50,6 @@ export interface WorkspaceContext {
 export interface AgentWorkerConfig {
 	agentName: string;
 	parentName?: string;
-	port: number;
 	cwd: string;
 	model?: string;
 	workspaceContext?: WorkspaceContext;
@@ -115,7 +114,8 @@ export interface AgentRecord {
 	name: string;
 	parentName: string | undefined;
 	children: string[];
-	port: number;
+	/** @deprecated Agents no longer bind HTTP ports in stdio/IPC mode. */
+	port?: number;
 	status: AgentStatus;
 	worker: import("node:worker_threads").Worker;
 	cwd: string;

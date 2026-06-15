@@ -12,7 +12,7 @@ import type { Model } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@sheason/pi-coding-agent";
 import { AuthStorage, getAgentDir, ModelRegistry, SessionManager, SettingsManager } from "@sheason/pi-coding-agent";
 import {
-	AgentHttpServer,
+	AgentIpcServer,
 	type AgentSessionRuntime,
 	createAgentSessionFromServices,
 	createAgentSessionRuntime,
@@ -42,7 +42,7 @@ const port = parentPort!;
 // Module-level references set during runAgentWorker()
 let hubChannel: HubChannel | undefined;
 let runtime: AgentSessionRuntime | undefined;
-let httpServer: AgentHttpServer | undefined;
+let ipcServer: AgentIpcServer | undefined;
 let proxy: LocalAgentSessionProxy | undefined;
 
 function postToHub(message: WorkerToHubMessage): void {
@@ -61,6 +61,13 @@ port.on("message", (message: HubToWorkerMessage) => {
 			break;
 		case "destroy":
 			gracefulShutdown();
+			break;
+		// The following cases are handled by AgentIpcServer via the
+		// transport adapter, not here. They are listed for clarity.
+		case "http_request":
+		case "http_query":
+		case "sse_subscribe":
+		case "sse_unsubscribe":
 			break;
 	}
 });
@@ -111,7 +118,7 @@ function persistSessionId(agentCwd: string, sessionId: string): void {
 async function runAgentWorker(): Promise<void> {
 	// `agentName` is the worker's identity — there is no separate id.
 	// See "name is identity" in the changelog for the rationale.
-	const { agentName, port: agentPort, cwd, model: modelSpec } = config;
+	const { agentName, cwd, model: modelSpec } = config;
 	const agentDir = getAgentDir();
 
 	process.stderr.write(`[d-pi worker ${agentName}] Starting agent "${agentName}"...\n`);
@@ -373,7 +380,7 @@ async function runAgentWorker(): Promise<void> {
 		hubChannel?.deliverMessage(_text, undefined, "next");
 	};
 
-	httpServer = new AgentHttpServer(proxy);
+	// (AgentHttpServer removed — IPC server is created later)
 
 	// 7. Bind extensions — no UI context (same as serve-mode.ts)
 	const rebindSession = async (): Promise<void> => {
@@ -421,8 +428,25 @@ async function runAgentWorker(): Promise<void> {
 	// Initial bind for the first session
 	await rebindSession();
 
-	// 8. Start HTTP server
-	await httpServer.start(agentPort);
+	// 8. Start IPC server (replaces AgentHttpServer)
+	// The IPC server listens for http_request / http_query / sse_subscribe
+	// messages from the hub and responds via IPC. No HTTP port needed.
+	ipcServer = new AgentIpcServer(
+		proxy!,
+		{
+			postMessage: (msg) => port.postMessage(msg),
+			onMessage: (handler) => port.on("message", handler),
+		},
+		{
+			onHttpResponse: (requestId, status, body) => {
+				postToHub({ type: "http_response", agentName, requestId, status, body });
+			},
+			onSseEvent: (subscriberId, event, data) => {
+				postToHub({ type: "sse_event", agentName, subscriberId, event, data });
+			},
+		},
+	);
+	ipcServer.start();
 
 	// 8b. Subscribe to session events to report streaming status to Hub
 	proxy.subscribe((event) => {
@@ -438,10 +462,10 @@ async function runAgentWorker(): Promise<void> {
 	});
 
 	// 9. Signal ready to Hub
-	postToHub({ type: "ready", agentName, port: agentPort });
+	postToHub({ type: "ready", agentName });
 	postToHub({ type: "status_update", agentName, status: "ready" });
 
-	process.stderr.write(`[d-pi worker] Agent "${agentName}" ready on port ${agentPort}\n`);
+	process.stderr.write(`[d-pi worker] Agent "${agentName}" ready (IPC mode, no HTTP port)\n`);
 
 	// Keep alive
 	return new Promise(() => {});
@@ -450,7 +474,7 @@ async function runAgentWorker(): Promise<void> {
 async function gracefulShutdown(): Promise<void> {
 	postToHub({ type: "status_update", agentName: config.agentName, status: "destroyed" });
 	try {
-		await httpServer?.stop();
+		ipcServer?.stop();
 	} catch {
 		// Ignore errors during shutdown
 	}
