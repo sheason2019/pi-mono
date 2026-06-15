@@ -1,8 +1,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@sheason/pi-coding-agent";
+import type { ExtensionAPI, ModelRegistry } from "@sheason/pi-coding-agent";
 import { defineTool } from "@sheason/pi-coding-agent";
 import { createReloadTools, type ReloadToolsDeps } from "./reload-tools.ts";
 
@@ -28,9 +29,12 @@ import { createReloadTools, type ReloadToolsDeps } from "./reload-tools.ts";
  *
  * In this phase we intentionally keep the surface small: the tools delegate to
  * the underlying ExtensionAPI (pi.setModel / pi.setThinkingLevel) which is
- * available on the ExtensionAPI passed to every extension factory. No hub IPC
- * update for live group-architecture model yet (the hub record is populated at
- * create time; it will be refreshed on next agent recreate/restore).
+ * available on the ExtensionAPI passed to every extension factory.
+ *
+ * Model changes are persisted to agent.json (restarts + identity block see
+ * them). No live IPC model update to hub AgentRegistry yet, so
+ * group_architecture may be stale until recreate (P1 gap). ctx.cwd for the
+ * write is the d-pi per-agent dir (see agent-worker persistSessionId); P2.
  */
 
 export type AgentMetadataToolsDeps = ReloadToolsDeps;
@@ -75,19 +79,19 @@ export function createAgentMetadataExtension(deps: AgentMetadataToolsDeps): (pi:
 						};
 					}
 
-					const registry = ctx.modelRegistry;
+					const registry: ModelRegistry = ctx.modelRegistry;
 					let targetModel: Model<any> | undefined;
 
 					try {
 						if (spec.includes("/")) {
 							const [provider, id] = spec.split("/", 2);
 							if (provider && id) {
-								targetModel = (registry as any).find?.(provider, id) ?? undefined;
+								targetModel = registry.find(provider, id);
 							}
 						}
 						if (!targetModel) {
 							// Fallback: search by bare id across the registry (matches worker startup logic)
-							const all = (registry as any).getAll?.() ?? [];
+							const all = registry.getAll();
 							targetModel = all.find((m: Model<any>) => m.id === spec);
 						}
 					} catch (e) {
@@ -156,6 +160,10 @@ export function createAgentMetadataExtension(deps: AgentMetadataToolsDeps): (pi:
 		);
 
 		// 3. set_thinking_level — switch thinking intensity (clamped server-side to what the current model supports).
+		// Schema uses a closed union of literals so the LLM receives an enum in the tool schema
+		// and is less likely to invent invalid values. We still validate at runtime and return a
+		// clear error (with the valid list) if an out-of-range value arrives.
+		const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 		pi.registerTool(
 			defineTool({
 				name: "set_thinking_level",
@@ -163,17 +171,31 @@ export function createAgentMetadataExtension(deps: AgentMetadataToolsDeps): (pi:
 				description:
 					"Set the thinking (reasoning effort) level for this agent. The value is clamped to what the current model supports (off, minimal, low, medium, high, xhigh). Changes take effect for subsequent turns. Thinking level is a session-level setting and is not written to agent.json (unlike model).",
 				parameters: Type.Object({
-					level: Type.String({
-						description:
-							"Desired thinking level. One of: off, minimal, low, medium, high, xhigh. The effective level will be clamped to the model's capabilities.",
-					}),
+					level: Type.Union(
+						THINKING_LEVELS.map((l) => Type.Literal(l)),
+						{
+							description:
+								"Desired thinking level. One of: off, minimal, low, medium, high, xhigh. The effective level will be clamped to the model's capabilities.",
+						},
+					),
 				}),
 				async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-					const level = (params as { level: string }).level.trim().toLowerCase();
-					// We pass through; the underlying setThinkingLevel + model will clamp.
-					// Record the requested value for the result.
+					const raw = (params as { level: string }).level.trim().toLowerCase();
+					if (!THINKING_LEVELS.includes(raw as ThinkingLevel)) {
+						return {
+							content: [
+								{
+									type: "text" as const,
+									text: `Invalid thinking level '${raw}'. Must be one of: ${THINKING_LEVELS.join(", ")}.`,
+								},
+							],
+							details: { requested: raw, valid: THINKING_LEVELS },
+							isError: true,
+						};
+					}
+					const level = raw as ThinkingLevel;
 					try {
-						setThinkingLevel(level as any);
+						setThinkingLevel(level);
 					} catch (e) {
 						const msg = e instanceof Error ? e.message : String(e);
 						return {
