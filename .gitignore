@@ -39,20 +39,3 @@ plans/
 .pi/hf-sessions/
 .pi/hf-sessions-backup/
 collect.sh
-
-# Agent tool skill caches, generated skill dirs, and skills lockfile.
-# These appear as untracked when AI agents (Cursor, Claude, etc.) materialize
-# skills such as lark-im into the cwd for the current project.
-# The lark-im (Feishu/Lark IM via larksuite/cli) was the source of the
-# "lark skill increment" visible in git status for this fork workspace.
-# .claude/ is already ignored; extend the pattern to other tools' caches.
-# Also ignore the pi skills-lock.json when it only records internal skills.
-.agent/
-.agents/
-.coco/
-.kiro/
-.qwen/
-.trae/
-.trae-cn/
-.pi/skills/lark-im
-skills-lock.json
