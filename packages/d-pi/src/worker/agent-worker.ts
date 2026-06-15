@@ -22,7 +22,12 @@ import {
 	LocalAgentSessionProxy,
 } from "@sheason/pi-coding-agent/d-pi-worker";
 import { DPI_META_PROMPT } from "../dpi-meta.ts";
-import { createDPiExtension, createReloadExtension, type HubChannel } from "../extension/index.ts";
+import {
+	createAgentMetadataExtension,
+	createMultiAgentExtension,
+	createRemoteExecutorExtension,
+	type HubChannel,
+} from "../extension/index.ts";
 import { formatAgentIdentitySection, readAgentConfig } from "../hub/agent-identity.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
@@ -118,12 +123,16 @@ async function runAgentWorker(): Promise<void> {
 
 	process.stderr.write(`[d-pi worker ${agentName}] Infrastructure created\n`);
 
-	// 2. Create the d-pi extension factory and shared HubChannel
-	const { factory: extensionFactory, channel } = createDPiExtension({
+	// 2. Create the d-pi multi-agent + remote-executor surfaces (and the HubChannel).
+	// We register them as two separate named extensions (plus the metadata one)
+	// so that diagnostics, tracing, and future optionality can target each concern
+	// independently. This is the decomposition of the old monolithic std extension.
+	const { factory: multiAgentFactory, channel } = createMultiAgentExtension({
 		mode: "worker",
 		agentName,
 		postToHub,
 	});
+	const remoteExecutorFactory = createRemoteExecutorExtension(channel);
 	hubChannel = channel;
 
 	// 3. Build the runtime factory (mirrors main.ts pattern)
@@ -195,15 +204,45 @@ async function runAgentWorker(): Promise<void> {
 			modelRegistry,
 			resourceLoaderOptions: {
 				extensionFactories: [
-					{ factory: extensionFactory, name: "<d-pi-built-in-std-extension>" },
 					{
-						// d-pi-built-in-reload-extension: registers the
-						// `reload` LLM tool. The session is not
-						// available when the factory first runs (it is
-						// constructed later by createAgentSessionFromServices),
-						// so the tool's deps use lazy getters that resolve
-						// `runtime?.session` at execute() time.
-						factory: createReloadExtension({
+						// d-pi multi-agent / orchestration surface.
+						// Provides: create/destroy_agent, send_message, group_architecture,
+						// all source tools, the dual-registered /agents and /sources commands,
+						// d-pi custom message rendering, and the input / incoming-message routing
+						// that feeds connect-mode and source messages into the agent's session.
+						factory: multiAgentFactory,
+						name: "<d-pi-multi-agent>",
+					},
+					{
+						// Remote executor tools (remote_bash, remote_read, remote_edit, ...).
+						// These let a hub-side agent invoke the corresponding native tools on
+						// a connected d-pi client (the user's local machine) via the IPC channel.
+						// If no client is bound, the tools surface a clear actionable error.
+						// This is kept as a separate named extension from the multi-agent surface
+						// so the two concerns can be understood, traced, and optionally gated
+						// independently.
+						factory: remoteExecutorFactory,
+						name: "<d-pi-remote-executor>",
+					},
+					{
+						// d-pi-built-in-metadata-extension: registers the
+						// `reload` tool plus the agent metadata controls
+						// (set_model, set_thinking_level). This is the single
+						// extension that lets agents (via LLM tools) control
+						// their own runtime model and thinking intensity, and
+						// also hosts reload so that one extension factory
+						// covers the "self-configuration + refresh" surface.
+						//
+						// The session is not available when the factory first
+						// runs (it is constructed later by
+						// createAgentSessionFromServices), so the reload tool's
+						// deps use lazy getters that resolve `runtime?.session`
+						// at execute() time. The set_model / set_thinking_level
+						// tools obtain their setters from the ExtensionAPI (pi)
+						// at factory time (they are stable) and use
+						// ctx.modelRegistry (from the execute ctx) to resolve
+						// string specs to Model objects.
+						factory: createAgentMetadataExtension({
 							getReloadFn: () => {
 								const session = runtime?.session;
 								return session ? () => session.reload() : undefined;
@@ -217,8 +256,14 @@ async function runAgentWorker(): Promise<void> {
 							// execute() time the same way we do for the
 							// session / resource loader.
 							getModelRegistry: () => runtime?.session?.modelRegistry,
+							// Provide the worker's authoritative agent directory (the one
+							// containing this agent's agent.json). The metadata tools use
+							// this (via getAgentCwd) in preference to ExtensionContext.cwd
+							// when persisting model changes, so that writes always target
+							// the correct persisted config even if ctx.cwd semantics differ.
+							getAgentCwd: () => cwd,
 						}),
-						name: "<d-pi-built-in-reload-extension>",
+						name: "<d-pi-built-in-metadata-extension>",
 					},
 				],
 				appendSystemPromptOverride: (base) => {
