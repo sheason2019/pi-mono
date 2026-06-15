@@ -51,6 +51,13 @@ export { AGENT_SWITCH_FILE };
  *   { factory: multi, name: "<d-pi-multi-agent>" },
  *   { factory: remote, name: "<d-pi-remote-executor>" },
  *   { factory: metadata, name: "<d-pi-metadata>" },
+ *
+ * Note on reload: the `reload` tool (plus set_model/set_thinking_level) lives
+ * exclusively inside the agent-metadata extension. createDPiExtension (the
+ * composer) only wires multi-agent + remote-executor; metadata is always
+ * registered as a distinct third factory by the worker. This prevents
+ * accidental double-registration of reload if a caller manually composes
+ * the pieces.
  */
 export function createDPiExtension(config: DPiExtensionConfig): { factory: ExtensionFactory; channel?: HubChannel } {
 	if (config.mode === "worker") {

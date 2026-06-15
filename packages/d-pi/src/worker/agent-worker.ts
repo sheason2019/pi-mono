@@ -256,6 +256,12 @@ async function runAgentWorker(): Promise<void> {
 							// execute() time the same way we do for the
 							// session / resource loader.
 							getModelRegistry: () => runtime?.session?.modelRegistry,
+							// Provide the worker's authoritative agent directory (the one
+							// containing this agent's agent.json). The metadata tools use
+							// this (via getAgentCwd) in preference to ExtensionContext.cwd
+							// when persisting model changes, so that writes always target
+							// the correct persisted config even if ctx.cwd semantics differ.
+							getAgentCwd: () => cwd,
 						}),
 						name: "<d-pi-built-in-metadata-extension>",
 					},

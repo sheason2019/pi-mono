@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai";
@@ -37,7 +37,14 @@ import { createReloadTools, type ReloadToolsDeps } from "./reload-tools.ts";
  * write is the d-pi per-agent dir (see agent-worker persistSessionId); P2.
  */
 
-export type AgentMetadataToolsDeps = ReloadToolsDeps;
+export type AgentMetadataToolsDeps = ReloadToolsDeps & {
+	/** Return the authoritative per-agent directory that contains this agent's agent.json.
+	 *  In d-pi worker this is the `cwd` from AgentWorkerConfig (the directory the worker
+	 *  was spawned for). Falls back to ctx.cwd if not provided. This avoids relying on
+	 *  ExtensionContext.cwd for a write that must target the persisted agent config.
+	 */
+	getAgentCwd?: () => string | undefined;
+};
 
 /**
  * Create the combined agent-metadata extension factory.
@@ -83,10 +90,15 @@ export function createAgentMetadataExtension(deps: AgentMetadataToolsDeps): (pi:
 					let targetModel: Model<any> | undefined;
 
 					try {
+						// Use indexOf + slice (not split) so that model ids containing "/"
+						// (e.g. some versioned or namespaced ids) are preserved in the id part.
+						// Only the first "/" separates provider from the rest of the spec.
 						if (spec.includes("/")) {
-							const [provider, id] = spec.split("/", 2);
-							if (provider && id) {
-								targetModel = registry.find(provider, id);
+							const first = spec.indexOf("/");
+							const provider = spec.slice(0, first);
+							const rest = spec.slice(first + 1);
+							if (provider && rest) {
+								targetModel = registry.find(provider, rest);
 							}
 						}
 						if (!targetModel) {
@@ -131,29 +143,41 @@ export function createAgentMetadataExtension(deps: AgentMetadataToolsDeps): (pi:
 					// Persist the chosen spec into this agent's agent.json so that:
 					// - The "## Agent identity" block (re-injected on reload via the workspace override) shows the new model.
 					// - The next time the hub spawns a worker for this agent it will see the updated model in config.
-					// We only touch the file if it already exists (the worker always has one for real d-pi agents).
+					// Prefer the explicit getAgentCwd() from the worker (config.cwd) over ctx.cwd.
+					// Always guard with existsSync and surface errors to stderr (never silent).
 					if (success) {
 						try {
-							const cfgPath = join(ctx.cwd, "agent.json");
-							const raw = readFileSync(cfgPath, "utf-8");
-							const cfg = JSON.parse(raw) as Record<string, unknown>;
-							cfg.model = spec;
-							writeFileSync(cfgPath, `${JSON.stringify(cfg, null, "\t")}\n`);
-						} catch {
-							// Non-fatal: live session model is already switched. Identity will be stale until manual edit or reload that happens to rewrite the file.
+							const agentDir = deps.getAgentCwd ? deps.getAgentCwd() : undefined;
+							const baseDir = agentDir || ctx.cwd;
+							const cfgPath = join(baseDir, "agent.json");
+							if (!existsSync(cfgPath)) {
+								process.stderr.write(
+									`[d-pi agent-metadata] agent.json not present at ${cfgPath}; live model switch applied but persist skipped\n`,
+								);
+							} else {
+								const raw = readFileSync(cfgPath, "utf-8");
+								const cfg = JSON.parse(raw) as Record<string, unknown>;
+								cfg.model = spec;
+								writeFileSync(cfgPath, `${JSON.stringify(cfg, null, "\t")}\n`);
+							}
+						} catch (e) {
+							const msg = e instanceof Error ? e.message : String(e);
+							process.stderr.write(
+								`[d-pi agent-metadata] Failed to persist model='${spec}' to agent.json: ${msg}\n`,
+							);
+							// Non-fatal for the call; the live switch already succeeded.
 						}
 					}
 
+					const resultText = success
+						? `Model switched to ${spec}. Subsequent turns will use the new model. Persisted to agent.json. Call reload if you want the system-prompt identity block to reflect it immediately.`
+						: `Model switch to ${spec} reported failure (likely missing credentials for the provider).`;
 					return {
-						content: [
-							{
-								type: "text" as const,
-								text: success
-									? `Model switched to ${spec}. Subsequent turns will use the new model. Persisted to agent.json. Call reload if you want the system-prompt identity block to reflect it immediately.`
-									: `Model switch to ${spec} reported failure (likely missing credentials for the provider).`,
-							},
-						],
+						content: [{ type: "text" as const, text: resultText }],
 						details: { model: spec, success },
+						// Treat credential/setup failure as an error so the LLM sees a clear failure signal
+						// instead of treating "reported failure" as a soft/non-error outcome (review P1 #6).
+						isError: !success,
 					};
 				},
 			}),
