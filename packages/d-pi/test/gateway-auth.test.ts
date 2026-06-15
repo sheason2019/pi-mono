@@ -1,5 +1,4 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,7 +9,7 @@ import { signChallenge } from "../src/auth/signing.ts";
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
 import { SourceManager } from "../src/hub/source-manager.ts";
-import type { AgentRecord } from "../src/types.ts";
+import type { WorkerToHubMessage } from "../src/types.ts";
 
 let tempDir: string | undefined;
 
@@ -19,48 +18,54 @@ function createTempDir(prefix: string): string {
 	return tempDir;
 }
 
-async function startGateway(workspaceRoot: string): Promise<{ url: string; gateway: HubGateway }> {
-	const registry = new AgentRegistry(19091);
-	const sourceManager = new SourceManager(() => {});
-	const gateway = new HubGateway(
-		registry,
-		sourceManager,
-		async () => ({ agentName: "created" }),
-		async () => {},
-		new AuthSessionManager(workspaceRoot),
-	);
-	await gateway.start(0);
-	return { url: gateway.url(), gateway };
-}
-
-async function startAgentServer(
-	onPrompt: (body: { text?: string }) => void,
-): Promise<{ port: number; close: () => Promise<void> }> {
-	const server = createServer((req, res) => {
-		if (req.method === "POST" && req.url === "/prompt") {
-			const chunks: Buffer[] = [];
-			req.on("data", (chunk: Buffer) => chunks.push(chunk));
-			req.on("end", () => {
-				onPrompt(JSON.parse(Buffer.concat(chunks).toString()) as { text?: string });
-				res.writeHead(200, { "Content-Type": "application/json" });
-				res.end(JSON.stringify({ ok: true }));
-			});
-			return;
-		}
-		res.writeHead(404);
-		res.end();
-	});
-	await new Promise<void>((resolve, reject) => {
-		server.listen(0, resolve);
-		server.on("error", reject);
-	});
-	const address = server.address();
-	if (!address || typeof address === "string") throw new Error("Expected TCP address");
-	return { port: address.port, close: () => closeServer(server) };
-}
-
-function closeServer(server: Server): Promise<void> {
-	return new Promise((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+/**
+ * Minimal mock worker that simulates the IPC path: receives
+ * http_request/http_query via postMessage, and sends http_response
+ * back via the on("message") listeners that the gateway attaches.
+ *
+ * The `onPrompt` callback lets each test capture the forwarded
+ * prompt body for assertion.
+ */
+function createMockWorker(onPrompt?: (body: { text?: string }) => void) {
+	const listeners = new Set<(message: WorkerToHubMessage) => void>();
+	const worker = {
+		postMessage(message: unknown) {
+			const msg = message as { type: string; requestId: string; action?: string; query?: string; data?: unknown };
+			// Defer the response to the next tick so the gateway has time
+			// to attach its on("message") listener before we emit.
+			setTimeout(() => {
+				if (msg.type === "http_request" && msg.action === "prompt") {
+					onPrompt?.(msg.data as { text?: string });
+					for (const listener of listeners) {
+						listener({
+							type: "http_response",
+							agentName: "agent-1",
+							requestId: msg.requestId,
+							status: 200,
+							body: { ok: true },
+						} satisfies WorkerToHubMessage);
+					}
+				} else if (msg.type === "http_query") {
+					for (const listener of listeners) {
+						listener({
+							type: "http_response",
+							agentName: "agent-1",
+							requestId: msg.requestId,
+							status: 200,
+							body: {},
+						} satisfies WorkerToHubMessage);
+					}
+				}
+			}, 0);
+		},
+		on(event: string, handler: (message: WorkerToHubMessage) => void) {
+			if (event === "message") listeners.add(handler);
+		},
+		off(event: string, handler: (message: WorkerToHubMessage) => void) {
+			if (event === "message") listeners.delete(handler);
+		},
+	};
+	return worker;
 }
 
 describe("d-pi gateway auth", () => {
@@ -79,7 +84,17 @@ describe("d-pi gateway auth", () => {
 			description: "Allowed local identity",
 			publicKey: localUser.publicKey,
 		});
-		const { url, gateway } = await startGateway(workspaceRoot);
+		const registry = new AgentRegistry(19091);
+		const sourceManager = new SourceManager(() => {});
+		const gateway = new HubGateway(
+			registry,
+			sourceManager,
+			async () => ({ agentName: "created" }),
+			async () => {},
+			new AuthSessionManager(workspaceRoot),
+		);
+		await gateway.start(0);
+		const url = gateway.url();
 
 		try {
 			const unauthorized = await fetch(`${url}/_hub/network`);
@@ -122,7 +137,7 @@ describe("d-pi gateway auth", () => {
 			publicKey: localUser.publicKey,
 		});
 		let forwardedText = "";
-		const agentServer = await startAgentServer((body) => {
+		const mockWorker = createMockWorker((body) => {
 			forwardedText = body.text ?? "";
 		});
 		const registry = new AgentRegistry(19091);
@@ -130,9 +145,8 @@ describe("d-pi gateway auth", () => {
 			name: "agent-1",
 			parentName: undefined,
 			children: [],
-			port: agentServer.port,
 			status: "ready",
-			worker: {} as AgentRecord["worker"],
+			worker: mockWorker as never,
 			cwd: workspaceRoot,
 			model: undefined,
 		});
@@ -178,7 +192,6 @@ describe("d-pi gateway auth", () => {
 			expect(forwardedText).not.toContain("forged");
 		} finally {
 			await gateway.stop();
-			await agentServer.close();
 		}
 	});
 });
