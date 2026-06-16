@@ -84,7 +84,7 @@ describe("d-pi gateway auth", () => {
 			description: "Allowed local identity",
 			publicKey: localUser.publicKey,
 		});
-		const registry = new AgentRegistry(19091);
+		const registry = new AgentRegistry();
 		const sourceManager = new SourceManager(() => {});
 		const gateway = new HubGateway(
 			registry,
@@ -140,7 +140,7 @@ describe("d-pi gateway auth", () => {
 		const mockWorker = createMockWorker((body) => {
 			forwardedText = body.text ?? "";
 		});
-		const registry = new AgentRegistry(19091);
+		const registry = new AgentRegistry();
 		registry.register({
 			name: "agent-1",
 			parentName: undefined,

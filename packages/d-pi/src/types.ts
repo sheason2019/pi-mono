@@ -127,6 +127,7 @@ export interface HubConfig {
 	port?: number;
 	cwd: string;
 	model?: string;
+	/** @deprecated Agents no longer bind HTTP ports in stdio/IPC mode. */
 	agentPortStart?: number;
 	workspaceRoot: string;
 	workspaceContext: WorkspaceContext;

@@ -43,7 +43,7 @@ describe("bindAgentOnHub", () => {
 		createAllowedUser(tempDir!, { name: "u", description: "", publicKey: localUser.publicKey });
 		const execReg = new ExecutorRegistry();
 		const gateway = new HubGateway(
-			new AgentRegistry(0),
+			new AgentRegistry(),
 			new SourceManager(() => {}),
 			async () => ({ agentName: "a" }),
 			async () => {},

@@ -70,7 +70,7 @@ async function startHub(
 		publicKey: localUser.publicKey,
 	});
 	const mockWorker = createMockWorker(commands);
-	const registry = new AgentRegistry(0);
+	const registry = new AgentRegistry();
 	registry.register({
 		name: "root",
 		parentName: undefined,

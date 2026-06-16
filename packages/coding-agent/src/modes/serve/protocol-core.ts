@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { AgentSessionProxy } from "../../core/agent-session-proxy.ts";
 
 /**
@@ -63,6 +65,8 @@ export async function handleProtocolQuery(
 			return { status: 200, body: proxy.getCommands() };
 		case "models":
 			return { status: 200, body: proxy.getModels() };
+		case "client-extensions":
+			return { status: 200, body: getClientExtensionPayloads(proxy) };
 		default:
 			return { status: 404, body: { error: `Unknown query: ${query}` } };
 	}
@@ -215,3 +219,92 @@ const protocolHandlers: Record<string, ProtocolHandler> = {
 		return ok();
 	},
 };
+
+// === Client extension bundling (migrated from api-handlers.ts) ===
+
+function hasClientExport(source: string): boolean {
+	return /export\s+(async\s+)?function\s+client\b/.test(source) || /export\s+const\s+client\b/.test(source);
+}
+
+interface ClientExtensionBundle {
+	path: string;
+	entry: string;
+	files: Array<{ path: string; content: string }>;
+}
+
+const RELATIVE_IMPORT_RE = /(?:import|export)\s+(?:[^"']*\s+from\s+)?["'](\.{1,2}\/[^"']+)["']/g;
+
+function toRelativeBundlePath(baseDir: string, filePath: string): string {
+	const relativePath = relative(baseDir, filePath);
+	if (relativePath.startsWith("..") || relativePath.includes(`..${sep}`)) {
+		throw new Error(`Extension dependency escapes its base directory: ${filePath}`);
+	}
+	return relativePath.split(sep).join("/");
+}
+
+function resolveRelativeModule(fromFile: string, specifier: string): string | undefined {
+	const base = resolve(dirname(fromFile), specifier);
+	const candidates = extname(base)
+		? [base]
+		: [base, `${base}.ts`, `${base}.js`, join(base, "index.ts"), join(base, "index.js")];
+	return candidates.find((candidate) => existsSync(candidate));
+}
+
+function commonDirectory(paths: string[]): string {
+	if (paths.length === 0) return "";
+	const [first, ...rest] = paths.map((p) => dirname(p).split(sep));
+	let length = first.length;
+	for (const parts of rest) {
+		while (length > 0 && parts.slice(0, length).join(sep) !== first.slice(0, length).join(sep)) {
+			length--;
+		}
+	}
+	return first.slice(0, length).join(sep) || sep;
+}
+
+function collectExtensionFiles(entryPath: string): {
+	baseDir: string;
+	files: Array<{ path: string; content: string }>;
+} {
+	const visited = new Set<string>();
+	const contents = new Map<string, string>();
+	const visit = (filePath: string) => {
+		const resolvedPath = resolve(filePath);
+		if (visited.has(resolvedPath)) return;
+		visited.add(resolvedPath);
+		const content = readFileSync(resolvedPath, "utf-8");
+		contents.set(resolvedPath, content);
+		for (const match of content.matchAll(RELATIVE_IMPORT_RE)) {
+			const dependency = resolveRelativeModule(resolvedPath, match[1]);
+			if (dependency) {
+				visit(dependency);
+			}
+		}
+	};
+	visit(entryPath);
+	const baseDir = commonDirectory(Array.from(contents.keys()));
+	const files = Array.from(contents.entries()).map(([filePath, content]) => ({
+		path: toRelativeBundlePath(baseDir, filePath),
+		content,
+	}));
+	return { baseDir, files };
+}
+
+function getClientExtensionPayloads(proxy: AgentSessionProxy): ClientExtensionBundle[] {
+	const payloads: ClientExtensionBundle[] = [];
+	for (const path of proxy.getSnapshot().extensionPaths) {
+		if (path.startsWith("<")) {
+			continue;
+		}
+		const source = readFileSync(path, "utf-8");
+		if (hasClientExport(source)) {
+			const bundle = collectExtensionFiles(path);
+			payloads.push({
+				path,
+				entry: toRelativeBundlePath(bundle.baseDir, path),
+				files: bundle.files,
+			});
+		}
+	}
+	return payloads;
+}

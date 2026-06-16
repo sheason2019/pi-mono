@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentSessionProxy, SessionStateSnapshot } from "../src/core/agent-session-proxy.ts";
 import { loadRemoteClientExtensions } from "../src/modes/connect/client-extension-sync.ts";
 import { runConnectMode } from "../src/modes/connect/connect-mode.ts";
-import { handleApiRequest } from "../src/modes/serve/api-handlers.ts";
+import { handleProtocolQuery, handleProtocolRequest } from "../src/modes/serve/protocol-core.ts";
 
 const interactiveModeOptions: unknown[] = [];
 
@@ -93,8 +93,30 @@ function makeProxy(snapshot: SessionStateSnapshot): AgentSessionProxy {
 }
 
 async function serveOnce(proxy: AgentSessionProxy): Promise<{ url: string; close: () => Promise<void> }> {
-	const server = createServer((req, res) => {
-		void handleApiRequest(proxy, req, res);
+	const server = createServer(async (req, res) => {
+		const url = new URL(req.url ?? "/", "http://localhost");
+		const path = url.pathname.startsWith("/") ? url.pathname.slice(1) : url.pathname;
+		const method = req.method ?? "GET";
+		if (method === "GET") {
+			const result = await handleProtocolQuery(proxy, path);
+			const body = JSON.stringify(result.body);
+			res.writeHead(result.status, {
+				"Content-Type": "application/json",
+				"Content-Length": Buffer.byteLength(body),
+			});
+			res.end(body);
+		} else if (method === "POST") {
+			const chunks: Buffer[] = [];
+			for await (const chunk of req) chunks.push(chunk as Buffer);
+			const data = chunks.length > 0 ? JSON.parse(Buffer.concat(chunks).toString()) : undefined;
+			const result = await handleProtocolRequest(proxy, path, data);
+			const body = JSON.stringify(result.body);
+			res.writeHead(result.status, {
+				"Content-Type": "application/json",
+				"Content-Length": Buffer.byteLength(body),
+			});
+			res.end(body);
+		}
 	});
 	await new Promise<void>((resolve, reject) => {
 		server.listen(0, resolve);

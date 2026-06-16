@@ -1,4 +1,3 @@
-import { createServer } from "node:net";
 import type { AgentRecord, AgentStatus, GroupArchitectureSnapshot } from "../types.ts";
 
 /**
@@ -18,34 +17,6 @@ import type { AgentRecord, AgentStatus, GroupArchitectureSnapshot } from "../typ
  */
 export class AgentRegistry {
 	private readonly _agents = new Map<string, AgentRecord>();
-	private _nextPort: number;
-
-	constructor(startPort: number) {
-		this._nextPort = startPort;
-	}
-
-	async allocatePort(): Promise<number> {
-		// Try up to 100 ports starting from _nextPort
-		for (let i = 0; i < 100; i++) {
-			const port = this._nextPort++;
-			if (await this._isPortAvailable(port)) {
-				return port;
-			}
-		}
-		throw new Error("No available ports found");
-	}
-
-	private _isPortAvailable(port: number): Promise<boolean> {
-		return new Promise((resolve) => {
-			const server = createServer();
-			server.once("error", () => {
-				resolve(false);
-			});
-			server.listen(port, () => {
-				server.close(() => resolve(true));
-			});
-		});
-	}
 
 	register(record: AgentRecord): void {
 		if (this._agents.has(record.name)) {

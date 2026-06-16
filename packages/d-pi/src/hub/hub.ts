@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { AuthSessionManager } from "../auth/auth-session.ts";
-import { DEFAULT_AGENT_PORT_START, DEFAULT_HUB_PORT } from "../defaults.ts";
+import { DEFAULT_HUB_PORT } from "../defaults.ts";
 import { injectMeta } from "../extension/message-meta.ts";
 import type {
 	AgentConfig,
@@ -47,8 +47,7 @@ export class Hub {
 	constructor(config: HubConfig) {
 		this._config = config;
 		this._remoteCallTimeoutMs = config.remoteCallTimeoutMs ?? 60_000;
-		const portStart = config.agentPortStart ?? DEFAULT_AGENT_PORT_START;
-		this._registry = new AgentRegistry(portStart);
+		this._registry = new AgentRegistry();
 
 		this._sourceManager = new SourceManager(
 			(sourceName, content, subscriberNames, mode) => {
