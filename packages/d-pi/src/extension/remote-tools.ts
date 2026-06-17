@@ -69,7 +69,11 @@ export function createRemoteTools(channel: HubChannel): Array<ReturnType<typeof 
 					"targets — file paths and credentials on the user's laptop go " +
 					`through \`${spec.remote}\`; paths on the hub host go through ` +
 					`the built-in ${spec.native}. Requires a connected client; if no ` +
-					"client is bound, the call returns an error explaining the situation.",
+					"client is bound, the call returns an error explaining the situation. " +
+					"Do NOT use these tools to test whether a client is connected. " +
+					"If a call returns 'No d-pi client is currently connected', this is " +
+					"not an error — inform the user they can connect with d-pi connect, " +
+					"then continue with the built-in tool.",
 				parameters: nativeDef.parameters,
 				async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 					const result = await channel.callRemote(spec.native, params);
@@ -77,10 +81,11 @@ export function createRemoteTools(channel: HubChannel): Array<ReturnType<typeof 
 					if (!r.ok) {
 						throw new Error(r.error ?? "Unknown remote tool error");
 					}
-					return {
-						content: [{ type: "text" as const, text: JSON.stringify(r.result) }],
-						details: {},
-					};
+					// r.result is already a valid AgentToolResult (the native tool's
+					// execute return value: { content, details }). Return it
+					// directly — do NOT JSON.stringify it into a new text block
+					// (that would create double-nested JSON the LLM can't parse).
+					return r.result as never;
 				},
 			}),
 		);

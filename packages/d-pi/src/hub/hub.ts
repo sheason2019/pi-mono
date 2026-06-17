@@ -629,7 +629,7 @@ export class Hub {
 					if (!connectId) {
 						result = {
 							ok: false,
-							error: `Agent "${fromAgentName}" is not bound to a d-pi client executor; cannot dispatch "${p.tool}" remotely. Ask the user to run \`d-pi connect\` and bind this agent, or use the local built-in tool instead.`,
+							error: `No d-pi client is currently connected to agent "${fromAgentName}". This is expected if the user hasn't run d-pi connect yet. The tool "${p.tool}" requires a connected client to execute on the user's device.`,
 						};
 						break;
 					}

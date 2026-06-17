@@ -106,7 +106,7 @@ describe('remote tool dispatch via IPC (case "remote" in _handleToolCall)', () =
 			params: { command: "echo hi" },
 		})) as { ok: boolean; error: string };
 		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/not bound/i);
+		expect(result.error).toMatch(/no d-pi client is currently connected/i);
 	});
 
 	it("returns an error when executor is pre-registered but not attached", async () => {
