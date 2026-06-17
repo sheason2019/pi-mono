@@ -1,8 +1,9 @@
-import { createServer, type IncomingMessage, request, type Server, type ServerResponse } from "node:http";
+import { randomUUID as gatewayRandomUUID } from "node:crypto";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { AuthSessionInfo, AuthSessionManager } from "../auth/auth-session.ts";
 import { injectMeta } from "../extension/message-meta.ts";
-import type { SourceConfig } from "../types.ts";
+import type { HubToWorkerMessage, SourceConfig, WorkerToHubMessage } from "../types.ts";
 import type { AgentRegistry } from "./agent-registry.ts";
 import type { ExecutorRegistry } from "./executor-registry.ts";
 import type { SourceManager } from "./source-manager.ts";
@@ -146,6 +147,14 @@ export class HubGateway {
 						res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
 						return;
 					}
+				}
+
+				// SSE endpoint for connect-mode clients: /agents/{name}/events
+				// Must be checked BEFORE the generic /agents/{name}/* proxy.
+				const sseMatch = path.match(/^\/agents\/([^/]+)\/events$/);
+				if (sseMatch && req.method === "GET") {
+					this._handleAgentSse(req, res, sseMatch[1]!);
+					return;
 				}
 
 				// Agent routing: /agents/{name}/* → specific agent (by name)
@@ -612,88 +621,174 @@ export class HubGateway {
 			return;
 		}
 
-		const targetUrl = `http://localhost:${agent.port}${path}`;
-		const url = new URL(req.url ?? "/", "http://localhost");
+		const method = req.method ?? "GET";
+		const cleanPath = path.startsWith("/") ? path.slice(1) : path;
 
 		// Block session management POST endpoints in d-pi connect mode
 		const blockedSessionEndpoints = new Set(["new-session", "switch-session", "fork"]);
-		if (req.method === "POST" && blockedSessionEndpoints.has(path)) {
+		if (method === "POST" && blockedSessionEndpoints.has(cleanPath)) {
 			res.writeHead(403, { "Content-Type": "application/json" });
 			res.end(JSON.stringify({ error: "Session operations are managed by the d-pi hub" }));
 			return;
 		}
 
 		// Intercept POST /prompt to inject message meta header
-		const isPromptRequest = req.method === "POST" && path === "/prompt";
+		const isPromptRequest = method === "POST" && cleanPath === "prompt";
 
-		if (isPromptRequest) {
-			// Read body, inject meta, then forward
+		// Read the request body (for POST)
+		let body: unknown;
+		if (method === "POST") {
 			try {
-				const body = await this._readBody(req);
-				const parsed = JSON.parse(body) as { text?: string; options?: unknown };
-				if (parsed.text) {
-					parsed.text = injectMeta(parsed.text, "connect", auth.auth);
-				}
-				const rewrittenBody = JSON.stringify(parsed);
-
-				const proxyReq = request(
-					targetUrl,
-					{
-						method: "POST",
-						headers: {
-							...req.headers,
-							host: `localhost:${agent.port}`,
-							"content-length": Buffer.byteLength(rewrittenBody).toString(),
-						},
-						path: path + url.search,
-					},
-					(proxyRes) => {
-						res.writeHead(proxyRes.statusCode ?? 500, proxyRes.headers);
-						proxyRes.pipe(res, { end: true });
-					},
-				);
-				proxyReq.on("error", (err) => {
-					process.stderr.write(`[d-pi gateway] Proxy error: ${err.message}\n`);
-					if (!res.headersSent) {
-						res.writeHead(502, { "Content-Type": "application/json" });
-						res.end(JSON.stringify({ error: `Agent unreachable: ${err.message}` }));
+				const rawBody = await this._readBody(req);
+				if (rawBody) {
+					body = JSON.parse(rawBody);
+					if (isPromptRequest) {
+						const parsed = body as { text?: string; options?: unknown };
+						if (parsed.text) {
+							parsed.text = injectMeta(parsed.text, "connect", auth.auth);
+						}
 					}
-				});
-				proxyReq.end(rewrittenBody);
+				}
 			} catch (_err) {
 				if (!res.headersSent) {
-					res.writeHead(500, { "Content-Type": "application/json" });
-					res.end(JSON.stringify({ error: "Failed to process prompt request" }));
+					res.writeHead(400, { "Content-Type": "application/json" });
+					res.end(JSON.stringify({ error: "Failed to parse request body" }));
 				}
+				return;
 			}
+		}
+
+		// Dispatch via IPC to the worker
+		const requestId = gatewayRandomUUID();
+
+		if (method === "GET") {
+			agent.worker.postMessage({
+				type: "http_query",
+				requestId,
+				query: cleanPath,
+			} satisfies HubToWorkerMessage);
+		} else {
+			agent.worker.postMessage({
+				type: "http_request",
+				requestId,
+				action: cleanPath,
+				data: body,
+			} satisfies HubToWorkerMessage);
+		}
+
+		// Wait for the worker's http_response
+		await new Promise<void>((resolve) => {
+			const timeout = setTimeout(() => {
+				agent.worker.off("message", handler);
+				if (!res.headersSent) {
+					res.writeHead(504, { "Content-Type": "application/json" });
+					res.end(JSON.stringify({ error: "Agent response timeout" }));
+				}
+				resolve();
+			}, 120_000);
+
+			const handler = (message: WorkerToHubMessage) => {
+				if (message.type === "http_response" && message.requestId === requestId) {
+					clearTimeout(timeout);
+					agent.worker.off("message", handler);
+					if (!res.headersSent) {
+						res.writeHead(message.status, { "Content-Type": "application/json" });
+						res.end(JSON.stringify(message.body));
+					}
+					resolve();
+				}
+			};
+			agent.worker.on("message", handler);
+		});
+	}
+
+	/**
+	 * Handle a connect-mode SSE subscription for a specific agent.
+	 *
+	 * The gateway holds the SSE connection directly (no HTTP proxy to
+	 * an agent port). It sends an `sse_subscribe` IPC message to the
+	 * agent's worker, which registers the subscriber and forwards all
+	 * proxy events back as `sse_event` IPC messages. The gateway then
+	 * writes them as SSE to the client's HTTP connection.
+	 *
+	 * Multiple clients can subscribe to the same agent simultaneously
+	 * (multi-end connect). Each gets a unique subscriberId.
+	 */
+	private _handleAgentSse(req: IncomingMessage, res: ServerResponse, agentName: string): void {
+		const agent = this._registry.get(agentName);
+		if (!agent) {
+			res.writeHead(404, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ error: `Agent not found: ${agentName}` }));
+			return;
+		}
+		const auth = this._authenticate(req);
+		if (!auth) {
+			res.writeHead(401, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ error: "Unauthorized" }));
 			return;
 		}
 
-		const proxyReq = request(
-			targetUrl,
-			{
-				method: req.method,
-				headers: {
-					...req.headers,
-					host: `localhost:${agent.port}`,
-				},
-				path: path + url.search,
-			},
-			(proxyRes) => {
-				res.writeHead(proxyRes.statusCode ?? 500, proxyRes.headers);
-				proxyRes.pipe(res, { end: true });
-			},
-		);
-
-		proxyReq.on("error", (err) => {
-			process.stderr.write(`[d-pi gateway] Proxy error: ${err.message}\n`);
-			if (!res.headersSent) {
-				res.writeHead(502, { "Content-Type": "application/json" });
-				res.end(JSON.stringify({ error: `Agent unreachable: ${err.message}` }));
-			}
+		res.writeHead(200, {
+			"Content-Type": "text/event-stream",
+			"Cache-Control": "no-cache",
+			Connection: "keep-alive",
 		});
+		res.write("\n");
 
-		req.pipe(proxyReq, { end: true });
+		const subscriberId = gatewayRandomUUID();
+
+		// Send initial state as the first SSE event
+		agent.worker.postMessage({
+			type: "http_query",
+			requestId: `sse-init-${subscriberId}`,
+			query: "state",
+		} satisfies HubToWorkerMessage);
+
+		// Subscribe to the worker's events
+		agent.worker.postMessage({
+			type: "sse_subscribe",
+			subscriberId,
+		} satisfies HubToWorkerMessage);
+
+		// Heartbeat
+		const heartbeatTimer = setInterval(() => {
+			try {
+				res.write(": heartbeat\n\n");
+			} catch {
+				clearInterval(heartbeatTimer);
+			}
+		}, 30_000);
+
+		// Listen for events from the worker
+		const eventHandler = (message: WorkerToHubMessage) => {
+			if (message.type === "sse_event" && message.subscriberId === subscriberId) {
+				try {
+					const data = JSON.stringify(message.data);
+					res.write(`event: ${message.event}\ndata: ${data}\n\n`);
+				} catch {
+					// connection closed
+				}
+			} else if (message.type === "http_response" && message.requestId === `sse-init-${subscriberId}`) {
+				// Initial state response — send as first SSE event
+				try {
+					const data = JSON.stringify(message.body);
+					res.write(`event: state\ndata: ${data}\n\n`);
+				} catch {
+					// ignore
+				}
+			}
+		};
+		agent.worker.on("message", eventHandler);
+
+		// Cleanup on disconnect
+		req.on("close", () => {
+			clearInterval(heartbeatTimer);
+			agent.worker.off("message", eventHandler);
+			agent.worker.postMessage({
+				type: "sse_unsubscribe",
+				subscriberId,
+			} satisfies HubToWorkerMessage);
+		});
 	}
 
 	private _readBody(req: IncomingMessage): Promise<string> {

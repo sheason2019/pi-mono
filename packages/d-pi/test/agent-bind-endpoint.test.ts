@@ -33,7 +33,7 @@ async function startHub(workspaceRoot: string): Promise<StartedHub> {
 	});
 	const executorRegistry = new ExecutorRegistry();
 	const gateway = new HubGateway(
-		new AgentRegistry(0),
+		new AgentRegistry(),
 		new SourceManager(() => {}),
 		async () => ({ agentName: "created" }),
 		async () => {},
@@ -165,7 +165,7 @@ describe("hub endpoint POST /_hub/agents/{id}/bind", () => {
 		// gateway created in the beforeEach of the enclosing describe. We
 		// inline a small new gateway to keep the assertion self-contained.)
 		const g = new HubGateway(
-			new AgentRegistry(0),
+			new AgentRegistry(),
 			new SourceManager(() => {}),
 			async () => ({ agentName: "x" }),
 			async () => {},
@@ -194,7 +194,7 @@ describe("hub endpoint POST /_hub/agents/{id}/bind", () => {
 		});
 		const execReg = new ExecutorRegistry();
 		const gw = new HubGateway(
-			new AR(0),
+			new AR(),
 			new SourceManager(() => {}),
 			async () => ({ agentName: "x" }),
 			async () => {},

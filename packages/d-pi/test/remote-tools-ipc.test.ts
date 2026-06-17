@@ -71,7 +71,7 @@ describe('remote tool dispatch via IPC (case "remote" in _handleToolCall)', () =
 		createTempDir("d-pi-remote-ipc-");
 		executorRegistry = new ExecutorRegistry();
 		gateway = new HubGateway(
-			new AgentRegistry(0),
+			new AgentRegistry(),
 			new SourceManager(() => {}),
 			async () => ({ agentName: "created" }),
 			async () => {},

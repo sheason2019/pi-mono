@@ -56,7 +56,7 @@ describe("d-pi connect auth failure handling", () => {
 		createLocalUser(workspaceRoot, { name: "baduser", description: "should be rejected" });
 
 		const gateway = new HubGateway(
-			new AgentRegistry(0),
+			new AgentRegistry(),
 			new SourceManager(() => {}),
 			async () => ({ agentName: "a" }),
 			async () => {},
@@ -94,7 +94,7 @@ describe("d-pi connect auth failure handling", () => {
 		const localUser = createLocalUser(workspaceRoot, { name: "baduser", description: "x" });
 		// Hub's allow-user list is empty — baduser's publicKey is NOT allowed.
 		const gateway = new HubGateway(
-			new AgentRegistry(0),
+			new AgentRegistry(),
 			new SourceManager(() => {}),
 			async () => ({ agentName: "a" }),
 			async () => {},
@@ -189,7 +189,7 @@ describe("d-pi connect auth failure handling", () => {
 		});
 
 		const gateway = new HubGateway(
-			new AgentRegistry(0),
+			new AgentRegistry(),
 			new SourceManager(() => {}),
 			async () => ({ agentName: "a" }),
 			async () => {},
@@ -223,7 +223,7 @@ describe("d-pi connect auth failure handling", () => {
 		});
 
 		const gateway = new HubGateway(
-			new AgentRegistry(0),
+			new AgentRegistry(),
 			new SourceManager(() => {}),
 			async () => ({ agentName: "a" }),
 			async () => {},

@@ -39,12 +39,11 @@ describe("connectId is per-session (not per-agent)", () => {
 
 	beforeEach(async () => {
 		workspaceRoot = mkdtempSync(join(tmpdir(), "d-pi-bind-"));
-		registry = new AgentRegistry(40000);
+		registry = new AgentRegistry();
 		// Pre-create a fake "root" agent so the bind endpoint can be hit
 		// without the hub's createAgent dance. allocatePort on main
 		// is a 0-arg helper that picks the next free port; the
 		// returned value is for the registry's internal tracking.
-		await registry.allocatePort();
 		registry.updateStatus("root", "ready");
 		sourceManager = new SourceManager(
 			(_sourceName, _line, _subscriberIds, _mode) => {
