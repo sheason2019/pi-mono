@@ -39,7 +39,7 @@ export class Hub {
 	/**
 	 * Max time to wait for an executor result before failing the
 	 * dispatch. Mirrors HubGateway's `remoteCallTimeoutMs` so the IPC
-	 * path (case "remote") and the HTTP path
+	 * path (case "dispatch") and the HTTP path
 	 * (`/agents/{name}/remote-call`) time out consistently.
 	 */
 	private readonly _remoteCallTimeoutMs: number;
@@ -610,30 +610,28 @@ export class Hub {
 					break;
 				}
 
-				case "remote": {
-					// In-process sibling of the public
-					// /agents/{name}/remote-call HTTP endpoint. Used by
-					// the d-pi extension's `remote_*` tools
-					// (remote_bash / remote_read / ...) to dispatch a
-					// tool through the hub to the bound executor —
-					// without going through HTTP and without needing
-					// an auth token. The IPC call is the caller's own
-					// identity (a worker thread the hub spawned), so
-					// there is no separate authentication step.
-					const p = params as { tool?: string; params?: unknown };
+				case "dispatch": {
+					// Dispatch a tool to a connected executor by connect_id.
+					// Used by dispatch_* tools when the caller provides connect_id.
+					const p = params as { tool?: string; params?: unknown; connect_id?: string };
 					if (!p.tool) {
 						result = { ok: false, error: "tool is required" };
 						break;
 					}
-					const connectId = this._gateway.getBinding(fromAgentName);
-					if (!connectId) {
+					if (!p.connect_id) {
+						result = { ok: false, error: "connect_id is required for dispatch" };
+						break;
+					}
+					const cid = p.connect_id;
+					const boundConnectId = this._gateway.getBinding(fromAgentName);
+					if (!boundConnectId || boundConnectId !== cid) {
 						result = {
 							ok: false,
-							error: `Agent "${fromAgentName}" is not bound to a d-pi client executor; cannot dispatch "${p.tool}" remotely. Ask the user to run \`d-pi connect\` and bind this agent, or use the local built-in tool instead.`,
+							error: `No d-pi client with connect_id "${p.connect_id}" is connected to agent "${fromAgentName}".`,
 						};
 						break;
 					}
-					const handle = this._executorRegistry.get(connectId);
+					const handle = this._executorRegistry.get(cid);
 					if (!handle) {
 						result = { ok: false, error: "Executor not available" };
 						break;
@@ -649,21 +647,21 @@ export class Hub {
 					// argument) is a separate namespace used by the
 					// IPC layer to match the response back to the
 					// awaiting worker.
-					const executorCallId = `${fromAgentName}-remote-${randomUUID()}`;
+					const executorCallId = `${fromAgentName}-dispatch-${randomUUID()}`;
 					result = await new Promise<{ ok: true; result: unknown } | { ok: false; error: string }>((resolve) => {
-						this._executorRegistry.addPendingCallback(connectId, executorCallId, resolve);
+						this._executorRegistry.addPendingCallback(cid, executorCallId, resolve);
 						const timer = setTimeout(() => {
-							const resolved = this._executorRegistry.resolveOne(connectId, executorCallId, {
+							const resolved = this._executorRegistry.resolveOne(cid, executorCallId, {
 								ok: false,
 								error: "Remote call timed out",
 							});
 							if (resolved) {
 								process.stderr.write(
-									`[hub] remote call ${executorCallId} timed out after ${this._remoteCallTimeoutMs}ms\n`,
+									`[hub] dispatch call ${executorCallId} timed out after ${this._remoteCallTimeoutMs}ms\n`,
 								);
 							}
 						}, this._remoteCallTimeoutMs);
-						this._executorRegistry.setPendingTimer(connectId, executorCallId, timer);
+						this._executorRegistry.setPendingTimer(cid, executorCallId, timer);
 						handle.sseConn!.send("remote-call", {
 							callId: executorCallId,
 							tool: p.tool,

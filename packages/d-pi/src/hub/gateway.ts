@@ -645,7 +645,8 @@ export class HubGateway {
 					if (isPromptRequest) {
 						const parsed = body as { text?: string; options?: unknown };
 						if (parsed.text) {
-							parsed.text = injectMeta(parsed.text, "connect", auth.auth);
+							const connectId = this._agentBindings.get(agentName);
+							parsed.text = injectMeta(parsed.text, "connect", auth.auth, connectId ? { connectId } : undefined);
 						}
 					}
 				}

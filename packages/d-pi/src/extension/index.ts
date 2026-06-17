@@ -7,7 +7,7 @@
  *
  * - multi-agent-extension: agent tree, sources, send_message, group_architecture,
  *   /agents and /sources commands, d-pi message routing and rendering.
- * - remote-executor-extension: the `remote_*` tools (remote_bash, remote_read, ...)
+ * - dispatch-extension: the `dispatch_*` tools (remote_bash, remote_read, ...)
  *   that dispatch to a connected d-pi client executor.
  * - agent-metadata (separate package): reload + set_model + set_thinking_level.
  *
@@ -25,7 +25,6 @@ import {
 	type DPiExtensionConfig,
 	type DPiWorkerConfig,
 } from "./multi-agent-extension.ts";
-import { createRemoteExecutorExtension } from "./remote-executor-extension.ts";
 
 // Re-export the public config types and the agent-switch sentinel so that
 // call sites and tests that previously imported them from this barrel continue
@@ -40,7 +39,7 @@ export { AGENT_SWITCH_FILE };
  *
  * This is now a thin composer:
  * - In worker mode it wires both the multi-agent orchestration surface and
- *   the remote-executor tools (so existing `createDPiExtension` call sites
+ *   the dispatch tools (so existing `createDPiExtension` call sites
  *   and tests get the same set of tools + handlers as before).
  * - In client mode it only needs the multi-agent piece (the TUI command UIs).
  *
@@ -49,12 +48,12 @@ export { AGENT_SWITCH_FILE };
  * diagnostics and future optionality:
  *
  *   { factory: multi, name: "<d-pi-multi-agent>" },
- *   { factory: remote, name: "<d-pi-remote-executor>" },
+ *   { factory: remote, name: "<d-pi-dispatch>" },
  *   { factory: metadata, name: "<d-pi-metadata>" },
  *
  * Note on reload: the `reload` tool (plus set_model/set_thinking_level) lives
  * exclusively inside the agent-metadata extension. createDPiExtension (the
- * composer) only wires multi-agent + remote-executor; metadata is always
+ * composer) only wires multi-agent + dispatch; metadata is always
  * registered as a distinct third factory by the worker. This prevents
  * accidental double-registration of reload if a caller manually composes
  * the pieces.
@@ -62,12 +61,10 @@ export { AGENT_SWITCH_FILE };
 export function createDPiExtension(config: DPiExtensionConfig): { factory: ExtensionFactory; channel?: HubChannel } {
 	if (config.mode === "worker") {
 		const { factory: multiFactory, channel } = createMultiAgentExtension(config);
-		const remoteFactory = createRemoteExecutorExtension(channel);
+		// Dispatch tools are registered separately in agent-worker.ts
+		// (they need cwd which the composer doesn't have).
 		return {
-			factory: (pi) => {
-				multiFactory(pi);
-				remoteFactory(pi);
-			},
+			factory: multiFactory,
 			channel,
 		};
 	}
@@ -85,14 +82,14 @@ export function createDPiExtension(config: DPiExtensionConfig): { factory: Exten
  * routing and rendering, and connect/source input wiring.
  *
  * In worker mode the returned object also carries the HubChannel (used by
- * the remote-executor extension and by the worker bootstrap to post messages).
+ * the dispatch extension and by the worker bootstrap to post messages).
  */
 export { createMultiAgentExtension } from "./multi-agent-extension.ts";
 
 /**
  * Remote executor extension.
  *
- * Provides only the `remote_*` tool family. These tools let a hub-side agent
+ * Provides only the `dispatch_*` tool family. These tools let a hub-side agent
  * execute native tools on a connected d-pi client (via the IPC channel
  * established by `d-pi connect`). If no client is bound the tools surface
  * a clear error.
@@ -100,11 +97,11 @@ export { createMultiAgentExtension } from "./multi-agent-extension.ts";
  * This is intentionally separate from the multi-agent surface so the two
  * concerns can be traced and enabled independently.
  */
-export { createRemoteExecutorExtension } from "./remote-executor-extension.ts";
 
 // ── Other d-pi built-in extensions (unchanged) ───────────────────────────
 
 export { createAgentMetadataExtension } from "./agent-metadata.ts";
+export { createDispatchExtension } from "./dispatch-extension.ts";
 // HubChannel is useful for advanced callers that construct the pieces manually.
 export { HubChannel } from "./multi-agent-extension.ts";
 export { createReloadExtension, createReloadTools, type ReloadToolsDeps } from "./reload-tools.ts";

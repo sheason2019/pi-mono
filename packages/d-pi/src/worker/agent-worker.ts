@@ -24,8 +24,9 @@ import {
 import { DPI_META_PROMPT } from "../dpi-meta.ts";
 import {
 	createAgentMetadataExtension,
+	createDispatchExtension, // from dispatch-extension via index barrel
 	createMultiAgentExtension,
-	createRemoteExecutorExtension,
+	// dispatch imported directly from dispatch-extension
 	type HubChannel,
 } from "../extension/index.ts";
 import { formatAgentIdentitySection, readAgentConfig } from "../hub/agent-identity.ts";
@@ -130,7 +131,7 @@ async function runAgentWorker(): Promise<void> {
 
 	process.stderr.write(`[d-pi worker ${agentName}] Infrastructure created\n`);
 
-	// 2. Create the d-pi multi-agent + remote-executor surfaces (and the HubChannel).
+	// 2. Create the d-pi multi-agent + dispatch surfaces (and the HubChannel).
 	// We register them as two separate named extensions (plus the metadata one)
 	// so that diagnostics, tracing, and future optionality can target each concern
 	// independently. This is the decomposition of the old monolithic std extension.
@@ -139,7 +140,7 @@ async function runAgentWorker(): Promise<void> {
 		agentName,
 		postToHub,
 	});
-	const remoteExecutorFactory = createRemoteExecutorExtension(channel);
+	const dispatchFactory = createDispatchExtension(channel, cwd);
 	hubChannel = channel;
 
 	// 3. Build the runtime factory (mirrors main.ts pattern)
@@ -228,8 +229,8 @@ async function runAgentWorker(): Promise<void> {
 						// This is kept as a separate named extension from the multi-agent surface
 						// so the two concerns can be understood, traced, and optionally gated
 						// independently.
-						factory: remoteExecutorFactory,
-						name: "<d-pi-remote-executor>",
+						factory: dispatchFactory,
+						name: "<d-pi-dispatch>",
 					},
 					{
 						// d-pi-built-in-metadata-extension: registers the
@@ -338,7 +339,7 @@ async function runAgentWorker(): Promise<void> {
 			sessionManager: opts.sessionManager,
 			model: resolvedModel,
 			tools: config.includeTools,
-			excludeTools: config.excludeTools,
+			excludeTools: ["bash", "read", "edit", "write", "grep", "find", "ls", ...(config.excludeTools ?? [])],
 		});
 
 		process.stderr.write(`[d-pi worker ${agentName}] Session created from services\n`);
