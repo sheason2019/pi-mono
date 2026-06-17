@@ -5,7 +5,7 @@ import type { WorkspaceConfig, WorkspaceContext } from "../types.ts";
 const DPI_DIR = ".dpi";
 const CONFIG_FILE = "config.json";
 const AGENTS_DIR = "agents";
-const GROUP_ARCHITECTURE_DIR = "group-architecture";
+const TEAM_TEMPLATE_DIR = "team-template";
 const SKILLS_DIR = "skills";
 const EXTENSIONS_DIR = "extensions";
 const ROLES_DIR = "roles";
@@ -72,13 +72,7 @@ export function loadWorkspaceContext(
 	const additionalSkillPaths: string[] = [];
 	const additionalExtensionPaths: string[] = [];
 
-	collectGroupArchitectureContext(
-		resolved,
-		options,
-		additionalAgentsFiles,
-		additionalSkillPaths,
-		additionalExtensionPaths,
-	);
+	collectTeamTemplateContext(resolved, options, additionalAgentsFiles, additionalSkillPaths, additionalExtensionPaths);
 	pushIfExists(additionalSkillPaths, join(resolved, SKILLS_DIR));
 	pushExtensionEntriesIfExists(additionalExtensionPaths, join(resolved, EXTENSIONS_DIR));
 
@@ -91,14 +85,14 @@ export function loadWorkspaceContext(
 	};
 }
 
-function collectGroupArchitectureContext(
+function collectTeamTemplateContext(
 	workspaceRoot: string,
 	options: LoadWorkspaceContextOptions,
 	additionalAgentsFiles: Array<{ path: string; content: string }>,
 	additionalSkillPaths: string[],
 	additionalExtensionPaths: string[],
 ): void {
-	const architectureDir = join(workspaceRoot, GROUP_ARCHITECTURE_DIR);
+	const architectureDir = join(workspaceRoot, TEAM_TEMPLATE_DIR);
 	if (!existsSync(architectureDir)) {
 		return;
 	}
@@ -279,7 +273,7 @@ Strict JSON. Top-level keys:
   during multi-agent coordination. Recommended: a few sentences in plain
   English, no formatting.
 - \`model\` (optional): overrides the workspace default model for this agent.
-- \`roles\` (optional): array of role names — see \`.dpi/group-architecture/roles/\`.
+- \`roles\` (optional): array of role names — see \`team-template/roles/\`.
 - \`includeTools\` (optional): allowlist of tool names. When provided, only these tools are exposed to the agent.
 - \`excludeTools\` (optional): denylist of tool names. These tools will not be exposed.
   Mutually exclusive with \`includeTools\` — see [create_agent docs](../../multi-agent/create-agent) for the rejection rules.

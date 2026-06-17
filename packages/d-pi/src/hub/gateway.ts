@@ -15,7 +15,7 @@ import type { SourceManager } from "./source-manager.ts";
  *   /_hub/agents       GET  → list all agents
  *   /_hub/agents       POST → create agent
  *   /_hub/agents/{id}  DELETE → destroy agent
- *   /_hub/group-architecture  GET  → group architecture snapshot
+ *   /_hub/team       GET  → team snapshot
  *   /_hub/sources      GET  → list all sources
  *   /_hub/sources      PUT/POST → set source
  *   /_hub/sources/{name} DELETE → destroy source
@@ -211,6 +211,15 @@ export class HubGateway {
 		return this._agentBindings.get(agentName);
 	}
 
+	getBoundAgentName(connectId: string): string | undefined {
+		for (const [agentName, boundConnectId] of this._agentBindings) {
+			if (boundConnectId === connectId) {
+				return agentName;
+			}
+		}
+		return undefined;
+	}
+
 	/**
 	 * Drop every binding that points at the given connectId. Called when
 	 * the executor's SSE channel closes so a stale binding cannot dispatch
@@ -340,7 +349,7 @@ export class HubGateway {
 
 		// GET /_hub/agents — list all agents
 		if (path === "/_hub/agents" && req.method === "GET") {
-			const snapshot = this._registry.getGroupArchitectureSnapshot();
+			const snapshot = this._registry.getTeamSnapshot();
 			res.writeHead(200, { "Content-Type": "application/json" });
 			res.end(JSON.stringify(snapshot.agents));
 			return;
@@ -432,9 +441,14 @@ export class HubGateway {
 			return;
 		}
 
-		// GET /_hub/group-architecture — group architecture snapshot
-		if (path === "/_hub/group-architecture" && req.method === "GET") {
-			const snapshot = this._registry.getGroupArchitectureSnapshot();
+		// GET /_hub/team — team snapshot
+		if (path === "/_hub/team" && req.method === "GET") {
+			const snapshot = this._registry.getTeamSnapshot();
+			snapshot.executors =
+				this._executorRegistry?.list().map((executor) => ({
+					...executor,
+					boundAgentName: this.getBoundAgentName(executor.connectId),
+				})) ?? [];
 			res.writeHead(200, { "Content-Type": "application/json" });
 			res.end(JSON.stringify(snapshot));
 			return;

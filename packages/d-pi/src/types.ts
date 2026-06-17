@@ -89,8 +89,8 @@ export type HubToWorkerMessage =
 	| { type: "sse_subscribe"; subscriberId: string }
 	| { type: "sse_unsubscribe"; subscriberId: string };
 
-// === Group Architecture Snapshot ===
-export interface GroupArchitectureEntry {
+// === Team Snapshot ===
+export interface TeamAgentEntry {
 	name: string;
 	parentName: string | undefined;
 	status: AgentStatus;
@@ -98,8 +98,16 @@ export interface GroupArchitectureEntry {
 	children: string[];
 }
 
-export interface GroupArchitectureSnapshot {
-	agents: GroupArchitectureEntry[];
+export interface TeamExecutorEntry {
+	connectId: string;
+	cwd: string;
+	attached: boolean;
+	boundAgentName: string | undefined;
+}
+
+export interface TeamSnapshot {
+	agents: TeamAgentEntry[];
+	executors: TeamExecutorEntry[];
 	rootName: string;
 }
 

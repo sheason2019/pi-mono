@@ -12,12 +12,13 @@ export { SourceManager } from "./hub/source-manager.ts";
 export type {
 	AgentStatus,
 	AgentWorkerConfig,
-	GroupArchitectureEntry,
-	GroupArchitectureSnapshot,
 	HubConfig,
 	HubToWorkerMessage,
 	SourceConfig,
 	SourceInfo,
 	SourceStatus,
+	TeamAgentEntry,
+	TeamExecutorEntry,
+	TeamSnapshot,
 	WorkerToHubMessage,
 } from "./types.ts";

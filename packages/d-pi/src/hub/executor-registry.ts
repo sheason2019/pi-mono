@@ -93,6 +93,14 @@ export class ExecutorRegistry {
 		return this.entries.get(connectId);
 	}
 
+	list(): Array<{ connectId: string; cwd: string; attached: boolean }> {
+		return Array.from(this.entries.entries()).map(([connectId, handle]) => ({
+			connectId,
+			cwd: handle.cwd,
+			attached: handle.attached,
+		}));
+	}
+
 	deregister(connectId: string): boolean {
 		const handle = this.entries.get(connectId);
 		if (!handle) return false;

@@ -28,7 +28,7 @@ describe("DPI_META_PROMPT stays lean", () => {
 		expect(DPI_META_PROMPT).not.toMatch(/`subscribe_source`/);
 		expect(DPI_META_PROMPT).not.toMatch(/`create_agent`/);
 		expect(DPI_META_PROMPT).not.toMatch(/`send_message`/);
-		expect(DPI_META_PROMPT).not.toMatch(/`group_architecture`/);
+		expect(DPI_META_PROMPT).not.toMatch(/`team`/);
 		expect(DPI_META_PROMPT).not.toMatch(/`reload`/);
 	});
 
@@ -63,15 +63,15 @@ describe("DPI_META_PROMPT stays lean", () => {
 		expect(DPI_META_PROMPT).toMatch(/orchestration cost/i);
 	});
 
-	it("encourages proactive collaboration and points at group_architecture for discovery", () => {
+	it("encourages proactive collaboration and points at team for discovery", () => {
 		// The user asked for two things in this section:
 		//   1. Agents should reach out to peers proactively, not just react.
-		//   2. Agents should use group_architecture to see who else is alive.
+		//   2. Agents should use team to see who else is alive.
 		expect(DPI_META_PROMPT).toContain("Collaboration");
 		expect(DPI_META_PROMPT).toMatch(/proactively push results/i);
-		expect(DPI_META_PROMPT).toMatch(/group_architecture/);
+		expect(DPI_META_PROMPT).toMatch(/team/);
 		// Sanity: still no backticks around the tool name.
-		expect(DPI_META_PROMPT).not.toMatch(/`group_architecture`/);
+		expect(DPI_META_PROMPT).not.toMatch(/`team`/);
 	});
 
 	it("warns about multi-agent dispatch latency and points at the meta createTime", () => {

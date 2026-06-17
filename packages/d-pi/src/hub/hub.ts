@@ -10,12 +10,12 @@ import type {
 	CreateAgentResult,
 	DestroyAgentResult,
 	GetSourceResult,
-	GroupArchitectureSnapshot,
 	HubConfig,
 	HubToWorkerMessage,
 	SendMessageResult,
 	SetSourceResult,
 	DeleteSourceResult,
+	TeamSnapshot,
 	WorkerToHubMessage,
 } from "../types.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
@@ -527,8 +527,15 @@ export class Hub {
 					break;
 				}
 
-				case "group_architecture": {
-					result = this._registry.getGroupArchitectureSnapshot() satisfies GroupArchitectureSnapshot;
+				case "team": {
+					const snapshot = this._registry.getTeamSnapshot();
+					result = {
+						...snapshot,
+						executors: this._executorRegistry.list().map((executor) => ({
+							...executor,
+							boundAgentName: this._gateway.getBoundAgentName(executor.connectId),
+						})),
+					} satisfies TeamSnapshot;
 					break;
 				}
 

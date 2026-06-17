@@ -1,4 +1,4 @@
-import type { GroupArchitectureSnapshot, SourceConfig, WorkerToHubMessage } from "../types.ts";
+import type { SourceConfig, TeamSnapshot, WorkerToHubMessage } from "../types.ts";
 
 /**
  * Message routing mode — mirrors the user-facing TUI Enter / Ctrl+Enter
@@ -77,9 +77,9 @@ export class HubChannel {
 		return this._callTool("destroy_agent", { agent_id: agentName });
 	}
 
-	/** Get the group architecture snapshot */
-	getGroupArchitecture(): Promise<GroupArchitectureSnapshot> {
-		return this._callTool("group_architecture", {}) as Promise<GroupArchitectureSnapshot>;
+	/** Get the team snapshot */
+	getTeam(): Promise<TeamSnapshot> {
+		return this._callTool("team", {}) as Promise<TeamSnapshot>;
 	}
 
 	/** Create or update a source by name. */

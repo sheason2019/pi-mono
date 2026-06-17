@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createCreateAgentTool } from "../src/extension/create-agent.ts";
 import { createDestroyAgentTool } from "../src/extension/destroy-agent.ts";
-import { createGroupArchitectureTool } from "../src/extension/group-architecture.ts";
 import type { HubChannel } from "../src/extension/hub-channel.ts";
 import { createReloadTools } from "../src/extension/reload-tools.ts";
 import { createSendMessageTool } from "../src/extension/send-message.ts";
 import { createSetSourceTool } from "../src/extension/set-source.ts";
+import { createTeamTool } from "../src/extension/team.ts";
 
 /**
  * Architectural contract: tool-specific constraints and routing semantics
@@ -29,8 +29,8 @@ function toolDescription(name: string): string {
 			return createCreateAgentTool(channel).description;
 		case "send_message":
 			return createSendMessageTool(channel).description;
-		case "group_architecture":
-			return createGroupArchitectureTool(channel).description;
+		case "team":
+			return createTeamTool(channel).description;
 		case "reload":
 			return createReloadTools({
 				getReloadFn: () => undefined,
@@ -123,7 +123,7 @@ describe("reload tool — limitations", () => {
 
 	it("description mentions role directories are NOT re-read", () => {
 		const desc = toolDescription("reload");
-		expect(desc).toMatch(/group-architecture.*role|role directories/i);
+		expect(desc).toMatch(/team-template.*role|role directories/i);
 		expect(desc).toMatch(/not.*re-read|does NOT re-read/i);
 	});
 });
@@ -142,9 +142,9 @@ describe("set_source tool — long-running supervision", () => {
 	});
 });
 
-describe("group_architecture tool — uses agent names", () => {
+describe("team tool — uses agent names", () => {
 	it("description reminds callers to use names, not IDs", () => {
-		const desc = toolDescription("group_architecture");
+		const desc = toolDescription("team");
 		expect(desc).toMatch(/names/i);
 		expect(desc).toMatch(/IDs?/);
 	});
