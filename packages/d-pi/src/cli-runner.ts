@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { runConnectMode } from "@sheason/pi-coding-agent/d-pi-worker";
@@ -23,6 +24,7 @@ export interface DPiCliRuntime {
 	stdout: (line: string) => void;
 	stderr: (line: string) => void;
 	createHub?: (config: HubConfig) => { start(): Promise<void> };
+	cloneTeamTemplate?: (repo: string, targetDir: string) => Promise<void>;
 }
 
 function defaultRuntime(): DPiCliRuntime {
@@ -37,6 +39,10 @@ function defaultRuntime(): DPiCliRuntime {
 function optionValue(args: string[], name: string): string | undefined {
 	const index = args.indexOf(name);
 	return index === -1 ? undefined : args[index + 1];
+}
+
+function hasOption(args: string[], name: string): boolean {
+	return args.includes(name);
 }
 
 function optionBoolean(args: string[], name: string): boolean | undefined {
@@ -55,7 +61,7 @@ function printHelp(runtime: DPiCliRuntime): void {
 	runtime.stdout(`d-pi - Multi-agent tree orchestrator
 
 Usage:
-  d-pi init                         Initialize a workspace in the current directory
+  d-pi init [--team-template <git-repo>]  Initialize a workspace in the current directory
   d-pi migrate                      Migrate the current workspace to the latest schema
   d-pi serve [--port ${DEFAULT_HUB_PORT}] [--model <model>]  Start the hub (must be in a workspace)
   d-pi connect <user@url> [--agent <id|name>]
@@ -68,6 +74,19 @@ Usage:
   d-pi allow-user remove <name>
   d-pi allow-user list
 `);
+}
+
+function defaultCloneTeamTemplate(repo: string, targetDir: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		execFile("git", ["clone", repo, targetDir], (error, _stdout, stderr) => {
+			if (error) {
+				const suffix = stderr.trim() ? `: ${stderr.trim()}` : "";
+				reject(new Error(`Failed to clone team template${suffix}`));
+				return;
+			}
+			resolve();
+		});
+	});
 }
 
 async function handleUsers(args: string[], runtime: DPiCliRuntime): Promise<void> {
@@ -153,7 +172,17 @@ async function handleAllowUser(args: string[], runtime: DPiCliRuntime): Promise<
 export async function runDPiCli(args: string[], runtime: DPiCliRuntime = defaultRuntime()): Promise<void> {
 	const command = args[0];
 	if (command === "init") {
+		const teamTemplateRepo = optionValue(args, "--team-template");
+		if (hasOption(args, "--team-template") && !teamTemplateRepo) {
+			throw new Error("--team-template requires a git repository URL");
+		}
 		initWorkspace(runtime.cwd);
+		if (teamTemplateRepo) {
+			const targetDir = join(runtime.cwd, "team-template");
+			const cloneTeamTemplate = runtime.cloneTeamTemplate ?? defaultCloneTeamTemplate;
+			await cloneTeamTemplate(teamTemplateRepo, targetDir);
+			runtime.stdout(`[d-pi] Cloned team template from ${teamTemplateRepo} into team-template/`);
+		}
 		runtime.stdout("[d-pi] Workspace initialized in current directory");
 		runtime.stdout("[d-pi]   .dpi/config.json        — workspace configuration");
 		runtime.stdout("[d-pi]   AGENTS.md               — shared context for all agents");

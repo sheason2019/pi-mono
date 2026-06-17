@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { runDPiCli } from "../src/cli-runner.ts";
 import { initWorkspace, TARGET_WORKSPACE_VERSION, validateWorkspace } from "../src/workspace/workspace.ts";
 
 let tmpRoot: string | undefined;
@@ -116,5 +117,39 @@ describe("init template: strict-JSON output", () => {
 		// alongside the system-prompt-injection feature in
 		// `hub/agent-identity.ts`).
 		expect(agentsMd).toMatch(/description/);
+	});
+
+	it("CLI init clones a git team template into team-template when requested", async () => {
+		const workspace = freshWorkspace();
+		const stdout: string[] = [];
+		const cloneTeamTemplate = vi.fn(async () => {});
+
+		await runDPiCli(["init", "--team-template", "https://example.com/team-template.git"], {
+			cwd: workspace,
+			homeDir: workspace,
+			stdout: (line) => stdout.push(line),
+			stderr: () => {},
+			cloneTeamTemplate,
+		});
+
+		expect(cloneTeamTemplate).toHaveBeenCalledWith(
+			"https://example.com/team-template.git",
+			join(workspace, "team-template"),
+		);
+		expect(stdout.join("\n")).toContain("Cloned team template from https://example.com/team-template.git");
+		expect(validateWorkspace(workspace).version).toBe(TARGET_WORKSPACE_VERSION);
+	});
+
+	it("CLI init rejects --team-template without a repository", async () => {
+		const workspace = freshWorkspace();
+		await expect(
+			runDPiCli(["init", "--team-template"], {
+				cwd: workspace,
+				homeDir: workspace,
+				stdout: () => {},
+				stderr: () => {},
+			}),
+		).rejects.toThrow(/--team-template requires a git repository URL/);
+		expect(existsSync(join(workspace, ".dpi"))).toBe(false);
 	});
 });
