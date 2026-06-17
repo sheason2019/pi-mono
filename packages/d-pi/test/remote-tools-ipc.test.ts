@@ -58,11 +58,11 @@ function invokeRemoteViaIpc(
 			hub as unknown as {
 				_handleToolCall(callId: string, tool: string, params: unknown, fromAgentName: string): Promise<void>;
 			}
-		)._handleToolCall(callId, "remote", params, agentName);
+		)._handleToolCall(callId, "dispatch", params, agentName);
 	});
 }
 
-describe('remote tool dispatch via IPC (case "remote" in _handleToolCall)', () => {
+describe('remote tool dispatch via IPC (case "dispatch" in _handleToolCall)', () => {
 	let hub: Hub;
 	let executorRegistry: ExecutorRegistry;
 	let gateway: HubGateway;
@@ -104,28 +104,30 @@ describe('remote tool dispatch via IPC (case "remote" in _handleToolCall)', () =
 		const result = (await invokeRemoteViaIpc(hub, executorRegistry, gateway, "orphan-agent", {
 			tool: "bash",
 			params: { command: "echo hi" },
+			connect_id: "test-conn",
 		})) as { ok: boolean; error: string };
 		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/not bound/i);
+		expect(result.error).toMatch(/no d-pi client with connect_id/i);
 	});
 
 	it("returns an error when executor is pre-registered but not attached", async () => {
-		gateway.bindAgent("agent-no-sse", "executor-no-sse");
-		executorRegistry.preRegister("executor-no-sse", { cwd: "/tmp" });
+		gateway.bindAgent("agent-no-sse", "test-conn");
+		executorRegistry.preRegister("test-conn", { cwd: "/tmp" });
 		// No attachSse — sseConn is undefined.
 		const result = (await invokeRemoteViaIpc(hub, executorRegistry, gateway, "agent-no-sse", {
 			tool: "bash",
 			params: { command: "echo hi" },
+			connect_id: "test-conn",
 		})) as { ok: boolean; error: string };
 		expect(result.ok).toBe(false);
 		expect(result.error).toMatch(/not yet ready/i);
 	});
 
 	it("dispatches via IPC to the bound executor and resolves on result", async () => {
-		gateway.bindAgent("agent-ipc", "executor-ipc");
-		executorRegistry.preRegister("executor-ipc", { cwd: "/tmp" });
+		gateway.bindAgent("agent-ipc", "test-conn");
+		executorRegistry.preRegister("test-conn", { cwd: "/tmp" });
 		const dispatched: Array<{ callId: string; tool: string; params: unknown }> = [];
-		executorRegistry.attachSse("executor-ipc", {
+		executorRegistry.attachSse("test-conn", {
 			send(event, data) {
 				if (event !== "remote-call") return;
 				const payload = data as { callId: string; tool: string; params: unknown };
@@ -135,7 +137,7 @@ describe('remote tool dispatch via IPC (case "remote" in _handleToolCall)', () =
 				// goes through HTTP POST /_hub/executor/results, but for
 				// this unit test we call the registry directly.
 				setTimeout(() => {
-					executorRegistry.resolveOne("executor-ipc", payload.callId, {
+					executorRegistry.resolveOne("test-conn", payload.callId, {
 						ok: true,
 						result: { stdout: `[stub] ${(payload.params as { command: string }).command}` },
 					});
@@ -146,6 +148,7 @@ describe('remote tool dispatch via IPC (case "remote" in _handleToolCall)', () =
 		const result = (await invokeRemoteViaIpc(hub, executorRegistry, gateway, "agent-ipc", {
 			tool: "bash",
 			params: { command: "echo hello" },
+			connect_id: "test-conn",
 		})) as { ok: boolean; result: { stdout: string } };
 
 		expect(result.ok).toBe(true);
@@ -154,18 +157,18 @@ describe('remote tool dispatch via IPC (case "remote" in _handleToolCall)', () =
 		expect(dispatched[0]?.tool).toBe("bash");
 		expect(dispatched[0]?.params).toEqual({ command: "echo hello" });
 		// Pending entry is cleared after resolve.
-		expect(executorRegistry.get("executor-ipc")?.pendingCalls.size ?? 0).toBe(0);
+		expect(executorRegistry.get("test-conn")?.pendingCalls.size ?? 0).toBe(0);
 	});
 
 	it("propagates executor-reported errors back to the IPC caller", async () => {
-		gateway.bindAgent("agent-err", "executor-err");
-		executorRegistry.preRegister("executor-err", { cwd: "/tmp" });
-		executorRegistry.attachSse("executor-err", {
+		gateway.bindAgent("agent-err", "test-conn");
+		executorRegistry.preRegister("test-conn", { cwd: "/tmp" });
+		executorRegistry.attachSse("test-conn", {
 			send(event, data) {
 				if (event !== "remote-call") return;
 				const payload = data as { callId: string };
 				setTimeout(() => {
-					executorRegistry.resolveOne("executor-err", payload.callId, {
+					executorRegistry.resolveOne("test-conn", payload.callId, {
 						ok: false,
 						error: "permission denied",
 					});
@@ -176,6 +179,7 @@ describe('remote tool dispatch via IPC (case "remote" in _handleToolCall)', () =
 		const result = (await invokeRemoteViaIpc(hub, executorRegistry, gateway, "agent-err", {
 			tool: "bash",
 			params: { command: "rm -rf /" },
+			connect_id: "test-conn",
 		})) as { ok: boolean; error: string };
 
 		expect(result.ok).toBe(false);
@@ -183,13 +187,15 @@ describe('remote tool dispatch via IPC (case "remote" in _handleToolCall)', () =
 	});
 
 	it("returns an error when tool param is missing", async () => {
-		gateway.bindAgent("agent-missing", "executor-missing");
-		executorRegistry.preRegister("executor-missing", { cwd: "/tmp" });
-		executorRegistry.attachSse("executor-missing", { send: () => {} });
+		gateway.bindAgent("agent-missing", "test-conn");
+		executorRegistry.preRegister("test-conn", { cwd: "/tmp" });
+		executorRegistry.attachSse("test-conn", { send: () => {} });
 
 		const result = (await invokeRemoteViaIpc(hub, executorRegistry, gateway, "agent-missing", {
-			// missing `tool` field
+			// missing `tool` field but has connect_id
+			tool: undefined,
 			params: { command: "echo hi" },
+			connect_id: "test-conn",
 		})) as { ok: boolean; error: string };
 
 		expect(result.ok).toBe(false);
@@ -197,16 +203,16 @@ describe('remote tool dispatch via IPC (case "remote" in _handleToolCall)', () =
 	});
 });
 
-describe("HubChannel.callRemote posts a remote IPC tool_call", () => {
+describe("HubChannel.callDispatch posts a dispatch IPC tool_call", () => {
 	it("uses tool name 'remote' and forwards { tool, params } verbatim", () => {
 		const posted: WorkerToHubMessage[] = [];
 		const channel = new HubChannel("test-agent", (msg) => posted.push(msg));
-		void channel.callRemote("bash", { command: "ls -la" });
+		void channel.callDispatch("bash", { command: "ls -la" }, "test-conn");
 		expect(posted).toHaveLength(1);
 		const msg = posted[0] as Extract<WorkerToHubMessage, { type: "tool_call" }>;
 		expect(msg.type).toBe("tool_call");
-		expect(msg.tool).toBe("remote");
-		expect(msg.params).toEqual({ tool: "bash", params: { command: "ls -la" } });
+		expect(msg.tool).toBe("dispatch");
+		expect(msg.params).toEqual({ tool: "bash", params: { command: "ls -la" }, connect_id: "test-conn" });
 		expect(msg.agentName).toBe("test-agent");
 	});
 });
