@@ -1,16 +1,18 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { WorkspaceConfig, WorkspaceContext } from "../types.ts";
 
 const DPI_DIR = ".dpi";
 const CONFIG_FILE = "config.json";
 const AGENTS_DIR = "agents";
+const LEGACY_GROUP_ARCHITECTURE_DIR = "group-architecture";
 const TEAM_TEMPLATE_DIR = "team-template";
 const SKILLS_DIR = "skills";
 const EXTENSIONS_DIR = "extensions";
 const ROLES_DIR = "roles";
 const APPEND_SYSTEM_MD = "APPEND_SYSTEM.md";
 const AGENTS_MD = "AGENTS.md";
+export const TARGET_WORKSPACE_VERSION = 2;
 
 export interface LoadWorkspaceContextOptions {
 	agentName?: string;
@@ -40,7 +42,7 @@ export function validateWorkspace(workspaceRoot: string): WorkspaceConfig {
 		// or trailing commas, JSON.parse will surface the SyntaxError.
 		const raw = readFileSync(configPath, "utf-8");
 		const parsed = JSON.parse(raw);
-		if (parsed.version !== 1) {
+		if (parsed.version !== 1 && parsed.version !== TARGET_WORKSPACE_VERSION) {
 			throw new Error(`Unsupported workspace version: ${parsed.version}`);
 		}
 		return parsed as WorkspaceConfig;
@@ -50,6 +52,47 @@ export function validateWorkspace(workspaceRoot: string): WorkspaceConfig {
 		}
 		throw err;
 	}
+}
+
+export interface WorkspaceMigrationResult {
+	fromVersion: number;
+	toVersion: number;
+	renamedGroupArchitecture: boolean;
+}
+
+export function migrateWorkspace(workspaceRoot: string): WorkspaceMigrationResult {
+	const resolved = resolve(workspaceRoot);
+	const config = validateWorkspace(resolved);
+	if (config.version === TARGET_WORKSPACE_VERSION) {
+		return {
+			fromVersion: TARGET_WORKSPACE_VERSION,
+			toVersion: TARGET_WORKSPACE_VERSION,
+			renamedGroupArchitecture: false,
+		};
+	}
+	if (config.version !== 1) {
+		throw new Error(`Unsupported workspace version: ${config.version}`);
+	}
+
+	const legacyDir = join(resolved, LEGACY_GROUP_ARCHITECTURE_DIR);
+	const teamTemplateDir = join(resolved, TEAM_TEMPLATE_DIR);
+	let renamedGroupArchitecture = false;
+	if (existsSync(legacyDir)) {
+		if (existsSync(teamTemplateDir)) {
+			throw new Error(
+				`Cannot migrate workspace: both ${LEGACY_GROUP_ARCHITECTURE_DIR}/ and ${TEAM_TEMPLATE_DIR}/ exist. Remove or merge one before running d-pi migrate.`,
+			);
+		}
+		renameSync(legacyDir, teamTemplateDir);
+		renamedGroupArchitecture = true;
+	}
+
+	writeWorkspaceConfig(resolved, { version: TARGET_WORKSPACE_VERSION });
+	return { fromVersion: 1, toVersion: TARGET_WORKSPACE_VERSION, renamedGroupArchitecture };
+}
+
+function writeWorkspaceConfig(workspaceRoot: string, config: WorkspaceConfig): void {
+	writeFileSync(join(workspaceRoot, DPI_DIR, CONFIG_FILE), `${JSON.stringify(config, null, "\t")}\n`);
 }
 
 /**
@@ -215,7 +258,7 @@ export function initWorkspace(dir: string): void {
 	writeFileSync(
 		join(dpiDir, CONFIG_FILE),
 		`{
-\t"version": 1
+\t"version": ${TARGET_WORKSPACE_VERSION}
 }
 `,
 	);
@@ -259,7 +302,7 @@ Add project-specific instructions, conventions, and guidelines here.
 
 Strict JSON — no comments, no trailing commas. Top-level keys:
 
-- \`version\` (required, must be \`1\`) — reserved as a migration marker for future workspace-level fields
+- \`version\` (required, must be \`${TARGET_WORKSPACE_VERSION}\`) — workspace schema version
 
 ## Agent Configuration (\`agents/<name>/agent.json\`)
 

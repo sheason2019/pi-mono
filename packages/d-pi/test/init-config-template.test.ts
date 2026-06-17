@@ -2,7 +2,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { initWorkspace, validateWorkspace } from "../src/workspace/workspace.ts";
+import { initWorkspace, TARGET_WORKSPACE_VERSION, validateWorkspace } from "../src/workspace/workspace.ts";
 
 let tmpRoot: string | undefined;
 
@@ -33,7 +33,7 @@ describe("init template: strict-JSON output", () => {
 
 		// The point of the regression: strict JSON.parse must accept the file.
 		const parsed = JSON.parse(raw) as { version: number };
-		expect(parsed.version).toBe(1);
+		expect(parsed.version).toBe(TARGET_WORKSPACE_VERSION);
 	});
 
 	it("writes agents/root/agent.json that JSON.parse accepts (no JS comments)", () => {
@@ -60,14 +60,14 @@ describe("init template: strict-JSON output", () => {
 		expect(parsed.description).toBe("");
 	});
 
-	it("validateWorkspace accepts the freshly-init config and reports version 1", () => {
+	it("validateWorkspace accepts the freshly-init config and reports the target version", () => {
 		const workspace = freshWorkspace();
 		initWorkspace(workspace);
 
 		// validateWorkspace no longer strips `//` comments — the init template
 		// must be canonical JSON on its own.
 		const config = validateWorkspace(workspace);
-		expect(config.version).toBe(1);
+		expect(config.version).toBe(TARGET_WORKSPACE_VERSION);
 	});
 
 	it("validateWorkspace rejects a hand-written config that still uses JS comments", () => {
@@ -84,7 +84,7 @@ describe("init template: strict-JSON output", () => {
 		writeFileSync(
 			configPath,
 			`{
-	"version": 1,
+	"version": ${TARGET_WORKSPACE_VERSION},
 	// "someFutureField": "example"
 }
 `,

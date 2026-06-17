@@ -29,7 +29,7 @@ export interface AgentConfig {
 // workspace-level fields should bump `version` and be parsed by
 // validateWorkspace() with explicit version checks.
 export interface WorkspaceConfig {
-	version: 1;
+	version: 1 | 2;
 }
 
 export interface WorkspaceContext {
