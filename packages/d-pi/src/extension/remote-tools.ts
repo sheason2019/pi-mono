@@ -77,10 +77,11 @@ export function createRemoteTools(channel: HubChannel): Array<ReturnType<typeof 
 					if (!r.ok) {
 						throw new Error(r.error ?? "Unknown remote tool error");
 					}
-					return {
-						content: [{ type: "text" as const, text: JSON.stringify(r.result) }],
-						details: {},
-					};
+					// r.result is already a valid AgentToolResult (the native tool's
+					// execute return value: { content, details }). Return it
+					// directly — do NOT JSON.stringify it into a new text block
+					// (that would create double-nested JSON the LLM can't parse).
+					return r.result as never;
 				},
 			}),
 		);
