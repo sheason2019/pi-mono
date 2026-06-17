@@ -167,6 +167,7 @@ export interface SourceConfig {
 	args?: string[];
 	cwd?: string;
 	env?: Record<string, string>;
+	subscribers?: string[];
 }
 
 // === Source Info (API responses) ===
@@ -174,31 +175,25 @@ export interface SourceInfo {
 	name: string;
 	command: string;
 	args: string[];
+	cwd?: string;
+	env?: Record<string, string>;
 	status: SourceStatus;
-	subscriberCount: number;
+	subscribers: string[];
 }
 
 // === Source Tool Call Results ===
-export interface CreateSourceResult {
+export interface SetSourceResult {
 	ok: boolean;
 	error?: string;
 }
 
-export interface DestroySourceResult {
-	ok: boolean;
+export interface GetSourceResult {
+	source?: SourceInfo;
+	sources?: SourceInfo[];
 	error?: string;
 }
 
-export interface SubscribeSourceResult {
+export interface DeleteSourceResult {
 	ok: boolean;
 	error?: string;
-}
-
-export interface UnsubscribeSourceResult {
-	ok: boolean;
-	error?: string;
-}
-
-export interface ListSourcesResult {
-	sources: SourceInfo[];
 }

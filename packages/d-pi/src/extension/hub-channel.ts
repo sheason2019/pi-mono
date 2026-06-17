@@ -1,4 +1,4 @@
-import type { GroupArchitectureSnapshot, WorkerToHubMessage } from "../types.ts";
+import type { GroupArchitectureSnapshot, SourceConfig, WorkerToHubMessage } from "../types.ts";
 
 /**
  * Message routing mode — mirrors the user-facing TUI Enter / Ctrl+Enter
@@ -82,35 +82,19 @@ export class HubChannel {
 		return this._callTool("group_architecture", {}) as Promise<GroupArchitectureSnapshot>;
 	}
 
-	/** Create a new source */
-	createSource(
-		name: string,
-		command: string,
-		args?: string[],
-		cwd?: string,
-		env?: Record<string, string>,
-	): Promise<unknown> {
-		return this._callTool("create_source", { name, command, args, cwd, env });
+	/** Create or update a source by name. */
+	setSource(config: SourceConfig): Promise<unknown> {
+		return this._callTool("set_source", config);
 	}
 
-	/** Destroy a source */
-	destroySource(name: string): Promise<unknown> {
-		return this._callTool("destroy_source", { name });
+	/** Get one source by name, or all sources when name is omitted. */
+	getSource(name?: string): Promise<unknown> {
+		return this._callTool("get_source", { name });
 	}
 
-	/** Subscribe this agent to a source */
-	subscribeSource(sourceName: string): Promise<unknown> {
-		return this._callTool("subscribe_source", { source_name: sourceName });
-	}
-
-	/** Unsubscribe this agent from a source */
-	unsubscribeSource(sourceName: string): Promise<unknown> {
-		return this._callTool("unsubscribe_source", { source_name: sourceName });
-	}
-
-	/** List all available sources */
-	listSources(): Promise<unknown> {
-		return this._callTool("list_sources", {});
+	/** Delete a source by name. */
+	deleteSource(name: string): Promise<unknown> {
+		return this._callTool("delete_source", { name });
 	}
 
 	/**

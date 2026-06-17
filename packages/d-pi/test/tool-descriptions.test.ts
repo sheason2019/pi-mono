@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createCreateAgentTool } from "../src/extension/create-agent.ts";
-import { createCreateSourceTool } from "../src/extension/create-source.ts";
 import { createDestroyAgentTool } from "../src/extension/destroy-agent.ts";
 import { createGroupArchitectureTool } from "../src/extension/group-architecture.ts";
 import type { HubChannel } from "../src/extension/hub-channel.ts";
 import { createReloadTools } from "../src/extension/reload-tools.ts";
 import { createSendMessageTool } from "../src/extension/send-message.ts";
+import { createSetSourceTool } from "../src/extension/set-source.ts";
 
 /**
  * Architectural contract: tool-specific constraints and routing semantics
@@ -36,8 +36,8 @@ function toolDescription(name: string): string {
 				getReloadFn: () => undefined,
 				getResourceLoader: () => undefined,
 			}).description;
-		case "create_source":
-			return createCreateSourceTool(channel).description;
+		case "set_source":
+			return createSetSourceTool(channel).description;
 		case "destroy_agent":
 			return createDestroyAgentTool(channel).description;
 		default:
@@ -128,11 +128,17 @@ describe("reload tool — limitations", () => {
 	});
 });
 
-describe("create_source tool — long-running supervision", () => {
+describe("set_source tool — long-running supervision", () => {
 	it("description warns that one-shot commands are not suitable", () => {
-		const desc = toolDescription("create_source");
+		const desc = toolDescription("set_source");
 		expect(desc).toMatch(/long-running|long running/i);
 		expect(desc).toMatch(/one-shot|persistent/i);
+	});
+
+	it("description states source name is the stable ID", () => {
+		const desc = toolDescription("set_source");
+		expect(desc).toMatch(/name/i);
+		expect(desc).toMatch(/stable ID/i);
 	});
 });
 

@@ -23,7 +23,7 @@ processes emitting JSON-RPC 2.0 notifications on stdout), a sub-agent
 group architecture (parent/child agents with roles), and a separate
 executor subprocess that runs native tools for connect-mode sessions.
 
-The available d-pi tools (create_source, subscribe_source, create_agent,
+The available d-pi tools (set_source, get_source, delete_source, create_agent,
 send_message, group_architecture, reload, ...) are listed in the tools
 section of this turn — refer to each tool's description and JSON schema
 for parameters, constraints, and routing semantics.

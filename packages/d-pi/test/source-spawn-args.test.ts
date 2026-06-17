@@ -95,7 +95,7 @@ describe("SourceManager spawn argv (regression for sheason2019/pi-mono#7)", () =
 		// re-tokenised it as `sh -c exit 7` (script=`exit`, $0=`7`) so the
 		// child always exited 0. With argv spawn the child receives the
 		// literal script "exit 7" and exits 7.
-		manager.createSource(
+		manager.setSource(
 			{
 				name: "multi-word",
 				command: "sh",
@@ -139,7 +139,7 @@ describe("SourceManager spawn argv (regression for sheason2019/pi-mono#7)", () =
 			method: "events.emit",
 			params: { type: "test.spawn_args", data },
 		});
-		manager.createSource(
+		manager.setSource(
 			{
 				name: "whitespace",
 				command: "sh",
@@ -172,7 +172,7 @@ describe("SourceManager spawn argv (regression for sheason2019/pi-mono#7)", () =
 		// ($# counts positional parameters, not including $0) → exit
 		// code 2. A shell-join that re-tokenised the args would have
 		// produced a different $# and therefore a different exit code.
-		manager.createSource(
+		manager.setSource(
 			{
 				name: "argv-count",
 				command: "sh",
@@ -216,7 +216,7 @@ describe("SourceManager spawn argv (regression for sheason2019/pi-mono#7)", () =
 		writeFileSync(scriptPath, `echo '${notification}'; exit 11\n`, { mode: 0o755 });
 
 		try {
-			manager.createSource(
+			manager.setSource(
 				{
 					name: "spacey-path",
 					command: "sh",

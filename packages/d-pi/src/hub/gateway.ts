@@ -17,7 +17,7 @@ import type { SourceManager } from "./source-manager.ts";
  *   /_hub/agents/{id}  DELETE → destroy agent
  *   /_hub/group-architecture  GET  → group architecture snapshot
  *   /_hub/sources      GET  → list all sources
- *   /_hub/sources      POST → create source
+ *   /_hub/sources      PUT/POST → set source
  *   /_hub/sources/{name} DELETE → destroy source
  *   /agents/{id}/*     → reverse proxy to agent's HTTP server
  *   /*                 → reverse proxy to root agent
@@ -448,13 +448,13 @@ export class HubGateway {
 			return;
 		}
 
-		// POST /_hub/sources — create source
-		if (path === "/_hub/sources" && req.method === "POST") {
+		// PUT/POST /_hub/sources — create or update source
+		if (path === "/_hub/sources" && (req.method === "PUT" || req.method === "POST")) {
 			const body = await this._readBody(req);
 			const params = JSON.parse(body) as SourceConfig;
 			try {
-				this._sourceManager.createSource(params);
-				res.writeHead(201, { "Content-Type": "application/json" });
+				this._sourceManager.setSource(params);
+				res.writeHead(200, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ ok: true }));
 			} catch (err) {
 				res.writeHead(500, { "Content-Type": "application/json" });
@@ -463,12 +463,12 @@ export class HubGateway {
 			return;
 		}
 
-		// DELETE /_hub/sources/{name} — destroy source
+		// DELETE /_hub/sources/{name} — delete source
 		const sourceDeleteMatch = path.match(/^\/_hub\/sources\/([^/]+)$/);
 		if (sourceDeleteMatch && req.method === "DELETE") {
 			const sourceName = decodeURIComponent(sourceDeleteMatch[1]);
 			try {
-				this._sourceManager.destroySource(sourceName);
+				this._sourceManager.deleteSource(sourceName);
 				res.writeHead(200, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ ok: true }));
 			} catch (err) {

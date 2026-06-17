@@ -73,7 +73,7 @@ describe("SourceManager mode coercion", () => {
 
 	it("forwards mode='next' from a JSONRPC notification", async () => {
 		const line = emitLine("next", "next", { marker: "next" });
-		manager.createSource({ name: "next", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
+		manager.setSource({ name: "next", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
 
 		await waitFor(() => broadcasts.some((b) => b.sourceName === "next"), 3_000, 20);
 		const b = broadcasts.find((b) => b.sourceName === "next");
@@ -82,7 +82,7 @@ describe("SourceManager mode coercion", () => {
 
 	it("forwards mode='steer' from a JSONRPC notification", async () => {
 		const line = emitLine("steer", "steer", { marker: "steer" });
-		manager.createSource({ name: "steer", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
+		manager.setSource({ name: "steer", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
 
 		await waitFor(() => broadcasts.some((b) => b.sourceName === "steer"), 3_000, 20);
 		const b = broadcasts.find((b) => b.sourceName === "steer");
@@ -101,7 +101,7 @@ describe("SourceManager mode coercion", () => {
 				data: { marker: "no-mode" },
 			},
 		});
-		manager.createSource({ name: "no-mode", command: "sh", args: ["-c", `echo '${noFieldLine}'`] }, CREATOR);
+		manager.setSource({ name: "no-mode", command: "sh", args: ["-c", `echo '${noFieldLine}'`] }, CREATOR);
 
 		await waitFor(() => broadcasts.some((b) => b.sourceName === "no-mode"), 3_000, 20);
 		const b = broadcasts.find((b) => b.sourceName === "no-mode");
@@ -122,7 +122,7 @@ describe("SourceManager mode coercion", () => {
 					data: { marker: name },
 				},
 			});
-			manager.createSource({ name, command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
+			manager.setSource({ name, command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
 		}
 
 		await waitFor(
@@ -150,7 +150,7 @@ describe("SourceManager mode coercion", () => {
 				data: { marker: "legacy" },
 			},
 		});
-		manager.createSource({ name: "legacy", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
+		manager.setSource({ name: "legacy", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
 
 		await waitFor(() => broadcasts.some((b) => b.sourceName === "legacy"), 3_000, 20);
 		const b = broadcasts.find((b) => b.sourceName === "legacy");
@@ -164,7 +164,7 @@ describe("SourceManager mode coercion", () => {
 		}, FAST_BACKOFF);
 		try {
 			const line = emitLine("arity", "next");
-			local.createSource({ name: "arity", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
+			local.setSource({ name: "arity", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
 			await waitFor(() => observedArity !== undefined, 3_000, 20);
 			expect(observedArity).toBe(4);
 		} finally {

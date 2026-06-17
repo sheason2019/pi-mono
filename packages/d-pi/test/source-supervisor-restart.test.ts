@@ -100,7 +100,7 @@ describe("SourceManager supervisor (regression for sheason2019/pi-mono#2)", () =
 		// Shell-native command: sleep 200ms then exit 0. Before the fix this
 		// was treated as "normal completion" and the source would have
 		// stayed in `stopped` forever.
-		manager.createSource(
+		manager.setSource(
 			{
 				name: "code0-source",
 				command: "sh",
@@ -131,8 +131,8 @@ describe("SourceManager supervisor (regression for sheason2019/pi-mono#2)", () =
 		expect(exitBroadcasts[0]?.line).toMatch(/code=0/);
 	});
 
-	it("does not restart a source after destroySource is called", async () => {
-		manager.createSource(
+	it("does not restart a source after deleteSource is called", async () => {
+		manager.setSource(
 			{
 				name: "destroyable-source",
 				command: "sh",
@@ -146,11 +146,7 @@ describe("SourceManager supervisor (regression for sheason2019/pi-mono#2)", () =
 
 		const restartCountAtDestroy = manager.getSourceStats("destroyable-source")?.restartCount ?? 0;
 
-		// destroySource refuses to act while there are still subscribers
-		// (the creator is auto-subscribed on createSource). Unsubscribe
-		// first, then destroy.
-		manager.unsubscribe("destroyable-source", CREATOR);
-		manager.destroySource("destroyable-source");
+		manager.deleteSource("destroyable-source");
 
 		const broadcastsAtDestroy = broadcasts.filter(
 			(b) => b.sourceName === "destroyable-source" && b.line.startsWith("[source-error]"),
@@ -177,7 +173,7 @@ describe("SourceManager supervisor (regression for sheason2019/pi-mono#2)", () =
 		// this would never have been restarted at all. With the new code,
 		// it should keep getting respawned until the attempt budget runs
 		// out and the source is flagged `failed`.
-		manager.createSource(
+		manager.setSource(
 			{
 				name: "doomed-source",
 				command: "sh",
@@ -208,7 +204,7 @@ describe("SourceManager supervisor (regression for sheason2019/pi-mono#2)", () =
 		// we can pass `sh -c "exit 7"` inline without the inner space
 		// getting re-tokenised — which is the regression this whole PR
 		// series is about.
-		manager.createSource(
+		manager.setSource(
 			{
 				name: "crash-source",
 				command: "sh",
