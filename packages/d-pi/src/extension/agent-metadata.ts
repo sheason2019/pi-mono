@@ -1,10 +1,9 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ModelRegistry } from "@sheason/pi-coding-agent";
 import { defineTool } from "@sheason/pi-coding-agent";
+import { persistModelInAgentTs } from "../agent-config.ts";
 import { createReloadTools, type ReloadToolsDeps } from "./reload-tools.ts";
 
 /**
@@ -21,24 +20,24 @@ import { createReloadTools, type ReloadToolsDeps } from "./reload-tools.ts";
  * can be wired after the AgentSession exists (same pattern as the old reload).
  *
  * Model switches are applied to the live session (subsequent turns use the new
- * model) and persisted to the agent's `agent.json` so that:
+ * model) and persisted to the agent's `agent.ts` so that:
  * - The "## Agent identity" block reflects the new model after reload.
  * - Future worker restarts (via hub) pick up the preferred model from the config.
  *
- * Thinking level is a per-session concern (not stored in agent.json).
+ * Thinking level is a per-session concern (not stored in agent.ts).
  *
  * In this phase we intentionally keep the surface small: the tools delegate to
  * the underlying ExtensionAPI (pi.setModel / pi.setThinkingLevel) which is
  * available on the ExtensionAPI passed to every extension factory.
  *
- * Model changes are persisted to agent.json (restarts + identity block see
+ * Model changes are persisted to agent.ts (restarts + identity block see
  * them). No live IPC model update to hub AgentRegistry yet, so
  * team may be stale until recreate (P1 gap). ctx.cwd for the
  * write is the d-pi per-agent dir (see agent-worker persistSessionId); P2.
  */
 
 export type AgentMetadataToolsDeps = ReloadToolsDeps & {
-	/** Return the authoritative per-agent directory that contains this agent's agent.json.
+	/** Return the authoritative per-agent directory that contains this agent's agent.ts.
 	 *  In d-pi worker this is the `cwd` from AgentWorkerConfig (the directory the worker
 	 *  was spawned for). Falls back to ctx.cwd if not provided. This avoids relying on
 	 *  ExtensionContext.cwd for a write that must target the persisted agent config.
@@ -69,7 +68,7 @@ export function createAgentMetadataExtension(deps: AgentMetadataToolsDeps): (pi:
 				name: "set_model",
 				label: "Set Model",
 				description:
-					"Switch this agent's model at runtime for subsequent turns. Accepts a full spec like 'anthropic/claude-sonnet-4' or a bare model id. The model is resolved from the current ModelRegistry (including ~/.pi/agent/models.json). The switch is applied live to the session and persisted to this agent's agent.json so the ## Agent identity section and future restarts see the new default. Returns whether the switch succeeded (may be false if no API key/credentials are available for the target provider). Does not reload resources — call the reload tool afterwards if you want the identity block in the system prompt to update immediately.",
+					"Switch this agent's model at runtime for subsequent turns. Accepts a full spec like 'anthropic/claude-sonnet-4' or a bare model id. The model is resolved from the current ModelRegistry (including ~/.pi/agent/models.json). The switch is applied live to the session and persisted to this agent's agent.ts so the ## Agent identity section and future restarts see the new default. Returns whether the switch succeeded (may be false if no API key/credentials are available for the target provider). Does not reload resources — call the reload tool afterwards if you want the identity block in the system prompt to update immediately.",
 				parameters: Type.Object({
 					model: Type.String({
 						description:
@@ -140,7 +139,7 @@ export function createAgentMetadataExtension(deps: AgentMetadataToolsDeps): (pi:
 						};
 					}
 
-					// Persist the chosen spec into this agent's agent.json so that:
+					// Persist the chosen spec into this agent's agent.ts so that:
 					// - The "## Agent identity" block (re-injected on reload via the workspace override) shows the new model.
 					// - The next time the hub spawns a worker for this agent it will see the updated model in config.
 					// Prefer the explicit getAgentCwd() from the worker (config.cwd) over ctx.cwd.
@@ -149,28 +148,18 @@ export function createAgentMetadataExtension(deps: AgentMetadataToolsDeps): (pi:
 						try {
 							const agentDir = deps.getAgentCwd ? deps.getAgentCwd() : undefined;
 							const baseDir = agentDir || ctx.cwd;
-							const cfgPath = join(baseDir, "agent.json");
-							if (!existsSync(cfgPath)) {
-								process.stderr.write(
-									`[d-pi agent-metadata] agent.json not present at ${cfgPath}; live model switch applied but persist skipped\n`,
-								);
-							} else {
-								const raw = readFileSync(cfgPath, "utf-8");
-								const cfg = JSON.parse(raw) as Record<string, unknown>;
-								cfg.model = spec;
-								writeFileSync(cfgPath, `${JSON.stringify(cfg, null, "\t")}\n`);
-							}
+							persistModelInAgentTs(baseDir, spec);
 						} catch (e) {
 							const msg = e instanceof Error ? e.message : String(e);
 							process.stderr.write(
-								`[d-pi agent-metadata] Failed to persist model='${spec}' to agent.json: ${msg}\n`,
+								`[d-pi agent-metadata] Failed to persist model='${spec}' to agent.ts: ${msg}\n`,
 							);
 							// Non-fatal for the call; the live switch already succeeded.
 						}
 					}
 
 					const resultText = success
-						? `Model switched to ${spec}. Subsequent turns will use the new model. Persisted to agent.json. Call reload if you want the system-prompt identity block to reflect it immediately.`
+						? `Model switched to ${spec}. Subsequent turns will use the new model. Persisted to agent.ts. Call reload if you want the system-prompt identity block to reflect it immediately.`
 						: `Model switch to ${spec} reported failure (likely missing credentials for the provider).`;
 					return {
 						content: [{ type: "text" as const, text: resultText }],
@@ -193,7 +182,7 @@ export function createAgentMetadataExtension(deps: AgentMetadataToolsDeps): (pi:
 				name: "set_thinking_level",
 				label: "Set Thinking Level",
 				description:
-					"Set the thinking (reasoning effort) level for this agent. The value is clamped to what the current model supports (off, minimal, low, medium, high, xhigh). Changes take effect for subsequent turns. Thinking level is a session-level setting and is not written to agent.json (unlike model).",
+					"Set the thinking (reasoning effort) level for this agent. The value is clamped to what the current model supports (off, minimal, low, medium, high, xhigh). Changes take effect for subsequent turns. Thinking level is a session-level setting and is not written to agent.ts (unlike model).",
 				parameters: Type.Object({
 					level: Type.Union(
 						THINKING_LEVELS.map((l) => Type.Literal(l)),

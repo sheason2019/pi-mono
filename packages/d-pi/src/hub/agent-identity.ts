@@ -1,43 +1,36 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readAgentConfigFromTs } from "../agent-config.ts";
 import type { AgentConfig } from "../types.ts";
 
 /**
- * Read `agent.json` from an agent's cwd and return the parsed
+ * Read `agent.ts` from an agent's cwd and return the normalized
  * config, or `undefined` if the file does not exist or is not
- * valid JSON.
+ * parseable in the standard d-pi shape.
  *
  * Used by the worker at session-start to inject the agent's
  * identity (name, description, parent, model, roles, tool
  * allow/deny lists) into the system prompt as the
  * "## Agent identity" section.
- *
- * The worker is single-process and reads its own cwd's agent.json
- * (which the hub has just written before spawning the worker), so
- * this is a sync read. We do not validate the schema — invalid
- * JSON surfaces as a stderr warning + missing identity section
- * rather than as a hub start failure, so an experimental agent
- * with a broken agent.json does not block the rest of the
- * network.
  */
-export function readAgentConfig(agentDir: string): AgentConfig | undefined {
-	const configPath = join(agentDir, "agent.json");
-	let raw: string;
+export async function loadAgentIdentity(agentDir: string): Promise<AgentConfig | undefined> {
 	try {
-		raw = readFileSync(configPath, "utf-8");
+		return readAgentConfigFromTs(agentDir);
 	} catch {
+		process.stderr.write(`[d-pi] Failed to load agent.ts at ${agentDir}; skipping identity injection\n`);
 		return undefined;
 	}
+}
+
+export function readAgentIdentitySync(agentDir: string): AgentConfig | undefined {
 	try {
-		return JSON.parse(raw) as AgentConfig;
+		return readAgentConfigFromTs(agentDir);
 	} catch {
-		process.stderr.write(`[d-pi] Failed to parse agent.json at ${configPath}; skipping identity injection\n`);
+		process.stderr.write(`[d-pi] Failed to load agent.ts at ${agentDir}; skipping identity injection\n`);
 		return undefined;
 	}
 }
 
 /**
- * Format a parsed `agent.json` as the "## Agent identity" section
+ * Format a parsed agent config as the "## Agent identity" section
  * that the worker appends to the agent's system prompt.
  *
  * The format is intentionally flat and key-value, not nested,
@@ -68,7 +61,6 @@ export function formatAgentIdentitySection(config: AgentConfig): string {
 		meta.push(`roles: ${config.roles.map((r) => `\`${r}\``).join(", ")}`);
 	}
 	if (config.model) meta.push(`model: \`${config.model}\``);
-	if (config.sessionId) meta.push(`sessionId: \`${config.sessionId}\``);
 	if (config.includeTools && config.includeTools.length > 0) {
 		meta.push(`includeTools: ${config.includeTools.map((t) => `\`${t}\``).join(", ")}`);
 	} else if (config.excludeTools && config.excludeTools.length > 0) {

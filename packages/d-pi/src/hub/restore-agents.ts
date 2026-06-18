@@ -1,14 +1,11 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { AGENT_TS_FILE, readAgentConfigFromTs } from "../agent-config.ts";
 import type { AgentConfig } from "../types.ts";
 
-const AGENT_CONFIG_FILE = "agent.json";
-
 /**
- * One discovered agent.json on disk, paired with the directory entry
- * name it came from. The entry name may differ from `config.name` if
- * the directory has been renamed by hand — the canonical name is the
- * one inside agent.json.
+ * One discovered agent.ts on disk, paired with the directory entry
+ * name it came from. The entry name is the canonical name.
  */
 export interface DiscoveredAgent {
 	entryName: string;
@@ -29,14 +26,14 @@ export interface RestoreEntry extends DiscoveredAgent {
 }
 
 /**
- * Read every `agents/<name>/agent.json` in `workspaceRoot` and return
+ * Read every `agents/<name>/agent.ts` in `workspaceRoot` and return
  * the agent configs, with the entry directory name preserved for
  * logging / error messages.
  *
- * Corrupt or unreadable agent.json files are skipped with a stderr
+ * Corrupt or unreadable agent.ts files are skipped with a stderr
  * warning; they do not abort the whole restore.
  */
-export function discoverPersistedAgents(workspaceRoot: string): DiscoveredAgent[] {
+export async function discoverPersistedAgents(workspaceRoot: string): Promise<DiscoveredAgent[]> {
 	const agentsDir = join(workspaceRoot, "agents");
 	if (!existsSync(agentsDir)) return [];
 
@@ -44,25 +41,20 @@ export function discoverPersistedAgents(workspaceRoot: string): DiscoveredAgent[
 	const entries = readdirSync(agentsDir, { withFileTypes: true });
 	for (const entry of entries) {
 		if (!entry.isDirectory()) continue;
-		const configPath = join(agentsDir, entry.name, AGENT_CONFIG_FILE);
+		const configPath = join(agentsDir, entry.name, AGENT_TS_FILE);
 		if (!existsSync(configPath)) continue;
 
-		let agentConfig: AgentConfig;
 		try {
-			// Strict JSON parse. The init template (and every persisted
-			// agent.json) is canonical JSON emitted by JSON.stringify, so
-			// no comment-stripping workaround is needed. A SyntaxError
-			// here means the file is corrupt or hand-edited with `//` /
-			// trailing commas — surface it instead of papering over it.
-			const agentRaw = readFileSync(configPath, "utf-8");
-			agentConfig = JSON.parse(agentRaw) as AgentConfig;
+			const agentConfig = readAgentConfigFromTs(join(agentsDir, entry.name));
+			if (!agentConfig) {
+				continue;
+			}
+			discovered.push({ entryName: entry.name, config: agentConfig });
 		} catch (err) {
 			process.stderr.write(
-				`[d-pi hub] Failed to read agent.json from ${entry.name}/: ${err instanceof Error ? err.message : String(err)}\n`,
+				`[d-pi hub] Failed to read agent.ts from ${entry.name}/: ${err instanceof Error ? err.message : String(err)}\n`,
 			);
-			continue;
 		}
-		discovered.push({ entryName: entry.name, config: agentConfig });
 	}
 	return discovered;
 }

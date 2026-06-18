@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
+import { AGENT_SESSION_DIR, AGENT_TS_FILE, writeAgentTsConfig } from "../agent-config.ts";
 import { AuthSessionManager } from "../auth/auth-session.ts";
 import { DEFAULT_HUB_PORT } from "../defaults.ts";
 import { injectMeta } from "../extension/message-meta.ts";
@@ -25,8 +26,6 @@ import { HubGateway } from "./gateway.ts";
 import { discoverPersistedAgents, orderAgentsForRestore } from "./restore-agents.ts";
 import { SourceManager } from "./source-manager.ts";
 import { discoverSourceConfigs } from "./source-persistence.ts";
-
-const AGENT_CONFIG_FILE = "agent.json";
 
 export class Hub {
 	private readonly _registry: AgentRegistry;
@@ -115,10 +114,10 @@ export class Hub {
 	}
 
 	/**
-	 * Discover and start persisted agents from `agents/<name>/agent.json`.
+	 * Discover and start persisted agents from `agents/<name>/agent.ts`.
 	 *
 	 * Two-pass restore:
-	 *   1. Read every `agent.json` into a list (cheap, no I/O ordering issues).
+	 *   1. Read every `agent.ts` into a list (cheap, no I/O ordering issues).
 	 *   2. Sort by `parentName` chain depth (root = depth 0, then 1, 2, ...),
 	 *      then alphabetically by name. Process in that order so a child's
 	 *      `parentName` is always resolvable when it is restored.
@@ -139,7 +138,7 @@ export class Hub {
 	 * surface corruption rather than paper over it.
 	 */
 	private async _restorePersistedAgents(): Promise<void> {
-		const discovered = discoverPersistedAgents(this._config.workspaceRoot);
+		const discovered = await discoverPersistedAgents(this._config.workspaceRoot);
 		const ordered = orderAgentsForRestore(discovered);
 
 		for (const d of ordered) {
@@ -154,10 +153,10 @@ export class Hub {
 			const parentNameForCreate = parentName;
 			if (parentName && !this._registry.getByName(parentName)) {
 				// parentName is set but the named parent didn't make it into
-				// the registry during this restore pass (e.g. its agent.json
+				// the registry during this restore pass (e.g. its agent.ts
 				// is missing or filtered out). Surface this loudly — the
 				// depth-sort above is supposed to prevent it, but we still
-				// want a clear signal if a parent agent.json is hand-deleted
+				// want a clear signal if a parent agent.ts is hand-deleted
 				// mid-edit.
 				process.stderr.write(
 					`[d-pi hub] Parent agent "${parentName}" not found while restoring "${d.config.name}" (${d.entryName}/); restoring as orphan.\n`,
@@ -166,9 +165,9 @@ export class Hub {
 			try {
 				await this.createAgent(parentNameForCreate, {
 					name: d.config.name,
+					description: d.config.description,
 					roles: d.config.roles,
 					model: d.config.model,
-					sessionId: d.config.sessionId,
 					includeTools: d.config.includeTools,
 					excludeTools: d.config.excludeTools,
 				});
@@ -187,7 +186,7 @@ export class Hub {
 	 * for the per-source details.
 	 *
 	 * Subscribers that were recorded but no longer have a live agent
-	 * (their `agent.json` was deleted, or the agent failed to start)
+	 * (their `agent.ts` was deleted, or the agent failed to start)
 	 * are silently dropped — the source can re-acquire them later
 	 * by calling set_source with an updated subscribers list if the agent reappears.
 	 */
@@ -206,9 +205,9 @@ export class Hub {
 		options: {
 			name: string;
 			cwd?: string;
+			description?: string;
 			model?: string;
 			roles?: string[];
-			sessionId?: string;
 			includeTools?: string[];
 			excludeTools?: string[];
 		},
@@ -258,23 +257,21 @@ export class Hub {
 			roles: options.roles,
 		});
 
-		// Write agent.json — parentName is already what we have (no
-		// remap needed; the on-disk format is names all the way down)
 		const agentConfig: AgentConfig = {
 			name: options.name,
 			parentName,
+			description: options.description,
 			roles: options.roles,
 			model: options.model,
-			sessionId: options.sessionId,
 			includeTools: options.includeTools,
 			excludeTools: options.excludeTools,
 		};
-		writeFileSync(join(agentDir, AGENT_CONFIG_FILE), `${JSON.stringify(agentConfig, null, "\t")}\n`);
+		writeAgentTsConfig(agentDir, agentConfig);
 
 		// Compute isolated session directory
-		const sessionDir = join(this._config.workspaceRoot, ".dpi-sessions", options.name);
+		const sessionDir = join(agentDir, AGENT_SESSION_DIR);
 
-		// Tools config is agent-only — declared in agent.json and passed via
+		// Tools config is agent-only — declared in agent.ts and passed via
 		// the create_agent tool call. There is no workspace-level fallback.
 		const includeTools = options.includeTools;
 		const excludeTools = options.excludeTools;
@@ -289,7 +286,6 @@ export class Hub {
 				cwd: agentDir,
 				model: options.model,
 				workspaceContext,
-				sessionId: options.sessionId,
 				sessionDir,
 				includeTools,
 				excludeTools,
@@ -389,9 +385,9 @@ export class Hub {
 		// Unregister (no descendants since children check passed)
 		this._registry.unregister(agentName);
 
-		// Remove agent.json and directory for all destroyed agents
+		// Remove agent.ts and directory for all destroyed agents
 		for (const { cwd } of workersToTerminate) {
-			const configPath = join(cwd, AGENT_CONFIG_FILE);
+			const configPath = join(cwd, AGENT_TS_FILE);
 			if (existsSync(configPath)) {
 				rmSync(configPath);
 			}

@@ -188,6 +188,7 @@ export async function runDPiCli(args: string[], runtime: DPiCliRuntime = default
 		runtime.stdout("[d-pi]   AGENTS.md               — shared context for all agents");
 		runtime.stdout("[d-pi]   APPEND_SYSTEM.md        — shared system prompt for all agents");
 		runtime.stdout("[d-pi]   agents/root/            — root agent working directory");
+		runtime.stdout("[d-pi]   agents/root/agent.ts    — root agent definition");
 		runtime.stdout("[d-pi]   agents/root/AGENTS.md   — root agent specific context");
 		runtime.stdout("[d-pi]   agents/root/.pi/APPEND_SYSTEM.md — root agent system prompt");
 		runtime.stdout("[d-pi] Run 'd-pi serve' to start the hub.");
@@ -222,7 +223,7 @@ export async function runDPiCli(args: string[], runtime: DPiCliRuntime = default
 		}
 		const workspaceConfig = validateWorkspace(runtime.cwd);
 		if (workspaceConfig.version !== TARGET_WORKSPACE_VERSION) {
-			runtime.stderr(
+			throw new Error(
 				`[d-pi] Workspace version ${workspaceConfig.version} is older than target version ${TARGET_WORKSPACE_VERSION}. Run 'd-pi migrate' before serving.`,
 			);
 		}

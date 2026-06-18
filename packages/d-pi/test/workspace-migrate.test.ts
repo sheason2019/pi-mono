@@ -72,23 +72,22 @@ describe("workspace migration", () => {
 		expect(stdout.join("\n")).toContain(`Workspace already at version ${TARGET_WORKSPACE_VERSION}`);
 	});
 
-	it("serve warns when workspace version is older than the target version", async () => {
+	it("serve rejects when workspace version is older than the target version", async () => {
 		const workspaceRoot = createTempDir("d-pi-serve-old-version-");
 		writeWorkspaceConfig(workspaceRoot, 1);
-		const stderr: string[] = [];
 		const start = vi.fn(async () => {});
 
-		await runDPiCli(["serve"], {
-			cwd: workspaceRoot,
-			homeDir: workspaceRoot,
-			stdout: () => {},
-			stderr: (line: string) => stderr.push(line),
-			createHub: () => ({ start }),
-		});
-
-		expect(start).toHaveBeenCalledOnce();
-		expect(stderr.join("\n")).toContain(
+		await expect(
+			runDPiCli(["serve"], {
+				cwd: workspaceRoot,
+				homeDir: workspaceRoot,
+				stdout: () => {},
+				stderr: () => {},
+				createHub: () => ({ start }),
+			}),
+		).rejects.toThrow(
 			`Workspace version 1 is older than target version ${TARGET_WORKSPACE_VERSION}. Run 'd-pi migrate' before serving.`,
 		);
+		expect(start).not.toHaveBeenCalled();
 	});
 });

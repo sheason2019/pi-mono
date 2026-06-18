@@ -1,8 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ModelRegistry, ResourceLoader, ToolDefinition } from "@sheason/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readAgentConfigFromTs } from "../src/agent-config.ts";
 import { createAgentMetadataExtension } from "../src/extension/agent-metadata.ts";
 
 type ToolResult = Awaited<ReturnType<ToolDefinition["execute"]>>;
@@ -45,10 +46,26 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 
 	beforeEach(() => {
 		tmpDir = mkdtempSync(join(os.tmpdir(), "d-pi-agent-meta-"));
-		// Seed a minimal agent.json so the persist path has something to update.
+		// Seed a minimal agent.ts so the persist path has something to update.
 		writeFileSync(
-			join(tmpDir, "agent.json"),
-			`${JSON.stringify({ name: "test-agent", model: "old-model" }, null, "\t")}\n`,
+			join(tmpDir, "agent.ts"),
+			[
+				'import { defineAgent, defineContextFile, defineModel, defineSkill, defineTool } from "@sheason/d-pi";',
+				"",
+				"export default defineAgent({",
+				'\tdescription: "test-agent",',
+				'\tmodel: defineModel({ provider: "unknown", name: "old-model" }),',
+				'\tskills: defineSkill({ dir: "./skills" }),',
+				"\ttools: [",
+				'\t\tdefineTool({ name: "dispatch_read" }),',
+				"\t],",
+				"\tcontextFiles: [",
+				'\t\tdefineContextFile({ type: "context", path: "./AGENTS.md" }),',
+				'\t\tdefineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" }),',
+				"\t],",
+				"});",
+				"",
+			].join("\n"),
 		);
 	});
 
@@ -90,7 +107,7 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 		expect(names).toContain("set_thinking_level");
 	});
 
-	it("set_model success path resolves via provider/id, calls setModel, writes agent.json and returns success (no isError)", async () => {
+	it("set_model success path resolves via provider/id, calls setModel, writes agent.ts and returns success (no isError)", async () => {
 		const target = { id: "claude-sonnet-4", provider: "anthropic" } as any;
 		const mockRegistry = makeMockRegistry(target);
 		const fakeSetModel = vi.fn().mockResolvedValue(true);
@@ -126,8 +143,8 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 		expect(resultText(result)).toMatch(/Model switched to anthropic\/claude-sonnet-4/);
 
 		// Verify the write used the getAgentCwd (tmpDir) not the ctx.cwd
-		const written = JSON.parse(readFileSync(join(tmpDir, "agent.json"), "utf-8")) as any;
-		expect(written.model).toBe("anthropic/claude-sonnet-4");
+		const written = readAgentConfigFromTs(tmpDir);
+		expect(written?.model).toBe("anthropic/claude-sonnet-4");
 	});
 
 	it("set_model with model id containing '/' (e.g. versioned) uses first-slash split and still resolves", async () => {
@@ -265,8 +282,8 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 		expect(isError(result)).toBe(true); // review P1 #6: failure to activate must be isError
 		expect(resultText(result)).toMatch(/reported failure/);
 		// file should still have the original model (write only happens on success===true)
-		const written = JSON.parse(readFileSync(join(tmpDir, "agent.json"), "utf-8")) as any;
-		expect(written.model).toBe("old-model");
+		const written = readAgentConfigFromTs(tmpDir);
+		expect(written?.model).toBe("unknown/old-model");
 	});
 
 	it("set_thinking_level accepts a valid level, calls setThinkingLevel and returns effective value (no isError)", async () => {

@@ -37,28 +37,20 @@ describe("init template: strict-JSON output", () => {
 		expect(parsed.version).toBe(TARGET_WORKSPACE_VERSION);
 	});
 
-	it("writes agents/root/agent.json that JSON.parse accepts (no JS comments)", () => {
+	it("writes agents/root/agent.ts in the standard v3 schema", () => {
 		const workspace = freshWorkspace();
 		initWorkspace(workspace);
 
-		const agentConfigPath = join(workspace, "agents", "root", "agent.json");
+		const agentConfigPath = join(workspace, "agents", "root", "agent.ts");
 		expect(existsSync(agentConfigPath)).toBe(true);
+		expect(existsSync(join(workspace, "agents", "root", "agent.json"))).toBe(false);
 
 		const raw = readFileSync(agentConfigPath, "utf-8");
-		expect(raw).not.toMatch(/\/\//);
-		expect(raw).not.toMatch(/,[\s\n]*[}\]]/);
-
-		// The point of the regression: strict JSON.parse must accept the file.
-		// This is the exact path the hub uses when restoring persisted agents
-		// (see packages/d-pi/src/hub/hub.ts:start()).
-		const parsed = JSON.parse(raw) as { name: string; parentName: string | null; description?: string };
-		expect(parsed.name).toBe("root");
-		expect(parsed.parentName).toBeNull();
-		// The init template writes a `description` key (empty string by
-		// default) so the field is discoverable in the schema. The
-		// worker's identity section handles empty / whitespace values
-		// gracefully — it just omits the prose paragraph.
-		expect(parsed.description).toBe("");
+		expect(raw).toContain("export default defineAgent(");
+		expect(raw).toContain('defineSkill({ dir: "./skills" })');
+		expect(raw).toContain('defineContextFile({ type: "context", path: "./AGENTS.md" })');
+		expect(raw).toContain('defineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" })');
+		expect(raw).not.toContain("parent:");
 	});
 
 	it("validateWorkspace accepts the freshly-init config and reports the target version", () => {
@@ -109,14 +101,12 @@ describe("init template: strict-JSON output", () => {
 		expect(workspaceSection).not.toMatch(/excludeTools/);
 		expect(workspaceSection).not.toMatch(/defaultModel/);
 		// Agent-level keys
-		expect(agentsMd).toMatch(/parentName/);
+		expect(agentsMd).toMatch(/parent/);
 		expect(agentsMd).toMatch(/includeTools/);
 		expect(agentsMd).toMatch(/excludeTools/);
-		expect(agentsMd).toMatch(/sessionId/);
-		// description is documented in the agent-config section (added
-		// alongside the system-prompt-injection feature in
-		// `hub/agent-identity.ts`).
 		expect(agentsMd).toMatch(/description/);
+		expect(agentsMd).not.toMatch(/agent\.json/);
+		expect(agentsMd).not.toMatch(/sessionId/);
 	});
 
 	it("CLI init clones a git team template into team-template when requested", async () => {
@@ -138,6 +128,23 @@ describe("init template: strict-JSON output", () => {
 		);
 		expect(stdout.join("\n")).toContain("Cloned team template from https://example.com/team-template.git");
 		expect(validateWorkspace(workspace).version).toBe(TARGET_WORKSPACE_VERSION);
+	});
+
+	it("CLI init output describes the root agent.ts layout", async () => {
+		const workspace = freshWorkspace();
+		const stdout: string[] = [];
+
+		await runDPiCli(["init"], {
+			cwd: workspace,
+			homeDir: workspace,
+			stdout: (line) => stdout.push(line),
+			stderr: () => {},
+		});
+
+		const output = stdout.join("\n");
+		expect(output).toContain("agents/root/            — root agent working directory");
+		expect(output).toContain("agents/root/agent.ts    — root agent definition");
+		expect(output).not.toContain("agent.json");
 	});
 
 	it("CLI init rejects --team-template without a repository", async () => {

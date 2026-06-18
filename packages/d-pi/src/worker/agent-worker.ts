@@ -5,8 +5,7 @@
  * following the same pattern as serve-mode.ts. Communicates with the Hub
  * via parentPort for tool calls and incoming messages.
  */
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
 import { parentPort, workerData } from "node:worker_threads";
 import type { Model } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@sheason/pi-coding-agent";
@@ -29,7 +28,7 @@ import {
 	// dispatch imported directly from dispatch-extension
 	type HubChannel,
 } from "../extension/index.ts";
-import { formatAgentIdentitySection, readAgentConfig } from "../hub/agent-identity.ts";
+import { formatAgentIdentitySection, readAgentIdentitySync } from "../hub/agent-identity.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
 
@@ -74,46 +73,16 @@ port.on("message", (message: HubToWorkerMessage) => {
 });
 
 /**
- * Create a SessionManager using isolated sessionDir and optional sessionId for recovery.
- * - If sessionDir is provided, sessions are stored under the d-pi workspace instead of ~/.pi
- * - If sessionId is provided, attempts to open that specific session; falls back to most recent
+ * Create a SessionManager using an isolated sessionDir for recovery.
+ * If sessionDir is provided, sessions are stored under the d-pi workspace instead of ~/.pi.
  */
-function createSessionManager(cwd: string, sessionId?: string, sessionDir?: string): SessionManager {
+function createSessionManager(cwd: string, sessionDir?: string): SessionManager {
 	if (sessionDir) {
 		mkdirSync(sessionDir, { recursive: true });
-
-		if (sessionId) {
-			// Session file naming: {timestamp}_{sessionId}.jsonl
-			try {
-				const files = readdirSync(sessionDir).filter((f) => f.endsWith(".jsonl") && f.includes(sessionId));
-				if (files.length > 0) {
-					const path = join(sessionDir, files[files.length - 1]!);
-					process.stderr.write(`[d-pi worker] Restoring session ${sessionId} from ${path}\n`);
-					return SessionManager.open(path, sessionDir, cwd);
-				}
-			} catch {
-				// Directory may not exist yet
-			}
-			process.stderr.write(`[d-pi worker] Session ${sessionId} not found in ${sessionDir}, continuing recent\n`);
-		}
-
 		return SessionManager.continueRecent(cwd, sessionDir);
 	}
 
 	return SessionManager.continueRecent(cwd);
-}
-
-/** Persist the current session ID back to agent.json */
-function persistSessionId(agentCwd: string, sessionId: string): void {
-	const configPath = join(agentCwd, "agent.json");
-	try {
-		const agentConfig = JSON.parse(readFileSync(configPath, "utf-8"));
-		agentConfig.sessionId = sessionId;
-		writeFileSync(configPath, `${JSON.stringify(agentConfig, null, "\t")}\n`);
-		process.stderr.write(`[d-pi worker] Persisted sessionId=${sessionId} to agent.json\n`);
-	} catch (err) {
-		process.stderr.write(`[d-pi worker] Failed to persist sessionId: ${err}\n`);
-	}
 }
 
 async function runAgentWorker(): Promise<void> {
@@ -147,7 +116,7 @@ async function runAgentWorker(): Promise<void> {
 	const createRuntime = async (opts: { cwd: string; agentDir: string; sessionManager: SessionManager }) => {
 		// Build resourceLoaderOptions from workspace context.
 		// APPEND_SYSTEM.md workspace content, the agent's own
-		// agent.json (rendered as "## Agent identity"), and d-pi
+		// agent.ts identity (rendered as "## Agent identity"), and d-pi
 		// meta are concatenated into the same
 		// ResourceLoader.appendSystemPrompt array — the same path
 		// used by ResourceLoader for every other source-level
@@ -164,16 +133,16 @@ async function runAgentWorker(): Promise<void> {
 		//
 		// Bug fix (previously): the appendSystemPrompt array and the
 		// agentsFilesOverride closure both captured a snapshot of
-		// agent.json + APPEND_SYSTEM.md at session-start, so
+		// agent.ts identity + APPEND_SYSTEM.md at session-start, so
 		// session.reload() re-ran resourceLoader.reload() but the
 		// d-pi-injected content stayed frozen at startup. Editing
-		// agent.json (description, roles, model name, tool allow/deny)
+		// agent.ts (description, roles, model name, tool allow/deny)
 		// or APPEND_SYSTEM.md and calling `reload` would NOT refresh
 		// the system prompt.
 		//
 		// Fix: pass `appendSystemPromptOverride` and
 		// `agentsFilesOverride` as closures that re-read
-		// loadWorkspaceContext + agent.json on every call. The
+		// loadWorkspaceContext + agent.ts on every call. The
 		// ResourceLoader invokes these overrides inside its own
 		// reload(), so each `reload` re-computes the d-pi-injected
 		// sections from the live on-disk state.
@@ -187,14 +156,14 @@ async function runAgentWorker(): Promise<void> {
 		// Re-read the workspace context and this agent's identity
 		// from disk. Called on every reload (and once at startup)
 		// so that edits to APPEND_SYSTEM.md / team-template
-		// AGENTS.md / agent.json (description, roles, model name,
+		// AGENTS.md / agent.ts (description, roles, model name,
 		// tool allow/deny list) take effect without a hub restart.
 		// Returns `undefined` when there is no workspace context
 		// (e.g. ad-hoc session without a workspace root); the
 		// override closures handle that case by falling back to
 		// whatever the resourceLoader itself discovered.
 		const readFreshDPiContext = () => {
-			const freshAgentConfig = readAgentConfig(cwd);
+			const freshAgentConfig = readAgentIdentitySync(cwd);
 			const roles = freshAgentConfig?.roles;
 			const freshWorkspaceContext = workspaceRoot
 				? loadWorkspaceContext(workspaceRoot, { agentName, roles })
@@ -265,7 +234,7 @@ async function runAgentWorker(): Promise<void> {
 							// session / resource loader.
 							getModelRegistry: () => runtime?.session?.modelRegistry,
 							// Provide the worker's authoritative agent directory (the one
-							// containing this agent's agent.json). The metadata tools use
+							// containing this agent's agent.ts). The metadata tools use
 							// this (via getAgentCwd) in preference to ExtensionContext.cwd
 							// when persisting model changes, so that writes always target
 							// the correct persisted config even if ctx.cwd semantics differ.
@@ -347,8 +316,8 @@ async function runAgentWorker(): Promise<void> {
 		return { ...created, services, diagnostics: services.diagnostics };
 	};
 
-	// 4. Create session manager — use isolated sessionDir and restore by sessionId
-	const sessionManager = createSessionManager(cwd, config.sessionId, config.sessionDir);
+	// 4. Create session manager — use isolated sessionDir and restore the latest session from that directory
+	const sessionManager = createSessionManager(cwd, config.sessionDir);
 
 	// 5. Create runtime
 	runtime = await createAgentSessionRuntime(createRuntime, {
@@ -356,12 +325,6 @@ async function runAgentWorker(): Promise<void> {
 		agentDir,
 		sessionManager,
 	});
-
-	// 5b. Persist session ID to agent.json so restarts resume the correct session
-	const currentSessionId = runtime.session.sessionManager.getSessionId();
-	if (currentSessionId !== config.sessionId) {
-		persistSessionId(config.cwd, currentSessionId);
-	}
 
 	// 6. Create proxy and HTTP server (same pattern as serve-mode.ts)
 	proxy = new LocalAgentSessionProxy(runtime!);
@@ -422,8 +385,6 @@ async function runAgentWorker(): Promise<void> {
 		proxy!.resubscribe(reason);
 		await rebindSession();
 		proxy!.setBanner(generateBanner(session));
-		// Persist session ID whenever session changes (new/fork/resume)
-		persistSessionId(config.cwd, session.sessionManager.getSessionId());
 	});
 
 	// Initial bind for the first session
