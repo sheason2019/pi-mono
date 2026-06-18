@@ -1,9 +1,9 @@
 // === Agent Status ===
 export type AgentStatus = "starting" | "ready" | "busy" | "error" | "destroyed";
 
-// === Agent Config (persisted as agent.json in each agent's cwd) ===
+// === Agent Config (normalized from agent.ts in each agent's cwd) ===
 //
-// The full contents of agent.json are injected into the agent's
+// The normalized contents of agent.ts are injected into the agent's
 // system prompt as the "## Agent identity" section (see
 // `packages/d-pi/src/hub/agent-identity.ts` and the worker in
 // `packages/d-pi/src/worker/agent-worker.ts`). Keep that in mind
@@ -19,7 +19,6 @@ export interface AgentConfig {
 	description?: string;
 	roles?: string[];
 	model?: string;
-	sessionId?: string;
 	includeTools?: string[];
 	excludeTools?: string[];
 }
@@ -29,7 +28,7 @@ export interface AgentConfig {
 // workspace-level fields should bump `version` and be parsed by
 // validateWorkspace() with explicit version checks.
 export interface WorkspaceConfig {
-	version: 1 | 2;
+	version: 1 | 2 | 3;
 }
 
 export interface WorkspaceContext {
@@ -46,14 +45,13 @@ export interface WorkspaceContext {
 // `parentName` (when set) must match an existing agent's name — same
 // uniqueness rule as `name` itself, enforced by the hub at restore
 // time. The worker uses `agentName` to label every IPC message and
-// every persisted `agent.json`.
+// every persisted `agent.ts`.
 export interface AgentWorkerConfig {
 	agentName: string;
 	parentName?: string;
 	cwd: string;
 	model?: string;
 	workspaceContext?: WorkspaceContext;
-	sessionId?: string;
 	sessionDir?: string;
 	includeTools?: string[];
 	excludeTools?: string[];
@@ -116,7 +114,7 @@ export interface TeamSnapshot {
 // `name` is the unique key — see the "name is identity" rationale
 // in the changelog. We deliberately don't carry a separate UUID; every
 // cross-reference (parent, children, subscribers, meta) uses the name
-// directly, which means persisted `agent.json`s and in-memory state
+// directly, which means persisted `agent.ts` configs and in-memory state
 // can be joined back together by name without an indirection table.
 export interface AgentRecord {
 	name: string;

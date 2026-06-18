@@ -11,7 +11,7 @@ import type { AgentRecord, AgentStatus, TeamSnapshot } from "../types.ts";
  * read naturally; it is now O(1) because the map is name-keyed.
  *
  * Parent/children references store the child / parent name string
- * directly. The persisted `agent.json` already uses `parentName` (not
+ * directly. The persisted `agent.ts` config already uses `parentName` (not
  * `parentId`), so there is no migration step — restored records slot
  * in without a remap.
  */

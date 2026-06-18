@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { buildAgentTsSource } from "../agent-config.ts";
 import type { WorkspaceConfig, WorkspaceContext } from "../types.ts";
+import { migrateWorkspaceToAgentTs } from "./migrate-agent-ts.ts";
 
 const DPI_DIR = ".dpi";
 const CONFIG_FILE = "config.json";
@@ -11,7 +13,7 @@ const SKILLS_DIR = "skills";
 const EXTENSIONS_DIR = "extensions";
 const APPEND_SYSTEM_MD = "APPEND_SYSTEM.md";
 const AGENTS_MD = "AGENTS.md";
-export const TARGET_WORKSPACE_VERSION = 2;
+export const TARGET_WORKSPACE_VERSION = 3;
 
 export interface LoadWorkspaceContextOptions {
 	agentName?: string;
@@ -41,7 +43,7 @@ export function validateWorkspace(workspaceRoot: string): WorkspaceConfig {
 		// or trailing commas, JSON.parse will surface the SyntaxError.
 		const raw = readFileSync(configPath, "utf-8");
 		const parsed = JSON.parse(raw);
-		if (parsed.version !== 1 && parsed.version !== TARGET_WORKSPACE_VERSION) {
+		if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== TARGET_WORKSPACE_VERSION) {
 			throw new Error(`Unsupported workspace version: ${parsed.version}`);
 		}
 		return parsed as WorkspaceConfig;
@@ -69,25 +71,36 @@ export function migrateWorkspace(workspaceRoot: string): WorkspaceMigrationResul
 			renamedGroupArchitecture: false,
 		};
 	}
-	if (config.version !== 1) {
+	if (config.version !== 1 && config.version !== 2) {
 		throw new Error(`Unsupported workspace version: ${config.version}`);
 	}
 
-	const legacyDir = join(resolved, LEGACY_GROUP_ARCHITECTURE_DIR);
-	const teamTemplateDir = join(resolved, TEAM_TEMPLATE_DIR);
 	let renamedGroupArchitecture = false;
-	if (existsSync(legacyDir)) {
-		if (existsSync(teamTemplateDir)) {
-			throw new Error(
-				`Cannot migrate workspace: both ${LEGACY_GROUP_ARCHITECTURE_DIR}/ and ${TEAM_TEMPLATE_DIR}/ exist. Remove or merge one before running d-pi migrate.`,
-			);
-		}
-		renameSync(legacyDir, teamTemplateDir);
-		renamedGroupArchitecture = true;
+	let fromVersion = config.version;
+	if (config.version === 1) {
+		renamedGroupArchitecture = migrateWorkspaceV1ToV2(resolved);
+		writeWorkspaceConfig(resolved, { version: 2 });
+		fromVersion = 1;
 	}
 
+	migrateWorkspaceToAgentTs(resolved);
 	writeWorkspaceConfig(resolved, { version: TARGET_WORKSPACE_VERSION });
-	return { fromVersion: 1, toVersion: TARGET_WORKSPACE_VERSION, renamedGroupArchitecture };
+	return { fromVersion, toVersion: TARGET_WORKSPACE_VERSION, renamedGroupArchitecture };
+}
+
+function migrateWorkspaceV1ToV2(workspaceRoot: string): boolean {
+	const legacyDir = join(workspaceRoot, LEGACY_GROUP_ARCHITECTURE_DIR);
+	const teamTemplateDir = join(workspaceRoot, TEAM_TEMPLATE_DIR);
+	if (!existsSync(legacyDir)) {
+		return false;
+	}
+	if (existsSync(teamTemplateDir)) {
+		throw new Error(
+			`Cannot migrate workspace: both ${LEGACY_GROUP_ARCHITECTURE_DIR}/ and ${TEAM_TEMPLATE_DIR}/ exist. Remove or merge one before running d-pi migrate.`,
+		);
+	}
+	renameSync(legacyDir, teamTemplateDir);
+	return true;
 }
 
 function writeWorkspaceConfig(workspaceRoot: string, config: WorkspaceConfig): void {
@@ -228,7 +241,7 @@ export function initWorkspace(dir: string): void {
 	// Write .dpi/config.json — strict JSON, no comments.
 	// Currently only the `version` marker is emitted. `version` is reserved as
 	// a migration marker for future workspace-level fields. Tool allow/deny
-	// lists are agent-only (see agent.json schema) and intentionally have no
+	// lists are agent-only (see agent.ts schema) and intentionally have no
 	// workspace-level fallback.
 	writeFileSync(
 		join(dpiDir, CONFIG_FILE),
@@ -243,22 +256,13 @@ export function initWorkspace(dir: string): void {
 	const rootAgentDir = join(agentsDir, "root");
 	mkdirSync(rootAgentDir, { recursive: true });
 
-	// Write agents/root/agent.json — strict JSON, no comments.
-	// Optional keys (description, model, includeTools, excludeTools,
-	// roles, sessionId) are documented in the workspace-level
-	// AGENTS.md below. `description` is empty by default so the
-	// agent still has a key to fill in (and the field is
-	// discoverable in the schema); the worker still injects the
-	// "## Agent identity" section when the value is empty, just
-	// without the prose paragraph.
 	writeFileSync(
-		join(rootAgentDir, "agent.json"),
-		`{
-\t"name": "root",
-\t"parentName": null,
-\t"description": ""
-}
-`,
+		join(rootAgentDir, "agent.ts"),
+		buildAgentTsSource({
+			name: "root",
+			parentName: undefined,
+			description: "",
+		}),
 	);
 
 	// --- Workspace-level context files ---
@@ -279,23 +283,24 @@ Strict JSON — no comments, no trailing commas. Top-level keys:
 
 - \`version\` (required, must be \`${TARGET_WORKSPACE_VERSION}\`) — workspace schema version
 
-## Agent Configuration (\`agents/<name>/agent.json\`)
+## Agent Configuration (\`agents/<name>/agent.ts\`)
 
-Strict JSON. Top-level keys:
+Each agent exports a standard definition:
 
-- \`name\` (required): unique agent name.
-- \`parentName\` (required, may be \`null\`): name of the parent agent.
+- \`export default defineAgent({ ... })\`
+- \`parent\` (optional): imported parent definition. The directory name is the agent identity; root omits \`parent\`.
 - \`description\` (optional): free-form prose about what this agent is, who it serves,
   and when to delegate to it. Injected into the agent's system prompt as the
   "## Agent identity" section so the LLM has a self-description to refer to
   during multi-agent coordination. Recommended: a few sentences in plain
   English, no formatting.
-- \`model\` (optional): overrides the workspace default model for this agent.
+- \`model\` (optional): \`defineModel({ provider, name })\` override for this agent.
 - \`roles\` (optional): array of role names — see \`team-template/roles/\`.
-- \`includeTools\` (optional): allowlist of tool names. When provided, only these tools are exposed to the agent.
-- \`excludeTools\` (optional): denylist of tool names. These tools will not be exposed.
-  Mutually exclusive with \`includeTools\` — see [create_agent docs](../../multi-agent/create-agent) for the rejection rules.
-- \`sessionId\` (optional, managed by the hub): used to resume sessions across restarts.
+- \`skills\` (required): use \`defineSkill({ dir: "./skills" })\` for agent-local skills.
+- \`tools\` (required): array of \`defineTool({ name })\` entries.
+  This is the effective tool set for the agent. Unknown tool names are rejected during migration.
+  Legacy \`includeTools\` / \`excludeTools\` configs are migrated into this effective \`tools\` array.
+- \`contextFiles\` (required): include \`./AGENTS.md\` as \`context\` and \`./.pi/APPEND_SYSTEM.md\` as \`append_system\`.
 `,
 		);
 	}

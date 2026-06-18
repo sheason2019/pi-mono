@@ -110,13 +110,13 @@ describe("send_message tool — mode semantics", () => {
 });
 
 describe("reload tool — limitations", () => {
-	it("description mentions agent.json is NOT re-parsed", () => {
+	it("description mentions agent.ts is NOT re-parsed for hub wiring changes", () => {
 		const desc = toolDescription("reload");
-		expect(desc).toMatch(/agent\.json/);
+		expect(desc).toMatch(/agent\.ts/);
 		expect(desc).toMatch(/does NOT re-parse|not re-parse/i);
 	});
 
-	it("description mentions hub restart is required for agent.json changes", () => {
+	it("description mentions hub restart is required for agent.ts wiring changes", () => {
 		const desc = toolDescription("reload");
 		expect(desc).toMatch(/hub restart/i);
 	});

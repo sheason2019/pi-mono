@@ -11,13 +11,13 @@ import type { AgentConfig } from "../src/types.ts";
  * context: the previous restore path iterated `agents/` in raw
  * `readdirSync` order, which is filesystem-dependent (e.g. on macOS
  * HFS+/APFS the order is insertion / case-insensitive /
- * locale-dependent). If a child agent.json was read before its parent,
+ * locale-dependent). If a child agent.ts was read before its parent,
  * `getByName(parentName)` returned `undefined` and the child was created
  * as an orphan — the very bug the user reported, where `llm-wiki`
  * showed up at the same depth as `root` in the TUI's "Switch to agent"
  * selector.
  *
- * The fix is a two-pass restore: read all `agent.json` files first,
+ * The fix is a two-pass restore: read all `agent.ts` files first,
  * then sort by `parentName` chain depth so a child's parent is always
  * registered first. These tests target the pure sort/discovery layer
  * (no Worker spawning, no Hub lifecycle) so the test runs in
@@ -36,10 +36,45 @@ function freshWorkspace(): string {
 	return tempDir;
 }
 
-function writeAgentJson(workspace: string, entryName: string, config: AgentConfig): void {
+function writeAgentTs(
+	workspace: string,
+	entryName: string,
+	config: AgentConfig,
+	parentImportName?: string,
+	overrideName?: string,
+): void {
 	const dir = join(workspace, "agents", entryName);
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(join(dir, "agent.json"), `${JSON.stringify(config, null, "\t")}\n`);
+	const lines = ['import { defineAgent, defineContextFile, defineSkill, defineTool } from "@sheason/d-pi";'];
+	if (parentImportName) {
+		lines.push(`import parentAgent from "../${parentImportName}/agent.ts";`);
+	}
+	lines.push("");
+	lines.push("export default defineAgent({");
+	if (parentImportName) {
+		lines.push("\tparent: parentAgent,");
+	}
+	if (overrideName !== undefined) {
+		lines.push(`\tdescription: ${JSON.stringify(`declared:${overrideName}`)},`);
+	} else if (config.description !== undefined) {
+		lines.push(`\tdescription: ${JSON.stringify(config.description)},`);
+	}
+	if (config.roles && config.roles.length > 0) {
+		lines.push(`\troles: ${JSON.stringify(config.roles)},`);
+	}
+	lines.push('\tskills: defineSkill({ dir: "./skills" }),');
+	lines.push("\ttools: [");
+	for (const toolName of config.includeTools ?? ["dispatch_read"]) {
+		lines.push(`\t\tdefineTool({ name: ${JSON.stringify(toolName)} }),`);
+	}
+	lines.push("\t],");
+	lines.push("\tcontextFiles: [");
+	lines.push('\t\tdefineContextFile({ type: "context", path: "./AGENTS.md" }),');
+	lines.push('\t\tdefineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" }),');
+	lines.push("\t],");
+	lines.push("});");
+	lines.push("");
+	writeFileSync(join(dir, "agent.ts"), lines.join("\n"));
 }
 
 afterEach(() => {
@@ -50,14 +85,14 @@ afterEach(() => {
 });
 
 describe("discoverPersistedAgents + orderAgentsForRestore", () => {
-	it("depth-sorts so a child is always preceded by its parent", () => {
+	it("depth-sorts so a child is always preceded by its parent", async () => {
 		const workspace = freshWorkspace();
 		// Child written FIRST so on insertion-order / case-insensitive
 		// filesystems the readdir would return llm-wiki before root.
-		writeAgentJson(workspace, "llm-wiki", { name: "llm-wiki", parentName: "root" });
-		writeAgentJson(workspace, "root", { name: "root", parentName: undefined });
+		writeAgentTs(workspace, "llm-wiki", { name: "llm-wiki", parentName: "root" }, "root");
+		writeAgentTs(workspace, "root", { name: "root", parentName: undefined });
 
-		const discovered = discoverPersistedAgents(workspace);
+		const discovered = await discoverPersistedAgents(workspace);
 		const ordered = orderAgentsForRestore(discovered);
 
 		// Sorted by depth: root (0) before llm-wiki (1)
@@ -67,15 +102,15 @@ describe("discoverPersistedAgents + orderAgentsForRestore", () => {
 		expect(ordered.find((e) => e.config.name === "llm-wiki")).toMatchObject({ depth: 1, cycle: false });
 	});
 
-	it("handles deep trees (3+ levels) regardless of entry order", () => {
+	it("handles deep trees (3+ levels) regardless of entry order", async () => {
 		const workspace = freshWorkspace();
 		// Write deepest first, then middle, then root — exactly the
 		// case where the buggy old code would orphan the deepest nodes.
-		writeAgentJson(workspace, "leaf", { name: "leaf", parentName: "middle" });
-		writeAgentJson(workspace, "middle", { name: "middle", parentName: "root" });
-		writeAgentJson(workspace, "root", { name: "root", parentName: undefined });
+		writeAgentTs(workspace, "leaf", { name: "leaf", parentName: "middle" }, "middle");
+		writeAgentTs(workspace, "middle", { name: "middle", parentName: "root" }, "root");
+		writeAgentTs(workspace, "root", { name: "root", parentName: undefined });
 
-		const ordered = orderAgentsForRestore(discoverPersistedAgents(workspace));
+		const ordered = orderAgentsForRestore(await discoverPersistedAgents(workspace));
 		expect(ordered.map((e) => e.config.name)).toEqual(["root", "middle", "leaf"]);
 		expect(ordered.map((e) => e.depth)).toEqual([0, 1, 2]);
 	});
@@ -115,22 +150,22 @@ describe("discoverPersistedAgents + orderAgentsForRestore", () => {
 		expect(ordered[0]).toMatchObject({ depth: 1, cycle: false });
 	});
 
-	it("skips unreadable agent.json files with a stderr warning and continues", () => {
+	it("skips unreadable agent.ts files with a stderr warning and continues", async () => {
 		const workspace = freshWorkspace();
 		// Good agent
-		writeAgentJson(workspace, "root", { name: "root", parentName: undefined });
-		// Corrupt agent (invalid JSON)
+		writeAgentTs(workspace, "root", { name: "root", parentName: undefined });
+		// Corrupt agent module
 		const badDir = join(workspace, "agents", "broken");
 		mkdirSync(badDir, { recursive: true });
-		writeFileSync(join(badDir, "agent.json"), "{ this is not valid json");
+		writeFileSync(join(badDir, "agent.ts"), "export default {");
 
 		const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 		try {
-			const discovered = discoverPersistedAgents(workspace);
+			const discovered = await discoverPersistedAgents(workspace);
 			const names = discovered.map((d) => d.config.name);
 			expect(names).toEqual(["root"]); // broken is silently dropped
 			const warned = stderr.mock.calls.some((call) =>
-				String(call[0]).includes("Failed to read agent.json from broken/"),
+				String(call[0]).includes("Failed to read agent.ts from broken/"),
 			);
 			expect(warned).toBe(true);
 		} finally {
@@ -138,10 +173,31 @@ describe("discoverPersistedAgents + orderAgentsForRestore", () => {
 		}
 	});
 
+	it("derives the agent name from the directory and parentName from imported parent definitions", async () => {
+		const workspace = freshWorkspace();
+		writeAgentTs(workspace, "root", { name: "ignored-root-name", parentName: undefined }, undefined, "other-root");
+		writeAgentTs(
+			workspace,
+			"reviewer",
+			{ name: "ignored-reviewer-name", parentName: "ignored" },
+			"root",
+			"other-reviewer",
+		);
+
+		const discovered = await discoverPersistedAgents(workspace);
+		const root = discovered.find((entry) => entry.entryName === "root");
+		const reviewer = discovered.find((entry) => entry.entryName === "reviewer");
+
+		expect(root?.config.name).toBe("root");
+		expect(root?.config.parentName).toBeUndefined();
+		expect(reviewer?.config.name).toBe("reviewer");
+		expect(reviewer?.config.parentName).toBe("root");
+	});
+
 	it("returns an empty list when agents/ does not exist (fresh workspace)", () => {
 		const workspace = freshWorkspace();
 		// No agents/ dir at all
-		expect(discoverPersistedAgents(workspace)).toEqual([]);
+		return expect(discoverPersistedAgents(workspace)).resolves.toEqual([]);
 	});
 });
 
