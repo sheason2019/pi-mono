@@ -9,7 +9,6 @@ const LEGACY_GROUP_ARCHITECTURE_DIR = "group-architecture";
 const TEAM_TEMPLATE_DIR = "team-template";
 const SKILLS_DIR = "skills";
 const EXTENSIONS_DIR = "extensions";
-const ROLES_DIR = "roles";
 const APPEND_SYSTEM_MD = "APPEND_SYSTEM.md";
 const AGENTS_MD = "AGENTS.md";
 export const TARGET_WORKSPACE_VERSION = 2;
@@ -130,7 +129,7 @@ export function loadWorkspaceContext(
 
 function collectTeamTemplateContext(
 	workspaceRoot: string,
-	options: LoadWorkspaceContextOptions,
+	_options: LoadWorkspaceContextOptions,
 	additionalAgentsFiles: Array<{ path: string; content: string }>,
 	additionalSkillPaths: string[],
 	additionalExtensionPaths: string[],
@@ -142,30 +141,6 @@ function collectTeamTemplateContext(
 	pushAgentsFileIfExists(additionalAgentsFiles, join(architectureDir, AGENTS_MD));
 	pushIfExists(additionalSkillPaths, join(architectureDir, SKILLS_DIR));
 	pushExtensionEntriesIfExists(additionalExtensionPaths, join(architectureDir, EXTENSIONS_DIR));
-
-	for (const role of getEffectiveRoles(options)) {
-		const roleDir = join(architectureDir, ROLES_DIR, role.name);
-		if (!existsSync(roleDir)) {
-			if (role.implicit) {
-				continue;
-			}
-			throw new Error(`Unknown agent role "${role.name}": ${roleDir}`);
-		}
-		pushAgentsFileIfExists(additionalAgentsFiles, join(roleDir, AGENTS_MD));
-		pushIfExists(additionalSkillPaths, join(roleDir, SKILLS_DIR));
-		pushExtensionEntriesIfExists(additionalExtensionPaths, join(roleDir, EXTENSIONS_DIR));
-	}
-}
-
-function getEffectiveRoles(options: LoadWorkspaceContextOptions): Array<{ name: string; implicit: boolean }> {
-	const roles = options.roles ?? [];
-	if (options.agentName !== "root") {
-		return roles.map((name) => ({ name, implicit: false }));
-	}
-	return [
-		{ name: "root", implicit: !roles.includes("root") },
-		...roles.filter((role) => role !== "root").map((name) => ({ name, implicit: false })),
-	];
 }
 
 function pushIfExists(target: string[], path: string): void {

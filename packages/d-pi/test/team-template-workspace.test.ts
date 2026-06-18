@@ -28,7 +28,7 @@ describe("team-template workspace context", () => {
 		}
 	});
 
-	it("loads architecture global, root role, explicit roles, then workspace-local resources for root agents", () => {
+	it("loads only workspace-level team-template resources and skips role resources", () => {
 		const workspaceRoot = createWorkspace();
 		write(join(workspaceRoot, "team-template", "AGENTS.md"), "architecture global");
 		touch(join(workspaceRoot, "team-template", "skills"));
@@ -52,39 +52,27 @@ describe("team-template workspace context", () => {
 
 		expect(context.additionalAgentsFiles).toEqual([
 			{ path: join(workspaceRoot, "team-template", "AGENTS.md"), content: "architecture global" },
-			{ path: join(workspaceRoot, "team-template", "roles", "root", "AGENTS.md"), content: "root role" },
-			{
-				path: join(workspaceRoot, "team-template", "roles", "frontend", "AGENTS.md"),
-				content: "frontend role",
-			},
 		]);
 		expect(context.additionalSkillPaths).toEqual([
 			join(workspaceRoot, "team-template", "skills"),
-			join(workspaceRoot, "team-template", "roles", "root", "skills"),
-			join(workspaceRoot, "team-template", "roles", "frontend", "skills"),
 			join(workspaceRoot, "skills"),
 		]);
 		expect(context.additionalExtensionPaths).toEqual([
 			join(workspaceRoot, "team-template", "extensions", "architecture.js"),
-			join(workspaceRoot, "team-template", "roles", "root", "extensions", "root.js"),
-			join(workspaceRoot, "team-template", "roles", "frontend", "extensions", "frontend.js"),
 			join(workspaceRoot, "extensions", "workspace.js"),
 		]);
 	});
 
-	it("does not apply the root role to non-root agents unless explicitly requested", () => {
+	it("ignores explicit roles for runtime resource loading", () => {
 		const workspaceRoot = createWorkspace();
 		write(join(workspaceRoot, "team-template", "roles", "root", "AGENTS.md"), "root role");
 		write(join(workspaceRoot, "team-template", "roles", "reviewer", "AGENTS.md"), "reviewer role");
 
 		const context = loadWorkspaceContext(workspaceRoot, { agentName: "worker", roles: ["reviewer"] });
 
-		expect(context.additionalAgentsFiles).toEqual([
-			{
-				path: join(workspaceRoot, "team-template", "roles", "reviewer", "AGENTS.md"),
-				content: "reviewer role",
-			},
-		]);
+		expect(context.additionalAgentsFiles).toEqual([]);
+		expect(context.additionalSkillPaths).toEqual([]);
+		expect(context.additionalExtensionPaths).toEqual([]);
 	});
 
 	it("does not require an implicit root role to exist", () => {
@@ -98,12 +86,10 @@ describe("team-template workspace context", () => {
 		]);
 	});
 
-	it("fails when an agent declares an unknown role", () => {
+	it("does not fail when an agent declares an unknown role because roles are metadata-only", () => {
 		const workspaceRoot = createWorkspace();
 		touch(join(workspaceRoot, "team-template", "roles", "known"));
 
-		expect(() => loadWorkspaceContext(workspaceRoot, { agentName: "worker", roles: ["missing"] })).toThrow(
-			`Unknown agent role "missing": ${join(workspaceRoot, "team-template", "roles", "missing")}`,
-		);
+		expect(() => loadWorkspaceContext(workspaceRoot, { agentName: "worker", roles: ["missing"] })).not.toThrow();
 	});
 });
