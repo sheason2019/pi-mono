@@ -1,4 +1,5 @@
 export { defineAgent, defineContextFile, defineModel, defineSkill, defineTool } from "./agent-definition.ts";
+export { loadAgentDefinitionFromFile, normalizeLoadedAgentDefinition } from "./agent-loader.ts";
 export { type DPiConnectOptions, runDPiConnectMode } from "./connect/connect-mode.ts";
 export {
 	AGENT_SWITCH_FILE,
