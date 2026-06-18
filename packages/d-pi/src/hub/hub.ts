@@ -8,13 +8,13 @@ import { injectMeta } from "../extension/message-meta.ts";
 import type {
 	AgentConfig,
 	CreateAgentResult,
+	DeleteSourceResult,
 	DestroyAgentResult,
 	GetSourceResult,
 	HubConfig,
 	HubToWorkerMessage,
 	SendMessageResult,
 	SetSourceResult,
-	DeleteSourceResult,
 	TeamSnapshot,
 	WorkerToHubMessage,
 } from "../types.ts";
