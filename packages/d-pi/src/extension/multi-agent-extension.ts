@@ -4,35 +4,26 @@ import { join } from "node:path";
 import { Box, Container, Markdown, Text } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionFactory, MessageRenderer } from "@sheason/pi-coding-agent";
 import { getMarkdownTheme } from "@sheason/pi-coding-agent";
-import type {
-	AgentStatus,
-	GroupArchitectureEntry,
-	GroupArchitectureSnapshot,
-	SourceInfo,
-	WorkerToHubMessage,
-} from "../types.ts";
+import type { AgentStatus, SourceInfo, TeamAgentEntry, TeamSnapshot, WorkerToHubMessage } from "../types.ts";
 import { createCreateAgentTool } from "./create-agent.ts";
-import { createCreateSourceTool } from "./create-source.ts";
+import { createDeleteSourceTool } from "./delete-source.ts";
 import { createDestroyAgentTool } from "./destroy-agent.ts";
-import { createDestroySourceTool } from "./destroy-source.ts";
-import { createGroupArchitectureTool } from "./group-architecture.ts";
+import { createGetSourceTool } from "./get-source.ts";
 import { HubChannel } from "./hub-channel.ts";
-import { createListSourcesTool } from "./list-sources.ts";
 import type { MessageMeta } from "./message-meta.ts";
 import { extractMeta, injectMeta } from "./message-meta.ts";
 import { createSendMessageTool } from "./send-message.ts";
-import { createSubscribeSourceTool } from "./subscribe-source.ts";
-import { createUnsubscribeSourceTool } from "./unsubscribe-source.ts";
+import { createSetSourceTool } from "./set-source.ts";
+import { createTeamTool } from "./team.ts";
 
 /**
  * Multi-agent / orchestration extension for d-pi.
  *
  * This extension provides the core "multi-agent tree + sources" surface:
  * - Agent lifecycle tools: create_agent, destroy_agent
- * - Group architecture discovery: group_architecture
+ * - Team discovery: team
  * - Inter-agent messaging: send_message (with next/steer modes)
- * - Long-running data sources: create_source, destroy_source, subscribe_source,
- *   unsubscribe_source, list_sources
+ * - Long-running data sources: set_source, get_source, delete_source
  * - Slash commands /agents and /sources (dual registration: no-op stubs on the
  *   server side so they appear in /commands; real interactive handlers on the
  *   client/TUI side)
@@ -142,7 +133,7 @@ function statusIndicator(status: AgentStatus): string {
 }
 
 /** Format a single agent entry for the /agents tree selector. */
-function formatAgentEntry(agent: GroupArchitectureEntry, depth: number, isLast: boolean, isCurrent: boolean): string {
+function formatAgentEntry(agent: TeamAgentEntry, depth: number, isLast: boolean, isCurrent: boolean): string {
 	let indent = "";
 	if (depth > 0) {
 		indent = "\u2502 ".repeat(depth - 1);
@@ -169,7 +160,7 @@ function parseAgentName(selected: string): string | undefined {
  * This is the main "d-pi as a multi-agent system" behavior:
  * - All agent and source management tools
  * - Inter-agent and source messaging
- * - Group architecture
+ * - Team
  * - The /agents and /sources commands (client UI + server stubs)
  * - Message routing and custom d-pi message rendering
  *
@@ -207,12 +198,10 @@ function createMultiAgentWorkerFactory(channel: HubChannel): ExtensionFactory {
 		pi.registerTool(createSendMessageTool(channel));
 		pi.registerTool(createCreateAgentTool(channel));
 		pi.registerTool(createDestroyAgentTool(channel));
-		pi.registerTool(createGroupArchitectureTool(channel));
-		pi.registerTool(createCreateSourceTool(channel));
-		pi.registerTool(createDestroySourceTool(channel));
-		pi.registerTool(createSubscribeSourceTool(channel));
-		pi.registerTool(createUnsubscribeSourceTool(channel));
-		pi.registerTool(createListSourcesTool(channel));
+		pi.registerTool(createTeamTool(channel));
+		pi.registerTool(createSetSourceTool(channel));
+		pi.registerTool(createGetSourceTool(channel));
+		pi.registerTool(createDeleteSourceTool(channel));
 
 		// Server-side command stubs so /sources and /agents appear in the TUI
 		// slash menu. Real execution happens in the client extension (synced
@@ -225,7 +214,7 @@ function createMultiAgentWorkerFactory(channel: HubChannel): ExtensionFactory {
 			},
 		});
 		pi.registerCommand("agents", {
-			description: "Switch to a different agent in the group architecture",
+			description: "Switch to a different agent in the team",
 			async handler(_args: string, _ctx): Promise<void> {
 				// No-op on the server side; the client extension provides the UI.
 			},
@@ -295,11 +284,11 @@ function createMultiAgentClientFactory(config: DPiClientConfig): ExtensionFactor
 					}
 					const sources = (await response.json()) as SourceInfo[];
 					if (sources.length === 0) {
-						ctx.ui.notify("No sources registered. Use create_source tool to register one.", "info");
+						ctx.ui.notify("No sources registered. Use set_source tool to register one.", "info");
 						return;
 					}
 					const options = sources.map(
-						(s) => `  ${s.name} [${s.status}] command="${s.command}" subscribers=${s.subscriberCount}`,
+						(s) => `  ${s.name} [${s.status}] command="${s.command}" subscribers=${s.subscribers.join(",")}`,
 					);
 					const title = `Sources (${sources.length})`;
 					await ctx.ui.select(title, options);
@@ -311,22 +300,22 @@ function createMultiAgentClientFactory(config: DPiClientConfig): ExtensionFactor
 
 		// Real /agents command — tree selector + agent switch via shutdown + flag file
 		pi.registerCommand("agents", {
-			description: "Switch to a different agent in the group architecture",
+			description: "Switch to a different agent in the team",
 			async handler(_args: string, ctx): Promise<void> {
 				try {
 					const headers: Record<string, string> = {};
 					if (config.authToken) {
 						headers.Authorization = `Bearer ${config.authToken}`;
 					}
-					const response = await fetch(`${config.hubUrl}/_hub/group-architecture`, { headers });
+					const response = await fetch(`${config.hubUrl}/_hub/team`, { headers });
 					if (!response.ok) {
-						ctx.ui.notify(`Failed to fetch group architecture: ${response.status}`, "error");
+						ctx.ui.notify(`Failed to fetch team: ${response.status}`, "error");
 						return;
 					}
-					const network = (await response.json()) as GroupArchitectureSnapshot;
+					const network = (await response.json()) as TeamSnapshot;
 
 					if (network.agents.length === 0) {
-						ctx.ui.notify("No agents in group architecture", "info");
+						ctx.ui.notify("No agents in team", "info");
 						return;
 					}
 

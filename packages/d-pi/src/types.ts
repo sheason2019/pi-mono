@@ -29,7 +29,7 @@ export interface AgentConfig {
 // workspace-level fields should bump `version` and be parsed by
 // validateWorkspace() with explicit version checks.
 export interface WorkspaceConfig {
-	version: 1;
+	version: 1 | 2;
 }
 
 export interface WorkspaceContext {
@@ -89,8 +89,8 @@ export type HubToWorkerMessage =
 	| { type: "sse_subscribe"; subscriberId: string }
 	| { type: "sse_unsubscribe"; subscriberId: string };
 
-// === Group Architecture Snapshot ===
-export interface GroupArchitectureEntry {
+// === Team Snapshot ===
+export interface TeamAgentEntry {
 	name: string;
 	parentName: string | undefined;
 	status: AgentStatus;
@@ -98,8 +98,16 @@ export interface GroupArchitectureEntry {
 	children: string[];
 }
 
-export interface GroupArchitectureSnapshot {
-	agents: GroupArchitectureEntry[];
+export interface TeamExecutorEntry {
+	connectId: string;
+	cwd: string;
+	attached: boolean;
+	boundAgentName: string | undefined;
+}
+
+export interface TeamSnapshot {
+	agents: TeamAgentEntry[];
+	executors: TeamExecutorEntry[];
 	rootName: string;
 }
 
@@ -167,6 +175,7 @@ export interface SourceConfig {
 	args?: string[];
 	cwd?: string;
 	env?: Record<string, string>;
+	subscribers?: string[];
 }
 
 // === Source Info (API responses) ===
@@ -174,31 +183,25 @@ export interface SourceInfo {
 	name: string;
 	command: string;
 	args: string[];
+	cwd?: string;
+	env?: Record<string, string>;
 	status: SourceStatus;
-	subscriberCount: number;
+	subscribers: string[];
 }
 
 // === Source Tool Call Results ===
-export interface CreateSourceResult {
+export interface SetSourceResult {
 	ok: boolean;
 	error?: string;
 }
 
-export interface DestroySourceResult {
-	ok: boolean;
+export interface GetSourceResult {
+	source?: SourceInfo;
+	sources?: SourceInfo[];
 	error?: string;
 }
 
-export interface SubscribeSourceResult {
+export interface DeleteSourceResult {
 	ok: boolean;
 	error?: string;
-}
-
-export interface UnsubscribeSourceResult {
-	ok: boolean;
-	error?: string;
-}
-
-export interface ListSourcesResult {
-	sources: SourceInfo[];
 }

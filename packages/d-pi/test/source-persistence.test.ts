@@ -18,9 +18,9 @@ import type { SourceConfig } from "../src/types.ts";
  * Covers:
  * - writeSourceConfig / deleteSourceConfig / discoverSourceConfigs
  *   round-trip
- * - SourceManager writes a source.json on createSource
- * - SourceManager deletes the source.json on destroySource
- * - SourceManager updates (subscribe/unsubscribe/removeAgentSubscriptions)
+ * - SourceManager writes a source.json on setSource
+ * - SourceManager deletes the source.json on deleteSource
+ * - SourceManager updates (setSource/removeAgentSubscriptions)
  *   rewrite the file with the new subscribers set
  * - restoreFromConfigs re-spawns the process and re-subscribes only
  *   the agents that are still alive in the live set
@@ -175,10 +175,62 @@ describe("source-persistence pure helpers", () => {
 });
 
 describe("SourceManager persistence integration", () => {
-	it("createSource writes a source.json with the just-computed subscribers", () => {
+	it("setSource creates by name and persists explicit subscribers", () => {
 		const workspace = freshWorkspace();
 		const sm = new SourceManager(() => {}, { workspaceRoot: workspace });
-		sm.createSource(
+		sm.setSource(
+			{
+				name: "lark-bot",
+				command: "node",
+				args: ["bridge.js"],
+				cwd: undefined,
+				env: { LARK_APP_ID: "cli_x" },
+				subscribers: ["router", "logger"],
+			},
+			"creator",
+		);
+
+		const files = discoverSourceConfigs(workspace);
+		expect(files).toHaveLength(1);
+		const file = files[0]!;
+		expect(file.name).toBe("lark-bot");
+		expect(file.command).toBe("node");
+		expect(file.subscribers).toEqual(["router", "logger"]);
+		expect(file.creatorName).toBe("creator");
+		expect(sm.listSources()[0]?.subscribers).toEqual(["router", "logger"]);
+	});
+
+	it("setSource updates an existing source by name instead of creating a duplicate", () => {
+		const workspace = freshWorkspace();
+		const sm = new SourceManager(() => {}, { workspaceRoot: workspace });
+		sm.setSource({ name: "s", command: "node", args: ["old.js"], subscribers: ["a"] }, "creator");
+		sm.setSource({ name: "s", command: "node", args: ["new.js"], subscribers: ["b", "c"] }, "creator");
+
+		const sources = sm.listSources();
+		expect(sources).toHaveLength(1);
+		expect(sources[0]).toMatchObject({
+			name: "s",
+			command: "node",
+			args: ["new.js"],
+			subscribers: ["b", "c"],
+		});
+		expect(discoverSourceConfigs(workspace)[0]?.subscribers).toEqual(["b", "c"]);
+	});
+
+	it("setSource preserves existing subscribers when subscribers is omitted", () => {
+		const workspace = freshWorkspace();
+		const sm = new SourceManager(() => {}, { workspaceRoot: workspace });
+		sm.setSource({ name: "s", command: "node", args: ["old.js"], subscribers: ["a"] }, "creator");
+		sm.setSource({ name: "s", command: "node", args: ["new.js"] }, "creator");
+
+		expect(sm.listSources()[0]?.subscribers).toEqual(["a"]);
+		expect(discoverSourceConfigs(workspace)[0]?.subscribers).toEqual(["a"]);
+	});
+
+	it("setSource writes a source.json with the just-computed subscribers", () => {
+		const workspace = freshWorkspace();
+		const sm = new SourceManager(() => {}, { workspaceRoot: workspace });
+		sm.setSource(
 			{
 				name: "lark-bot",
 				command: "node",
@@ -200,19 +252,26 @@ describe("SourceManager persistence integration", () => {
 		expect(file.creatorName).toBe("router");
 	});
 
-	it("subscribe / unsubscribe / removeAgentSubscriptions rewrite the file", () => {
+	it("setSource / removeAgentSubscriptions rewrite the file", () => {
 		const workspace = freshWorkspace();
 		const sm = new SourceManager(() => {}, { workspaceRoot: workspace });
-		sm.createSource({ name: "s", command: "y", args: [], cwd: undefined, env: undefined }, "creator");
+		sm.setSource({ name: "s", command: "y", args: [], cwd: undefined, env: undefined }, "creator");
 
 		const readFile = (): string[] => discoverSourceConfigs(workspace).flatMap((f) => f.subscribers);
 
 		expect(readFile()).toEqual(["creator"]);
 
-		sm.subscribe("s", "other-agent");
+		sm.setSource({
+			name: "s",
+			command: "y",
+			args: [],
+			cwd: undefined,
+			env: undefined,
+			subscribers: ["creator", "other-agent"],
+		});
 		expect(readFile().sort()).toEqual(["creator", "other-agent"]);
 
-		sm.unsubscribe("s", "other-agent");
+		sm.setSource({ name: "s", command: "y", args: [], cwd: undefined, env: undefined, subscribers: ["creator"] });
 		expect(readFile()).toEqual(["creator"]);
 
 		sm.removeAgentSubscriptions("creator");
@@ -221,20 +280,31 @@ describe("SourceManager persistence integration", () => {
 		expect(existsSync(join(workspace, "sources", "s", "source.json"))).toBe(true);
 	});
 
-	it("destroySource removes the source.json from disk", () => {
+	it("deleteSource removes the source.json from disk", () => {
 		const workspace = freshWorkspace();
 		const sm = new SourceManager(() => {}, { workspaceRoot: workspace });
-		sm.createSource({ name: "s", command: "y", args: [], cwd: undefined, env: undefined });
+		sm.setSource({ name: "s", command: "y", args: [], cwd: undefined, env: undefined });
 		expect(existsSync(join(workspace, "sources", "s", "source.json"))).toBe(true);
 
-		sm.destroySource("s");
+		sm.deleteSource("s");
 		expect(existsSync(join(workspace, "sources", "s"))).toBe(false);
+	});
+
+	it("deleteSource removes source.json even when subscribers are present", () => {
+		const workspace = freshWorkspace();
+		const sm = new SourceManager(() => {}, { workspaceRoot: workspace });
+		sm.setSource({ name: "s", command: "y", subscribers: ["creator"] }, "creator");
+
+		sm.deleteSource("s");
+
+		expect(existsSync(join(workspace, "sources", "s"))).toBe(false);
+		expect(sm.listSources()).toEqual([]);
 	});
 
 	it("does not write to disk when workspaceRoot is not configured (unit-test mode)", () => {
 		const workspace = freshWorkspace();
 		const sm = new SourceManager(() => {}, {}); // no workspaceRoot
-		sm.createSource({ name: "s", command: "y", args: [], cwd: undefined, env: undefined });
+		sm.setSource({ name: "s", command: "y", args: [], cwd: undefined, env: undefined });
 		// No file should be created
 		expect(existsSync(join(workspace, "sources"))).toBe(false);
 	});
@@ -282,7 +352,7 @@ describe("SourceManager.restoreFromConfigs", () => {
 
 		const sm = new SourceManager(() => {}, { workspaceRoot: workspace });
 		// Operator pre-registered a source with the same name
-		sm.createSource({ name: "x", command: "y-runtime", args: [], cwd: undefined, env: undefined });
+		sm.setSource({ name: "x", command: "y-runtime", args: [], cwd: undefined, env: undefined });
 
 		const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 		try {
@@ -290,7 +360,7 @@ describe("SourceManager.restoreFromConfigs", () => {
 			const skipped = stderr.mock.calls.some((call) => String(call[0]).includes('Skipping restore of source "x"'));
 			expect(skipped).toBe(true);
 			// Runtime-created source wins; persisted subscribers NOT applied
-			// (the operator's runtime createSource is authoritative).
+			// (the operator's runtime setSource is authoritative).
 			expect(sm.getAgentSubscriptions("a")).toEqual([]);
 		} finally {
 			stderr.mockRestore();

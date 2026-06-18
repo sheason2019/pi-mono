@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createCreateAgentTool } from "../src/extension/create-agent.ts";
-import { createCreateSourceTool } from "../src/extension/create-source.ts";
 import { createDestroyAgentTool } from "../src/extension/destroy-agent.ts";
-import { createGroupArchitectureTool } from "../src/extension/group-architecture.ts";
 import type { HubChannel } from "../src/extension/hub-channel.ts";
 import { createReloadTools } from "../src/extension/reload-tools.ts";
 import { createSendMessageTool } from "../src/extension/send-message.ts";
+import { createSetSourceTool } from "../src/extension/set-source.ts";
+import { createTeamTool } from "../src/extension/team.ts";
 
 /**
  * Architectural contract: tool-specific constraints and routing semantics
@@ -29,15 +29,15 @@ function toolDescription(name: string): string {
 			return createCreateAgentTool(channel).description;
 		case "send_message":
 			return createSendMessageTool(channel).description;
-		case "group_architecture":
-			return createGroupArchitectureTool(channel).description;
+		case "team":
+			return createTeamTool(channel).description;
 		case "reload":
 			return createReloadTools({
 				getReloadFn: () => undefined,
 				getResourceLoader: () => undefined,
 			}).description;
-		case "create_source":
-			return createCreateSourceTool(channel).description;
+		case "set_source":
+			return createSetSourceTool(channel).description;
 		case "destroy_agent":
 			return createDestroyAgentTool(channel).description;
 		default:
@@ -123,22 +123,28 @@ describe("reload tool — limitations", () => {
 
 	it("description mentions role directories are NOT re-read", () => {
 		const desc = toolDescription("reload");
-		expect(desc).toMatch(/group-architecture.*role|role directories/i);
+		expect(desc).toMatch(/team-template.*role|role directories/i);
 		expect(desc).toMatch(/not.*re-read|does NOT re-read/i);
 	});
 });
 
-describe("create_source tool — long-running supervision", () => {
+describe("set_source tool — long-running supervision", () => {
 	it("description warns that one-shot commands are not suitable", () => {
-		const desc = toolDescription("create_source");
+		const desc = toolDescription("set_source");
 		expect(desc).toMatch(/long-running|long running/i);
 		expect(desc).toMatch(/one-shot|persistent/i);
 	});
+
+	it("description states source name is the stable ID", () => {
+		const desc = toolDescription("set_source");
+		expect(desc).toMatch(/name/i);
+		expect(desc).toMatch(/stable ID/i);
+	});
 });
 
-describe("group_architecture tool — uses agent names", () => {
+describe("team tool — uses agent names", () => {
 	it("description reminds callers to use names, not IDs", () => {
-		const desc = toolDescription("group_architecture");
+		const desc = toolDescription("team");
 		expect(desc).toMatch(/names/i);
 		expect(desc).toMatch(/IDs?/);
 	});

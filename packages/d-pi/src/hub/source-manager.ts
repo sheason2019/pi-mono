@@ -44,8 +44,8 @@ export interface SourceManagerOptions {
 	maxRestartAttempts?: number;
 	/**
 	 * Workspace root. When set, the supervisor writes a
-	 * `sources/<name>/source.json` on `createSource` and removes it
-	 * on `destroySource`. On `restoreFromConfigs`, the supervisor
+	 * `sources/<name>/source.json` on `setSource` and removes it
+	 * on `deleteSource`. On `restoreFromConfigs`, the supervisor
 	 * reads every such file, re-spawns the subprocess, and
 	 * re-subscribes any agents that are still alive in the registry.
 	 *
@@ -111,99 +111,57 @@ export class SourceManager {
 		this._workspaceRoot = options.workspaceRoot;
 	}
 
-	createSource(config: SourceConfig, creatorName?: string): void {
-		if (this._sources.has(config.name)) {
-			throw new Error(`Source "${config.name}" already exists`);
+	setSource(config: SourceConfig, creatorName?: string): void {
+		const existing = this._sources.get(config.name);
+		if (!existing) {
+			this._createSourceRecord(config, creatorName);
+			return;
 		}
 
-		const record: SourceRecord = {
-			name: config.name,
-			command: config.command,
-			args: config.args ?? [],
-			cwd: config.cwd,
-			env: config.env,
-			status: "running",
-			process: undefined,
-			subscribers: new Set(),
-			creatorName,
-			restartCount: 0,
-			restartTimer: undefined,
-			destroyed: false,
-			stdoutReader: undefined,
-			stderrReader: undefined,
-		};
+		const nextArgs = config.args ?? [];
+		const nextEnv = config.env;
+		const shouldRestart =
+			existing.command !== config.command ||
+			!arrayEquals(existing.args, nextArgs) ||
+			existing.cwd !== config.cwd ||
+			!recordEquals(existing.env, nextEnv);
 
-		// Auto-subscribe the creator agent (by name, since the registry
-		// is name-keyed now)
-		if (creatorName) {
-			record.subscribers.add(creatorName);
+		existing.command = config.command;
+		existing.args = nextArgs;
+		existing.cwd = config.cwd;
+		existing.env = nextEnv;
+		if (config.subscribers) {
+			existing.subscribers = new Set(config.subscribers);
 		}
-
-		// Persist the source config (with the just-computed subscribers
-		// set) so the hub can re-spawn it on restart. No-op when
-		// workspaceRoot isn't set (unit-test mode).
+		if (!existing.creatorName && creatorName) {
+			existing.creatorName = creatorName;
+		}
 		if (this._workspaceRoot) {
-			this._writePersistedConfig(record);
+			this._writePersistedConfig(existing);
 		}
-
-		this._sources.set(config.name, record);
-		this._spawnProcess(record);
+		if (shouldRestart) {
+			this._restartRecord(existing);
+		}
 	}
 
-	destroySource(name: string): void {
+	getSource(name: string): SourceInfo | undefined {
+		const record = this._sources.get(name);
+		return record ? this._toSourceInfo(record) : undefined;
+	}
+
+	deleteSource(name: string): void {
 		const record = this._sources.get(name);
 		if (!record) {
 			throw new Error(`Source "${name}" not found`);
 		}
-		if (record.subscribers.size > 0) {
-			const subscriberList = Array.from(record.subscribers).join(", ");
-			throw new Error(
-				`Cannot destroy source "${name}": ${record.subscribers.size} subscriber(s) still active (${subscriberList}). Unsubscribe all agents first.`,
-			);
-		}
-		// Remove the on-disk config BEFORE destroying the in-memory
-		// record; doing it last means an interrupted destroy could
-		// leave a non-running source on disk that the next restore
-		// would try to re-spawn. With the file gone first, the
-		// worst case is a "source exists in memory but not on disk"
-		// state that the next createSource (with the same name)
-		// can clean up.
 		if (this._workspaceRoot) {
 			deleteSourceConfig(this._workspaceRoot, name);
 		}
 		this._destroyRecord(record);
 	}
 
-	subscribe(sourceName: string, agentName: string): void {
-		const record = this._sources.get(sourceName);
-		if (!record) {
-			throw new Error(`Source "${sourceName}" not found`);
-		}
-		record.subscribers.add(agentName);
-		if (this._workspaceRoot) {
-			this._writePersistedConfig(record);
-		}
-	}
-
-	unsubscribe(sourceName: string, agentName: string): void {
-		const record = this._sources.get(sourceName);
-		if (!record) {
-			throw new Error(`Source "${sourceName}" not found`);
-		}
-		record.subscribers.delete(agentName);
-		if (this._workspaceRoot) {
-			this._writePersistedConfig(record);
-		}
-	}
-
 	listSources(): SourceInfo[] {
-		return Array.from(this._sources.values()).map((r) => ({
-			name: r.name,
-			command: r.command,
-			args: r.args,
-			status: r.status,
-			subscriberCount: r.subscribers.size,
-		}));
+		return Array.from(this._sources.values()).map((r) => this._toSourceInfo(r));
 	}
 
 	/**
@@ -359,6 +317,46 @@ export class SourceManager {
 		});
 	}
 
+	private _createSourceRecord(config: SourceConfig, creatorName?: string): void {
+		const record: SourceRecord = {
+			name: config.name,
+			command: config.command,
+			args: config.args ?? [],
+			cwd: config.cwd,
+			env: config.env,
+			status: "running",
+			process: undefined,
+			subscribers: new Set(config.subscribers ?? (creatorName ? [creatorName] : [])),
+			creatorName,
+			restartCount: 0,
+			restartTimer: undefined,
+			destroyed: false,
+			stdoutReader: undefined,
+			stderrReader: undefined,
+		};
+
+		if (this._workspaceRoot) {
+			this._writePersistedConfig(record);
+		}
+
+		this._sources.set(config.name, record);
+		this._spawnProcess(record);
+	}
+
+	private _restartRecord(record: SourceRecord): void {
+		if (record.restartTimer) {
+			clearTimeout(record.restartTimer);
+			record.restartTimer = undefined;
+		}
+		record.process?.removeAllListeners("error");
+		record.process?.removeAllListeners("exit");
+		this._closeReaders(record);
+		this._killProcess(record);
+		record.restartCount = 0;
+		record.destroyed = false;
+		this._spawnProcess(record);
+	}
+
 	private _scheduleRestart(record: SourceRecord): void {
 		if (record.destroyed) return;
 		if (record.restartTimer) return; // Already scheduled
@@ -499,7 +497,7 @@ export class SourceManager {
 	 *
 	 * Per-source: skip if a runtime source with the same name
 	 * already exists (the operator may have started a fresh hub
-	 * session and the createSource tool might have re-registered
+	 * session and the setSource tool might have re-registered
 	 * manually — in that case the persisted config is a no-op).
 	 *
 	 * Per-subscriber: skip names that don't resolve to a live
@@ -545,8 +543,8 @@ export class SourceManager {
 			// UUID indirection needed — see the "name is identity"
 			// rationale in the changelog). Dead names are silently
 			// dropped; the source can re-acquire them via
-			// subscribe_source after the operator creates a new agent
-			// with the same name.
+			// a later set_source call after the operator creates a new
+			// agent with the same name.
 			for (const name of file.subscribers) {
 				if (liveAgentNames.has(name)) {
 					record.subscribers.add(name);
@@ -580,4 +578,28 @@ export class SourceManager {
 		};
 		writeSourceConfig(this._workspaceRoot, file);
 	}
+
+	private _toSourceInfo(record: SourceRecord): SourceInfo {
+		return {
+			name: record.name,
+			command: record.command,
+			args: [...record.args],
+			cwd: record.cwd,
+			env: record.env,
+			status: record.status,
+			subscribers: Array.from(record.subscribers),
+		};
+	}
+}
+
+function arrayEquals(a: string[], b: string[]): boolean {
+	return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function recordEquals(a: Record<string, string> | undefined, b: Record<string, string> | undefined): boolean {
+	if (a === b) return true;
+	if (!a || !b) return false;
+	const aEntries = Object.entries(a);
+	const bEntries = Object.entries(b);
+	return aEntries.length === bEntries.length && aEntries.every(([key, value]) => b[key] === value);
 }

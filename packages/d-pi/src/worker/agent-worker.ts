@@ -186,7 +186,7 @@ async function runAgentWorker(): Promise<void> {
 
 		// Re-read the workspace context and this agent's identity
 		// from disk. Called on every reload (and once at startup)
-		// so that edits to APPEND_SYSTEM.md / group-architecture
+		// so that edits to APPEND_SYSTEM.md / team-template
 		// AGENTS.md / agent.json (description, roles, model name,
 		// tool allow/deny list) take effect without a hub restart.
 		// Returns `undefined` when there is no workspace context
@@ -214,7 +214,7 @@ async function runAgentWorker(): Promise<void> {
 				extensionFactories: [
 					{
 						// d-pi multi-agent / orchestration surface.
-						// Provides: create/destroy_agent, send_message, group_architecture,
+						// Provides: create/destroy_agent, send_message, team,
 						// all source tools, the dual-registered /agents and /sources commands,
 						// d-pi custom message rendering, and the input / incoming-message routing
 						// that feeds connect-mode and source messages into the agent's session.
@@ -289,7 +289,7 @@ async function runAgentWorker(): Promise<void> {
 					].filter((s): s is string => Boolean(s));
 				},
 				agentsFilesOverride: (base) => {
-					// Re-read the workspace-level AGENTS.md / group-architecture
+					// Re-read the workspace-level AGENTS.md / team-template
 					// AGENTS.md on every call so role / architecture edits
 					// surface without a hub restart. `base` is what
 					// ResourceLoader discovered itself (project-level

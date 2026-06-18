@@ -5,7 +5,7 @@
  * focused extensions that can be registered independently (with clear names
  * for diagnostics) or composed via the convenience `createDPiExtension`:
  *
- * - multi-agent-extension: agent tree, sources, send_message, group_architecture,
+ * - multi-agent-extension: agent tree, sources, send_message, team,
  *   /agents and /sources commands, d-pi message routing and rendering.
  * - dispatch-extension: the `dispatch_*` tools (remote_bash, remote_read, ...)
  *   that dispatch to a connected d-pi client executor.
@@ -77,7 +77,7 @@ export function createDPiExtension(config: DPiExtensionConfig): { factory: Exten
 /**
  * Multi-agent / orchestration extension.
  *
- * Covers: agent lifecycle, sources, send_message, group_architecture,
+ * Covers: agent lifecycle, sources, send_message, team,
  * the dual-registered /agents and /sources commands, d-pi custom message
  * routing and rendering, and connect/source input wiring.
  *

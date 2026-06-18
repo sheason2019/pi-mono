@@ -1,9 +1,9 @@
 import type { ExtensionAPI, ToolDefinition } from "@sheason/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { createGroupArchitectureTool } from "../src/extension/group-architecture.ts";
 import { HubChannel } from "../src/extension/hub-channel.ts";
 import { createDPiExtension } from "../src/extension/index.ts";
-import type { GroupArchitectureSnapshot, WorkerToHubMessage } from "../src/types.ts";
+import { createTeamTool } from "../src/extension/team.ts";
+import type { TeamSnapshot, WorkerToHubMessage } from "../src/types.ts";
 
 /**
  * Build a real HubChannel whose outbound tool_call messages we can intercept
@@ -45,11 +45,11 @@ const fakeApi = {
 	registerCommand: () => {},
 } as unknown as ExtensionAPI;
 
-describe("group_architecture tool", () => {
-	it("is named group_architecture", () => {
-		const tool = createGroupArchitectureTool(makeChannel().channel);
-		expect(tool.name).toBe("group_architecture");
-		expect(tool.label).toBe("Group Architecture");
+describe("team tool", () => {
+	it("is named team", () => {
+		const tool = createTeamTool(makeChannel().channel);
+		expect(tool.name).toBe("team");
+		expect(tool.label).toBe("Team");
 	});
 
 	it("registers through the d-pi worker factory", () => {
@@ -67,18 +67,18 @@ describe("group_architecture tool", () => {
 			},
 		} as unknown as ExtensionAPI;
 		factory(api);
-		expect(registered).toContain("group_architecture");
+		expect(registered).toContain("team");
 		// Drift guard: the tool was renamed from agent_network. Keep this
 		// assertion so a future "let's call it something else" PR cannot
 		// silently re-introduce the old wire name.
 		expect(registered).not.toContain("agent_network");
 	});
 
-	it("execute() posts a tool_call for group_architecture and renders the snapshot", async () => {
+	it("execute() posts a tool_call for team and renders the snapshot", async () => {
 		const { channel, posted, respondToNext } = makeChannel();
-		const tool = createGroupArchitectureTool(channel);
+		const tool = createTeamTool(channel);
 
-		const snapshot: GroupArchitectureSnapshot = {
+		const snapshot: TeamSnapshot = {
 			rootName: "root",
 			agents: [
 				{
@@ -96,6 +96,14 @@ describe("group_architecture tool", () => {
 					children: [],
 				},
 			],
+			executors: [
+				{
+					connectId: "exec-1",
+					cwd: "/tmp/client",
+					attached: true,
+					boundAgentName: "worker",
+				},
+			],
 		};
 
 		// Kick off the execute() promise first; it will block until the
@@ -107,7 +115,7 @@ describe("group_architecture tool", () => {
 			}
 		).execute("call-1", {}) as Promise<{
 			content: Array<{ type: "text"; text: string }>;
-			details: { agents: GroupArchitectureSnapshot["agents"] };
+			details: { agents: TeamSnapshot["agents"]; executors: TeamSnapshot["executors"] };
 		}>;
 
 		// Posted message must be a tool_call targeting the new wire name.
@@ -115,7 +123,7 @@ describe("group_architecture tool", () => {
 		expect(posted[0]).toMatchObject({
 			type: "tool_call",
 			agentName: "agent-test",
-			tool: "group_architecture",
+			tool: "team",
 			params: {},
 		});
 		// Drift guard: same as above — the wire name was renamed from
@@ -129,16 +137,19 @@ describe("group_architecture tool", () => {
 		const result = await executePromise;
 
 		expect(result.details.agents).toEqual(snapshot.agents);
+		expect(result.details.executors).toEqual(snapshot.executors);
 		const text = result.content[0]?.text ?? "";
-		expect(text).toContain("Group Architecture");
+		expect(text).toContain("Team");
 		expect(text).toContain("root [ready]");
 		expect(text).toContain("worker [busy]");
+		expect(text).toContain("Executors");
+		expect(text).toContain("exec-1 [attached] cwd=/tmp/client bound=worker");
 		expect(text).toContain("Use agent names");
 	});
 
 	it("surfaces an error when the channel rejects the call", async () => {
 		const { channel, respondToNext } = makeChannel();
-		const tool = createGroupArchitectureTool(channel);
+		const tool = createTeamTool(channel);
 		const executePromise = (
 			tool as unknown as {
 				execute: (id: string, params: unknown) => Promise<unknown>;
@@ -151,6 +162,6 @@ describe("group_architecture tool", () => {
 		respondToNext(new Error("hub down"));
 		const result = await executePromise;
 		expect(result.isError).toBe(true);
-		expect(result.content[0]?.text ?? "").toContain("Failed to get group architecture");
+		expect(result.content[0]?.text ?? "").toContain("Failed to get team");
 	});
 });

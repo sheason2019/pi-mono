@@ -6,7 +6,7 @@ import type { SourceConfig } from "../types.ts";
  * Shape of a `sources/<name>/source.json` file on disk.
  *
  * Mirrors `SourceConfig` (the runtime shape accepted by
- * `createSource`) but adds the two fields that need to survive
+ * `setSource`) but adds the field that needs to survive
  * a hub restart: the creator's name and the subscriber list. Both
  * are agent NAMES, not UUIDs — see the "name is identity" rationale
  * in the changelog. With names as the unique key, a persisted
@@ -33,7 +33,7 @@ export interface SourceConfigFile {
 	 * silently skipped — the source might have outlived its agent.
 	 */
 	subscribers: string[];
-	/** Agent NAME that originally called create_source, if any. */
+	/** Agent NAME that originally called set_source for this source, if any. */
 	creatorName?: string;
 }
 
@@ -51,7 +51,7 @@ export function writeSourceConfig(workspaceRoot: string, config: SourceConfigFil
 }
 
 /**
- * Remove `sources/<name>/` entirely. Called on `destroySource`.
+ * Remove `sources/<name>/` entirely. Called on `deleteSource`.
  * Idempotent — missing directory is fine.
  */
 export function deleteSourceConfig(workspaceRoot: string, name: string): void {
@@ -100,7 +100,7 @@ function readdirSyncSafe(dir: string): string[] {
 
 /**
  * Convert a `SourceConfigFile` (the on-disk format) into a
- * `SourceConfig` (the runtime shape accepted by `createSource`).
+ * `SourceConfig` (the runtime shape accepted by `setSource`).
  * Pure function; no I/O.
  */
 export function sourceConfigFileToConfig(

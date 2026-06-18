@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { AGENT_SWITCH_FILE } from "../extension/index.ts";
-import type { GroupArchitectureSnapshot } from "../types.ts";
+import type { TeamSnapshot } from "../types.ts";
 import { createConnectSession } from "./connect-auth.ts";
 
 export interface DPiConnectOptions {
@@ -60,12 +60,12 @@ export async function runDPiConnectMode(options: DPiConnectOptions): Promise<voi
 	}
 	const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
 
-	// 1. Fetch group architecture from Hub to resolve initial agent
-	const networkResponse = await fetch(`${url}/_hub/group-architecture`, { headers });
+	// 1. Fetch team from Hub to resolve initial agent
+	const networkResponse = await fetch(`${url}/_hub/team`, { headers });
 	if (!networkResponse.ok) {
-		throw new Error(`Failed to fetch group architecture: ${networkResponse.status} ${networkResponse.statusText}`);
+		throw new Error(`Failed to fetch team: ${networkResponse.status} ${networkResponse.statusText}`);
 	}
-	const network = (await networkResponse.json()) as GroupArchitectureSnapshot;
+	const network = (await networkResponse.json()) as TeamSnapshot;
 
 	let currentAgentName = resolveAgentName(network, agentSpec);
 
@@ -259,7 +259,7 @@ export async function runConnectSession(opts: ConnectSessionSpawnOptions & { fet
 }
 
 /** Resolve agent name from spec (the only valid identifier now). */
-function resolveAgentName(network: GroupArchitectureSnapshot, agentSpec?: string): string {
+function resolveAgentName(network: TeamSnapshot, agentSpec?: string): string {
 	if (agentSpec) {
 		const byName = network.agents.find((a) => a.name === agentSpec);
 		if (byName) return byName.name;

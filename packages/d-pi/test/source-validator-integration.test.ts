@@ -81,7 +81,7 @@ describe("SourceManager integration with JSONRPC validation", () => {
 	it("forwards valid JSONRPC notifications and drops invalid lines", async () => {
 		// Spawn a source that emits 3 valid notifications interleaved with
 		// 3 invalid lines (raw garbage, missing jsonrpc, missing method).
-		manager.createSource(
+		manager.setSource(
 			{
 				name: "mixed",
 				command: "sh",
@@ -114,7 +114,7 @@ echo '{"jsonrpc":"2.0","method":"events.emit","params":{"type":"test","data":"go
 	});
 
 	it("silently drops JSONRPC requests and responses (no broadcast, no log)", async () => {
-		manager.createSource(
+		manager.setSource(
 			{
 				name: "rpc-shapes",
 				command: "sh",
@@ -192,7 +192,7 @@ echo '{"jsonrpc":"2.0","method":"events.emit","params":{"type":"cycle","data":"e
 		// only asserts on broadcasts collected before any restart.
 		const script = `${cycle}\n${cycle}\n${cycle}\n`;
 
-		manager.createSource(
+		manager.setSource(
 			{
 				name: "cycles",
 				command: "sh",
@@ -225,7 +225,7 @@ echo '{"jsonrpc":"2.0","method":"events.emit","params":{"type":"cycle","data":"e
 				data: { marker: "mode" },
 			},
 		});
-		manager.createSource({ name: "mode-e2e", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
+		manager.setSource({ name: "mode-e2e", command: "sh", args: ["-c", `echo '${line}'`] }, CREATOR);
 
 		await waitFor(() => broadcasts.some((b) => b.sourceName === "mode-e2e"), 3_000, 20);
 		const b = broadcasts.find((b) => b.sourceName === "mode-e2e");

@@ -8,16 +8,14 @@ import { injectMeta } from "../extension/message-meta.ts";
 import type {
 	AgentConfig,
 	CreateAgentResult,
-	CreateSourceResult,
+	DeleteSourceResult,
 	DestroyAgentResult,
-	DestroySourceResult,
-	GroupArchitectureSnapshot,
+	GetSourceResult,
 	HubConfig,
 	HubToWorkerMessage,
-	ListSourcesResult,
 	SendMessageResult,
-	SubscribeSourceResult,
-	UnsubscribeSourceResult,
+	SetSourceResult,
+	TeamSnapshot,
 	WorkerToHubMessage,
 } from "../types.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
@@ -66,9 +64,9 @@ export class Hub {
 				}
 			},
 			// Pass the workspace root so the source manager persists
-			// `sources/<name>/source.json` on createSource / subscribe /
-			// unsubscribe, and removes it on destroySource. Restore
-			// happens in `start()` via `restoreSourceConfigs()`.
+			// `sources/<name>/source.json` on setSource and removes it
+			// on deleteSource. Restore happens in `start()` via
+			// `restoreSourceConfigs()`.
 			{ workspaceRoot: config.workspaceRoot },
 		);
 
@@ -191,7 +189,7 @@ export class Hub {
 	 * Subscribers that were recorded but no longer have a live agent
 	 * (their `agent.json` was deleted, or the agent failed to start)
 	 * are silently dropped — the source can re-acquire them later
-	 * via the subscribe_source tool if the agent reappears.
+	 * by calling set_source with an updated subscribers list if the agent reappears.
 	 */
 	private _restorePersistedSources(): void {
 		const files = discoverSourceConfigs(this._config.workspaceRoot);
@@ -529,84 +527,73 @@ export class Hub {
 					break;
 				}
 
-				case "group_architecture": {
-					result = this._registry.getGroupArchitectureSnapshot() satisfies GroupArchitectureSnapshot;
+				case "team": {
+					const snapshot = this._registry.getTeamSnapshot();
+					result = {
+						...snapshot,
+						executors: this._executorRegistry.list().map((executor) => ({
+							...executor,
+							boundAgentName: this._gateway.getBoundAgentName(executor.connectId),
+						})),
+					} satisfies TeamSnapshot;
 					break;
 				}
 
-				case "create_source": {
+				case "set_source": {
 					const p = params as {
 						name: string;
 						command: string;
 						args?: string[];
 						cwd?: string;
 						env?: Record<string, string>;
+						subscribers?: string[];
 					};
 					try {
-						this._sourceManager.createSource(
+						this._sourceManager.setSource(
 							{
 								name: p.name,
 								command: p.command,
 								args: p.args,
 								cwd: p.cwd,
 								env: p.env,
+								subscribers: p.subscribers,
 							},
 							fromAgentName,
 						);
-						result = { ok: true } satisfies CreateSourceResult;
+						result = { ok: true } satisfies SetSourceResult;
 					} catch (err) {
 						result = {
 							ok: false,
 							error: err instanceof Error ? err.message : String(err),
-						} satisfies CreateSourceResult;
+						} satisfies SetSourceResult;
 					}
 					break;
 				}
 
-				case "destroy_source": {
+				case "get_source": {
+					const p = params as { name?: string };
+					if (p.name) {
+						const source = this._sourceManager.getSource(p.name);
+						result = source
+							? ({ source } satisfies GetSourceResult)
+							: ({ error: `Source "${p.name}" not found` } satisfies GetSourceResult);
+					} else {
+						result = { sources: this._sourceManager.listSources() } satisfies GetSourceResult;
+					}
+					break;
+				}
+
+				case "delete_source": {
 					const p = params as { name: string };
 					try {
-						this._sourceManager.destroySource(p.name);
-						result = { ok: true } satisfies DestroySourceResult;
+						this._sourceManager.deleteSource(p.name);
+						result = { ok: true } satisfies DeleteSourceResult;
 					} catch (err) {
 						result = {
 							ok: false,
 							error: err instanceof Error ? err.message : String(err),
-						} satisfies DestroySourceResult;
+						} satisfies DeleteSourceResult;
 					}
-					break;
-				}
-
-				case "subscribe_source": {
-					const p = params as { source_name: string };
-					try {
-						this._sourceManager.subscribe(p.source_name, fromAgentName);
-						result = { ok: true } satisfies SubscribeSourceResult;
-					} catch (err) {
-						result = {
-							ok: false,
-							error: err instanceof Error ? err.message : String(err),
-						} satisfies SubscribeSourceResult;
-					}
-					break;
-				}
-
-				case "unsubscribe_source": {
-					const p = params as { source_name: string };
-					try {
-						this._sourceManager.unsubscribe(p.source_name, fromAgentName);
-						result = { ok: true } satisfies UnsubscribeSourceResult;
-					} catch (err) {
-						result = {
-							ok: false,
-							error: err instanceof Error ? err.message : String(err),
-						} satisfies UnsubscribeSourceResult;
-					}
-					break;
-				}
-
-				case "list_sources": {
-					result = { sources: this._sourceManager.listSources() } satisfies ListSourcesResult;
 					break;
 				}
 

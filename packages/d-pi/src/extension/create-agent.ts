@@ -18,7 +18,7 @@ export function createCreateAgentTool(channel: HubChannel) {
 			),
 			roles: Type.Optional(
 				Type.Array(Type.String(), {
-					description: "Group architecture role names to apply from group-architecture/roles/<role>/",
+					description: "Team role names to apply from team-template/roles/<role>/",
 				}),
 			),
 			includeTools: Type.Optional(

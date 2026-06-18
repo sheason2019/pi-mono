@@ -33,7 +33,7 @@ import { createReloadTools, type ReloadToolsDeps } from "./reload-tools.ts";
  *
  * Model changes are persisted to agent.json (restarts + identity block see
  * them). No live IPC model update to hub AgentRegistry yet, so
- * group_architecture may be stale until recreate (P1 gap). ctx.cwd for the
+ * team may be stale until recreate (P1 gap). ctx.cwd for the
  * write is the d-pi per-agent dir (see agent-worker persistSessionId); P2.
  */
 

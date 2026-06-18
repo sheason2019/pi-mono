@@ -15,9 +15,9 @@ import type { SourceManager } from "./source-manager.ts";
  *   /_hub/agents       GET  → list all agents
  *   /_hub/agents       POST → create agent
  *   /_hub/agents/{id}  DELETE → destroy agent
- *   /_hub/group-architecture  GET  → group architecture snapshot
+ *   /_hub/team       GET  → team snapshot
  *   /_hub/sources      GET  → list all sources
- *   /_hub/sources      POST → create source
+ *   /_hub/sources      PUT/POST → set source
  *   /_hub/sources/{name} DELETE → destroy source
  *   /agents/{id}/*     → reverse proxy to agent's HTTP server
  *   /*                 → reverse proxy to root agent
@@ -211,6 +211,15 @@ export class HubGateway {
 		return this._agentBindings.get(agentName);
 	}
 
+	getBoundAgentName(connectId: string): string | undefined {
+		for (const [agentName, boundConnectId] of this._agentBindings) {
+			if (boundConnectId === connectId) {
+				return agentName;
+			}
+		}
+		return undefined;
+	}
+
 	/**
 	 * Drop every binding that points at the given connectId. Called when
 	 * the executor's SSE channel closes so a stale binding cannot dispatch
@@ -340,7 +349,7 @@ export class HubGateway {
 
 		// GET /_hub/agents — list all agents
 		if (path === "/_hub/agents" && req.method === "GET") {
-			const snapshot = this._registry.getGroupArchitectureSnapshot();
+			const snapshot = this._registry.getTeamSnapshot();
 			res.writeHead(200, { "Content-Type": "application/json" });
 			res.end(JSON.stringify(snapshot.agents));
 			return;
@@ -432,9 +441,14 @@ export class HubGateway {
 			return;
 		}
 
-		// GET /_hub/group-architecture — group architecture snapshot
-		if (path === "/_hub/group-architecture" && req.method === "GET") {
-			const snapshot = this._registry.getGroupArchitectureSnapshot();
+		// GET /_hub/team — team snapshot
+		if (path === "/_hub/team" && req.method === "GET") {
+			const snapshot = this._registry.getTeamSnapshot();
+			snapshot.executors =
+				this._executorRegistry?.list().map((executor) => ({
+					...executor,
+					boundAgentName: this.getBoundAgentName(executor.connectId),
+				})) ?? [];
 			res.writeHead(200, { "Content-Type": "application/json" });
 			res.end(JSON.stringify(snapshot));
 			return;
@@ -448,13 +462,13 @@ export class HubGateway {
 			return;
 		}
 
-		// POST /_hub/sources — create source
-		if (path === "/_hub/sources" && req.method === "POST") {
+		// PUT/POST /_hub/sources — create or update source
+		if (path === "/_hub/sources" && (req.method === "PUT" || req.method === "POST")) {
 			const body = await this._readBody(req);
 			const params = JSON.parse(body) as SourceConfig;
 			try {
-				this._sourceManager.createSource(params);
-				res.writeHead(201, { "Content-Type": "application/json" });
+				this._sourceManager.setSource(params);
+				res.writeHead(200, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ ok: true }));
 			} catch (err) {
 				res.writeHead(500, { "Content-Type": "application/json" });
@@ -463,12 +477,12 @@ export class HubGateway {
 			return;
 		}
 
-		// DELETE /_hub/sources/{name} — destroy source
+		// DELETE /_hub/sources/{name} — delete source
 		const sourceDeleteMatch = path.match(/^\/_hub\/sources\/([^/]+)$/);
 		if (sourceDeleteMatch && req.method === "DELETE") {
 			const sourceName = decodeURIComponent(sourceDeleteMatch[1]);
 			try {
-				this._sourceManager.destroySource(sourceName);
+				this._sourceManager.deleteSource(sourceName);
 				res.writeHead(200, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ ok: true }));
 			} catch (err) {
