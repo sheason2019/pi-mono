@@ -205,3 +205,11 @@ export interface DeleteSourceResult {
 	ok: boolean;
 	error?: string;
 }
+
+export type {
+	AgentContextFileDefinition,
+	AgentDefinition,
+	AgentModelDefinition,
+	AgentSkillDefinition,
+	AgentToolDefinition,
+} from "./agent-definition.ts";
