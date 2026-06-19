@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DPiInteractiveAgentSessionProxy } from "../src/tui/interactive/agent-session-proxy.ts";
+import { handleDPiConnectSlashCommand } from "../src/tui/interactive/run-connect-interactive-mode.ts";
 import { submitDPiInteractiveEditorText } from "../src/tui/interactive/submit.ts";
 
 function createProxy(overrides: Partial<DPiInteractiveAgentSessionProxy> = {}): DPiInteractiveAgentSessionProxy {
@@ -33,5 +34,46 @@ describe("d-pi interactive editor submit", () => {
 		await submitDPiInteractiveEditorText(proxy, "interrupt", vi.fn());
 
 		expect(proxy.steer).toHaveBeenCalledWith("interrupt");
+	});
+
+	it("handles known connect slash commands locally instead of sending them as prompts", async () => {
+		const statuses: string[] = [];
+		const proxy = createProxy({
+			prompt: vi.fn(async () => {}),
+			reload: vi.fn(async () => {}),
+			setModel: vi.fn(),
+		});
+
+		await expect(
+			handleDPiConnectSlashCommand("/reload", {
+				proxy,
+				showStatus: (text) => statuses.push(text),
+				stop: vi.fn(async () => {}),
+			}),
+		).resolves.toBe(true);
+		await expect(
+			handleDPiConnectSlashCommand("/model anthropic/claude-sonnet-4", {
+				proxy,
+				showStatus: (text) => statuses.push(text),
+				stop: vi.fn(async () => {}),
+			}),
+		).resolves.toBe(true);
+
+		expect(proxy.reload).toHaveBeenCalled();
+		expect(proxy.setModel).toHaveBeenCalledWith("anthropic/claude-sonnet-4");
+		expect(proxy.prompt).not.toHaveBeenCalled();
+		expect(statuses).toEqual(["Reloaded", "Model: anthropic/claude-sonnet-4"]);
+	});
+
+	it("leaves unknown slash commands available for remote command handling", async () => {
+		const proxy = createProxy();
+
+		await expect(
+			handleDPiConnectSlashCommand("/unknown arg", {
+				proxy,
+				showStatus: vi.fn(),
+				stop: vi.fn(async () => {}),
+			}),
+		).resolves.toBe(false);
 	});
 });

@@ -16,6 +16,7 @@ import type {
 	ToolDefinition,
 } from "../extension/contracts.ts";
 import type { DPiRuntimeEvent } from "../runtime/events.ts";
+import type { DPiAgentMessage } from "../runtime/types.ts";
 import type { DPiInteractiveBannerData, DPiInteractiveRemoteSettings } from "../tui/interactive/agent-session-proxy.ts";
 
 export interface DPiWorkerAuthStorage {
@@ -530,7 +531,8 @@ export type DPiLocalAgentEvent =
 	| { type: "state"; data: DPiLocalAgentState }
 	| { type: "new" | "resume" | "fork"; data: DPiLocalAgentState }
 	| { type: "turn_stats"; data: Extract<DPiRuntimeEvent, { type: "turn_stats" }> }
-	| { type: "agent_end" | "compaction_end" | "compaction_start" | "turn_end" | "turn_start"; data?: unknown };
+	| { type: "agent_start" | "agent_end"; data: { type: "agent_start" } | { type: "agent_end" } }
+	| { type: "compaction_end" | "compaction_start" | "turn_end" | "turn_start"; data?: unknown };
 
 export interface DPiRegisteredTool {
 	name: string;
@@ -697,18 +699,20 @@ export class DPiAgentIpcServer {
 			const payload = isRecord(data) ? data : {};
 			const text = typeof payload.text === "string" ? payload.text : "";
 			if (action === "prompt") {
-				await this.proxy.prompt(text, { images: extractImages(payload.options) ?? extractImages(payload) });
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				void this.proxy
+					.prompt(text, { images: extractImages(payload.options) ?? extractImages(payload) })
+					.catch(() => {});
 				return;
 			}
 			if (action === "steer") {
-				await this.proxy.steer(text, extractImages(payload) ?? extractImages(payload.options));
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				void this.proxy.steer(text, extractImages(payload) ?? extractImages(payload.options)).catch(() => {});
 				return;
 			}
 			if (action === "follow-up") {
-				await this.proxy.followUp(text, extractImages(payload) ?? extractImages(payload.options));
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				void this.proxy.followUp(text, extractImages(payload) ?? extractImages(payload.options)).catch(() => {});
 				return;
 			}
 			if (action === "abort") {
@@ -779,6 +783,7 @@ export class DPiLocalAgentSessionProxy {
 	private readonly messages: DPiLocalAgentMessage[] = [];
 	private readonly importedSessionMessageIds = new Set<string>();
 	private readonly queued: DPiLocalQueueItem[] = [];
+	private streamingAssistantMessageId: string | undefined;
 	private banner: DPiInteractiveBannerData | undefined;
 	private streaming = false;
 	private thinking: ThinkingLevel | undefined;
@@ -903,20 +908,30 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	applyRuntimeEvent(event: DPiRuntimeEvent): void {
+		if (event.type === "agent_start") {
+			this.streaming = true;
+			this.streamingAssistantMessageId = undefined;
+			this.emit({ type: "agent_start", data: { type: "agent_start" } });
+			this.emitState();
+			return;
+		}
+		if (event.type === "agent_end") {
+			this.streaming = false;
+			this.emit({ type: "agent_end", data: { type: "agent_end" } });
+			this.emitState();
+			return;
+		}
 		if (event.type === "assistant_stream") {
-			this.streaming = !event.done;
+			if (!event.done) {
+				this.streaming = true;
+			}
 			if (event.done && event.message) {
 				this.updateTokenUsage(event);
-				this.recordSessionMessage(
-					{
-						id: nextGeneratedId("message"),
-						role: "assistant",
-						content: "content" in event.message ? event.message.content : "",
-						timestamp: Date.now(),
-					},
-					true,
-				);
+				this.upsertStreamingAssistantMessage(event.message, true);
 			} else {
+				if (event.message) {
+					this.upsertStreamingAssistantMessage(event.message, false);
+				}
 				this.emitState();
 			}
 			return;
@@ -1056,6 +1071,30 @@ export class DPiLocalAgentSessionProxy {
 			this.emit({ type: "message", data: message });
 			this.emitState();
 		}
+	}
+
+	private upsertStreamingAssistantMessage(message: DPiAgentMessage, emitEvents: boolean): void {
+		if (message.role !== "assistant") {
+			return;
+		}
+		const id = this.streamingAssistantMessageId ?? nextGeneratedId("message");
+		this.streamingAssistantMessageId = emitEvents ? undefined : id;
+		const localMessage: DPiLocalAgentMessage = {
+			id,
+			role: "assistant",
+			content: "content" in message ? message.content : "",
+			timestamp: message.timestamp ?? Date.now(),
+		};
+		const existingIndex = this.messages.findIndex((candidate) => candidate.id === id);
+		if (existingIndex >= 0) {
+			this.messages[existingIndex] = localMessage;
+		} else {
+			this.messages.push(localMessage);
+		}
+		if (emitEvents) {
+			this.emit({ type: "message", data: localMessage });
+		}
+		this.emitState();
 	}
 
 	private recordLocalInput(

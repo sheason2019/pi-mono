@@ -345,9 +345,9 @@ async function runAgentWorker(): Promise<void> {
 		});
 		agentRuntime.subscribe((event) => {
 			proxy?.applyRuntimeEvent(event);
-			if (event.type === "assistant_stream" && !event.done) {
+			if (event.type === "agent_start") {
 				postToHub({ type: "status_update", agentName, status: "busy" });
-			} else if (event.type === "assistant_stream" && event.done) {
+			} else if (event.type === "agent_end") {
 				postToHub({ type: "status_update", agentName, status: "ready" });
 			}
 		});

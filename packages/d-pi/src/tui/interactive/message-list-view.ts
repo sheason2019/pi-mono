@@ -11,6 +11,15 @@ export interface DPiInteractiveMessageListView {
 	text: string;
 }
 
+export interface DPiInteractiveStatusEntry {
+	afterMessageCount: number;
+	text: string;
+}
+
+export interface DPiInteractiveMessageListComponentOptions extends DPiInteractiveStyleOptions {
+	statusEntries?: readonly DPiInteractiveStatusEntry[];
+}
+
 export function buildDPiInteractiveMessageListView(
 	snapshot: DPiInteractiveSessionStateSnapshot,
 	options: DPiInteractiveStyleOptions = {},
@@ -27,12 +36,17 @@ export function buildDPiInteractiveMessageListView(
 
 export function buildDPiInteractiveMessageListComponent(
 	snapshot: DPiInteractiveSessionStateSnapshot,
-	options: DPiInteractiveStyleOptions = {},
+	options: DPiInteractiveMessageListComponentOptions = {},
 ): Container {
 	const container = new Container();
 	const theme = createDPiNativeTheme(options);
 	const markdownTheme = getDPiNativeMarkdownTheme(theme);
-	for (const message of snapshot.messages) {
+	const style = createDPiInteractiveStyle(options);
+	const addStatusEntry = (entry: DPiInteractiveStatusEntry): void => {
+		container.addChild(new Spacer(1));
+		container.addChild(new Text(style.dim(entry.text), 1, 0));
+	};
+	for (const [index, message] of snapshot.messages.entries()) {
 		const components = messageComponents(message, theme, markdownTheme);
 		if (message.role === "user" && components.length > 0 && container.children.length > 0) {
 			container.addChild(new Spacer(1));
@@ -40,13 +54,22 @@ export function buildDPiInteractiveMessageListComponent(
 		for (const component of components) {
 			container.addChild(component);
 		}
+		for (const entry of options.statusEntries ?? []) {
+			if (entry.afterMessageCount === index + 1) {
+				addStatusEntry(entry);
+			}
+		}
 	}
-	const style = createDPiInteractiveStyle(options);
 	for (const message of snapshot.steeringMessages) {
 		container.addChild(new Text(style.dim(`Steering: ${message}`), 1, 0));
 	}
 	for (const message of snapshot.followUpMessages) {
 		container.addChild(new Text(style.dim(`Follow-up: ${message}`), 1, 0));
+	}
+	for (const entry of options.statusEntries ?? []) {
+		if (entry.afterMessageCount > snapshot.messages.length) {
+			addStatusEntry(entry);
+		}
 	}
 	return container;
 }

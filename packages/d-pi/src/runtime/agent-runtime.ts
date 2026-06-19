@@ -399,6 +399,18 @@ export class DPiAgentRuntime {
 	}
 
 	private async handleHarnessEvent(event: DPiAgentHarnessEvent): Promise<void> {
+		if (event.type === "agent_start") {
+			this.turnStartedAt = Date.now();
+			await this.emit({ type: "agent_start", agentName: this.agentName });
+			return;
+		}
+		if (event.type === "agent_end") {
+			await this.emit({ type: "agent_end", agentName: this.agentName });
+			if ("messages" in event) {
+				await this.emitTurnStats(event.messages as DPiAgentMessage[]);
+			}
+			return;
+		}
 		const runtimeEvent = this.normalizeHarnessEvent(event);
 		if (!runtimeEvent) {
 			return;
@@ -412,25 +424,37 @@ export class DPiAgentRuntime {
 			return;
 		}
 		await this.emit(runtimeEvent);
-		if (runtimeEvent.type === "assistant_stream" && runtimeEvent.message && runtimeEvent.done) {
-			await this.emitTurnStats(runtimeEvent.message);
-		}
 	}
 
-	private async emitTurnStats(message: DPiAgentMessage): Promise<void> {
-		if (message.role !== "assistant") {
+	private async emitTurnStats(messages: DPiAgentMessage[]): Promise<void> {
+		if (this.turnStartedAt === undefined) {
 			return;
 		}
-		const duration = Math.max(0.1, ((message.timestamp ?? Date.now()) - (this.turnStartedAt ?? Date.now())) / 1000);
+		const duration = (Date.now() - this.turnStartedAt) / 1000;
+		this.turnStartedAt = undefined;
+		let input = 0;
+		let output = 0;
+		let cacheRead = 0;
+		let cacheWrite = 0;
+		for (const message of messages) {
+			if (message.role !== "assistant") {
+				continue;
+			}
+			input += message.usage.input;
+			output += message.usage.output;
+			cacheRead += message.usage.cacheRead;
+			cacheWrite += message.usage.cacheWrite;
+		}
+		const total = input + output + cacheRead + cacheWrite;
 		await this.emit({
 			type: "turn_stats",
 			agentName: this.agentName,
-			tps: message.usage.output / duration,
-			output: message.usage.output,
-			input: message.usage.input,
-			cacheRead: message.usage.cacheRead,
-			cacheWrite: message.usage.cacheWrite,
-			total: message.usage.totalTokens,
+			tps: duration > 0 ? output / duration : 0,
+			output,
+			input,
+			cacheRead,
+			cacheWrite,
+			total,
 			duration,
 		});
 	}

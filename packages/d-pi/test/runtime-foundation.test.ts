@@ -275,7 +275,7 @@ describe("d-pi runtime foundation", () => {
 		expect(events).toEqual([{ type: "error", agentName: "root", error }]);
 	});
 
-	it("emits native-style turn stats when an assistant message ends", async () => {
+	it("emits native-style turn stats at agent end from all assistant messages in the run", async () => {
 		const workspaceRoot = createTempWorkspace();
 		const fakeHarness = new FakeHarness();
 		const runtime = await createRuntime(workspaceRoot, fakeHarness);
@@ -284,7 +284,8 @@ describe("d-pi runtime foundation", () => {
 			events.push(event);
 		});
 
-		await runtime.prompt("hello", { mode: "next" });
+		fakeHarness.emit({ type: "agent_start" });
+		expect(events.at(-1)).toMatchObject({ type: "agent_start", agentName: "root" });
 		fakeHarness.emit({
 			type: "message_end",
 			message: {
@@ -298,22 +299,63 @@ describe("d-pi runtime foundation", () => {
 					output: 300,
 					cacheRead: 800,
 					cacheWrite: 100,
-					totalTokens: 2400,
+					totalTokens: 999999,
 					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.123 },
 				},
 				stopReason: "stop",
 				timestamp: Date.now(),
 			},
 		});
+		expect(events.some((event) => event.type === "turn_stats")).toBe(false);
+		fakeHarness.emit({
+			type: "agent_end",
+			messages: [
+				{
+					role: "assistant",
+					content: [{ type: "text", text: "ok" }],
+					api: "anthropic-messages",
+					provider: "anthropic",
+					model: "claude-sonnet-4-5",
+					usage: {
+						input: 1200,
+						output: 300,
+						cacheRead: 800,
+						cacheWrite: 100,
+						totalTokens: 999999,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.123 },
+					},
+					stopReason: "stop",
+					timestamp: Date.now(),
+				},
+				{
+					role: "assistant",
+					content: [{ type: "text", text: "second" }],
+					api: "anthropic-messages",
+					provider: "anthropic",
+					model: "claude-sonnet-4-5",
+					usage: {
+						input: 10,
+						output: 20,
+						cacheRead: 30,
+						cacheWrite: 40,
+						totalTokens: 999999,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.001 },
+					},
+					stopReason: "stop",
+					timestamp: Date.now(),
+				},
+			],
+		});
 		await new Promise<void>((resolve) => setImmediate(resolve));
 
+		expect(events.some((event) => event.type === "agent_end")).toBe(true);
 		expect(events.find((event) => event.type === "turn_stats")).toMatchObject({
 			type: "turn_stats",
-			input: 1200,
-			output: 300,
-			cacheRead: 800,
-			cacheWrite: 100,
-			total: 2400,
+			input: 1210,
+			output: 320,
+			cacheRead: 830,
+			cacheWrite: 140,
+			total: 2500,
 		});
 	});
 

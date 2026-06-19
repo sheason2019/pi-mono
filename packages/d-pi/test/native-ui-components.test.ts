@@ -1,5 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { Spacer } from "@earendil-works/pi-tui";
+import { Spacer, Text } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import type { DPiInteractiveSessionStateSnapshot } from "../src/tui/interactive/agent-session-proxy.ts";
 import { buildDPiInteractiveMessageListComponent } from "../src/tui/interactive/message-list-view.ts";
@@ -122,5 +122,37 @@ describe("d-pi native interactive components", () => {
 		expect(component.children[1]).toBeInstanceOf(DPiNativeAssistantMessageComponent);
 		expect(component.children[2]).toBeInstanceOf(Spacer);
 		expect(component.children[3]).toBeInstanceOf(DPiNativeUserMessageComponent);
+	});
+
+	it("appends turn stats to the native chat stream instead of the separate working-status container", () => {
+		const component = buildDPiInteractiveMessageListComponent(snapshot(), {
+			statusEntries: [{ afterMessageCount: 2, text: "TPS 10.0 tok/s, out 1, in 2, total 3, 0.1s" }],
+		});
+
+		expect(component.children[2]).toBeInstanceOf(Spacer);
+		expect(component.children[3]).toBeInstanceOf(Text);
+		expect(component.render(80).join("\n")).toContain("TPS 10.0 tok/s");
+	});
+
+	it("keeps turn stats attached to the assistant turn they were produced for", () => {
+		const state = {
+			...snapshot(),
+			messages: [
+				{ role: "user" as const, content: [{ type: "text" as const, text: "First" }], timestamp: 1 },
+				assistantMessage,
+				{ role: "user" as const, content: [{ type: "text" as const, text: "Second" }], timestamp: 3 },
+			],
+		};
+		const component = buildDPiInteractiveMessageListComponent(state, {
+			statusEntries: [{ afterMessageCount: 2, text: "TPS first turn" }],
+		});
+
+		expect(component.children[0]).toBeInstanceOf(DPiNativeUserMessageComponent);
+		expect(component.children[1]).toBeInstanceOf(DPiNativeAssistantMessageComponent);
+		expect(component.children[2]).toBeInstanceOf(Spacer);
+		expect(component.children[3]).toBeInstanceOf(Text);
+		expect(component.children[4]).toBeInstanceOf(Spacer);
+		expect(component.children[5]).toBeInstanceOf(DPiNativeUserMessageComponent);
+		expect(component.render(80).join("\n")).toContain("TPS first turn");
 	});
 });

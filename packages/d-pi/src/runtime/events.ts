@@ -10,6 +10,16 @@ import type {
 	DPiToolStatus,
 } from "./types.ts";
 
+export interface DPiAgentRunStartEvent {
+	type: "agent_start";
+	agentName: string;
+}
+
+export interface DPiAgentRunEndEvent {
+	type: "agent_end";
+	agentName: string;
+}
+
 export interface DPiAssistantStreamEvent {
 	type: "assistant_stream";
 	agentName: string;
@@ -98,6 +108,8 @@ export interface DPiErrorEvent {
 }
 
 export type DPiRuntimeEvent =
+	| DPiAgentRunStartEvent
+	| DPiAgentRunEndEvent
 	| DPiAssistantStreamEvent
 	| DPiCustomMessageEvent
 	| DPiToolStartEvent

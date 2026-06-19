@@ -702,6 +702,30 @@ describe("worker runtime adapter", () => {
 		}
 	});
 
+	it("acks long-running prompt actions immediately and leaves progress to SSE", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		proxy.prompt = async () => {
+			await new Promise(() => {});
+		};
+		const harness = createIpcHarness(proxy);
+		try {
+			harness.transport.emit({
+				type: "http_request",
+				requestId: "prompt-ack",
+				action: "prompt",
+				data: { text: "slow" },
+			});
+			await waitFor(() => harness.responses.some((response) => response.requestId === "prompt-ack"));
+
+			expect(harness.responses.find((response) => response.requestId === "prompt-ack")).toMatchObject({
+				status: 200,
+				body: { ok: true },
+			});
+		} finally {
+			harness.server.stop();
+		}
+	});
+
 	it("imports assistant messages from runtime events instead of fabricating local acknowledgements", async () => {
 		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
 		const harness = createIpcHarness(proxy);
@@ -749,6 +773,119 @@ describe("worker runtime adapter", () => {
 
 			expect(JSON.stringify(state.body)).toContain("real runtime response");
 			expect(JSON.stringify(state.body)).not.toContain("d-pi local runtime accepted");
+		} finally {
+			harness.server.stop();
+		}
+	});
+
+	it("forwards native agent start and end events so connect mode can show the working loader immediately", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		const harness = createIpcHarness(proxy);
+		try {
+			harness.transport.emit({ type: "sse_subscribe", subscriberId: "sub-runtime" });
+			await waitFor(() =>
+				harness.events.some((event) => event.subscriberId === "sub-runtime" && event.event === "state"),
+			);
+
+			proxy.applyRuntimeEvent({ type: "agent_start", agentName: "root" });
+			await waitFor(() =>
+				harness.events.some((event) => event.subscriberId === "sub-runtime" && event.event === "agent_start"),
+			);
+			let state = await queryIpc(harness, "state-agent-start", "state");
+			expect(state.body).toMatchObject({ streaming: true, agent: { status: "busy" } });
+
+			proxy.applyRuntimeEvent({
+				type: "assistant_stream",
+				agentName: "root",
+				done: true,
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "still in turn" }],
+					api: "anthropic-messages",
+					provider: "anthropic",
+					model: "claude-sonnet-4",
+					stopReason: "stop",
+					usage: {
+						input: 1,
+						output: 1,
+						cacheRead: 0,
+						cacheWrite: 0,
+						totalTokens: 2,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+					},
+					timestamp: 1,
+				},
+			});
+			state = await queryIpc(harness, "state-assistant-done", "state");
+			expect(state.body).toMatchObject({ streaming: true, agent: { status: "busy" } });
+
+			proxy.applyRuntimeEvent({ type: "agent_end", agentName: "root" });
+			await waitFor(() =>
+				harness.events.some((event) => event.subscriberId === "sub-runtime" && event.event === "agent_end"),
+			);
+			state = await queryIpc(harness, "state-agent-end", "state");
+			expect(state.body).toMatchObject({ streaming: false, agent: { status: "ready" } });
+		} finally {
+			harness.server.stop();
+		}
+	});
+
+	it("keeps the streaming assistant message visible and updates it in place before agent end", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		const harness = createIpcHarness(proxy);
+		try {
+			proxy.applyRuntimeEvent({ type: "agent_start", agentName: "root" });
+			proxy.applyRuntimeEvent({
+				type: "assistant_stream",
+				agentName: "root",
+				done: false,
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "partial" }],
+					api: "anthropic-messages",
+					provider: "anthropic",
+					model: "claude-sonnet-4",
+					stopReason: "stop",
+					usage: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						totalTokens: 0,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+					},
+					timestamp: 1,
+				},
+			});
+			let state = await queryIpc(harness, "state-streaming-partial", "state");
+			expect(JSON.stringify(state.body)).toContain("partial");
+
+			proxy.applyRuntimeEvent({
+				type: "assistant_stream",
+				agentName: "root",
+				done: false,
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "partial updated" }],
+					api: "anthropic-messages",
+					provider: "anthropic",
+					model: "claude-sonnet-4",
+					stopReason: "stop",
+					usage: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						totalTokens: 0,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+					},
+					timestamp: 2,
+				},
+			});
+			state = await queryIpc(harness, "state-streaming-updated", "state");
+			const body = JSON.stringify(state.body);
+			expect(body).toContain("partial updated");
+			expect(body.match(/"role":"assistant"/g)).toHaveLength(1);
 		} finally {
 			harness.server.stop();
 		}

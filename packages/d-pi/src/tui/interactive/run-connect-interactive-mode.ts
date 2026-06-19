@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { Container, Editor, ProcessTerminal, type Terminal, Text, TUI } from "@earendil-works/pi-tui";
+import { Container, ProcessTerminal, setKeybindings, type Terminal, Text, TUI } from "@earendil-works/pi-tui";
+import { DPiNativeCustomEditor } from "../native/components/custom-editor.ts";
 import { DPiNativeStatusContainer } from "../native/components/status-container.ts";
+import { createDPiNativeKeybindings } from "../native/keybindings.ts";
 import { createDPiNativeTheme, getDPiNativeEditorTheme } from "../native/theme/theme.ts";
 import type {
 	DPiInteractiveAgentSessionProxy,
@@ -11,7 +13,11 @@ import type {
 } from "./agent-session-proxy.ts";
 import { buildDPiInteractiveBannerView } from "./banner-view.ts";
 import { buildDPiInteractiveFooterView } from "./footer-view.ts";
-import { buildDPiInteractiveMessageListComponent, buildDPiInteractiveStatusView } from "./message-list-view.ts";
+import {
+	buildDPiInteractiveMessageListComponent,
+	buildDPiInteractiveStatusView,
+	type DPiInteractiveStatusEntry,
+} from "./message-list-view.ts";
 import { createDPiInteractiveRemoteAgentSessionProxy } from "./remote-agent-session-proxy.ts";
 import { submitDPiInteractiveEditorText } from "./submit.ts";
 
@@ -36,6 +42,69 @@ export interface DPiConnectStartupBannerEnv {
 	DPI_NATIVE_PI_VERSION?: string;
 }
 
+export interface DPiConnectSlashCommandHandlers {
+	proxy: DPiInteractiveAgentSessionProxy;
+	showStatus(text: string): void;
+	stop(): Promise<void>;
+}
+
+export async function handleDPiConnectSlashCommand(
+	text: string,
+	handlers: DPiConnectSlashCommandHandlers,
+): Promise<boolean> {
+	if (!text.startsWith("/")) {
+		return false;
+	}
+	const command = text.split(" ")[0] ?? text;
+	const arg = text.slice(command.length + 1).trim() || undefined;
+	const { proxy, showStatus, stop } = handlers;
+	switch (command) {
+		case "/quit":
+			await stop();
+			return true;
+		case "/compact":
+			await proxy.compact();
+			return true;
+		case "/model":
+			if (arg) {
+				proxy.setModel(arg);
+				showStatus(`Model: ${arg}`);
+			} else {
+				showStatus("Model selector not available in d-pi connect yet");
+			}
+			return true;
+		case "/new":
+			await proxy.newSession();
+			return true;
+		case "/clone":
+			await proxy.fork();
+			return true;
+		case "/name":
+			if (arg) {
+				proxy.renameSession(arg);
+				showStatus(`Session renamed to: ${arg}`);
+			} else {
+				showStatus("Usage: /name <session-name>");
+			}
+			return true;
+		case "/reload":
+			await proxy.reload();
+			showStatus("Reloaded");
+			return true;
+		case "/export":
+		case "/import":
+		case "/share":
+			showStatus("Not available in connect mode");
+			return true;
+		case "/login":
+		case "/logout":
+			showStatus("Not available in connect mode - configure auth on the server");
+			return true;
+		default:
+			return false;
+	}
+}
+
 export async function runDPiConnectInteractiveMode(
 	options: RunDPiConnectInteractiveModeOptions,
 ): Promise<DPiConnectInteractiveModeHandle> {
@@ -43,11 +112,13 @@ export async function runDPiConnectInteractiveMode(
 	const terminal = options.terminal ?? new ProcessTerminal();
 	const tui = new TUI(terminal);
 	const nativeTheme = createDPiNativeTheme({ color: true });
+	const keybindings = createDPiNativeKeybindings();
+	setKeybindings(keybindings);
 	const banner = new Text("", 0, 0);
 	const messages = new Container();
 	const status = new DPiNativeStatusContainer(tui, nativeTheme);
 	const footer = new Text("", 0, 0);
-	const editor = new Editor(tui, getDPiNativeEditorTheme(nativeTheme));
+	const editor = new DPiNativeCustomEditor(tui, getDPiNativeEditorTheme(nativeTheme), keybindings);
 	const root = new Container();
 	root.addChild(banner);
 	root.addChild(messages);
@@ -65,7 +136,15 @@ export async function runDPiConnectInteractiveMode(
 			fetch: options.fetch,
 		}));
 	const errors: string[] = [];
+	const turnStatusEntries: DPiInteractiveStatusEntry[] = [];
 	const gitBranch = options.gitBranch ?? readDPiConnectGitBranch(process.cwd());
+	const stop = async (): Promise<void> => {
+		unsubscribe();
+		unsubscribeStatus();
+		status.dispose();
+		proxy.disconnect?.();
+		tui.stop();
+	};
 
 	const render = () => {
 		const snapshot = proxy.getSnapshot();
@@ -77,7 +156,12 @@ export async function runDPiConnectInteractiveMode(
 		);
 		const errorText = errors.length === 0 ? "" : `\n\nErrors:\n${errors.map((error) => `- ${error}`).join("\n")}`;
 		messages.clear();
-		messages.addChild(buildDPiInteractiveMessageListComponent(messageSnapshot, { color: true }));
+		messages.addChild(
+			buildDPiInteractiveMessageListComponent(messageSnapshot, {
+				color: true,
+				statusEntries: turnStatusEntries,
+			}),
+		);
 		if (errorText) {
 			messages.addChild(new Text(errorText, 1, 0));
 		}
@@ -94,36 +178,70 @@ export async function runDPiConnectInteractiveMode(
 		terminal.setProgress(snapshot.isStreaming || snapshot.isBashRunning || snapshot.isCompacting);
 		tui.requestRender();
 	};
-
+	const showChatStatus = (text: string): void => {
+		const afterMessageCount = proxy.getSnapshot().messages.length;
+		const last = turnStatusEntries[turnStatusEntries.length - 1];
+		if (last?.afterMessageCount === afterMessageCount) {
+			last.text = text;
+		} else {
+			turnStatusEntries.push({ afterMessageCount, text });
+		}
+		render();
+	};
 	const unsubscribe = proxy.subscribe(render);
 	const unsubscribeStatus = proxy.subscribe((event) => {
-		if (event.type === "turn_stats") {
-			status.showStatus(buildDPiInteractiveStatusView({ isStreaming: false }, event).text);
+		if (event.type === "session_replaced") {
+			turnStatusEntries.splice(0, turnStatusEntries.length);
 			render();
+			return;
+		}
+		if (event.type === "turn_stats") {
+			const text = buildDPiInteractiveStatusView({ isStreaming: false }, event, { color: false }).text;
+			showChatStatus(text);
 		}
 	});
 	editor.onSubmit = (text) => {
+		const trimmed = text.trim();
+		if (trimmed.startsWith("/")) {
+			void handleDPiConnectSlashCommand(trimmed, { proxy, showStatus: showChatStatus, stop }).then((handled) => {
+				if (!handled) {
+					void submitDPiInteractiveEditorText(proxy, trimmed, (error) => {
+						errors.push(error instanceof Error ? error.message : String(error));
+						render();
+					});
+				}
+			});
+			return;
+		}
 		void submitDPiInteractiveEditorText(proxy, text, (error) => {
 			errors.push(error instanceof Error ? error.message : String(error));
 			render();
 		});
 	};
+	editor.onEscape = () => proxy.abort();
+	editor.onCtrlD = () => {
+		void stop();
+	};
+	editor.onAction("app.message.followUp", () => {
+		const text = editor.getText().trim();
+		if (!text) {
+			return;
+		}
+		editor.addToHistory?.(text);
+		editor.setText("");
+		proxy.followUp(text);
+	});
 
 	await proxy.connect?.();
 	render();
 	tui.start();
 
-	return {
+	const handle: DPiConnectInteractiveModeHandle = {
 		tui,
 		proxy,
-		stop: async () => {
-			unsubscribe();
-			unsubscribeStatus();
-			status.dispose();
-			proxy.disconnect?.();
-			tui.stop();
-		},
+		stop,
 	};
+	return handle;
 }
 
 export function createDPiConnectFooterSnapshot(
