@@ -56,6 +56,7 @@ export interface RunDPiConnectInteractiveModeOptions {
 	terminal?: Terminal;
 	proxy?: DPiInteractiveAgentSessionProxy & { connect?(): Promise<void>; disconnect?(): void };
 	gitBranch?: string | null;
+	exit?: (code: number) => void;
 }
 
 export interface DPiConnectInteractiveModeHandle {
@@ -138,28 +139,28 @@ export interface DPiConnectHistoryEditor {
 }
 
 const DPI_CONNECT_FALLBACK_SLASH_COMMANDS: readonly SlashCommand[] = [
-	{ name: "settings", description: "Open settings" },
-	{ name: "model", description: "Switch model (e.g. /model provider/model-id)", argumentHint: "<provider/model-id>" },
-	{ name: "scoped-models", description: "Configure model cycling for this session" },
-	{ name: "compact", description: "Manually compact the session context" },
-	{ name: "new", description: "Start a new session" },
-	{ name: "fork", description: "Fork from a user message" },
-	{ name: "clone", description: "Duplicate the current session at the current position" },
-	{ name: "tree", description: "Open session tree" },
-	{ name: "resume", description: "Resume a previous session" },
+	{ name: "settings", description: "Open settings menu" },
+	{ name: "model", description: "Select model (opens selector UI)" },
+	{ name: "scoped-models", description: "Enable/disable models for Ctrl+P cycling" },
+	{ name: "export", description: "Export session (HTML default, or specify path: .html/.jsonl)" },
+	{ name: "import", description: "Import and resume a session from a JSONL file" },
+	{ name: "share", description: "Share session as a secret GitHub gist" },
+	{ name: "copy", description: "Copy last agent message to clipboard" },
 	{ name: "name", description: "Set session display name", argumentHint: "<session-name>" },
-	{ name: "copy", description: "Copy the last assistant message" },
-	{ name: "session", description: "Show session information" },
-	{ name: "changelog", description: "Show changelog" },
-	{ name: "hotkeys", description: "Show hotkeys" },
-	{ name: "trust", description: "Trust current project" },
-	{ name: "reload", description: "Reload resources" },
-	{ name: "quit", description: "Quit" },
-	{ name: "export", description: "Not available in connect mode" },
-	{ name: "import", description: "Not available in connect mode" },
-	{ name: "share", description: "Not available in connect mode" },
-	{ name: "login", description: "Not available in connect mode" },
-	{ name: "logout", description: "Not available in connect mode" },
+	{ name: "session", description: "Show session info and stats" },
+	{ name: "changelog", description: "Show changelog entries" },
+	{ name: "hotkeys", description: "Show all keyboard shortcuts" },
+	{ name: "fork", description: "Create a new fork from a previous user message" },
+	{ name: "clone", description: "Duplicate the current session at the current position" },
+	{ name: "tree", description: "Navigate session tree (switch branches)" },
+	{ name: "trust", description: "Save project trust decision for future sessions" },
+	{ name: "login", description: "Configure provider authentication" },
+	{ name: "logout", description: "Remove provider authentication" },
+	{ name: "new", description: "Start a new session" },
+	{ name: "compact", description: "Manually compact the session context" },
+	{ name: "resume", description: "Resume a different session" },
+	{ name: "reload", description: "Reload keybindings, extensions, skills, prompts, and themes" },
+	{ name: "quit", description: "Quit pi" },
 ];
 
 class DPiConnectSelectComponent extends Container {
@@ -757,13 +758,14 @@ function hotkeysPanelText(): string {
 		"escape interrupt/cancel",
 		"ctrl+c clear; ctrl+c twice exit",
 		"ctrl+d exit when editor is empty",
-		"ctrl+n/ctrl+p cycle models",
-		"ctrl+m select model",
-		"ctrl+t cycle thinking",
+		"shift+tab cycle thinking level",
+		"ctrl+p/shift+ctrl+p cycle models",
+		"ctrl+l select model",
 		"ctrl+o expand tools",
-		"ctrl+r expand thinking",
-		"ctrl+x external editor",
-		"ctrl+j queue follow-up",
+		"ctrl+t expand thinking",
+		"ctrl+g external editor",
+		"alt+enter queue follow-up",
+		"alt+up edit all queued messages",
 		"/ open commands",
 		"! run bash (not available in connect mode)",
 	].join("\n");
@@ -990,12 +992,28 @@ export async function runDPiConnectInteractiveMode(
 	const gitBranch = options.gitBranch ?? readDPiConnectGitBranch(process.cwd());
 	let lastCtrlCTime = 0;
 	let toolsExpanded = false;
+	let stopped = false;
+	let shuttingDown = false;
 	const stop = async (): Promise<void> => {
+		if (stopped) {
+			return;
+		}
+		stopped = true;
 		unsubscribe();
 		unsubscribeStatus();
 		status.dispose();
 		proxy.disconnect?.();
+		terminal.setProgress(false);
 		tui.stop();
+	};
+	const shutdown = async (): Promise<void> => {
+		if (shuttingDown) {
+			return;
+		}
+		shuttingDown = true;
+		await terminal.drainInput(1000);
+		await stop();
+		(options.exit ?? process.exit)(0);
 	};
 
 	const render = () => {
@@ -1003,8 +1021,10 @@ export async function runDPiConnectInteractiveMode(
 		const messageSnapshot = createDPiConnectMessageSnapshot(snapshot);
 		const footerSnapshot = createDPiConnectFooterSnapshot(snapshot, process.cwd(), process.env);
 		banner.setText(
-			buildDPiInteractiveBannerView(createDPiConnectStartupBanner(process.cwd(), snapshot.banner), { color: true })
-				.text,
+			buildDPiInteractiveBannerView(createDPiConnectStartupBanner(process.cwd(), snapshot.banner), {
+				color: true,
+				expanded: toolsExpanded,
+			}).text,
 		);
 		const errorText = errors.length === 0 ? "" : `\n\nErrors:\n${errors.map((error) => `- ${error}`).join("\n")}`;
 		messages.clear();
@@ -1053,7 +1073,7 @@ export async function runDPiConnectInteractiveMode(
 			fetch: options.fetch,
 			currentAgentName: new URL(options.agentUrl).pathname.split("/").filter(Boolean).map(decodeURIComponent).at(-1),
 			showStatus: showChatStatus,
-			stop,
+			stop: shutdown,
 		});
 	};
 	const showSourcesSelector = async (): Promise<void> => {
@@ -1184,7 +1204,7 @@ export async function runDPiConnectInteractiveMode(
 				copyLastAssistantMessage,
 				refreshAutocomplete,
 				showStatus: showChatStatus,
-				stop,
+				stop: shutdown,
 			}).then((handled) => {
 				if (!handled) {
 					void submitDPiInteractiveEditorText(proxy, trimmed, (error) => {
@@ -1205,15 +1225,16 @@ export async function runDPiConnectInteractiveMode(
 	editor.onAction("app.clear", () => {
 		const now = Date.now();
 		if (now - lastCtrlCTime < 500) {
-			void stop();
+			void shutdown();
 			return;
 		}
 		editor.setText("");
 		lastCtrlCTime = now;
+		status.showStatus("Press ctrl+c again to exit");
 		render();
 	});
 	editor.onCtrlD = () => {
-		void stop();
+		void shutdown();
 	};
 	editor.onAction("app.message.followUp", () => {
 		const text = editor.getText().trim();
@@ -1370,17 +1391,17 @@ function createNativePiBannerBase(env: DPiConnectStartupBannerEnv): DPiInteracti
 			{ key: "ctrl+d", description: "to exit (empty)" },
 			{ key: "ctrl+z", description: "to suspend" },
 			{ key: "ctrl+k", description: "to delete to end" },
-			{ key: "ctrl+t", description: "to cycle thinking level" },
-			{ key: "ctrl+n/ctrl+p", description: "to cycle models" },
-			{ key: "ctrl+m", description: "to select model" },
+			{ key: "shift+tab", description: "to cycle thinking level" },
+			{ key: "ctrl+p/shift+ctrl+p", description: "to cycle models" },
+			{ key: "ctrl+l", description: "to select model" },
 			{ key: "ctrl+o", description: "to expand tools" },
-			{ key: "ctrl+r", description: "to expand thinking" },
-			{ key: "ctrl+x", description: "for external editor" },
+			{ key: "ctrl+t", description: "to expand thinking" },
+			{ key: "ctrl+g", description: "for external editor" },
 			{ key: "/", description: "for commands" },
 			{ key: "!", description: "to run bash" },
 			{ key: "!!", description: "to run bash (no context)" },
-			{ key: "ctrl+j", description: "to queue follow-up" },
-			{ key: "ctrl+q", description: "to edit all queued messages" },
+			{ key: "alt+enter", description: "to queue follow-up" },
+			{ key: "alt+up", description: "to edit all queued messages" },
 			{ key: "ctrl+v", description: "to paste image" },
 			{ key: "drop files", description: "to attach" },
 		],

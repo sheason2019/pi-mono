@@ -169,7 +169,11 @@ describe("d-pi interactive view parity components", () => {
 		const view = buildDPiInteractiveBannerView({
 			appName: "pi",
 			version: "0.79.6",
-			expandedHints: [],
+			expandedHints: [
+				{ key: "escape", description: "to interrupt" },
+				{ key: "ctrl+c", description: "to clear" },
+				{ key: "ctrl+c twice", description: "to exit" },
+			],
 			compactHints: [
 				{ key: "escape", description: "interrupt" },
 				{ key: "ctrl+c/ctrl+d", description: "clear/exit" },
@@ -214,11 +218,53 @@ describe("d-pi interactive view parity components", () => {
 
 		expect(view.text).toContain("\n pi v0.79.6\n");
 		expect(view.text).toContain("escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more");
+		expect(view.text).not.toContain("ctrl+c twice to exit");
 		expect(view.text).toContain("[Context]\n  ~/workspace/AGENTS.md, ~/workspace/project/AGENTS.md");
 		expect(view.text).toContain("[Skills]\n  tmux, using-superpowers");
 		expect(view.text).toContain('[Skill conflicts]\n  "using-superpowers" collision:');
 		expect(view.text).toContain("    ✓ auto (user) ~/.agents/skills/superpowers/using-superpowers/SKILL.md");
 		expect(view.text).toContain("    ✗ ~/.agents/skills/using-superpowers/SKILL.md (skipped)");
+	});
+
+	it("renders expanded startup hints like native when tools are expanded", () => {
+		const view = buildDPiInteractiveBannerView(
+			{
+				appName: "pi",
+				version: "0.79.6",
+				expandedHints: [
+					{ key: "escape", description: "to interrupt" },
+					{ key: "ctrl+c", description: "to clear" },
+					{ key: "ctrl+c twice", description: "to exit" },
+					{ key: "ctrl+d", description: "to exit (empty)" },
+					{ key: "shift+tab", description: "to cycle thinking level" },
+					{ key: "ctrl+p/shift+ctrl+p", description: "to cycle models" },
+					{ key: "ctrl+l", description: "to select model" },
+					{ key: "ctrl+t", description: "to expand thinking" },
+					{ key: "ctrl+g", description: "for external editor" },
+					{ key: "alt+enter", description: "to queue follow-up" },
+					{ key: "alt+up", description: "to edit all queued messages" },
+				],
+				compactHints: [
+					{ key: "escape", description: "interrupt" },
+					{ key: "ctrl+c/ctrl+d", description: "clear/exit" },
+				],
+				compactOnboarding: "Press ctrl+o to show full startup help and loaded resources.",
+				onboarding: "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
+				loadedResources: [],
+				diagnostics: [],
+				changelogMarkdown: undefined,
+			},
+			{ expanded: true },
+		);
+
+		expect(view.text).toContain("escape to interrupt\n ctrl+c to clear\n ctrl+c twice to exit");
+		expect(view.text).toContain("ctrl+p/shift+ctrl+p to cycle models");
+		expect(view.text).toContain("ctrl+l to select model");
+		expect(view.text).toContain("alt+enter to queue follow-up");
+		expect(view.text).not.toContain("ctrl+c/ctrl+d clear/exit");
+		expect(view.text).not.toContain("ctrl+n/ctrl+p");
+		expect(view.text).not.toContain("ctrl+m");
+		expect(view.text).not.toContain("Press ctrl+o to show full startup help and loaded resources.");
 	});
 
 	// Parity marker: footer-status:runtime-status-footer

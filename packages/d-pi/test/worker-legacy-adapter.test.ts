@@ -367,6 +367,27 @@ describe("worker runtime adapter", () => {
 		expect(banner.compactHints.map((hint) => `${hint.key} ${hint.description}`).join(" · ")).toBe(
 			"escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
 		);
+		expect(banner.expandedHints.map((hint) => `${hint.key} ${hint.description}`)).toEqual([
+			"escape to interrupt",
+			"ctrl+c to clear",
+			"ctrl+c twice to exit",
+			"ctrl+d to exit (empty)",
+			"ctrl+z to suspend",
+			"ctrl+k to delete to end",
+			"shift+tab to cycle thinking level",
+			"ctrl+p/shift+ctrl+p to cycle models",
+			"ctrl+l to select model",
+			"ctrl+o to expand tools",
+			"ctrl+t to expand thinking",
+			"ctrl+g for external editor",
+			"/ for commands",
+			"! to run bash",
+			"!! to run bash (no context)",
+			"alt+enter to queue follow-up",
+			"alt+up to edit all queued messages",
+			"ctrl+v to paste image",
+			"drop files to attach",
+		]);
 		expect(banner.compactOnboarding).toBe("Press ctrl+o to show full startup help and loaded resources.");
 		expect(banner.onboarding).toBe(
 			"Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",

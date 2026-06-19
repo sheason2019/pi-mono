@@ -5,15 +5,21 @@ export interface DPiInteractiveBannerView {
 	text: string;
 }
 
+export interface DPiInteractiveBannerViewOptions extends DPiInteractiveStyleOptions {
+	expanded?: boolean;
+}
+
 export function buildDPiInteractiveBannerView(
 	banner: DPiInteractiveBannerData | undefined,
-	options: DPiInteractiveStyleOptions = {},
+	options: DPiInteractiveBannerViewOptions = {},
 ): DPiInteractiveBannerView {
 	if (!banner) {
 		return { text: "" };
 	}
 	const style = createDPiInteractiveStyle(options);
-	const hints = style.dim(banner.compactHints.map((hint) => `${hint.key} ${hint.description}`).join(" · "));
+	const hints = options.expanded
+		? style.dim(banner.expandedHints.map((hint) => `${hint.key} ${hint.description}`).join("\n "))
+		: style.dim(banner.compactHints.map((hint) => `${hint.key} ${hint.description}`).join(" · "));
 	const resources = banner.loadedResources.flatMap((section) => [
 		style.heading(`[${section.name}]`),
 		style.dim(`  ${section.compactList}`),
@@ -29,7 +35,7 @@ export function buildDPiInteractiveBannerView(
 			"",
 			` ${style.accent(banner.appName)}${style.dim(` v${banner.version}`)}`,
 			` ${hints}`,
-			` ${style.dim(banner.compactOnboarding)}`,
+			options.expanded ? undefined : ` ${style.dim(banner.compactOnboarding)}`,
 			"",
 			` ${style.dim(banner.onboarding)}`,
 			"",

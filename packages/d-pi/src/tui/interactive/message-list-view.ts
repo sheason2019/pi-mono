@@ -72,7 +72,10 @@ export function buildDPiInteractiveMessageListComponent(
 		container.addChild(new Text(style.dim(`Follow-up: ${message}`), 1, 0));
 	}
 	for (const entry of options.statusEntries ?? []) {
-		if (entry.afterMessageCount > snapshot.messages.length) {
+		if (
+			entry.afterMessageCount > snapshot.messages.length ||
+			(snapshot.messages.length === 0 && entry.afterMessageCount === 0)
+		) {
 			addStatusEntry(entry);
 		}
 	}

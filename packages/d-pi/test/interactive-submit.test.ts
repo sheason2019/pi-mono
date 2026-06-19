@@ -15,6 +15,7 @@ import {
 	handleDPiConnectBashInput,
 	handleDPiConnectSlashCommand,
 	recordDPiConnectPromptHistory,
+	runDPiConnectInteractiveMode,
 	showDPiConnectAgentSelector,
 } from "../src/tui/interactive/run-connect-interactive-mode.ts";
 import { submitDPiInteractiveEditorText } from "../src/tui/interactive/submit.ts";
@@ -26,13 +27,22 @@ class TestTerminal implements Terminal {
 	readonly columns = 100;
 	readonly rows = 30;
 	readonly kittyProtocolActive = false;
+	stopCalls = 0;
+	drainInputCalls = 0;
+	readonly writes: string[] = [];
 	private onInput: ((data: string) => void) | undefined;
 	start(onInput: (data: string) => void): void {
 		this.onInput = onInput;
 	}
-	stop(): void {}
-	async drainInput(): Promise<void> {}
-	write(): void {}
+	stop(): void {
+		this.stopCalls += 1;
+	}
+	async drainInput(): Promise<void> {
+		this.drainInputCalls += 1;
+	}
+	write(data = ""): void {
+		this.writes.push(data);
+	}
 	moveBy(): void {}
 	hideCursor(): void {}
 	showCursor(): void {}
@@ -44,6 +54,9 @@ class TestTerminal implements Terminal {
 	emitInput(data: string): void {
 		this.onInput?.(data);
 	}
+	output(): string {
+		return this.writes.join("");
+	}
 }
 
 function createProxy(overrides: Partial<DPiInteractiveAgentSessionProxy> = {}): DPiInteractiveAgentSessionProxy {
@@ -53,6 +66,59 @@ function createProxy(overrides: Partial<DPiInteractiveAgentSessionProxy> = {}): 
 		steer: vi.fn(),
 	} as unknown as DPiInteractiveAgentSessionProxy;
 	return { ...proxy, ...overrides };
+}
+
+function connectSnapshot(): DPiInteractiveSessionStateSnapshot {
+	return {
+		model: "anthropic/claude-sonnet-4",
+		thinkingLevel: "medium",
+		isStreaming: false,
+		isCompacting: false,
+		isBashRunning: false,
+		steeringMessages: [],
+		followUpMessages: [],
+		sessionFile: undefined,
+		sessionName: undefined,
+		messages: [],
+		banner: undefined,
+		tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, usingSubscription: false },
+		contextUsage: { tokens: 0, contextWindow: 100, percent: 0 },
+		modelInfo: { id: "claude-sonnet-4", provider: "anthropic", reasoning: true, contextWindow: 100 },
+		autoCompactEnabled: true,
+		cwd: "/tmp/workspace",
+		availableProviderCount: 1,
+		remoteSettings: {
+			autoCompact: true,
+			thinkingLevel: "medium",
+			availableThinkingLevels: ["off", "low", "medium", "high"],
+			steeringMode: "all",
+			followUpMode: "all",
+			enableSkillCommands: true,
+			doubleEscapeAction: "tree",
+			showImages: true,
+			imageWidthCells: 60,
+			autoResizeImages: true,
+			blockImages: false,
+			transport: "auto",
+			httpIdleTimeoutMs: 600000,
+			currentTheme: "default",
+			availableThemes: ["default"],
+			hideThinkingBlock: false,
+			collapseChangelog: false,
+			enableInstallTelemetry: false,
+			treeFilterMode: "all",
+			showHardwareCursor: false,
+			editorPaddingX: 0,
+			autocompleteMaxVisible: 10,
+			quietStartup: false,
+			clearOnShrink: true,
+			showTerminalProgress: true,
+			warnings: {},
+		},
+		scopedModelIds: null,
+		enabledModelPatterns: undefined,
+		extensionPaths: [],
+	};
 }
 
 describe("d-pi interactive editor submit", () => {
@@ -281,6 +347,88 @@ describe("d-pi interactive editor submit", () => {
 		editor.handleInput("\x1b[A");
 
 		expect(editor.getText()).toBe("first prompt");
+	});
+
+	it("gracefully shuts down connect TUI on double ctrl+c", async () => {
+		const terminal = new TestTerminal();
+		const disconnect = vi.fn();
+		const exitCodes: Array<number | undefined> = [];
+		const proxy = createProxy({
+			connect: vi.fn(async () => {}),
+			disconnect,
+			getSnapshot: vi.fn(() => connectSnapshot()),
+			subscribe: vi.fn(() => vi.fn()),
+			clearQueue: vi.fn(() => ({ steering: [], followUp: [] })),
+		} as Partial<DPiInteractiveAgentSessionProxy> & { connect(): Promise<void>; disconnect(): void });
+		const options = {
+			agentUrl: "https://dp.example/agents/root",
+			hubUrl: "https://dp.example",
+			terminal,
+			proxy,
+			exit: (code?: number) => {
+				exitCodes.push(code);
+			},
+		};
+		await runDPiConnectInteractiveMode(options);
+
+		terminal.emitInput("\x03");
+		terminal.emitInput("\x03");
+		await new Promise<void>((resolve) => setImmediate(resolve));
+
+		expect(terminal.drainInputCalls).toBe(1);
+		expect(disconnect).toHaveBeenCalledTimes(1);
+		expect(terminal.stopCalls).toBe(1);
+		expect(exitCodes).toEqual([0]);
+	});
+
+	it("shows the double-ctrl-c hint outside the message list after a single ctrl+c", async () => {
+		const terminal = new TestTerminal();
+		const exit = vi.fn();
+		const proxy = createProxy({
+			connect: vi.fn(async () => {}),
+			disconnect: vi.fn(),
+			getSnapshot: vi.fn(() => connectSnapshot()),
+			subscribe: vi.fn(() => vi.fn()),
+			clearQueue: vi.fn(() => ({ steering: [], followUp: [] })),
+		} as Partial<DPiInteractiveAgentSessionProxy> & { connect(): Promise<void>; disconnect(): void });
+		const handle = await runDPiConnectInteractiveMode({
+			agentUrl: "https://dp.example/agents/root",
+			hubUrl: "https://dp.example",
+			terminal,
+			proxy,
+			exit,
+		});
+
+		terminal.emitInput("\x03");
+		await new Promise<void>((resolve) => setTimeout(resolve, 30));
+
+		expect(terminal.output()).toContain("Press ctrl+c again to exit");
+		expect(exit).not.toHaveBeenCalled();
+		await handle.stop();
+	});
+
+	it("expands the connect startup header hints with ctrl+o", async () => {
+		const terminal = new TestTerminal();
+		const proxy = createProxy({
+			connect: vi.fn(async () => {}),
+			disconnect: vi.fn(),
+			getSnapshot: vi.fn(() => connectSnapshot()),
+			subscribe: vi.fn(() => vi.fn()),
+			clearQueue: vi.fn(() => ({ steering: [], followUp: [] })),
+		} as Partial<DPiInteractiveAgentSessionProxy> & { connect(): Promise<void>; disconnect(): void });
+		const handle = await runDPiConnectInteractiveMode({
+			agentUrl: "https://dp.example/agents/root",
+			hubUrl: "https://dp.example",
+			terminal,
+			proxy,
+			exit: vi.fn(),
+		});
+
+		terminal.emitInput("\x0f");
+		await new Promise<void>((resolve) => setTimeout(resolve, 30));
+
+		expect(terminal.output()).toContain("ctrl+c twice to exit");
+		await handle.stop();
 	});
 
 	it("handles /agents locally instead of sending it as a prompt", async () => {
