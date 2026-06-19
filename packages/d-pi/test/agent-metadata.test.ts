@@ -1,10 +1,11 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ModelRegistry, ResourceLoader, ToolDefinition } from "@sheason/pi-coding-agent";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readAgentConfigFromTs } from "../src/agent-config.ts";
 import { createAgentMetadataExtension } from "../src/extension/agent-metadata.ts";
+import type { ExtensionAPI, ModelRegistry, ResourceLoader, ToolDefinition } from "../src/extension/contracts.ts";
 
 type ToolResult = Awaited<ReturnType<ToolDefinition["execute"]>>;
 
@@ -41,6 +42,26 @@ function makeCtx(overrides: Partial<FakeCtx> = {}): FakeCtx {
 	return { cwd: "/tmp", ...overrides } as FakeCtx;
 }
 
+function makeModel(id: string, provider = "anthropic"): Model<Api> {
+	return {
+		id,
+		name: id,
+		api: "anthropic-messages",
+		provider,
+		baseUrl: "https://example.invalid",
+		reasoning: false,
+		input: ["text"],
+		cost: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+		},
+		contextWindow: 1,
+		maxTokens: 1,
+	};
+}
+
 describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 coverage)", () => {
 	let tmpDir: string;
 
@@ -70,6 +91,7 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 	});
 
 	afterEach(() => {
+		vi.restoreAllMocks();
 		try {
 			rmSync(tmpDir, { recursive: true, force: true });
 		} catch {
@@ -77,7 +99,7 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 		}
 	});
 
-	function makeMockRegistry(findResult?: any, allResult: any[] = []) {
+	function makeMockRegistry(findResult?: Model<Api>, allResult: Model<Api>[] = []) {
 		return {
 			find: vi.fn().mockReturnValue(findResult),
 			getAll: vi.fn().mockReturnValue(allResult),
@@ -108,7 +130,7 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 	});
 
 	it("set_model success path resolves via provider/id, calls setModel, writes agent.ts and returns success (no isError)", async () => {
-		const target = { id: "claude-sonnet-4", provider: "anthropic" } as any;
+		const target = makeModel("claude-sonnet-4", "anthropic");
 		const mockRegistry = makeMockRegistry(target);
 		const fakeSetModel = vi.fn().mockResolvedValue(true);
 
@@ -148,7 +170,7 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 	});
 
 	it("set_model with model id containing '/' (e.g. versioned) uses first-slash split and still resolves", async () => {
-		const target = { id: "claude-sonnet-4/20250514", provider: "anthropic" } as any;
+		const target = makeModel("claude-sonnet-4/20250514", "anthropic");
 		const findMock = vi.fn((p: string, id: string) => {
 			if (p === "anthropic" && id === "claude-sonnet-4/20250514") return target;
 			return undefined;
@@ -158,7 +180,7 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 		const fakeSetModel = vi.fn().mockResolvedValue(true);
 		const registered: ToolDefinition[] = [];
 		const fakePi = {
-			registerTool: (t: any) => registered.push(t),
+			registerTool: (t: ToolDefinition) => registered.push(t),
 			setModel: fakeSetModel,
 			getThinkingLevel: vi.fn(),
 			setThinkingLevel: vi.fn(),
@@ -186,12 +208,12 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 	});
 
 	it("set_model falls back to bare-id search across getAll() when no provider/ prefix", async () => {
-		const target = { id: "some-bare-model" } as any;
+		const target = makeModel("some-bare-model");
 		const mockRegistry = makeMockRegistry(undefined, [target]);
 		const fakeSetModel = vi.fn().mockResolvedValue(true);
 		const registered: ToolDefinition[] = [];
 		const fakePi = {
-			registerTool: (t: any) => registered.push(t),
+			registerTool: (t: ToolDefinition) => registered.push(t),
 			setModel: fakeSetModel,
 			getThinkingLevel: vi.fn(),
 			setThinkingLevel: vi.fn(),
@@ -218,11 +240,92 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 		expect(isError(result)).toBe(false);
 	});
 
+	it("set_model bare-id duplicate uses the first registry match for setModel", async () => {
+		const first = makeModel("dup", "first-provider");
+		const second = makeModel("dup", "second-provider");
+		const mockRegistry = makeMockRegistry(undefined, [first, second]);
+		const fakeSetModel = vi.fn().mockResolvedValue(true);
+		const registered: ToolDefinition[] = [];
+		const fakePi = {
+			registerTool: (t: ToolDefinition) => registered.push(t),
+			setModel: fakeSetModel,
+			getThinkingLevel: vi.fn(),
+			setThinkingLevel: vi.fn(),
+		} as unknown as ExtensionAPI;
+
+		const factory = createAgentMetadataExtension({
+			getReloadFn: () => undefined,
+			getResourceLoader: () => makeMockResourceLoader(),
+			getModelRegistry: () => mockRegistry,
+			getAgentCwd: () => tmpDir,
+		});
+		factory(fakePi);
+
+		const tool = registered.find((t) => t.name === "set_model")!;
+		const result = await tool.execute(
+			"c-bare-dup",
+			{ model: "dup" },
+			undefined,
+			undefined,
+			makeCtx({ modelRegistry: mockRegistry }) as never,
+		);
+
+		expect(isError(result)).toBe(false);
+		expect(fakeSetModel).toHaveBeenCalledWith(first);
+		expect(fakeSetModel).not.toHaveBeenCalledWith(second);
+	});
+
+	it("set_model reports persist failure as non-fatal without claiming agent.ts was updated", async () => {
+		const target = makeModel("persist-fail");
+		const mockRegistry = makeMockRegistry(undefined, [target]);
+		const fakeSetModel = vi.fn().mockResolvedValue(true);
+		const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+		const registered: ToolDefinition[] = [];
+		const fakePi = {
+			registerTool: (t: ToolDefinition) => registered.push(t),
+			setModel: fakeSetModel,
+			getThinkingLevel: vi.fn(),
+			setThinkingLevel: vi.fn(),
+		} as unknown as ExtensionAPI;
+
+		const factory = createAgentMetadataExtension({
+			getReloadFn: () => undefined,
+			getResourceLoader: () => makeMockResourceLoader(),
+			getModelRegistry: () => mockRegistry,
+			getAgentCwd: () => join(tmpDir, "missing-agent-dir"),
+		});
+		factory(fakePi);
+
+		const tool = registered.find((t) => t.name === "set_model")!;
+		const result = await tool.execute(
+			"c-persist-fail",
+			{ model: "persist-fail" },
+			undefined,
+			undefined,
+			makeCtx({ modelRegistry: mockRegistry }) as never,
+		);
+
+		expect(fakeSetModel).toHaveBeenCalledWith(target);
+		expect(isError(result)).toBe(false);
+		expect(resultText(result)).not.toContain("Persisted to agent.ts");
+		expect(resultText(result)).toContain("not persisted to agent.ts");
+		expect(result.details).toEqual({
+			model: "persist-fail",
+			success: true,
+			persisted: false,
+			persistError: expect.stringContaining("agent.ts not present"),
+		});
+		expect(stderrWrite).toHaveBeenCalledWith(
+			expect.stringContaining("Failed to persist model='persist-fail' to agent.ts"),
+		);
+		stderrWrite.mockRestore();
+	});
+
 	it("set_model returns isError when spec is unknown (no match in registry)", async () => {
 		const mockRegistry = makeMockRegistry(undefined, []);
 		const registered: ToolDefinition[] = [];
 		const fakePi = {
-			registerTool: (t: any) => registered.push(t),
+			registerTool: (t: ToolDefinition) => registered.push(t),
 			setModel: vi.fn(),
 			getThinkingLevel: vi.fn(),
 			setThinkingLevel: vi.fn(),
@@ -250,13 +353,13 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 	});
 
 	it("set_model returns isError (and does not write) when setModel returns false (no credentials)", async () => {
-		const target = { id: "no-creds" } as any;
+		const target = makeModel("no-creds");
 		// Use bare-id fallback path: provide via getAll so the spec resolves, then setModel can return false.
 		const mockRegistry = makeMockRegistry(undefined, [target]);
 		const fakeSetModel = vi.fn().mockResolvedValue(false);
 		const registered: ToolDefinition[] = [];
 		const fakePi = {
-			registerTool: (t: any) => registered.push(t),
+			registerTool: (t: ToolDefinition) => registered.push(t),
 			setModel: fakeSetModel,
 			getThinkingLevel: vi.fn(),
 			setThinkingLevel: vi.fn(),
@@ -291,7 +394,7 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 		const fakeGetTL = vi.fn().mockReturnValue("high");
 		const registered: ToolDefinition[] = [];
 		const fakePi = {
-			registerTool: (t: any) => registered.push(t),
+			registerTool: (t: ToolDefinition) => registered.push(t),
 			setModel: vi.fn(),
 			getThinkingLevel: fakeGetTL,
 			setThinkingLevel: fakeSetTL,
@@ -315,7 +418,7 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 	it("set_thinking_level returns isError + clear message for invalid level (schema + runtime both protect)", async () => {
 		const registered: ToolDefinition[] = [];
 		const fakePi = {
-			registerTool: (t: any) => registered.push(t),
+			registerTool: (t: ToolDefinition) => registered.push(t),
 			setModel: vi.fn(),
 			getThinkingLevel: vi.fn(),
 			setThinkingLevel: vi.fn(),

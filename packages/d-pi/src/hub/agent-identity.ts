@@ -1,5 +1,18 @@
 import { readAgentConfigFromTs } from "../agent-config.ts";
+import { type LoadedAgentDefinition, readLoadedAgentDefinitionFromTsSync } from "../agent-loader.ts";
 import type { AgentConfig } from "../types.ts";
+
+function agentDefinitionToConfig(agent: LoadedAgentDefinition): AgentConfig {
+	const toolNames = agent.tools.map((tool) => tool.name);
+	return {
+		name: agent.name,
+		parentName: undefined,
+		description: agent.description,
+		roles: agent.roles,
+		model: agent.model ? `${agent.model.provider}/${agent.model.name}` : undefined,
+		includeTools: toolNames.length > 0 ? toolNames : undefined,
+	};
+}
 
 /**
  * Read `agent.ts` from an agent's cwd and return the normalized
@@ -15,6 +28,14 @@ export async function loadAgentIdentity(agentDir: string): Promise<AgentConfig |
 	try {
 		return readAgentConfigFromTs(agentDir);
 	} catch {
+		try {
+			const agent = readLoadedAgentDefinitionFromTsSync(agentDir);
+			if (agent) {
+				return agentDefinitionToConfig(agent);
+			}
+		} catch {
+			// Fall through to the legacy diagnostic below.
+		}
 		process.stderr.write(`[d-pi] Failed to load agent.ts at ${agentDir}; skipping identity injection\n`);
 		return undefined;
 	}
@@ -24,6 +45,14 @@ export function readAgentIdentitySync(agentDir: string): AgentConfig | undefined
 	try {
 		return readAgentConfigFromTs(agentDir);
 	} catch {
+		try {
+			const agent = readLoadedAgentDefinitionFromTsSync(agentDir);
+			if (agent) {
+				return agentDefinitionToConfig(agent);
+			}
+		} catch {
+			// Fall through to the legacy diagnostic below.
+		}
 		process.stderr.write(`[d-pi] Failed to load agent.ts at ${agentDir}; skipping identity injection\n`);
 		return undefined;
 	}

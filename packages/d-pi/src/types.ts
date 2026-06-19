@@ -1,3 +1,5 @@
+import type { Worker } from "node:worker_threads";
+
 // === Agent Status ===
 export type AgentStatus = "starting" | "ready" | "busy" | "error" | "destroyed";
 
@@ -123,7 +125,7 @@ export interface AgentRecord {
 	/** @deprecated Agents no longer bind HTTP ports in stdio/IPC mode. */
 	port?: number;
 	status: AgentStatus;
-	worker: import("node:worker_threads").Worker;
+	worker: Worker;
 	cwd: string;
 	model: string | undefined;
 }

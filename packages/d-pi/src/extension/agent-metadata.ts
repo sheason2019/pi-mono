@@ -1,9 +1,12 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Model } from "@earendil-works/pi-ai";
-import { Type } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ModelRegistry } from "@sheason/pi-coding-agent";
-import { defineTool } from "@sheason/pi-coding-agent";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { persistModelInAgentTs } from "../agent-config.ts";
+import {
+	createDPiSetModelTool,
+	createDPiSetThinkingLevelTool,
+	type DPiRuntimeModelEntry,
+	type DPiRuntimeModelResolver,
+} from "../surface/index.ts";
+import type { ExtensionAPI, ModelRegistry, ToolDefinition } from "./contracts.ts";
 import { createReloadTools, type ReloadToolsDeps } from "./reload-tools.ts";
 
 /**
@@ -17,7 +20,7 @@ import { createReloadTools, type ReloadToolsDeps } from "./reload-tools.ts";
  * This is one of the built-in d-pi extensions loaded into every managed agent's
  * session (alongside the main orchestration extension). It is registered as a
  * separate ExtensionFactory so its deps (especially the lazy reload accessors)
- * can be wired after the AgentSession exists (same pattern as the old reload).
+ * can be wired after the runtime session exists.
  *
  * Model switches are applied to the live session (subsequent turns use the new
  * model) and persisted to the agent's `agent.ts` so that:
@@ -26,9 +29,8 @@ import { createReloadTools, type ReloadToolsDeps } from "./reload-tools.ts";
  *
  * Thinking level is a per-session concern (not stored in agent.ts).
  *
- * In this phase we intentionally keep the surface small: the tools delegate to
- * the underlying ExtensionAPI (pi.setModel / pi.setThinkingLevel) which is
- * available on the ExtensionAPI passed to every extension factory.
+ * The tools delegate to the underlying ExtensionAPI (pi.setModel /
+ * pi.setThinkingLevel) passed to every extension factory.
  *
  * Model changes are persisted to agent.ts (restarts + identity block see
  * them). No live IPC model update to hub AgentRegistry yet, so
@@ -47,14 +49,9 @@ export type AgentMetadataToolsDeps = ReloadToolsDeps & {
 
 /**
  * Create the combined agent-metadata extension factory.
- * Pass the same lazy deps that the old reload extension used.
  */
 export function createAgentMetadataExtension(deps: AgentMetadataToolsDeps): (pi: ExtensionAPI) => void {
 	return (pi: ExtensionAPI) => {
-		// Capture the model/thinking control methods from the ExtensionAPI.
-		// These are stable for the lifetime of this extension instance.
-		// setModel returns Promise<boolean> (false if no credentials for the target model).
-		const setModel = pi.setModel.bind(pi);
 		const getThinkingLevel = pi.getThinkingLevel.bind(pi);
 		const setThinkingLevel = pi.setThinkingLevel.bind(pi);
 
@@ -63,174 +60,101 @@ export function createAgentMetadataExtension(deps: AgentMetadataToolsDeps): (pi:
 		pi.registerTool(createReloadTools(deps));
 
 		// 2. set_model — switch the agent's active model at runtime.
-		pi.registerTool(
-			defineTool({
-				name: "set_model",
-				label: "Set Model",
-				description:
-					"Switch this agent's model at runtime for subsequent turns. Accepts a full spec like 'anthropic/claude-sonnet-4' or a bare model id. The model is resolved from the current ModelRegistry (including ~/.pi/agent/models.json). The switch is applied live to the session and persisted to this agent's agent.ts so the ## Agent identity section and future restarts see the new default. Returns whether the switch succeeded (may be false if no API key/credentials are available for the target provider). Does not reload resources — call the reload tool afterwards if you want the identity block in the system prompt to update immediately.",
-				parameters: Type.Object({
-					model: Type.String({
-						description:
-							"Model identifier. Preferred form is 'provider/id' (e.g. 'anthropic/claude-sonnet-4'). Bare ids are also accepted and searched across providers.",
-					}),
-				}),
-				async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-					const spec = (params as { model: string }).model.trim();
-					if (!spec) {
-						return {
-							content: [{ type: "text" as const, text: "set_model requires a non-empty 'model' parameter." }],
-							details: { error: "empty_model" },
-							isError: true,
-						};
-					}
-
-					const registry: ModelRegistry = ctx.modelRegistry;
-					let targetModel: Model<any> | undefined;
-
-					try {
-						// Use indexOf + slice (not split) so that model ids containing "/"
-						// (e.g. some versioned or namespaced ids) are preserved in the id part.
-						// Only the first "/" separates provider from the rest of the spec.
-						if (spec.includes("/")) {
-							const first = spec.indexOf("/");
-							const provider = spec.slice(0, first);
-							const rest = spec.slice(first + 1);
-							if (provider && rest) {
-								targetModel = registry.find(provider, rest);
-							}
-						}
-						if (!targetModel) {
-							// Fallback: search by bare id across the registry (matches worker startup logic)
-							const all = registry.getAll();
-							targetModel = all.find((m: Model<any>) => m.id === spec);
-						}
-					} catch (e) {
-						const msg = e instanceof Error ? e.message : String(e);
-						return {
-							content: [{ type: "text" as const, text: `Failed to resolve model '${spec}': ${msg}` }],
-							details: { spec, error: msg },
-							isError: true,
-						};
-					}
-
-					if (!targetModel) {
-						return {
-							content: [
-								{
-									type: "text" as const,
-									text: `Unknown model spec: ${spec}. Use a known provider/model id or run reload first if you just added a provider to models.json.`,
-								},
-							],
-							details: { spec },
-							isError: true,
-						};
-					}
-
-					let success = false;
-					try {
-						success = await setModel(targetModel);
-					} catch (e) {
-						const msg = e instanceof Error ? e.message : String(e);
-						return {
-							content: [{ type: "text" as const, text: `Model switch to ${spec} failed: ${msg}` }],
-							details: { spec, error: msg },
-							isError: true,
-						};
-					}
-
-					// Persist the chosen spec into this agent's agent.ts so that:
-					// - The "## Agent identity" block (re-injected on reload via the workspace override) shows the new model.
-					// - The next time the hub spawns a worker for this agent it will see the updated model in config.
-					// Prefer the explicit getAgentCwd() from the worker (config.cwd) over ctx.cwd.
-					// Always guard with existsSync and surface errors to stderr (never silent).
-					if (success) {
-						try {
-							const agentDir = deps.getAgentCwd ? deps.getAgentCwd() : undefined;
-							const baseDir = agentDir || ctx.cwd;
-							persistModelInAgentTs(baseDir, spec);
-						} catch (e) {
-							const msg = e instanceof Error ? e.message : String(e);
-							process.stderr.write(
-								`[d-pi agent-metadata] Failed to persist model='${spec}' to agent.ts: ${msg}\n`,
-							);
-							// Non-fatal for the call; the live switch already succeeded.
-						}
-					}
-
-					const resultText = success
-						? `Model switched to ${spec}. Subsequent turns will use the new model. Persisted to agent.ts. Call reload if you want the system-prompt identity block to reflect it immediately.`
-						: `Model switch to ${spec} reported failure (likely missing credentials for the provider).`;
-					return {
-						content: [{ type: "text" as const, text: resultText }],
-						details: { model: spec, success },
-						// Treat credential/setup failure as an error so the LLM sees a clear failure signal
-						// instead of treating "reported failure" as a soft/non-error outcome (review P1 #6).
-						isError: !success,
-					};
-				},
-			}),
-		);
+		pi.registerTool(createSetModelRuntimeTool(pi, deps));
 
 		// 3. set_thinking_level — switch thinking intensity (clamped server-side to what the current model supports).
-		// Schema uses a closed union of literals so the LLM receives an enum in the tool schema
-		// and is less likely to invent invalid values. We still validate at runtime and return a
-		// clear error (with the valid list) if an out-of-range value arrives.
-		const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
-		pi.registerTool(
-			defineTool({
-				name: "set_thinking_level",
-				label: "Set Thinking Level",
-				description:
-					"Set the thinking (reasoning effort) level for this agent. The value is clamped to what the current model supports (off, minimal, low, medium, high, xhigh). Changes take effect for subsequent turns. Thinking level is a session-level setting and is not written to agent.ts (unlike model).",
-				parameters: Type.Object({
-					level: Type.Union(
-						THINKING_LEVELS.map((l) => Type.Literal(l)),
-						{
-							description:
-								"Desired thinking level. One of: off, minimal, low, medium, high, xhigh. The effective level will be clamped to the model's capabilities.",
-						},
-					),
-				}),
-				async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-					const raw = (params as { level: string }).level.trim().toLowerCase();
-					if (!THINKING_LEVELS.includes(raw as ThinkingLevel)) {
-						return {
-							content: [
-								{
-									type: "text" as const,
-									text: `Invalid thinking level '${raw}'. Must be one of: ${THINKING_LEVELS.join(", ")}.`,
-								},
-							],
-							details: { requested: raw, valid: THINKING_LEVELS },
-							isError: true,
-						};
-					}
-					const level = raw as ThinkingLevel;
-					try {
-						setThinkingLevel(level);
-					} catch (e) {
-						const msg = e instanceof Error ? e.message : String(e);
-						return {
-							content: [{ type: "text" as const, text: `Failed to set thinking level: ${msg}` }],
-							details: { requested: level, error: msg },
-							isError: true,
-						};
-					}
-					const effective = getThinkingLevel();
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text: `Thinking level set. Requested='${level}', effective='${effective}'.`,
-							},
-						],
-						details: { requested: level, effective },
-					};
+		const thinkingTool = createDPiSetThinkingLevelTool({
+			runtimeHooks: {
+				setThinkingLevel: async ({ level }) => {
+					setThinkingLevel(level);
 				},
-			}),
-		);
+			},
+			getThinkingLevel,
+		});
+		pi.registerTool(thinkingTool as ToolDefinition);
 	};
+}
+
+function createSetModelRuntimeTool(pi: ExtensionAPI, deps: AgentMetadataToolsDeps): ToolDefinition {
+	const setModel = pi.setModel.bind(pi);
+	const baseTool = createDPiSetModelTool({
+		runtimeHooks: {
+			setModel: async () => {},
+		},
+		modelResolver: {
+			find: () => undefined,
+			getAll: () => [],
+		},
+	});
+
+	const runtimeTool: ToolDefinition = {
+		...baseTool,
+		async execute(toolCallId, params, signal, _onUpdate, ctx) {
+			if (!ctx?.modelRegistry) {
+				throw new Error("Model registry is unavailable.");
+			}
+			let providerResolvedModel: Model<Api> | undefined;
+			const modelsById = new Map<string, Model<Api>>();
+			const resolver = createRuntimeModelResolver(ctx.modelRegistry, modelsById, (model) => {
+				providerResolvedModel = model;
+			});
+			const surfaceTool = createDPiSetModelTool({
+				runtimeHooks: {
+					setModel: async ({ modelId }) => {
+						const targetModel = providerResolvedModel ?? modelsById.get(modelId);
+						if (!targetModel) {
+							throw new Error(`Unknown model spec: ${modelId}.`);
+						}
+						const success = await setModel(targetModel);
+						if (!success) {
+							throw new Error("reported failure (likely missing credentials for the provider).");
+						}
+					},
+				},
+				modelResolver: resolver,
+				persistModel: (modelSpec) => {
+					const agentDir = deps.getAgentCwd ? deps.getAgentCwd() : undefined;
+					persistModelInAgentTs(agentDir || ctx.cwd, modelSpec);
+				},
+				onPersistError: (message) => {
+					process.stderr.write(`[d-pi agent-metadata] ${message}\n`);
+				},
+			});
+			return surfaceTool.execute(toolCallId, params as { model: string }, signal);
+		},
+	};
+	return runtimeTool;
+}
+
+function createRuntimeModelResolver(
+	modelRegistry: ModelRegistry,
+	modelsById: Map<string, Model<Api>>,
+	onProviderResolved: (model: Model<Api>) => void,
+): DPiRuntimeModelResolver {
+	return {
+		find: (provider, modelId) => {
+			const model = modelRegistry.find(provider, modelId);
+			if (!model) {
+				return undefined;
+			}
+			onProviderResolved(model);
+			modelsById.set(model.id, model);
+			return toRuntimeModelEntry(model);
+		},
+		getAll: () => {
+			const models = modelRegistry.getAll();
+			for (const model of models) {
+				if (!modelsById.has(model.id)) {
+					modelsById.set(model.id, model);
+				}
+			}
+			return models.map((model) => toRuntimeModelEntry(model));
+		},
+	};
+}
+
+function toRuntimeModelEntry(model: Model<Api>): DPiRuntimeModelEntry {
+	return { id: model.id, provider: model.provider };
 }
 
 // Re-export the reload building blocks so existing tests and any external

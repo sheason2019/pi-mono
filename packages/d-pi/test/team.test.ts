@@ -1,5 +1,5 @@
-import type { ExtensionAPI, ToolDefinition } from "@sheason/pi-coding-agent";
 import { describe, expect, it } from "vitest";
+import type { ExtensionAPI, ToolDefinition } from "../src/extension/contracts.ts";
 import { HubChannel } from "../src/extension/hub-channel.ts";
 import { createDPiExtension } from "../src/extension/index.ts";
 import { createTeamTool } from "../src/extension/team.ts";

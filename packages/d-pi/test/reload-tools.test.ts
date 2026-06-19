@@ -1,5 +1,5 @@
-import type { ExtensionAPI, ResourceLoader, ToolDefinition } from "@sheason/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ExtensionAPI, ResourceLoader, ToolDefinition } from "../src/extension/contracts.ts";
 import { createReloadExtension, createReloadTools } from "../src/extension/reload-tools.ts";
 
 /**

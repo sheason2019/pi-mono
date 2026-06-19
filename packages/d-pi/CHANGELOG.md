@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Rebuilt the d-pi connect path around a d-pi-owned remote-first service API and TUI client. The hub now exposes stable snapshot, SSE event, and prompt action routes under `/api/agents/:name/*`; `d-pi connect` routes its child TUI through the new remote client/controller, while executor registration continues to use per-session `connectId` values and hub routing uses decoded agent names.
+
+### Fixed
+
+- Fixed remote worker IPC behavior after the runtime cutover: state queries, prompt/steer/follow-up actions, SSE subscribe/unsubscribe, extension-generated messages, and local native tool execution are now handled by d-pi-owned adapters instead of placeholder or timeout-prone bridges.
+
+### Removed
+
+- Removed the d-pi package dependency on the legacy interactive runtime package. Extension contracts, native tools, worker IPC/session shims, and tests now use d-pi-owned contracts or the upstream `@earendil-works/pi-*` packages directly.
+
 ## [0.6.0-alpha.6] - 2026-06-12
 
 ### Added

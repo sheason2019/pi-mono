@@ -3,10 +3,27 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import type { AuthSessionInfo, AuthSessionManager } from "../auth/auth-session.ts";
 import { injectMeta } from "../extension/message-meta.ts";
-import type { HubToWorkerMessage, SourceConfig, WorkerToHubMessage } from "../types.ts";
+import {
+	type DPiJsonValue,
+	type DPiServiceActionRequest,
+	type DPiServiceEvent,
+	type DPiServiceSnapshot,
+	dPiServiceError,
+	toDPiJsonValue,
+} from "../service/protocol.ts";
+import { parseServiceActionName, toWorkerAction, toWorkerSnapshotQuery } from "../service/session-service.ts";
+import { writeServiceSseEvent, writeSseComment } from "../service/sse.ts";
+import type { AgentRecord, HubToWorkerMessage, SourceConfig, WorkerToHubMessage } from "../types.ts";
 import type { AgentRegistry } from "./agent-registry.ts";
 import type { ExecutorRegistry } from "./executor-registry.ts";
 import type { SourceManager } from "./source-manager.ts";
+
+type WorkerHttpResponse = Extract<WorkerToHubMessage, { type: "http_response" }>;
+interface WorkerHttpResponseWaitOptions {
+	req?: IncomingMessage;
+	res?: ServerResponse;
+	timeoutMs?: number;
+}
 
 /**
  * HTTP gateway for the d-pi Hub.
@@ -73,6 +90,11 @@ export class HubGateway {
 					return;
 				}
 
+				if (path.startsWith("/api/")) {
+					await this._handleServiceApi(req, res, path);
+					return;
+				}
+
 				// /agents/{name}/remote-call — dispatch to the bound executor and block
 				// until the executor POSTs the result back. Must be checked BEFORE the
 				// generic /agents/{name}/* proxy below. Auth is required: without it,
@@ -85,7 +107,7 @@ export class HubGateway {
 						res.end(JSON.stringify({ error: "Unauthorized" }));
 						return;
 					}
-					const agentName = remoteCallMatch[1]!;
+					const agentName = decodeURIComponent(remoteCallMatch[1]!);
 					const connectId = this._agentBindings.get(agentName);
 					if (!connectId) {
 						res.writeHead(409, { "Content-Type": "application/json" });
@@ -153,14 +175,14 @@ export class HubGateway {
 				// Must be checked BEFORE the generic /agents/{name}/* proxy.
 				const sseMatch = path.match(/^\/agents\/([^/]+)\/events$/);
 				if (sseMatch && req.method === "GET") {
-					this._handleAgentSse(req, res, sseMatch[1]!);
+					this._handleAgentSse(req, res, decodeURIComponent(sseMatch[1]!));
 					return;
 				}
 
 				// Agent routing: /agents/{name}/* → specific agent (by name)
 				const agentMatch = path.match(/^\/agents\/([^/]+)(\/.*)?$/);
 				if (agentMatch) {
-					const agentName = agentMatch[1];
+					const agentName = decodeURIComponent(agentMatch[1]!);
 					const agentPath = agentMatch[2] ?? "/";
 					await this._proxyToAgent(req, res, agentName, agentPath);
 					return;
@@ -413,6 +435,7 @@ export class HubGateway {
 				const body = await this._readBody(req);
 				const { connectId } = JSON.parse(body) as { connectId?: string };
 				if (!connectId) throw new Error("connectId is required");
+				const agentName = decodeURIComponent(bindMatch[1]!);
 				// Allow overwrite: unbind any previous session for this
 				// agent before installing the new one. The previous
 				// session's executor, if still alive, will detect the
@@ -420,8 +443,8 @@ export class HubGateway {
 				// wrong connectId and exit on its own; its executor
 				// registry entry will then be cleaned up via the
 				// SSE-close path.
-				this.unbindAgent(bindMatch[1]!);
-				this.bindAgent(bindMatch[1]!, connectId);
+				this.unbindAgent(agentName);
+				this.bindAgent(agentName, connectId);
 				res.writeHead(200, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ ok: true }));
 			} catch (err) {
@@ -435,7 +458,7 @@ export class HubGateway {
 		// Called by `d-pi connect` on session exit.
 		const unbindMatch = path.match(/^\/_hub\/agents\/([^/]+)\/unbind$/);
 		if (unbindMatch && req.method === "POST") {
-			this.unbindAgent(unbindMatch[1]!);
+			this.unbindAgent(decodeURIComponent(unbindMatch[1]!));
 			res.writeHead(200, { "Content-Type": "application/json" });
 			res.end(JSON.stringify({ ok: true }));
 			return;
@@ -614,6 +637,355 @@ export class HubGateway {
 
 		res.writeHead(404, { "Content-Type": "application/json" });
 		res.end(JSON.stringify({ error: "Not found" }));
+	}
+
+	private async _handleServiceApi(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+		const snapshotMatch = path.match(/^\/api\/agents\/([^/]+)\/snapshot$/);
+		if (snapshotMatch && req.method === "GET") {
+			await this._handleServiceSnapshot(req, res, decodeURIComponent(snapshotMatch[1]!));
+			return;
+		}
+
+		const eventsMatch = path.match(/^\/api\/agents\/([^/]+)\/events$/);
+		if (eventsMatch && req.method === "GET") {
+			this._handleServiceAgentSse(req, res, decodeURIComponent(eventsMatch[1]!));
+			return;
+		}
+
+		const actionMatch = path.match(/^\/api\/agents\/([^/]+)\/actions\/([^/]+)$/);
+		if (actionMatch && req.method === "POST") {
+			await this._handleServiceAction(
+				req,
+				res,
+				decodeURIComponent(actionMatch[1]!),
+				decodeURIComponent(actionMatch[2]!),
+			);
+			return;
+		}
+
+		this._writeServiceError(res, 404, "not_found", "Not found");
+	}
+
+	private async _handleServiceSnapshot(req: IncomingMessage, res: ServerResponse, agentName: string): Promise<void> {
+		const auth = this._authenticate(req);
+		if (!auth) {
+			this._writeServiceError(res, 401, "unauthorized", "Unauthorized");
+			return;
+		}
+		const agent = this._getServiceAgent(res, agentName);
+		if (!agent) {
+			return;
+		}
+
+		const requestId = gatewayRandomUUID();
+		const responsePromise = this._waitForWorkerHttpResponse(agent, requestId, { req, res });
+		agent.worker.postMessage({
+			type: "http_query",
+			requestId,
+			query: toWorkerSnapshotQuery(),
+		} satisfies HubToWorkerMessage);
+
+		const workerResponse = await responsePromise;
+		if (!workerResponse) {
+			if (req.destroyed || res.destroyed) {
+				return;
+			}
+			this._writeServiceError(res, 504, "timeout", "Agent response timeout");
+			return;
+		}
+		if (workerResponse.status < 200 || workerResponse.status >= 300) {
+			let body: DPiJsonValue;
+			try {
+				body = toDPiJsonValue(workerResponse.body);
+			} catch (err) {
+				this._writeServiceSerializationError(res, err);
+				return;
+			}
+			this._writeServiceError(res, workerResponse.status, "worker_error", "Worker request failed", {
+				status: workerResponse.status,
+				body,
+			});
+			return;
+		}
+
+		try {
+			this._writeServiceJson(res, 200, this._toServiceSnapshot(agentName, workerResponse.body));
+		} catch (err) {
+			this._writeServiceSerializationError(res, err);
+		}
+	}
+
+	private async _handleServiceAction(
+		req: IncomingMessage,
+		res: ServerResponse,
+		agentName: string,
+		actionName: string,
+	): Promise<void> {
+		const auth = this._authenticate(req);
+		if (!auth) {
+			this._writeServiceError(res, 401, "unauthorized", "Unauthorized");
+			return;
+		}
+		const agent = this._getServiceAgent(res, agentName);
+		if (!agent) {
+			return;
+		}
+		const serviceAction = parseServiceActionName(actionName);
+		if (!serviceAction) {
+			this._writeServiceError(res, 404, "not_found", `Service action not found: ${actionName}`);
+			return;
+		}
+
+		let parsedBody: unknown;
+		try {
+			const rawBody = await this._readBody(req);
+			parsedBody = JSON.parse(rawBody);
+		} catch {
+			this._writeServiceError(res, 400, "bad_request", "Failed to parse request body");
+			return;
+		}
+		const actionRequest = this._parseServiceActionRequest(parsedBody);
+		if (!actionRequest) {
+			this._writeServiceError(res, 400, "bad_request", "text is required");
+			return;
+		}
+
+		const workerAction = toWorkerAction(serviceAction, actionRequest);
+		const connectId = this._agentBindings.get(agentName);
+		workerAction.data.text = injectMeta(
+			workerAction.data.text,
+			"connect",
+			auth.auth,
+			connectId ? { connectId } : undefined,
+		);
+
+		const requestId = gatewayRandomUUID();
+		const responsePromise = this._waitForWorkerHttpResponse(agent, requestId, { req, res });
+		agent.worker.postMessage({
+			type: "http_request",
+			requestId,
+			action: workerAction.action,
+			data: workerAction.data,
+		} satisfies HubToWorkerMessage);
+
+		const workerResponse = await responsePromise;
+		if (!workerResponse) {
+			if (req.destroyed || res.destroyed) {
+				return;
+			}
+			this._writeServiceError(res, 504, "timeout", "Agent response timeout");
+			return;
+		}
+		if (workerResponse.status < 200 || workerResponse.status >= 300) {
+			let body: DPiJsonValue;
+			try {
+				body = toDPiJsonValue(workerResponse.body);
+			} catch (err) {
+				this._writeServiceSerializationError(res, err);
+				return;
+			}
+			this._writeServiceError(res, workerResponse.status, "worker_error", "Worker request failed", {
+				status: workerResponse.status,
+				body,
+			});
+			return;
+		}
+		this._writeServiceJson(res, 200, { ok: true });
+	}
+
+	private _handleServiceAgentSse(req: IncomingMessage, res: ServerResponse, agentName: string): void {
+		const auth = this._authenticate(req);
+		if (!auth) {
+			this._writeServiceError(res, 401, "unauthorized", "Unauthorized");
+			return;
+		}
+		const agent = this._getServiceAgent(res, agentName);
+		if (!agent) {
+			return;
+		}
+
+		res.writeHead(200, {
+			"Content-Type": "text/event-stream",
+			"Cache-Control": "no-cache",
+			Connection: "keep-alive",
+		});
+		writeSseComment(res, "connected");
+
+		const subscriberId = gatewayRandomUUID();
+		const initialRequestId = `service-sse-init-${subscriberId}`;
+
+		const eventHandler = (message: WorkerToHubMessage) => {
+			if (message.type === "http_response" && message.requestId === initialRequestId) {
+				try {
+					const snapshot = this._toServiceSnapshot(agentName, message.body);
+					writeServiceSseEvent(res, { type: "snapshot", snapshot });
+				} catch (err) {
+					this._writeServiceSerializationSseEvent(res, err);
+				}
+				return;
+			}
+			if (message.type === "sse_event" && message.subscriberId === subscriberId) {
+				try {
+					const serviceEvent: DPiServiceEvent =
+						message.data === undefined
+							? { type: "worker", event: message.event }
+							: { type: "worker", event: message.event, data: toDPiJsonValue(message.data) };
+					writeServiceSseEvent(res, serviceEvent);
+				} catch (err) {
+					this._writeServiceSerializationSseEvent(res, err);
+				}
+			}
+		};
+		agent.worker.on("message", eventHandler);
+
+		agent.worker.postMessage({
+			type: "http_query",
+			requestId: initialRequestId,
+			query: toWorkerSnapshotQuery(),
+		} satisfies HubToWorkerMessage);
+		agent.worker.postMessage({
+			type: "sse_subscribe",
+			subscriberId,
+		} satisfies HubToWorkerMessage);
+
+		const heartbeatTimer = setInterval(() => {
+			try {
+				writeSseComment(res, "heartbeat");
+			} catch {
+				clearInterval(heartbeatTimer);
+			}
+		}, 30_000);
+
+		req.on("close", () => {
+			clearInterval(heartbeatTimer);
+			agent.worker.off("message", eventHandler);
+			agent.worker.postMessage({
+				type: "sse_unsubscribe",
+				subscriberId,
+			} satisfies HubToWorkerMessage);
+		});
+	}
+
+	private _getServiceAgent(res: ServerResponse, agentName: string): AgentRecord | undefined {
+		const agent = this._registry.get(agentName);
+		if (!agent) {
+			this._writeServiceError(res, 404, "not_found", `Agent not found: ${agentName}`, { agentName });
+			return undefined;
+		}
+		return agent;
+	}
+
+	private _toServiceSnapshot(agentName: string, state: unknown): DPiServiceSnapshot {
+		return {
+			agentName,
+			state: toDPiJsonValue(state),
+		};
+	}
+
+	private _parseServiceActionRequest(value: unknown): DPiServiceActionRequest | undefined {
+		if (!this._isRecord(value)) {
+			return undefined;
+		}
+		if (typeof value.text !== "string" || value.text.trim().length === 0) {
+			return undefined;
+		}
+		const options = value.options === undefined ? undefined : toDPiJsonValue(value.options);
+		return {
+			text: value.text,
+			...(options === undefined ? {} : { options }),
+		};
+	}
+
+	private _waitForWorkerHttpResponse(
+		agent: AgentRecord,
+		requestId: string,
+		options: WorkerHttpResponseWaitOptions = {},
+	): Promise<WorkerHttpResponse | undefined> {
+		return new Promise((resolve) => {
+			let settled = false;
+			const timeoutMs = options.timeoutMs ?? 120_000;
+			const req = options.req;
+			const res = options.res;
+
+			const settle = (response: WorkerHttpResponse | undefined) => {
+				if (settled) {
+					return;
+				}
+				settled = true;
+				clearTimeout(timeout);
+				agent.worker.off("message", handler);
+				req?.off("close", onRequestClose);
+				res?.off("close", onResponseClose);
+				resolve(response);
+			};
+
+			const timeout = setTimeout(() => settle(undefined), timeoutMs);
+
+			const handler = (message: WorkerToHubMessage) => {
+				if (message.type === "http_response" && message.requestId === requestId) {
+					settle(message);
+				}
+			};
+			agent.worker.on("message", handler);
+
+			const onRequestClose = () => {
+				if (!req?.complete) {
+					settle(undefined);
+				}
+			};
+			const onResponseClose = () => {
+				if (!res?.writableEnded) {
+					settle(undefined);
+				}
+			};
+			if ((req?.destroyed && !req.complete) || (res?.destroyed && !res.writableEnded)) {
+				settle(undefined);
+				return;
+			}
+			req?.on("close", onRequestClose);
+			res?.on("close", onResponseClose);
+		});
+	}
+
+	private _writeServiceJson(res: ServerResponse, status: number, body: unknown): void {
+		res.writeHead(status, { "Content-Type": "application/json" });
+		res.end(JSON.stringify(body));
+	}
+
+	private _writeServiceError(
+		res: ServerResponse,
+		status: number,
+		code: string,
+		message: string,
+		details?: DPiJsonValue,
+	): void {
+		this._writeServiceJson(res, status, dPiServiceError(code, message, details));
+	}
+
+	private _writeServiceSerializationError(res: ServerResponse, err: unknown): void {
+		if (!(err instanceof TypeError)) {
+			throw err;
+		}
+		this._writeServiceError(res, 502, "serialization_error", "Worker response is not JSON-safe");
+	}
+
+	private _writeServiceSerializationSseEvent(res: ServerResponse, err: unknown): void {
+		try {
+			if (!(err instanceof TypeError)) {
+				throw err;
+			}
+			writeServiceSseEvent(res, {
+				type: "worker",
+				event: "serialization_error",
+				data: toDPiJsonValue(dPiServiceError("serialization_error", "Worker response is not JSON-safe")),
+			});
+		} catch {
+			// connection closed
+		}
+	}
+
+	private _isRecord(value: unknown): value is Record<string, unknown> {
+		return typeof value === "object" && value !== null && !Array.isArray(value);
 	}
 
 	private async _proxyToAgent(

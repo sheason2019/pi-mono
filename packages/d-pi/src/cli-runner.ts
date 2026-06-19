@@ -1,13 +1,17 @@
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { runConnectMode } from "@sheason/pi-coding-agent/d-pi-worker";
 import { createAllowedUser, listAllowedUsers, removeAllowedUser, updateAllowedUser } from "./auth/allowed-users.ts";
 import { createLocalUser, listLocalUsers, removeLocalUser, updateLocalUser } from "./auth/local-users.ts";
 import { runDPiConnectMode } from "./connect/connect-mode.ts";
 import { DEFAULT_HUB_PORT } from "./defaults.ts";
 import { main as runExecutor } from "./executor/index.ts";
 import { Hub } from "./hub/hub.ts";
+import {
+	type RunDPiConnectInteractiveModeOptions,
+	runDPiConnectInteractiveMode,
+} from "./tui/interactive/run-connect-interactive-mode.ts";
+import type { RunDPiRemoteTuiOptions } from "./tui/remote-tui.ts";
 import type { HubConfig } from "./types.ts";
 import {
 	initWorkspace,
@@ -25,6 +29,8 @@ export interface DPiCliRuntime {
 	stderr: (line: string) => void;
 	createHub?: (config: HubConfig) => { start(): Promise<void> };
 	cloneTeamTemplate?: (repo: string, targetDir: string) => Promise<void>;
+	runRemoteTui?: (options: RunDPiRemoteTuiOptions) => Promise<unknown>;
+	runConnectInteractiveMode?: (options: RunDPiConnectInteractiveModeOptions) => Promise<unknown>;
 }
 
 function defaultRuntime(): DPiCliRuntime {
@@ -252,7 +258,17 @@ export async function runDPiCli(args: string[], runtime: DPiCliRuntime = default
 	}
 	if (command === "_connect-child") {
 		const agentUrl = args[1];
-		await runConnectMode({ url: agentUrl, authToken: process.env.DPI_AUTH_TOKEN });
+		const hubUrl = args[2];
+		if (!agentUrl || !hubUrl) {
+			throw new Error("_connect-child requires agentUrl and hubUrl");
+		}
+		const authToken = process.env.DPI_AUTH_TOKEN;
+		const runInteractiveMode = runtime.runConnectInteractiveMode ?? runDPiConnectInteractiveMode;
+		await runInteractiveMode({
+			agentUrl,
+			hubUrl,
+			...(authToken ? { authHeaders: { Authorization: `Bearer ${authToken}` } } : {}),
+		});
 		return;
 	}
 	if (command === "_executor-child") {

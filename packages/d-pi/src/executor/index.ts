@@ -1,20 +1,9 @@
-import type { ToolDefinition } from "@sheason/pi-coding-agent";
-import {
-	createBashToolDefinition,
-	createEditToolDefinition,
-	createFindToolDefinition,
-	createGrepToolDefinition,
-	createLsToolDefinition,
-	createReadToolDefinition,
-	createWriteToolDefinition,
-	getAgentDir,
-	SettingsManager,
-} from "@sheason/pi-coding-agent";
 import { ExecutorClient } from "./client.ts";
+import { buildNativeToolSet } from "./coding-agent-native-tools.ts";
 import { type ExecutorEnv, readExecutorEnv } from "./env.ts";
 import { ToolRunner } from "./runner.ts";
 
-export { readExecutorEnv, type ExecutorEnv, ExecutorClient, ToolRunner };
+export { buildNativeToolSet, readExecutorEnv, type ExecutorEnv, ExecutorClient, ToolRunner };
 
 // Install SIGTERM/SIGINT handlers at module load so the executor exits
 // promptly when d-pi connect signals it. The executor's only long-lived
@@ -29,32 +18,6 @@ const exitOnSignal = (signal: NodeJS.Signals): void => {
 };
 process.on("SIGTERM", exitOnSignal);
 process.on("SIGINT", exitOnSignal);
-
-/** Build the canonical native tool set, one per supported tool name.
- *  Each tool is constructed with the executor's cwd so file-system
- *  operations resolve relative paths the same way the agent worker's
- *  tools do. The bash tool picks up `shellPath` and `commandPrefix`
- *  from `~/.pi/agent/settings.json` via SettingsManager — same path
- *  the server-side AgentSession uses — so a user who configures
- *  `shellPath` on a non-standard bash location (scoop, cygwin, etc.)
- *  gets consistent behavior on both ends. */
-export function buildNativeToolSet(cwd: string): Array<ToolDefinition> {
-	const agentDir = getAgentDir();
-	const settingsManager = SettingsManager.create(cwd, agentDir);
-	const shellPath = settingsManager.getShellPath();
-	const commandPrefix = settingsManager.getShellCommandPrefix();
-
-	const tools = [
-		createBashToolDefinition(cwd, { shellPath, commandPrefix }),
-		createEditToolDefinition(cwd),
-		createFindToolDefinition(cwd),
-		createGrepToolDefinition(cwd),
-		createLsToolDefinition(cwd),
-		createReadToolDefinition(cwd),
-		createWriteToolDefinition(cwd),
-	];
-	return tools as unknown as Array<ToolDefinition>;
-}
 
 /** Entry point for the executor subprocess. Reads env, chdirs, builds the
  *  canonical native tool set (matching what the agent worker uses), opens

@@ -1,5 +1,6 @@
 import type { Component } from "@earendil-works/pi-tui";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { describe, expect, it } from "vitest";
 import {
 	type ExtensionAPI,
 	type ExtensionContext,
@@ -7,8 +8,7 @@ import {
 	type InputEventResult,
 	initTheme,
 	type MessageRenderer,
-} from "@sheason/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+} from "../src/extension/contracts.ts";
 import { createDPiExtension } from "../src/extension/index.ts";
 import { injectMeta } from "../src/extension/message-meta.ts";
 

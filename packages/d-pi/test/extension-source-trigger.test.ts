@@ -1,5 +1,5 @@
-import type { ExtensionAPI, ExtensionHandler } from "@sheason/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import type { ExtensionAPI, ExtensionHandler } from "../src/extension/contracts.ts";
 import { createDPiExtension } from "../src/extension/index.ts";
 
 /**

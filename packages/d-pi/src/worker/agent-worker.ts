@@ -5,21 +5,11 @@
  * following the same pattern as serve-mode.ts. Communicates with the Hub
  * via parentPort for tool calls and incoming messages.
  */
-import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
-import type { Model } from "@earendil-works/pi-ai";
-import type { AgentSession } from "@sheason/pi-coding-agent";
-import { AuthStorage, getAgentDir, ModelRegistry, SessionManager, SettingsManager } from "@sheason/pi-coding-agent";
-import {
-	AgentIpcServer,
-	type AgentSessionRuntime,
-	createAgentSessionFromServices,
-	createAgentSessionRuntime,
-	createAgentSessionServices,
-	findInitialModel,
-	generateBanner,
-	LocalAgentSessionProxy,
-} from "@sheason/pi-coding-agent/d-pi-worker";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import { DPiContextManager } from "../context/context-manager.ts";
 import { DPI_META_PROMPT } from "../dpi-meta.ts";
 import {
 	createAgentMetadataExtension,
@@ -29,8 +19,27 @@ import {
 	type HubChannel,
 } from "../extension/index.ts";
 import { formatAgentIdentitySection, readAgentIdentitySync } from "../hub/agent-identity.ts";
+import { DPiAgentRuntime } from "../runtime/agent-runtime.ts";
+import { DPiModelManager } from "../runtime/model-manager.ts";
+import { DPiSessionStore } from "../runtime/session-store.ts";
+import type { DPiPromptImage } from "../runtime/types.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
+import {
+	createDPiAgentSessionFromServices,
+	createDPiAgentSessionRuntime,
+	createDPiAgentSessionServices,
+	createDPiSessionManager,
+	createDPiWorkerInfrastructure,
+	DPiAgentIpcServer,
+	type DPiAgentSessionRuntime,
+	DPiLocalAgentSessionProxy,
+	type DPiWorkerSession,
+	type DPiWorkerSessionManager,
+	generateDPiBanner,
+	resolveDPiInitialModel,
+	runtimeModelSpecFromResolvedModel,
+} from "./coding-agent-worker-adapter.ts";
 
 const dPiClientExtensionPath = new URL(
 	`../extension/client-extension${import.meta.url.endsWith(".ts") ? ".ts" : ".js"}`,
@@ -41,12 +50,26 @@ const port = parentPort!;
 
 // Module-level references set during runAgentWorker()
 let hubChannel: HubChannel | undefined;
-let runtime: AgentSessionRuntime | undefined;
-let ipcServer: AgentIpcServer | undefined;
-let proxy: LocalAgentSessionProxy | undefined;
+let runtime: DPiAgentSessionRuntime | undefined;
+let agentRuntime: DPiAgentRuntime | undefined;
+let remoteFirstRuntimeModelSpec: string | undefined;
+let remoteFirstRuntimeModel: Model<Api> | undefined;
+let remoteFirstRuntimeThinkingLevel: ThinkingLevel | undefined;
+let ipcServer: DPiAgentIpcServer | undefined;
+let proxy: DPiLocalAgentSessionProxy | undefined;
 
 function postToHub(message: WorkerToHubMessage): void {
 	port.postMessage(message);
+}
+
+function toPromptImages(images: Array<{ url: string; mediaType?: string }> | undefined): DPiPromptImage[] | undefined {
+	if (!images || images.length === 0) {
+		return undefined;
+	}
+	return images.map((image) => ({
+		mediaType: image.mediaType ?? "application/octet-stream",
+		url: image.url,
+	}));
 }
 
 // Listen for messages from Hub
@@ -72,31 +95,15 @@ port.on("message", (message: HubToWorkerMessage) => {
 	}
 });
 
-/**
- * Create a SessionManager using an isolated sessionDir for recovery.
- * If sessionDir is provided, sessions are stored under the d-pi workspace instead of ~/.pi.
- */
-function createSessionManager(cwd: string, sessionDir?: string): SessionManager {
-	if (sessionDir) {
-		mkdirSync(sessionDir, { recursive: true });
-		return SessionManager.continueRecent(cwd, sessionDir);
-	}
-
-	return SessionManager.continueRecent(cwd);
-}
-
 async function runAgentWorker(): Promise<void> {
 	// `agentName` is the worker's identity — there is no separate id.
 	// See "name is identity" in the changelog for the rationale.
 	const { agentName, cwd, model: modelSpec } = config;
-	const agentDir = getAgentDir();
 
 	process.stderr.write(`[d-pi worker ${agentName}] Starting agent "${agentName}"...\n`);
 
 	// 1. Create infrastructure
-	const authStorage = AuthStorage.create();
-	const settingsManager = SettingsManager.create(cwd, agentDir);
-	const modelRegistry = ModelRegistry.create(authStorage);
+	const { agentDir, authStorage, settingsManager, modelRegistry } = createDPiWorkerInfrastructure(cwd);
 
 	process.stderr.write(`[d-pi worker ${agentName}] Infrastructure created\n`);
 
@@ -113,7 +120,7 @@ async function runAgentWorker(): Promise<void> {
 	hubChannel = channel;
 
 	// 3. Build the runtime factory (mirrors main.ts pattern)
-	const createRuntime = async (opts: { cwd: string; agentDir: string; sessionManager: SessionManager }) => {
+	const createRuntime = async (opts: { cwd: string; agentDir: string; sessionManager: DPiWorkerSessionManager }) => {
 		// Build resourceLoaderOptions from workspace context.
 		// APPEND_SYSTEM.md workspace content, the agent's own
 		// agent.ts identity (rendered as "## Agent identity"), and d-pi
@@ -173,7 +180,7 @@ async function runAgentWorker(): Promise<void> {
 
 		process.stderr.write(`[d-pi worker ${agentName}] Creating session services...\n`);
 
-		const services = await createAgentSessionServices({
+		const services = await createDPiAgentSessionServices({
 			cwd: opts.cwd,
 			agentDir: opts.agentDir,
 			authStorage,
@@ -212,7 +219,7 @@ async function runAgentWorker(): Promise<void> {
 						//
 						// The session is not available when the factory first
 						// runs (it is constructed later by
-						// createAgentSessionFromServices), so the reload tool's
+						// createDPiAgentSessionFromServices), so the reload tool's
 						// deps use lazy getters that resolve `runtime?.session`
 						// at execute() time. The set_model / set_thinking_level
 						// tools obtain their setters from the ExtensionAPI (pi)
@@ -277,33 +284,14 @@ async function runAgentWorker(): Promise<void> {
 
 		process.stderr.write(`[d-pi worker ${agentName}] Session services created, resolving model...\n`);
 
-		// Resolve model
-		let resolvedModel: Model<any> | undefined;
-		if (modelSpec) {
-			if (modelSpec.includes("/")) {
-				const parts = modelSpec.split("/");
-				resolvedModel = modelRegistry.find(parts[0]!, parts[1]!);
-			} else {
-				// Search by model ID across all providers
-				resolvedModel = modelRegistry.getAll().find((m: Model<any>) => m.id === modelSpec);
-			}
-		}
-
-		if (!resolvedModel) {
-			const result = await findInitialModel({
-				scopedModels: [],
-				isContinuing: false,
-				defaultProvider: settingsManager.getDefaultProvider(),
-				defaultModelId: settingsManager.getDefaultModel(),
-				defaultThinkingLevel: settingsManager.getDefaultThinkingLevel(),
-				modelRegistry,
-			});
-			resolvedModel = result.model;
-		}
+		const resolvedModel = await resolveDPiInitialModel({ modelSpec, modelRegistry, settingsManager });
+		remoteFirstRuntimeModelSpec = runtimeModelSpecFromResolvedModel(resolvedModel);
+		remoteFirstRuntimeModel = resolvedModel;
+		remoteFirstRuntimeThinkingLevel = settingsManager.getDefaultThinkingLevel();
 
 		process.stderr.write(`[d-pi worker ${agentName}] Model resolved: ${resolvedModel?.id ?? "unknown"}\n`);
 
-		const created = await createAgentSessionFromServices({
+		const created = await createDPiAgentSessionFromServices({
 			services,
 			sessionManager: opts.sessionManager,
 			model: resolvedModel,
@@ -317,18 +305,61 @@ async function runAgentWorker(): Promise<void> {
 	};
 
 	// 4. Create session manager — use isolated sessionDir and restore the latest session from that directory
-	const sessionManager = createSessionManager(cwd, config.sessionDir);
+	const sessionManager = createDPiSessionManager(cwd, config.sessionDir);
 
 	// 5. Create runtime
-	runtime = await createAgentSessionRuntime(createRuntime, {
+	runtime = await createDPiAgentSessionRuntime(createRuntime, {
 		cwd,
 		agentDir,
 		sessionManager,
 	});
 
 	// 6. Create proxy and HTTP server (same pattern as serve-mode.ts)
-	proxy = new LocalAgentSessionProxy(runtime!);
-	proxy.setBanner(generateBanner(runtime!.session));
+	proxy = new DPiLocalAgentSessionProxy(runtime!);
+	proxy.setBanner(generateDPiBanner(runtime!.session));
+
+	if (remoteFirstRuntimeModelSpec) {
+		const sessionStore = new DPiSessionStore({
+			cwd,
+			sessionsRoot: config.sessionDir ?? join(cwd, "session"),
+		});
+		const sessionHandle = (await sessionStore.openRecent({ cwd })) ?? (await sessionStore.create({ cwd }));
+		const initialSessionContext = await sessionHandle.session.buildContext();
+		agentRuntime = new DPiAgentRuntime({
+			agentName,
+			cwd,
+			session: sessionHandle.session,
+			sessionInfo: sessionHandle.info,
+			initialMessages: initialSessionContext.messages,
+			modelManager: new DPiModelManager({ defaultModel: remoteFirstRuntimeModel ?? remoteFirstRuntimeModelSpec }),
+			contextManager: new DPiContextManager({
+				workspaceRoot: config.workspaceContext?.workspaceRoot ?? cwd,
+				agentName,
+				agentDir: cwd,
+				cwd,
+			}),
+			thinkingLevel: remoteFirstRuntimeThinkingLevel,
+			getApiKeyAndHeaders: modelRegistry.getApiKeyAndHeaders
+				? async (model) => await modelRegistry.getApiKeyAndHeaders?.(model)
+				: undefined,
+		});
+		agentRuntime.subscribe((event) => {
+			proxy?.applyRuntimeEvent(event);
+			if (event.type === "assistant_stream" && !event.done) {
+				postToHub({ type: "status_update", agentName, status: "busy" });
+			} else if (event.type === "assistant_stream" && event.done) {
+				postToHub({ type: "status_update", agentName, status: "ready" });
+			}
+		});
+		if (initialSessionContext.messages.length > 0) {
+			proxy.applyRuntimeEvent({
+				type: "session_replaced",
+				agentName,
+				session: sessionHandle.info,
+				messages: initialSessionContext.messages,
+			});
+		}
+	}
 
 	// All user prompts are routed through hubChannel.deliverMessage() so the extension
 	// creates a CustomMessage instead of a UserMessageComponent (which has OSC133 markers
@@ -340,9 +371,29 @@ async function runAgentWorker(): Promise<void> {
 	// deliverMessage would fall through to the default "next" path which the
 	// extension then maps to {triggerTurn: true} anyway — but the explicit
 	// declaration documents the intent at the call site.
-	proxy.prompt = async (_text: string, _options?: { images?: Array<{ url: string; mediaType?: string }> }) => {
-		hubChannel?.deliverMessage(_text, undefined, "next");
-	};
+	proxy.setMessageDispatcher({
+		prompt: async (_text: string, _options?: { images?: Array<{ url: string; mediaType?: string }> }) => {
+			hubChannel?.deliverMessage(_text, undefined, "next");
+			if (!agentRuntime) {
+				throw new Error(`Agent "${agentName}" has no model configured`);
+			}
+			await agentRuntime.prompt(_text, { mode: "next", images: toPromptImages(_options?.images) });
+		},
+		steer: async (_text: string, images?: Array<{ url: string; mediaType?: string }>) => {
+			hubChannel?.deliverMessage(_text, undefined, "steer");
+			if (!agentRuntime) {
+				throw new Error(`Agent "${agentName}" has no model configured`);
+			}
+			await agentRuntime.prompt(_text, { mode: "steer", images: toPromptImages(images) });
+		},
+		followUp: async (_text: string, images?: Array<{ url: string; mediaType?: string }>) => {
+			hubChannel?.deliverMessage(_text, undefined, "next");
+			if (!agentRuntime) {
+				throw new Error(`Agent "${agentName}" has no model configured`);
+			}
+			await agentRuntime.prompt(_text, { mode: "followUp", images: toPromptImages(images) });
+		},
+	});
 
 	// (AgentHttpServer removed — IPC server is created later)
 
@@ -381,10 +432,10 @@ async function runAgentWorker(): Promise<void> {
 		// No UI to reset
 	});
 
-	runtime!.setRebindSession(async (session: AgentSession, reason: "new" | "resume" | "fork") => {
+	runtime!.setRebindSession(async (session: DPiWorkerSession, reason: "new" | "resume" | "fork") => {
 		proxy!.resubscribe(reason);
 		await rebindSession();
-		proxy!.setBanner(generateBanner(session));
+		proxy!.setBanner(generateDPiBanner(session));
 	});
 
 	// Initial bind for the first session
@@ -393,7 +444,7 @@ async function runAgentWorker(): Promise<void> {
 	// 8. Start IPC server (replaces AgentHttpServer)
 	// The IPC server listens for http_request / http_query / sse_subscribe
 	// messages from the hub and responds via IPC. No HTTP port needed.
-	ipcServer = new AgentIpcServer(
+	ipcServer = new DPiAgentIpcServer(
 		proxy!,
 		{
 			postMessage: (msg) => port.postMessage(msg),

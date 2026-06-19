@@ -16,7 +16,7 @@
  * registered separately in the worker bootstrap).
  */
 
-import type { ExtensionFactory } from "@sheason/pi-coding-agent";
+import type { ExtensionFactory } from "./contracts.ts";
 import type { HubChannel } from "./hub-channel.ts";
 import {
 	AGENT_SWITCH_FILE,

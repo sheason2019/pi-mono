@@ -1,0 +1,1600 @@
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { type Api, getModels, getProviders, type KnownProvider, type Model } from "@earendil-works/pi-ai";
+import type {
+	ExtensionAPI,
+	ExtensionFactory,
+	ExtensionHandler,
+	ExtensionMessage,
+	InputEvent,
+	InputEventResult,
+	MessageRenderer,
+	ModelRegistry,
+	ResourceLoader,
+	ToolDefinition,
+} from "../extension/contracts.ts";
+import type { DPiRuntimeEvent } from "../runtime/events.ts";
+import type { DPiInteractiveBannerData, DPiInteractiveRemoteSettings } from "../tui/interactive/agent-session-proxy.ts";
+
+export interface DPiWorkerAuthStorage {
+	readonly kind: "d-pi-auth-storage";
+}
+
+export interface DPiWorkerSettingsManager {
+	getDefaultProvider(): string | undefined;
+	getDefaultModel(): string | undefined;
+	getDefaultThinkingLevel(): ThinkingLevel | undefined;
+}
+
+export interface DPiRequestAuth {
+	apiKey: string;
+	headers?: Record<string, string>;
+}
+
+export interface DPiWorkerModelRegistry extends ModelRegistry {
+	getApiKeyAndHeaders?(model: Model<Api>): Promise<DPiRequestAuth | undefined> | DPiRequestAuth | undefined;
+}
+
+export interface DPiWorkerSessionManager {
+	readonly cwd: string;
+	readonly sessionDir?: string;
+}
+
+export interface DPiWorkerInfrastructure {
+	agentDir: string;
+	authStorage: DPiWorkerAuthStorage;
+	settingsManager: DPiWorkerSettingsManager;
+	modelRegistry: DPiWorkerModelRegistry;
+}
+
+export interface DPiWorkerSession {
+	agent: {
+		waitForIdle(): Promise<void>;
+	};
+	resourceLoader: ResourceLoader;
+	modelRegistry: DPiWorkerModelRegistry;
+	reload(): Promise<void>;
+	bindExtensions(options: DPiBindExtensionsOptions): Promise<void>;
+	navigateTree(targetId: string, options?: unknown): Promise<{ cancelled: boolean }>;
+}
+
+export interface DPiBindExtensionsOptions {
+	commandContextActions: {
+		waitForIdle(): Promise<void>;
+		newSession(options?: unknown): Promise<unknown>;
+		fork(entryId: string, options?: unknown): Promise<{ cancelled: boolean }>;
+		navigateTree(targetId: string, options?: unknown): Promise<{ cancelled: boolean }>;
+		switchSession(sessionPath: string, options?: unknown): Promise<unknown>;
+		reload(): Promise<void>;
+	};
+	abortHandler(): void;
+	onError(error: { extensionPath: string; error: unknown }): void;
+}
+
+export interface DPiAgentSessionServices {
+	diagnostics: unknown[];
+	cwd?: string;
+	settingsManager?: DPiWorkerSettingsManager;
+	modelRegistry?: DPiWorkerModelRegistry;
+	resourceLoaderOptions?: {
+		extensionFactories?: Array<{ factory: ExtensionFactory; name: string }>;
+		appendSystemPromptOverride?: (base: string[]) => string[];
+		agentsFilesOverride?: (base: { agentsFiles: Array<{ path: string; content: string }> }) => {
+			agentsFiles: Array<{ path: string; content: string }>;
+		};
+		additionalSkillPaths?: string[];
+		additionalExtensionPaths?: string[];
+	};
+}
+
+export interface DPiCreateSessionServicesOptions {
+	cwd: string;
+	agentDir: string;
+	authStorage: DPiWorkerAuthStorage;
+	settingsManager: DPiWorkerSettingsManager;
+	modelRegistry: DPiWorkerModelRegistry;
+	resourceLoaderOptions?: DPiAgentSessionServices["resourceLoaderOptions"];
+}
+
+export interface DPiCreateSessionFromServicesOptions {
+	services: DPiAgentSessionServices;
+	sessionManager: DPiWorkerSessionManager;
+	model?: Model<Api>;
+	tools?: string[];
+	excludeTools?: string[];
+}
+
+export interface DPiCreateSessionResult {
+	session: DPiWorkerSession;
+	diagnostics: unknown[];
+}
+
+export interface DPiAgentSessionRuntime {
+	session: DPiWorkerSession;
+	newSession(options?: unknown): Promise<unknown>;
+	fork(entryId: string, options?: unknown): Promise<{ cancelled: boolean }>;
+	switchSession(sessionPath: string, options?: unknown): Promise<unknown>;
+	setBeforeSessionInvalidate(handler: () => void): void;
+	setRebindSession(handler: (session: DPiWorkerSession, reason: "new" | "resume" | "fork") => Promise<void>): void;
+}
+
+export type DPiCreateSessionRuntimeFactory = (options: {
+	cwd: string;
+	agentDir: string;
+	sessionManager: DPiWorkerSessionManager;
+}) => Promise<DPiCreateSessionResult & { services: DPiAgentSessionServices }>;
+
+export function createDPiWorkerInfrastructure(cwd: string): DPiWorkerInfrastructure {
+	const settingsManager = createSettingsManager(cwd);
+	const modelRegistry = createBuiltInModelRegistry();
+	return {
+		agentDir: cwd,
+		authStorage: { kind: "d-pi-auth-storage" },
+		settingsManager,
+		modelRegistry,
+	};
+}
+
+export function createDPiSessionManager(cwd: string, sessionDir?: string): DPiWorkerSessionManager {
+	return { cwd, ...(sessionDir ? { sessionDir } : {}) };
+}
+
+export async function resolveDPiInitialModel(options: {
+	modelSpec?: string;
+	modelRegistry: DPiWorkerModelRegistry;
+	settingsManager: DPiWorkerSettingsManager;
+}): Promise<Model<Api> | undefined> {
+	const { modelSpec, modelRegistry, settingsManager } = options;
+	let resolvedModel: Model<Api> | undefined;
+
+	if (modelSpec) {
+		if (modelSpec.includes("/")) {
+			const slashIndex = modelSpec.indexOf("/");
+			const provider = modelSpec.slice(0, slashIndex);
+			const modelId = modelSpec.slice(slashIndex + 1);
+			resolvedModel = modelRegistry.find(provider, modelId);
+		} else {
+			resolvedModel = modelRegistry.getAll().find((model) => model.id === modelSpec);
+		}
+	}
+
+	if (resolvedModel) {
+		return resolvedModel;
+	}
+
+	const defaultProvider = settingsManager.getDefaultProvider();
+	const defaultModel = settingsManager.getDefaultModel();
+	if (defaultProvider && defaultModel) {
+		return modelRegistry.find(defaultProvider, defaultModel);
+	}
+	return undefined;
+}
+
+export function runtimeModelSpecFromResolvedModel(model: Model<Api> | undefined): string | undefined {
+	return model ? `${model.provider}/${model.id}` : undefined;
+}
+
+export async function createDPiAgentSessionServices(
+	options: DPiCreateSessionServicesOptions,
+): Promise<DPiAgentSessionServices> {
+	return {
+		diagnostics: [],
+		cwd: options.cwd,
+		settingsManager: options.settingsManager,
+		modelRegistry: options.modelRegistry,
+		resourceLoaderOptions: options.resourceLoaderOptions,
+	};
+}
+
+export async function createDPiAgentSessionFromServices(
+	options: DPiCreateSessionFromServicesOptions,
+): Promise<DPiCreateSessionResult> {
+	return {
+		session: createPlaceholderSession(options.services, options.sessionManager, options.model),
+		diagnostics: options.services.diagnostics,
+	};
+}
+
+export async function createDPiAgentSessionRuntime(
+	factory: DPiCreateSessionRuntimeFactory,
+	options: { cwd: string; agentDir: string; sessionManager: DPiWorkerSessionManager },
+): Promise<DPiAgentSessionRuntime> {
+	let current = await factory(options);
+	let beforeInvalidate: (() => void) | undefined;
+	let rebind: ((session: DPiWorkerSession, reason: "new" | "resume" | "fork") => Promise<void>) | undefined;
+	let localSessionSequence = 0;
+
+	const recreateSession = async (
+		reason: "new" | "resume" | "fork",
+		sessionDir: string,
+	): Promise<DPiCreateSessionResult & { services: DPiAgentSessionServices }> => {
+		beforeInvalidate?.();
+		const next = await factory({
+			...options,
+			sessionManager: createDPiSessionManager(options.cwd, sessionDir),
+		});
+		current = next;
+		await rebind?.(current.session, reason);
+		return next;
+	};
+
+	const nextSessionPath = (kind: "fork" | "new", detail?: string): string => {
+		localSessionSequence += 1;
+		const base = options.sessionManager.sessionDir ?? join(options.cwd, ".d-pi-sessions");
+		const suffix = detail ? `-${sanitizeSessionPathPart(detail)}` : "";
+		return join(base, `${kind}-${localSessionSequence}${suffix}`);
+	};
+
+	return {
+		get session(): DPiWorkerSession {
+			return current.session;
+		},
+		async newSession(newSessionOptions?: unknown): Promise<unknown> {
+			const sessionPath = nextSessionPath("new");
+			await recreateSession("new", sessionPath);
+			return { sessionPath, options: newSessionOptions };
+		},
+		async fork(entryId: string, forkOptions?: unknown): Promise<{ cancelled: boolean }> {
+			await recreateSession("fork", nextSessionPath("fork", entryId));
+			void forkOptions;
+			return { cancelled: false };
+		},
+		async switchSession(sessionPath: string, switchOptions?: unknown): Promise<unknown> {
+			await recreateSession("resume", sessionPath);
+			return { sessionPath, options: switchOptions };
+		},
+		setBeforeSessionInvalidate(handler: () => void): void {
+			beforeInvalidate = handler;
+		},
+		setRebindSession(handler: (session: DPiWorkerSession, reason: "new" | "resume" | "fork") => Promise<void>): void {
+			rebind = handler;
+		},
+	};
+}
+
+export function generateDPiBanner(session: DPiWorkerSession): DPiInteractiveBannerData {
+	const resourceLoader = session.resourceLoader;
+	const contextFiles = resourceLoader.getAgentsFiles().agentsFiles;
+	const skillsResult = resourceLoader.getSkills();
+	const promptsResult = resourceLoader.getPrompts();
+	const extensionsResult = resourceLoader.getExtensions();
+	const themesResult = resourceLoader.getThemes();
+	const loadedResources = [
+		...(contextFiles.length > 0
+			? [
+					{
+						name: "Context",
+						compactList: contextFiles.map((file) => file.path).join(", "),
+						expandedList: contextFiles.map((file) => file.path).join("\n"),
+					},
+				]
+			: []),
+		...(skillsResult.skills.length > 0
+			? [
+					{
+						name: "Skills",
+						compactList: skillsResult.skills
+							.map((skill) => skill.name)
+							.sort()
+							.join(", "),
+						expandedList: skillsResult.skills.map((skill) => skill.filePath ?? skill.name).join("\n"),
+					},
+				]
+			: []),
+		...loadedPromptResources(promptsResult.prompts),
+		...loadedExtensionResources(extensionsResult.extensions),
+		...loadedThemeResources(themesResult.themes),
+	];
+	const diagnostics = [
+		...(skillsResult.diagnostics.length > 0
+			? [
+					{
+						label: "Skill conflicts",
+						entries: skillsResult.diagnostics as DPiInteractiveBannerData["diagnostics"][number]["entries"],
+					},
+				]
+			: []),
+		...(promptsResult.diagnostics.length > 0
+			? [
+					{
+						label: "Prompt conflicts",
+						entries: promptsResult.diagnostics as DPiInteractiveBannerData["diagnostics"][number]["entries"],
+					},
+				]
+			: []),
+		...(extensionsResult.errors.length > 0
+			? [
+					{
+						label: "Extension issues",
+						entries: extensionsResult.errors.map((error) => ({
+							type: "error" as const,
+							message: extensionErrorMessage(error),
+							...(extensionErrorPath(error) ? { path: extensionErrorPath(error) } : {}),
+						})),
+					},
+				]
+			: []),
+		...(themesResult.diagnostics.length > 0
+			? [
+					{
+						label: "Theme conflicts",
+						entries: themesResult.diagnostics as DPiInteractiveBannerData["diagnostics"][number]["entries"],
+					},
+				]
+			: []),
+	];
+	return {
+		appName: "pi",
+		version: nativePiCompatibleVersion(),
+		expandedHints: [
+			{ key: "escape", description: "to interrupt" },
+			{ key: "ctrl+c", description: "to clear" },
+			{ key: "ctrl+c twice", description: "to exit" },
+			{ key: "ctrl+d", description: "to exit (empty)" },
+			{ key: "ctrl+z", description: "to suspend" },
+			{ key: "ctrl+k", description: "to delete to end" },
+			{ key: "ctrl+t", description: "to cycle thinking level" },
+			{ key: "ctrl+n/ctrl+p", description: "to cycle models" },
+			{ key: "ctrl+m", description: "to select model" },
+			{ key: "ctrl+o", description: "to expand tools" },
+			{ key: "ctrl+r", description: "to expand thinking" },
+			{ key: "ctrl+x", description: "for external editor" },
+			{ key: "/", description: "for commands" },
+			{ key: "!", description: "to run bash" },
+			{ key: "!!", description: "to run bash (no context)" },
+			{ key: "ctrl+j", description: "to queue follow-up" },
+			{ key: "ctrl+q", description: "to edit all queued messages" },
+			{ key: "ctrl+v", description: "to paste image" },
+			{ key: "drop files", description: "to attach" },
+		],
+		compactHints: [
+			{ key: "escape", description: "interrupt" },
+			{ key: "ctrl+c/ctrl+d", description: "clear/exit" },
+			{ key: "/", description: "commands" },
+			{ key: "!", description: "bash" },
+			{ key: "ctrl+o", description: "more" },
+		],
+		compactOnboarding: "Press ctrl+o to show full startup help and loaded resources.",
+		onboarding: "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
+		loadedResources,
+		diagnostics,
+		changelogMarkdown: undefined,
+	};
+}
+
+function nativePiCompatibleVersion(): string {
+	return process.env.DPI_NATIVE_PI_VERSION ?? "0.79.6";
+}
+
+function loadedPromptResources(prompts: unknown[]): DPiInteractiveBannerData["loadedResources"] {
+	const entries = prompts.map((prompt) => ({
+		name: promptRecordString(prompt, "name"),
+		filePath: promptRecordString(prompt, "filePath"),
+	}));
+	const named = entries.filter(
+		(entry): entry is { name: string; filePath: string | undefined } => entry.name !== undefined,
+	);
+	return named.length === 0
+		? []
+		: [
+				{
+					name: "Prompts",
+					compactList: named
+						.map((prompt) => `/${prompt.name}`)
+						.sort()
+						.join(", "),
+					expandedList: named.map((prompt) => prompt.filePath ?? `/${prompt.name}`).join("\n"),
+				},
+			];
+}
+
+function loadedExtensionResources(extensions: unknown[]): DPiInteractiveBannerData["loadedResources"] {
+	const paths = extensions
+		.map((extension) => promptRecordString(extension, "path"))
+		.filter((path): path is string => path !== undefined);
+	return paths.length === 0
+		? []
+		: [
+				{
+					name: "Extensions",
+					compactList: paths.map((path) => path.split("/").at(-1) ?? path).join(", "),
+					expandedList: paths.join("\n"),
+				},
+			];
+}
+
+function loadedThemeResources(themes: unknown[]): DPiInteractiveBannerData["loadedResources"] {
+	const entries = themes
+		.map((theme) => ({
+			name: promptRecordString(theme, "name"),
+			sourcePath: promptRecordString(theme, "sourcePath"),
+		}))
+		.filter((theme): theme is { name: string; sourcePath: string } => Boolean(theme.name && theme.sourcePath));
+	return entries.length === 0
+		? []
+		: [
+				{
+					name: "Themes",
+					compactList: entries
+						.map((theme) => theme.name)
+						.sort()
+						.join(", "),
+					expandedList: entries.map((theme) => theme.sourcePath).join("\n"),
+				},
+			];
+}
+
+function promptRecordString(value: unknown, key: string): string | undefined {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return undefined;
+	}
+	const field = (value as Record<string, unknown>)[key];
+	return typeof field === "string" ? field : undefined;
+}
+
+function extensionErrorMessage(error: unknown): string {
+	return promptRecordString(error, "error") ?? String(error);
+}
+
+function extensionErrorPath(error: unknown): string | undefined {
+	return promptRecordString(error, "path");
+}
+
+export interface DPiIpcTransport {
+	postMessage(message: unknown): void;
+	onMessage(handler: (message: unknown) => void): void;
+}
+
+export interface DPiIpcMessageHandlers {
+	onHttpResponse(requestId: string, status: number, body: unknown): void;
+	onSseEvent(subscriberId: string, event: string, data: unknown): void;
+}
+
+export interface DPiLocalAgentMessage {
+	id: string;
+	role: "assistant" | "custom" | "user";
+	content: unknown;
+	customType?: string;
+	display?: boolean;
+	details?: ExtensionMessage["details"];
+	images?: Array<{ url: string; mediaType?: string }>;
+	timestamp: number;
+}
+
+export interface DPiLocalQueueItem {
+	id: string;
+	kind: "follow-up" | "prompt" | "steer";
+	text: string;
+	images?: Array<{ url: string; mediaType?: string }>;
+	timestamp: number;
+}
+
+export interface DPiLocalAgentState {
+	model: string;
+	thinkingLevel: ThinkingLevel;
+	isStreaming: boolean;
+	isCompacting: boolean;
+	isBashRunning: boolean;
+	steeringMessages: readonly string[];
+	followUpMessages: readonly string[];
+	sessionFile: string | undefined;
+	sessionName: string | undefined;
+	tokenUsage: {
+		input: number;
+		output: number;
+		cacheRead: number;
+		cacheWrite: number;
+		cost: number;
+		usingSubscription: boolean;
+		latestCacheHitRate?: number;
+	};
+	contextUsage: {
+		tokens: number | null;
+		contextWindow: number;
+		percent: number | null;
+	};
+	modelInfo: {
+		id: string;
+		provider: string;
+		reasoning: boolean;
+		contextWindow: number;
+	};
+	autoCompactEnabled: boolean;
+	cwd: string;
+	availableProviderCount: number;
+	remoteSettings: DPiInteractiveRemoteSettings;
+	scopedModelIds: string[] | null;
+	enabledModelPatterns: string[] | undefined;
+	extensionPaths: string[];
+	agent: {
+		sessionId: string;
+		status: "busy" | "ready";
+	};
+	session: {
+		id: string;
+		path?: string;
+	};
+	banner: DPiInteractiveBannerData | undefined;
+	messages: DPiLocalAgentMessage[];
+	streaming: boolean;
+	queued: DPiLocalQueueItem[];
+	thinking?: ThinkingLevel;
+	extensions: DPiSessionExtensionSnapshot;
+}
+
+export type DPiLocalAgentEvent =
+	| { type: "message"; data: DPiLocalAgentMessage }
+	| { type: "queue"; data: { queued: DPiLocalQueueItem[] } }
+	| { type: "state"; data: DPiLocalAgentState }
+	| { type: "new" | "resume" | "fork"; data: DPiLocalAgentState }
+	| { type: "turn_stats"; data: Extract<DPiRuntimeEvent, { type: "turn_stats" }> }
+	| { type: "agent_end" | "compaction_end" | "compaction_start" | "turn_end" | "turn_start"; data?: unknown };
+
+export interface DPiRegisteredTool {
+	name: string;
+	label: string;
+	description: string;
+}
+
+export interface DPiRegisteredCommand {
+	name: string;
+	description: string;
+}
+
+export interface DPiSessionExtensionSnapshot {
+	tools: DPiRegisteredTool[];
+	commands: DPiRegisteredCommand[];
+	renderers: string[];
+	inputHandlers: number;
+	eventHandlers: string[];
+}
+
+interface DPiSessionExtensionState extends DPiSessionExtensionSnapshot {
+	toolDefinitions: ToolDefinition[];
+	commandDefinitions: Array<{
+		name: string;
+		description: string;
+		handler: Parameters<ExtensionAPI["registerCommand"]>[1]["handler"];
+	}>;
+	messageRenderers: Array<{ customType: string; renderer: MessageRenderer<unknown> }>;
+	inputHandlerDefinitions: Array<ExtensionHandler<InputEvent, InputEventResult>>;
+	eventHandlerDefinitions: Array<{ event: string; handler: ExtensionHandler }>;
+	currentModel?: Model<Api>;
+	thinking?: ThinkingLevel;
+}
+
+interface DPiSessionMetadata {
+	id: string;
+	path?: string;
+	cwd?: string;
+	model?: Model<Api>;
+}
+
+interface DPiSessionMessageState {
+	messages: DPiLocalAgentMessage[];
+	listeners: Set<(message: DPiLocalAgentMessage) => void>;
+}
+
+const sessionExtensionStates = new WeakMap<DPiWorkerSession, DPiSessionExtensionState>();
+const sessionMetadata = new WeakMap<DPiWorkerSession, DPiSessionMetadata>();
+const sessionMessageStates = new WeakMap<DPiWorkerSession, DPiSessionMessageState>();
+let generatedSessionSequence = 0;
+let generatedMessageSequence = 0;
+
+function createDefaultRemoteSettings(thinkingLevel: ThinkingLevel): DPiInteractiveRemoteSettings {
+	return {
+		autoCompact: true,
+		thinkingLevel,
+		availableThinkingLevels: ["off", "low", "medium", "high"],
+		steeringMode: "all",
+		followUpMode: "all",
+		enableSkillCommands: true,
+		doubleEscapeAction: "tree",
+		showImages: true,
+		imageWidthCells: 60,
+		autoResizeImages: true,
+		blockImages: false,
+		transport: "auto",
+		httpIdleTimeoutMs: 600000,
+		currentTheme: "default",
+		availableThemes: ["default"],
+		hideThinkingBlock: false,
+		collapseChangelog: false,
+		enableInstallTelemetry: false,
+		treeFilterMode: "all",
+		showHardwareCursor: false,
+		editorPaddingX: 0,
+		autocompleteMaxVisible: 10,
+		quietStartup: false,
+		clearOnShrink: true,
+		showTerminalProgress: true,
+		warnings: {},
+	};
+}
+
+export class DPiAgentIpcServer {
+	private readonly proxy: DPiLocalAgentSessionProxy;
+	private readonly transport: DPiIpcTransport;
+	private readonly handlers: DPiIpcMessageHandlers;
+	private readonly subscribers = new Map<string, () => void>();
+
+	constructor(proxy: DPiLocalAgentSessionProxy, transport: DPiIpcTransport, handlers: DPiIpcMessageHandlers) {
+		this.proxy = proxy;
+		this.transport = transport;
+		this.handlers = handlers;
+	}
+
+	start(): void {
+		this.transport.onMessage((message) => {
+			void this.handleMessage(message);
+		});
+	}
+
+	stop(): void {
+		for (const unsubscribe of this.subscribers.values()) {
+			unsubscribe();
+		}
+		this.subscribers.clear();
+		this.proxy.dispose();
+	}
+
+	private async handleMessage(message: unknown): Promise<void> {
+		if (!isRecord(message) || typeof message.type !== "string") {
+			return;
+		}
+		if (message.type === "http_query" && typeof message.requestId === "string") {
+			this.handleHttpQuery(message.requestId, message.query);
+			return;
+		}
+		if (message.type === "http_request" && typeof message.requestId === "string") {
+			await this.handleHttpRequest(message.requestId, message.action, message.data);
+			return;
+		}
+		if (message.type === "sse_subscribe" && typeof message.subscriberId === "string") {
+			this.subscribeSse(message.subscriberId);
+			return;
+		}
+		if (message.type === "sse_unsubscribe" && typeof message.subscriberId === "string") {
+			this.unsubscribeSse(message.subscriberId);
+		}
+	}
+
+	private handleHttpQuery(requestId: string, query: unknown): void {
+		if (query === "state") {
+			this.handlers.onHttpResponse(requestId, 200, this.proxy.getState());
+			return;
+		}
+		if (query === "messages") {
+			this.handlers.onHttpResponse(requestId, 200, this.proxy.getState().messages);
+			return;
+		}
+		if (query === "settings") {
+			this.handlers.onHttpResponse(requestId, 200, this.proxy.getState().remoteSettings);
+			return;
+		}
+		if (query === "tree" || query === "user-messages" || query === "sessions" || query === "client-extensions") {
+			this.handlers.onHttpResponse(requestId, 200, []);
+			return;
+		}
+		if (query === "commands") {
+			this.handlers.onHttpResponse(requestId, 200, this.proxy.getCommands());
+			return;
+		}
+		if (query === "models") {
+			this.handlers.onHttpResponse(requestId, 200, this.proxy.getModels());
+			return;
+		}
+		this.handlers.onHttpResponse(requestId, 404, {
+			ok: false,
+			error: `Unknown query: ${String(query)}`,
+		});
+	}
+
+	private async handleHttpRequest(requestId: string, action: unknown, data: unknown): Promise<void> {
+		try {
+			const payload = isRecord(data) ? data : {};
+			const text = typeof payload.text === "string" ? payload.text : "";
+			if (action === "prompt") {
+				await this.proxy.prompt(text, { images: extractImages(payload.options) ?? extractImages(payload) });
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "steer") {
+				await this.proxy.steer(text, extractImages(payload) ?? extractImages(payload.options));
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "follow-up") {
+				await this.proxy.followUp(text, extractImages(payload) ?? extractImages(payload.options));
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "abort") {
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "abort-bash") {
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "clear-queue") {
+				this.handlers.onHttpResponse(requestId, 200, { ok: true, dropped: this.proxy.clearQueue() });
+				return;
+			}
+			if (
+				action === "compact" ||
+				action === "set-model" ||
+				action === "cycle-model" ||
+				action === "set-thinking-level" ||
+				action === "cycle-thinking-level" ||
+				action === "new-session" ||
+				action === "switch-session" ||
+				action === "fork" ||
+				action === "name" ||
+				action === "label" ||
+				action === "scoped-models" ||
+				action === "enabled-models" ||
+				action === "reload" ||
+				action === "settings"
+			) {
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			this.handlers.onHttpResponse(requestId, 404, {
+				ok: false,
+				error: `Unknown action: ${String(action)}`,
+			});
+		} catch (error) {
+			this.handlers.onHttpResponse(requestId, 500, {
+				ok: false,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+
+	private subscribeSse(subscriberId: string): void {
+		this.unsubscribeSse(subscriberId);
+		const unsubscribe = this.proxy.subscribe((event) => {
+			this.handlers.onSseEvent(subscriberId, event.type, event.data);
+		});
+		this.subscribers.set(subscriberId, unsubscribe);
+		this.handlers.onSseEvent(subscriberId, "state", this.proxy.getState());
+	}
+
+	private unsubscribeSse(subscriberId: string): void {
+		const unsubscribe = this.subscribers.get(subscriberId);
+		if (!unsubscribe) {
+			return;
+		}
+		unsubscribe();
+		this.subscribers.delete(subscriberId);
+	}
+}
+
+export class DPiLocalAgentSessionProxy {
+	private readonly runtime: DPiAgentSessionRuntime;
+	private readonly listeners = new Set<(event: DPiLocalAgentEvent) => void>();
+	private readonly messages: DPiLocalAgentMessage[] = [];
+	private readonly importedSessionMessageIds = new Set<string>();
+	private readonly queued: DPiLocalQueueItem[] = [];
+	private banner: DPiInteractiveBannerData | undefined;
+	private streaming = false;
+	private thinking: ThinkingLevel | undefined;
+	private tokenUsage: DPiLocalAgentState["tokenUsage"] = {
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		cost: 0,
+		usingSubscription: false,
+	};
+	private unsubscribeSessionMessages: (() => void) | undefined;
+	private messageDispatcher:
+		| {
+				prompt?: (
+					text: string,
+					options?: { images?: Array<{ url: string; mediaType?: string }> },
+				) => Promise<void> | void;
+				steer?: (text: string, images?: Array<{ url: string; mediaType?: string }>) => Promise<void> | void;
+				followUp?: (text: string, images?: Array<{ url: string; mediaType?: string }>) => Promise<void> | void;
+		  }
+		| undefined;
+
+	constructor(runtime: DPiAgentSessionRuntime) {
+		this.runtime = runtime;
+		this.subscribeToSessionMessages();
+	}
+
+	setBanner(banner: DPiInteractiveBannerData | undefined): void {
+		this.banner = banner;
+		this.emitState();
+	}
+
+	setMessageDispatcher(dispatcher: {
+		prompt?: (
+			text: string,
+			options?: { images?: Array<{ url: string; mediaType?: string }> },
+		) => Promise<void> | void;
+		steer?: (text: string, images?: Array<{ url: string; mediaType?: string }>) => Promise<void> | void;
+		followUp?: (text: string, images?: Array<{ url: string; mediaType?: string }>) => Promise<void> | void;
+	}): void {
+		this.messageDispatcher = dispatcher;
+	}
+
+	getState(): DPiLocalAgentState {
+		const metadata = getSessionMetadata(this.runtime.session);
+		const extensionState = getSessionExtensionSnapshot(this.runtime.session);
+		const model = metadata.model ?? getSessionExtensionState(this.runtime.session).currentModel;
+		const thinkingLevel = this.thinking ?? getSessionExtensionState(this.runtime.session).thinking ?? "off";
+		return {
+			model: model?.id ?? "",
+			thinkingLevel,
+			isStreaming: this.streaming,
+			isCompacting: false,
+			isBashRunning: false,
+			steeringMessages: this.queued.filter((item) => item.kind === "steer").map((item) => item.text),
+			followUpMessages: this.queued.filter((item) => item.kind === "follow-up").map((item) => item.text),
+			sessionFile: metadata.path,
+			sessionName: undefined,
+			tokenUsage: this.tokenUsage,
+			contextUsage: {
+				tokens: 0,
+				contextWindow: model?.contextWindow ?? 0,
+				percent: 0,
+			},
+			modelInfo: {
+				id: model?.id ?? "",
+				provider: model?.provider ?? "",
+				reasoning: model?.reasoning ?? false,
+				contextWindow: model?.contextWindow ?? 0,
+			},
+			autoCompactEnabled: true,
+			cwd: metadata.cwd ?? "",
+			availableProviderCount: this.runtime.session.modelRegistry.getAll().length,
+			remoteSettings: createDefaultRemoteSettings(thinkingLevel),
+			scopedModelIds: null,
+			enabledModelPatterns: undefined,
+			extensionPaths: [],
+			agent: {
+				sessionId: metadata.id,
+				status: this.streaming ? "busy" : "ready",
+			},
+			session: {
+				id: metadata.id,
+				...(metadata.path ? { path: metadata.path } : {}),
+			},
+			banner: this.banner,
+			messages: [...this.messages],
+			streaming: this.streaming,
+			queued: [...this.queued],
+			...(this.thinking ? { thinking: this.thinking } : {}),
+			extensions: extensionState,
+		};
+	}
+
+	getCommands(): DPiRegisteredCommand[] {
+		return getSessionExtensionSnapshot(this.runtime.session).commands;
+	}
+
+	getModels(): Array<{ id: string; name: string; provider: string }> {
+		return this.runtime.session.modelRegistry.getAll().map((model) => ({
+			id: model.id,
+			name: model.name,
+			provider: model.provider,
+		}));
+	}
+
+	clearQueue(): { steering: string[]; followUp: string[] } {
+		const dropped = {
+			steering: this.queued.filter((item) => item.kind === "steer").map((item) => item.text),
+			followUp: this.queued.filter((item) => item.kind === "follow-up").map((item) => item.text),
+		};
+		this.queued.splice(0, this.queued.length);
+		this.emit({ type: "queue", data: { queued: [] } });
+		this.emitState();
+		return dropped;
+	}
+
+	subscribe(listener: (event: DPiLocalAgentEvent) => void): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
+
+	applyRuntimeEvent(event: DPiRuntimeEvent): void {
+		if (event.type === "assistant_stream") {
+			this.streaming = !event.done;
+			if (event.done && event.message) {
+				this.updateTokenUsage(event);
+				this.recordSessionMessage(
+					{
+						id: nextGeneratedId("message"),
+						role: "assistant",
+						content: "content" in event.message ? event.message.content : "",
+						timestamp: Date.now(),
+					},
+					true,
+				);
+			} else {
+				this.emitState();
+			}
+			return;
+		}
+		if (event.type === "queue_update") {
+			this.queued.splice(
+				0,
+				this.queued.length,
+				...event.queues.prompts.map((item): DPiLocalQueueItem => {
+					const kind = item.mode === "followUp" ? "follow-up" : item.mode === "steer" ? "steer" : "prompt";
+					return {
+						id: item.id,
+						kind,
+						text: item.text,
+						timestamp: item.createdAt,
+					};
+				}),
+			);
+			this.emit({ type: "queue", data: { queued: [...this.queued] } });
+			this.emitState();
+			return;
+		}
+		if (event.type === "turn_stats") {
+			this.emit({ type: "turn_stats", data: event });
+			return;
+		}
+		if (event.type === "state_update") {
+			if (event.state.thinking?.level) {
+				this.thinking = event.state.thinking.level;
+			}
+			this.emitState();
+			return;
+		}
+		if (event.type === "session_replaced") {
+			this.messages.splice(0, this.messages.length);
+			this.importedSessionMessageIds.clear();
+			for (const message of event.messages) {
+				this.recordSessionMessage(
+					{
+						id: nextGeneratedId("message"),
+						role: message.role === "assistant" ? "assistant" : message.role === "user" ? "user" : "custom",
+						content: "content" in message ? message.content : "",
+						timestamp: Date.now(),
+					},
+					false,
+				);
+			}
+			this.emit({ type: "resume", data: this.getState() });
+			this.emitState();
+			return;
+		}
+		if (event.type === "error") {
+			this.recordSessionMessage(
+				{
+					id: nextGeneratedId("message"),
+					role: "custom",
+					customType: "runtime-error",
+					content: event.error.message,
+					timestamp: Date.now(),
+				},
+				true,
+			);
+		}
+	}
+
+	private updateTokenUsage(event: Extract<DPiRuntimeEvent, { type: "assistant_stream" }>): void {
+		const usage = event.message && "usage" in event.message ? event.message.usage : undefined;
+		if (!usage) {
+			return;
+		}
+		const input = numberField(usage, "input");
+		const output = numberField(usage, "output");
+		const cacheRead = numberField(usage, "cacheRead");
+		const cacheWrite = numberField(usage, "cacheWrite");
+		const costRecord = objectField(usage, "cost");
+		this.tokenUsage = {
+			input,
+			output,
+			cacheRead,
+			cacheWrite,
+			cost: costRecord ? numberField(costRecord, "total") : 0,
+			usingSubscription: false,
+			...(cacheRead + cacheWrite > 0
+				? { latestCacheHitRate: (cacheRead / Math.max(1, input + cacheRead + cacheWrite)) * 100 }
+				: {}),
+		};
+	}
+
+	async prompt(text: string, options?: { images?: Array<{ url: string; mediaType?: string }> }): Promise<void> {
+		this.recordLocalInput("prompt", text, options?.images);
+		await dispatchSessionInputHandlers(this.runtime.session, text, "next");
+		await this.messageDispatcher?.prompt?.(text, options);
+	}
+
+	async steer(text: string, images?: Array<{ url: string; mediaType?: string }>): Promise<void> {
+		this.recordLocalInput("steer", text, images);
+		await dispatchSessionInputHandlers(this.runtime.session, text, "steer");
+		await this.messageDispatcher?.steer?.(text, images);
+	}
+
+	async followUp(text: string, images?: Array<{ url: string; mediaType?: string }>): Promise<void> {
+		this.recordLocalInput("follow-up", text, images);
+		await dispatchSessionInputHandlers(this.runtime.session, text, "followUp");
+		await this.messageDispatcher?.followUp?.(text, images);
+	}
+
+	resubscribe(reason: "new" | "resume" | "fork"): void {
+		this.subscribeToSessionMessages();
+		this.emit({ type: reason, data: this.getState() });
+		this.emitState();
+	}
+
+	dispose(): void {
+		this.unsubscribeSessionMessages?.();
+		this.unsubscribeSessionMessages = undefined;
+		this.listeners.clear();
+	}
+
+	private subscribeToSessionMessages(): void {
+		this.unsubscribeSessionMessages?.();
+		const messageState = getSessionMessageState(this.runtime.session);
+		for (const message of messageState.messages) {
+			this.recordSessionMessage(message, false);
+		}
+		this.unsubscribeSessionMessages = subscribeSessionMessages(this.runtime.session, (message) => {
+			this.recordSessionMessage(message, true);
+		});
+	}
+
+	private recordSessionMessage(message: DPiLocalAgentMessage, emitEvents: boolean): void {
+		if (this.importedSessionMessageIds.has(message.id)) {
+			return;
+		}
+		this.importedSessionMessageIds.add(message.id);
+		this.messages.push(message);
+		if (emitEvents) {
+			this.emit({ type: "message", data: message });
+			this.emitState();
+		}
+	}
+
+	private recordLocalInput(
+		kind: DPiLocalQueueItem["kind"],
+		text: string,
+		images?: Array<{ url: string; mediaType?: string }>,
+	): void {
+		const queueItem: DPiLocalQueueItem = {
+			id: nextGeneratedId("queue"),
+			kind,
+			text,
+			...(images ? { images } : {}),
+			timestamp: Date.now(),
+		};
+		this.queued.push(queueItem);
+		this.emit({ type: "queue", data: { queued: [...this.queued] } });
+		this.emitState();
+
+		const message: DPiLocalAgentMessage =
+			kind === "prompt"
+				? {
+						id: nextGeneratedId("message"),
+						role: "user",
+						content: text,
+						...(images ? { images } : {}),
+						timestamp: Date.now(),
+					}
+				: {
+						id: nextGeneratedId("message"),
+						role: "custom",
+						customType: kind,
+						content: text,
+						...(images ? { images } : {}),
+						timestamp: Date.now(),
+					};
+		this.messages.push(message);
+		this.emit({ type: "message", data: message });
+
+		const queuedIndex = this.queued.findIndex((candidate) => candidate.id === queueItem.id);
+		if (queuedIndex >= 0) {
+			this.queued.splice(queuedIndex, 1);
+		}
+		this.emitState();
+	}
+
+	private emitState(): void {
+		this.emit({ type: "state", data: this.getState() });
+	}
+
+	private emit(event: DPiLocalAgentEvent): void {
+		for (const listener of this.listeners) {
+			listener(event);
+		}
+	}
+}
+
+function createPlaceholderSession(
+	services: DPiAgentSessionServices,
+	sessionManager: DPiWorkerSessionManager,
+	model: Model<Api> | undefined,
+): DPiWorkerSession {
+	const resourceLoader = createEmptyResourceLoader(services.resourceLoaderOptions);
+	const modelRegistry = services.modelRegistry ?? createEmptyModelRegistry();
+	const extensionState = createEmptyExtensionState(services.settingsManager);
+	let lastBindOptions: DPiBindExtensionsOptions | undefined;
+	const session: DPiWorkerSession = {
+		agent: {
+			waitForIdle: async () => {},
+		},
+		resourceLoader,
+		modelRegistry,
+		reload: async () => {
+			await resourceLoader.reload();
+			if (lastBindOptions) {
+				await session.bindExtensions(lastBindOptions);
+			}
+		},
+		bindExtensions: async (bindOptions) => {
+			lastBindOptions = bindOptions;
+			resetExtensionState(extensionState, services.settingsManager);
+			for (const extension of services.resourceLoaderOptions?.extensionFactories ?? []) {
+				try {
+					extension.factory(createExtensionApi(extensionState, getSessionMessageState(session)));
+				} catch (error) {
+					bindOptions.onError({ extensionPath: extension.name, error });
+				}
+			}
+		},
+		navigateTree: async () => ({ cancelled: false }),
+	};
+	sessionExtensionStates.set(session, extensionState);
+	sessionMetadata.set(session, {
+		id: nextGeneratedId("session"),
+		...(services.cwd ? { cwd: services.cwd } : {}),
+		...(sessionManager.sessionDir ? { path: sessionManager.sessionDir } : {}),
+		...(model ? { model } : {}),
+	});
+	return session;
+}
+
+interface PiSettings {
+	defaultProvider?: string;
+	defaultModel?: string;
+	defaultThinkingLevel?: ThinkingLevel;
+}
+
+function createSettingsManager(cwd: string): DPiWorkerSettingsManager {
+	const settings = loadPiSettings(cwd);
+	return {
+		getDefaultProvider: () => settings.defaultProvider,
+		getDefaultModel: () => settings.defaultModel,
+		getDefaultThinkingLevel: () => settings.defaultThinkingLevel,
+	};
+}
+
+function loadPiSettings(cwd: string): PiSettings {
+	const globalSettings = readPiSettingsFile(join(getPiAgentDir(), "settings.json"));
+	const projectSettings = readPiSettingsFile(join(cwd, ".pi", "settings.json"));
+	return { ...globalSettings, ...projectSettings };
+}
+
+function getPiAgentDir(): string {
+	return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+}
+
+function readPiSettingsFile(path: string): PiSettings {
+	if (!existsSync(path)) {
+		return {};
+	}
+	const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+		return {};
+	}
+	const record = parsed as Record<string, unknown>;
+	return {
+		...(typeof record.defaultProvider === "string" ? { defaultProvider: record.defaultProvider } : {}),
+		...(typeof record.defaultModel === "string" ? { defaultModel: record.defaultModel } : {}),
+		...(isThinkingLevel(record.defaultThinkingLevel) ? { defaultThinkingLevel: record.defaultThinkingLevel } : {}),
+	};
+}
+
+function isThinkingLevel(value: unknown): value is ThinkingLevel {
+	return (
+		value === "off" ||
+		value === "minimal" ||
+		value === "low" ||
+		value === "medium" ||
+		value === "high" ||
+		value === "xhigh"
+	);
+}
+
+function createBuiltInModelRegistry(): DPiWorkerModelRegistry {
+	let registry = loadAvailableModels();
+	return {
+		find: (provider, modelId) => findBuiltInModel(registry.models, provider, modelId),
+		getAll: () => [...registry.models],
+		getAvailable: async () => [...registry.models],
+		getApiKeyAndHeaders: (model) => {
+			const config = registry.providerAuth.get(model.provider);
+			if (!config?.apiKey) {
+				return undefined;
+			}
+			return {
+				apiKey: config.apiKey,
+				...(config?.authHeader && config.apiKey ? { headers: { Authorization: `Bearer ${config.apiKey}` } } : {}),
+			};
+		},
+		refresh: () => {
+			registry = loadAvailableModels();
+		},
+	};
+}
+
+function findBuiltInModel(models: Model<Api>[], provider: string, modelId: string): Model<Api> | undefined {
+	const direct = models.find((model) => model.provider === provider && model.id === modelId);
+	if (direct) {
+		return direct;
+	}
+	const aliasedModelId = `${provider}/${modelId}`;
+	return models.find((model) => model.id === aliasedModelId);
+}
+
+function loadBuiltInModels(): Model<Api>[] {
+	return getProviders().flatMap((provider) => getModels(provider as KnownProvider) as Model<Api>[]);
+}
+
+interface DPiProviderAuthConfig {
+	apiKey?: string;
+	authHeader?: boolean;
+}
+
+interface DPiAvailableModels {
+	models: Model<Api>[];
+	providerAuth: Map<string, DPiProviderAuthConfig>;
+}
+
+function loadAvailableModels(): DPiAvailableModels {
+	const custom = loadCustomModels();
+	return {
+		models: [...custom.models, ...loadBuiltInModels()],
+		providerAuth: custom.providerAuth,
+	};
+}
+
+function loadCustomModels(): DPiAvailableModels {
+	const modelsJsonPath = join(getPiAgentDir(), "models.json");
+	if (!existsSync(modelsJsonPath)) {
+		return { models: [], providerAuth: new Map() };
+	}
+	const parsed = JSON.parse(readFileSync(modelsJsonPath, "utf8")) as unknown;
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+		return { models: [], providerAuth: new Map() };
+	}
+	const providers = (parsed as Record<string, unknown>).providers;
+	if (typeof providers !== "object" || providers === null || Array.isArray(providers)) {
+		return { models: [], providerAuth: new Map() };
+	}
+	const models: Model<Api>[] = [];
+	const providerAuth = new Map<string, DPiProviderAuthConfig>();
+	for (const [provider, rawConfig] of Object.entries(providers as Record<string, unknown>)) {
+		if (typeof rawConfig !== "object" || rawConfig === null || Array.isArray(rawConfig)) {
+			continue;
+		}
+		const config = rawConfig as Record<string, unknown>;
+		const api = typeof config.api === "string" ? config.api : undefined;
+		const baseUrl = typeof config.baseUrl === "string" ? config.baseUrl : undefined;
+		if (!api || !baseUrl) {
+			continue;
+		}
+		providerAuth.set(provider, {
+			...(typeof config.apiKey === "string" ? { apiKey: config.apiKey } : {}),
+			...(typeof config.authHeader === "boolean" ? { authHeader: config.authHeader } : {}),
+		});
+		const rawModels = Array.isArray(config.models) ? config.models : [];
+		for (const rawModel of rawModels) {
+			const model = customModelFromConfig(provider, api, baseUrl, rawModel);
+			if (model) {
+				models.push(model);
+			}
+		}
+	}
+	return { models, providerAuth };
+}
+
+function customModelFromConfig(
+	provider: string,
+	api: string,
+	baseUrl: string,
+	rawModel: unknown,
+): Model<Api> | undefined {
+	if (typeof rawModel !== "object" || rawModel === null || Array.isArray(rawModel)) {
+		return undefined;
+	}
+	const record = rawModel as Record<string, unknown>;
+	const id = typeof record.id === "string" ? record.id : undefined;
+	if (!id) {
+		return undefined;
+	}
+	const name = typeof record.name === "string" ? record.name : id;
+	const input = Array.isArray(record.input)
+		? record.input.filter((item): item is "text" | "image" => item === "text" || item === "image")
+		: ["text" as const];
+	const contextWindow = typeof record.contextWindow === "number" ? record.contextWindow : 0;
+	const maxTokens = typeof record.maxTokens === "number" ? record.maxTokens : contextWindow;
+	return {
+		id,
+		name,
+		api,
+		provider,
+		baseUrl,
+		reasoning: true,
+		input,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow,
+		maxTokens,
+	};
+}
+
+function createEmptyModelRegistry(): DPiWorkerModelRegistry {
+	return {
+		find: () => undefined,
+		getAll: () => [],
+		getAvailable: async () => [],
+		refresh: () => {},
+	};
+}
+
+function createEmptyResourceLoader(options?: DPiAgentSessionServices["resourceLoaderOptions"]): ResourceLoader {
+	return {
+		getSkills: () => ({ skills: [], diagnostics: [] }),
+		getSystemPrompt: () => undefined,
+		getAppendSystemPrompt: () => options?.appendSystemPromptOverride?.([]) ?? [],
+		getAgentsFiles: () => options?.agentsFilesOverride?.({ agentsFiles: [] }) ?? { agentsFiles: [] },
+		getPrompts: () => ({ prompts: [], diagnostics: [] }),
+		getThemes: () => ({ themes: [], diagnostics: [] }),
+		getExtensions: () => ({ extensions: [], errors: [], runtime: {} }),
+		extendResources: () => {},
+		reload: async () => {},
+	};
+}
+
+function createEmptyExtensionState(settingsManager?: DPiWorkerSettingsManager): DPiSessionExtensionState {
+	const thinking = settingsManager?.getDefaultThinkingLevel();
+	return {
+		tools: [],
+		commands: [],
+		renderers: [],
+		inputHandlers: 0,
+		eventHandlers: [],
+		toolDefinitions: [],
+		commandDefinitions: [],
+		messageRenderers: [],
+		inputHandlerDefinitions: [],
+		eventHandlerDefinitions: [],
+		...(thinking ? { thinking } : {}),
+	};
+}
+
+function resetExtensionState(state: DPiSessionExtensionState, settingsManager?: DPiWorkerSettingsManager): void {
+	state.tools = [];
+	state.commands = [];
+	state.renderers = [];
+	state.inputHandlers = 0;
+	state.eventHandlers = [];
+	state.toolDefinitions = [];
+	state.commandDefinitions = [];
+	state.messageRenderers = [];
+	state.inputHandlerDefinitions = [];
+	state.eventHandlerDefinitions = [];
+	state.currentModel = undefined;
+	state.thinking = settingsManager?.getDefaultThinkingLevel();
+}
+
+function createExtensionApi(state: DPiSessionExtensionState, messages: DPiSessionMessageState): ExtensionAPI {
+	const registerExtensionHandler = ((event: string, handler: ExtensionHandler): void => {
+		if (event === "input") {
+			state.inputHandlerDefinitions.push(handler as ExtensionHandler<InputEvent, InputEventResult>);
+			state.inputHandlers = state.inputHandlerDefinitions.length;
+			return;
+		}
+		state.eventHandlerDefinitions.push({ event, handler });
+		state.eventHandlers = state.eventHandlerDefinitions.map((candidate) => candidate.event);
+	}) as ExtensionAPI["on"];
+
+	return {
+		registerTool(tool) {
+			state.toolDefinitions.push(tool);
+			state.tools.push({
+				name: tool.name,
+				label: tool.label,
+				description: tool.description,
+			});
+		},
+		registerCommand(name, command) {
+			state.commandDefinitions.push({ name, description: command.description, handler: command.handler });
+			state.commands.push({ name, description: command.description });
+		},
+		registerMessageRenderer(customType, renderer) {
+			state.messageRenderers.push({ customType, renderer: renderer as MessageRenderer<unknown> });
+			state.renderers.push(customType);
+		},
+		on: registerExtensionHandler,
+		sendMessage(message) {
+			appendSessionMessage(messages, toLocalAgentMessage(message));
+		},
+		setModel(model) {
+			state.currentModel = model;
+			return true;
+		},
+		getThinkingLevel() {
+			return state.thinking ?? "medium";
+		},
+		setThinkingLevel(level) {
+			state.thinking = level;
+		},
+	};
+}
+
+async function dispatchSessionInputHandlers(
+	session: DPiWorkerSession,
+	text: string,
+	streamingBehavior: InputEvent["streamingBehavior"],
+): Promise<boolean> {
+	const state = getSessionExtensionState(session);
+	if (state.inputHandlerDefinitions.length === 0) {
+		return false;
+	}
+	const metadata = getSessionMetadata(session);
+	const event: InputEvent = {
+		type: "input",
+		text,
+		source: "programmatic",
+		...(streamingBehavior ? { streamingBehavior } : {}),
+	};
+	const context = {
+		cwd: metadata.cwd ?? metadata.path ?? "",
+		hasUI: false,
+		modelRegistry: session.modelRegistry,
+	};
+	for (const handler of state.inputHandlerDefinitions) {
+		const result = await handler(event, context);
+		if (result?.action === "handled") {
+			return true;
+		}
+	}
+	return false;
+}
+
+function getSessionMessageState(session: DPiWorkerSession): DPiSessionMessageState {
+	const existing = sessionMessageStates.get(session);
+	if (existing) {
+		return existing;
+	}
+	const state: DPiSessionMessageState = {
+		messages: [],
+		listeners: new Set(),
+	};
+	sessionMessageStates.set(session, state);
+	return state;
+}
+
+function subscribeSessionMessages(
+	session: DPiWorkerSession,
+	listener: (message: DPiLocalAgentMessage) => void,
+): () => void {
+	const state = getSessionMessageState(session);
+	state.listeners.add(listener);
+	return () => state.listeners.delete(listener);
+}
+
+function appendSessionMessage(state: DPiSessionMessageState, message: DPiLocalAgentMessage): void {
+	state.messages.push(message);
+	for (const listener of state.listeners) {
+		listener(message);
+	}
+}
+
+function toLocalAgentMessage(message: ExtensionMessage): DPiLocalAgentMessage {
+	return {
+		id: nextGeneratedId("message"),
+		role: toLocalAgentMessageRole(message),
+		content: message.content,
+		...(message.customType ? { customType: message.customType } : {}),
+		...(message.display === undefined ? {} : { display: message.display }),
+		...(message.details === undefined ? {} : { details: message.details }),
+		timestamp: message.timestamp ?? Date.now(),
+	};
+}
+
+function objectField(value: unknown, key: string): Record<string, unknown> | undefined {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return undefined;
+	}
+	const field = (value as Record<string, unknown>)[key];
+	return typeof field === "object" && field !== null && !Array.isArray(field)
+		? (field as Record<string, unknown>)
+		: undefined;
+}
+
+function numberField(value: unknown, key: string): number {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return 0;
+	}
+	const field = (value as Record<string, unknown>)[key];
+	return typeof field === "number" ? field : 0;
+}
+
+function toLocalAgentMessageRole(message: ExtensionMessage): DPiLocalAgentMessage["role"] {
+	if (message.role === "assistant" || message.role === "custom" || message.role === "user") {
+		return message.role;
+	}
+	return message.customType ? "custom" : "assistant";
+}
+
+function getSessionExtensionState(session: DPiWorkerSession): DPiSessionExtensionState {
+	const existing = sessionExtensionStates.get(session);
+	if (existing) {
+		return existing;
+	}
+	const state = createEmptyExtensionState();
+	sessionExtensionStates.set(session, state);
+	return state;
+}
+
+function getSessionExtensionSnapshot(session: DPiWorkerSession): DPiSessionExtensionSnapshot {
+	const state = getSessionExtensionState(session);
+	return {
+		tools: state.tools.map((tool) => ({ ...tool })),
+		commands: state.commands.map((command) => ({ ...command })),
+		renderers: [...state.renderers],
+		inputHandlers: state.inputHandlers,
+		eventHandlers: [...state.eventHandlers],
+	};
+}
+
+function getSessionMetadata(session: DPiWorkerSession): DPiSessionMetadata {
+	const existing = sessionMetadata.get(session);
+	if (existing) {
+		return existing;
+	}
+	const metadata = { id: nextSessionId() };
+	sessionMetadata.set(session, metadata);
+	return metadata;
+}
+
+function nextSessionId(): string {
+	generatedSessionSequence += 1;
+	return `d-pi-session-${generatedSessionSequence}`;
+}
+
+function nextGeneratedId(prefix: string): string {
+	generatedMessageSequence += 1;
+	return `d-pi-${prefix}-${generatedMessageSequence}`;
+}
+
+function sanitizeSessionPathPart(value: string): string {
+	const sanitized = value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+	return sanitized.slice(0, 48) || "session";
+}
+
+function extractImages(input: unknown): Array<{ url: string; mediaType?: string }> | undefined {
+	if (!isRecord(input) || !Array.isArray(input.images)) {
+		return undefined;
+	}
+	const images = input.images.flatMap((candidate) => {
+		if (!isRecord(candidate) || typeof candidate.url !== "string") {
+			return [];
+		}
+		return [
+			{
+				url: candidate.url,
+				...(typeof candidate.mediaType === "string" ? { mediaType: candidate.mediaType } : {}),
+			},
+		];
+	});
+	return images.length > 0 ? images : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}

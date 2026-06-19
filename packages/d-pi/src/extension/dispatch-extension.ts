@@ -1,4 +1,4 @@
-import type { ExtensionFactory } from "@sheason/pi-coding-agent";
+import type { ExtensionFactory } from "./contracts.ts";
 import { createDispatchTools } from "./dispatch-tools.ts";
 import type { HubChannel } from "./hub-channel.ts";
 
@@ -11,8 +11,8 @@ import type { HubChannel } from "./hub-channel.ts";
  * Without `connect_id`: runs locally on the hub host.
  * With `connect_id`: dispatches to the specified connected client.
  *
- * The built-in pi-coding-agent tools are disabled via excludeTools in
- * the agent-worker — agents only see the dispatch_* family.
+ * The built-in interactive runtime tools are disabled via excludeTools in
+ * the agent-worker, so agents only see the dispatch_* family.
  */
 export function createDispatchExtension(channel: HubChannel, cwd: string): ExtensionFactory {
 	return (pi) => {
