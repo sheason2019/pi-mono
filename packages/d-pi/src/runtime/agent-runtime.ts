@@ -446,6 +446,9 @@ export class DPiAgentRuntime {
 			cacheWrite += message.usage.cacheWrite;
 		}
 		const total = input + output + cacheRead + cacheWrite;
+		if (total === 0) {
+			return;
+		}
 		await this.emit({
 			type: "turn_stats",
 			agentName: this.agentName,

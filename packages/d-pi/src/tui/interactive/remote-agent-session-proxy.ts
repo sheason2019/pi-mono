@@ -1,6 +1,7 @@
 import type {
 	DPiInteractiveAgentSessionEvent,
 	DPiInteractiveAgentSessionProxy,
+	DPiInteractiveClientExtensionData,
 	DPiInteractiveModelItemData,
 	DPiInteractiveProxyPromptOptions,
 	DPiInteractiveSessionItemData,
@@ -186,10 +187,22 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	async fetchUserMessagesForForking(): Promise<DPiInteractiveUserMessageItem[]> {
 		return this.getJson("user-messages");
 	}
+	async fetchCommands(): Promise<DPiInteractiveSlashCommand[]> {
+		return this.getJson("commands");
+	}
 	getCommands(): DPiInteractiveSlashCommand[] {
 		return [];
 	}
+	async fetchModels(): Promise<DPiInteractiveModelItemData[]> {
+		return this.getJson("models");
+	}
 	getModels(): DPiInteractiveModelItemData[] {
+		return [];
+	}
+	async fetchClientExtensions(): Promise<DPiInteractiveClientExtensionData[]> {
+		return this.getJson("client-extensions");
+	}
+	getClientExtensions(): DPiInteractiveClientExtensionData[] {
 		return [];
 	}
 	getSnapshot(): DPiInteractiveSessionStateSnapshot {

@@ -171,6 +171,12 @@ export interface DPiInteractiveSlashCommand {
 	sourceInfo?: unknown;
 }
 
+export interface DPiInteractiveClientExtensionData {
+	name: string;
+	script: string;
+	sourceInfo?: unknown;
+}
+
 export interface DPiInteractiveSessionStateSnapshot {
 	model: string;
 	thinkingLevel: ThinkingLevel;
@@ -199,6 +205,9 @@ export type DPiInteractiveAgentSessionEvent =
 	| { type: "message_start"; message: AgentMessage }
 	| { type: "message_update"; message: AgentMessage }
 	| { type: "message_end"; message: AgentMessage }
+	| { type: "tool_execution_start"; toolCallId: string; toolName: string; args: unknown }
+	| { type: "tool_execution_update"; toolCallId: string; toolName?: string; partialResult: unknown }
+	| { type: "tool_execution_end"; toolCallId: string; toolName?: string; result: unknown; isError: boolean }
 	| { type: "agent_start" }
 	| { type: "agent_end" }
 	| { type: "compaction_start" }
@@ -255,7 +264,11 @@ export interface DPiInteractiveAgentSessionProxy {
 	getSessions(): Promise<DPiInteractiveSessionItemData[]>;
 	fetchTree(): Promise<DPiInteractiveTreeNodeData[]>;
 	fetchUserMessagesForForking(): Promise<DPiInteractiveUserMessageItem[]>;
+	fetchCommands(): Promise<DPiInteractiveSlashCommand[]>;
+	fetchModels(): Promise<DPiInteractiveModelItemData[]>;
+	fetchClientExtensions(): Promise<DPiInteractiveClientExtensionData[]>;
 	getCommands(): DPiInteractiveSlashCommand[];
 	getModels(): DPiInteractiveModelItemData[];
+	getClientExtensions(): DPiInteractiveClientExtensionData[];
 	getSnapshot(): DPiInteractiveSessionStateSnapshot;
 }

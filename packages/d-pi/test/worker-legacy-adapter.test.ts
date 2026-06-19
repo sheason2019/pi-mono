@@ -248,6 +248,7 @@ function createTestSession(testSessionId: string, overrides: Partial<TestSession
 			getAvailable: async () => [],
 			refresh: () => {},
 		},
+		getToolDefinitions: vi.fn(() => []),
 		reload: vi.fn(async () => {
 			await resourceLoader.reload();
 		}),
@@ -495,12 +496,12 @@ describe("worker runtime adapter", () => {
 		try {
 			const commands = await queryIpc(harness, "commands-1", "commands");
 			expect(commands.status).toBe(200);
-			expect(commands.body).toEqual([
-				{
-					name: "sample",
-					description: "A command registered by a d-pi extension.",
-				},
-			]);
+			expect(commands.body).toContainEqual({ name: "settings", source: "builtin" });
+			expect(commands.body).toContainEqual({
+				name: "sample",
+				description: "A command registered by a d-pi extension.",
+				source: "extension",
+			});
 
 			const state = await queryIpc(harness, "state-1", "state");
 			expect(state.status).toBe(200);
@@ -513,6 +514,49 @@ describe("worker runtime adapter", () => {
 		} finally {
 			harness.server.stop();
 		}
+	});
+
+	it("exposes bound extension tool definitions for the remote-first AgentHarness", async () => {
+		const factory = vi.fn((pi: ExtensionAPI) => {
+			pi.registerTool({
+				name: "dispatch_bash",
+				label: "Dispatch bash",
+				description: "Run bash through dispatch",
+				parameters: Type.Object({
+					command: Type.String(),
+				}),
+				execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+			});
+		});
+		const services = await createDPiAgentSessionServices({
+			cwd: "/tmp/d-pi-harness-tools",
+			agentDir: "/tmp/d-pi-harness-tools",
+			authStorage: { kind: "d-pi-auth-storage" },
+			settingsManager: asWorkerSettingsManager(makeSettingsManager()),
+			modelRegistry: asWorkerModelRegistry(makeModelRegistry({})),
+			resourceLoaderOptions: {
+				extensionFactories: [{ name: "dispatch-extension", factory }],
+			},
+		});
+		const { session } = await createDPiAgentSessionFromServices({
+			services,
+			sessionManager: createDPiSessionManager("/tmp/d-pi-harness-tools"),
+		});
+
+		await session.bindExtensions(makeBindOptions());
+
+		expect(session.getToolDefinitions().map((tool) => tool.name)).toEqual(["dispatch_bash"]);
+	});
+
+	it("binds extensions before constructing DPiAgentRuntime with registered tools", async () => {
+		const source = await readFile(new URL("../src/worker/agent-worker.ts", import.meta.url), "utf8");
+		const bindIndex = source.indexOf("await rebindSession();");
+		const runtimeIndex = source.indexOf("agentRuntime = new DPiAgentRuntime");
+
+		expect(bindIndex).toBeGreaterThan(0);
+		expect(runtimeIndex).toBeGreaterThan(bindIndex);
+		expect(source).toContain("tools: runtime!.session.getToolDefinitions()");
+		expect(source).toContain("activeToolNames: config.includeTools");
 	});
 
 	it("serves current observable state over IPC instead of a placeholder list", async () => {
@@ -776,6 +820,114 @@ describe("worker runtime adapter", () => {
 		} finally {
 			harness.server.stop();
 		}
+	});
+
+	it("projects runtime tool lifecycle into native tool call and result messages", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		const harness = createIpcHarness(proxy);
+		try {
+			harness.transport.emit({ type: "sse_subscribe", subscriberId: "sub-tools" });
+			await waitFor(() =>
+				harness.events.some((event) => event.subscriberId === "sub-tools" && event.event === "state"),
+			);
+
+			proxy.applyRuntimeEvent({
+				type: "tool_start",
+				agentName: "root",
+				tool: {
+					id: "tool-ls",
+					name: "dispatch_ls",
+					args: { path: "." },
+					startedAt: 1,
+				},
+			});
+			await waitFor(() =>
+				harness.events.some(
+					(event) => event.subscriberId === "sub-tools" && event.event === "tool_execution_start",
+				),
+			);
+
+			proxy.applyRuntimeEvent({
+				type: "tool_end",
+				agentName: "root",
+				toolCallId: "tool-ls",
+				status: "succeeded",
+				result: {
+					content: [{ type: "text", text: "package.json\nsrc" }],
+				},
+				endedAt: 2,
+			});
+			await waitFor(() =>
+				harness.events.some((event) => event.subscriberId === "sub-tools" && event.event === "tool_execution_end"),
+			);
+
+			const state = await queryIpc(harness, "state-tools", "state");
+			const body = state.body as {
+				messages: Array<{ role: string; content: unknown; toolCallId?: string }>;
+			};
+			expect(body.messages).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						role: "assistant",
+						content: [expect.objectContaining({ type: "toolCall", id: "tool-ls", name: "dispatch_ls" })],
+					}),
+					expect.objectContaining({
+						role: "toolResult",
+						toolCallId: "tool-ls",
+						content: [expect.objectContaining({ type: "text", text: "package.json\nsrc" })],
+					}),
+				]),
+			);
+		} finally {
+			harness.server.stop();
+		}
+	});
+
+	it("preserves tool result messages when a runtime session is replaced", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+
+		proxy.applyRuntimeEvent({
+			type: "session_replaced",
+			agentName: "root",
+			session: { id: "next-session" },
+			messages: [
+				{
+					role: "assistant",
+					content: [{ type: "toolCall", id: "tool-ls", name: "dispatch_ls", arguments: { path: "." } }],
+					api: "anthropic-messages",
+					provider: "anthropic",
+					model: "claude-sonnet-4",
+					stopReason: "toolUse",
+					usage: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						totalTokens: 0,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+					},
+					timestamp: 1,
+				},
+				{
+					role: "toolResult",
+					toolCallId: "tool-ls",
+					toolName: "dispatch_ls",
+					content: [{ type: "text", text: "package.json\nsrc" }],
+					isError: false,
+					timestamp: 2,
+				},
+			],
+		});
+
+		expect(proxy.getState().messages).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					role: "toolResult",
+					toolCallId: "tool-ls",
+					content: [expect.objectContaining({ type: "text", text: "package.json\nsrc" })],
+				}),
+			]),
+		);
 	});
 
 	it("forwards native agent start and end events so connect mode can show the working loader immediately", async () => {

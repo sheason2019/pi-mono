@@ -318,6 +318,49 @@ async function runAgentWorker(): Promise<void> {
 	proxy = new DPiLocalAgentSessionProxy(runtime!);
 	proxy.setBanner(generateDPiBanner(runtime!.session));
 
+	const rebindSession = async (): Promise<void> => {
+		const session = runtime!.session;
+		await session.bindExtensions({
+			commandContextActions: {
+				waitForIdle: () => session.agent.waitForIdle(),
+				newSession: async (options) => runtime!.newSession(options),
+				fork: async (entryId, options) => {
+					const result = await runtime!.fork(entryId, options);
+					return { cancelled: result.cancelled };
+				},
+				navigateTree: async (targetId, options) => {
+					const result = await session.navigateTree(targetId, options);
+					return { cancelled: result.cancelled };
+				},
+				switchSession: async (sessionPath, options) => {
+					return runtime!.switchSession(sessionPath, options);
+				},
+				reload: async () => {
+					await session.reload();
+				},
+			},
+			abortHandler: () => {
+				// No UI to reset in worker mode
+			},
+			onError: (err) => {
+				process.stderr.write(`[d-pi worker ${agentName}] Extension error (${err.extensionPath}): ${err.error}\n`);
+			},
+		});
+	};
+
+	runtime!.setBeforeSessionInvalidate(() => {
+		// No UI to reset
+	});
+
+	runtime!.setRebindSession(async (session: DPiWorkerSession, reason: "new" | "resume" | "fork") => {
+		proxy!.resubscribe(reason);
+		await rebindSession();
+		proxy!.setBanner(generateDPiBanner(session));
+	});
+
+	// Bind before creating DPiAgentRuntime so AgentHarness receives the real extension tools.
+	await rebindSession();
+
 	if (remoteFirstRuntimeModelSpec) {
 		const sessionStore = new DPiSessionStore({
 			cwd,
@@ -339,6 +382,8 @@ async function runAgentWorker(): Promise<void> {
 				cwd,
 			}),
 			thinkingLevel: remoteFirstRuntimeThinkingLevel,
+			tools: runtime!.session.getToolDefinitions(),
+			activeToolNames: config.includeTools,
 			getApiKeyAndHeaders: modelRegistry.getApiKeyAndHeaders
 				? async (model) => await modelRegistry.getApiKeyAndHeaders?.(model)
 				: undefined,
@@ -396,50 +441,6 @@ async function runAgentWorker(): Promise<void> {
 	});
 
 	// (AgentHttpServer removed — IPC server is created later)
-
-	// 7. Bind extensions — no UI context (same as serve-mode.ts)
-	const rebindSession = async (): Promise<void> => {
-		const session = runtime!.session;
-		await session.bindExtensions({
-			commandContextActions: {
-				waitForIdle: () => session.agent.waitForIdle(),
-				newSession: async (options) => runtime!.newSession(options),
-				fork: async (entryId, options) => {
-					const result = await runtime!.fork(entryId, options);
-					return { cancelled: result.cancelled };
-				},
-				navigateTree: async (targetId, options) => {
-					const result = await session.navigateTree(targetId, options);
-					return { cancelled: result.cancelled };
-				},
-				switchSession: async (sessionPath, options) => {
-					return runtime!.switchSession(sessionPath, options);
-				},
-				reload: async () => {
-					await session.reload();
-				},
-			},
-			abortHandler: () => {
-				// No UI to reset in worker mode
-			},
-			onError: (err) => {
-				process.stderr.write(`[d-pi worker ${agentName}] Extension error (${err.extensionPath}): ${err.error}\n`);
-			},
-		});
-	};
-
-	runtime!.setBeforeSessionInvalidate(() => {
-		// No UI to reset
-	});
-
-	runtime!.setRebindSession(async (session: DPiWorkerSession, reason: "new" | "resume" | "fork") => {
-		proxy!.resubscribe(reason);
-		await rebindSession();
-		proxy!.setBanner(generateDPiBanner(session));
-	});
-
-	// Initial bind for the first session
-	await rebindSession();
 
 	// 8. Start IPC server (replaces AgentHttpServer)
 	// The IPC server listens for http_request / http_query / sse_subscribe

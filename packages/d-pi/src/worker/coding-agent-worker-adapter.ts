@@ -17,7 +17,17 @@ import type {
 } from "../extension/contracts.ts";
 import type { DPiRuntimeEvent } from "../runtime/events.ts";
 import type { DPiAgentMessage } from "../runtime/types.ts";
-import type { DPiInteractiveBannerData, DPiInteractiveRemoteSettings } from "../tui/interactive/agent-session-proxy.ts";
+import type {
+	DPiInteractiveBannerData,
+	DPiInteractiveClientExtensionData,
+	DPiInteractiveModelItemData,
+	DPiInteractiveRemoteSettings,
+	DPiInteractiveSessionItemData,
+	DPiInteractiveSlashCommand,
+	DPiInteractiveTreeNodeData,
+	DPiInteractiveUserMessageItem,
+} from "../tui/interactive/agent-session-proxy.ts";
+import { DPI_NATIVE_CONNECT_BUILTIN_COMMANDS } from "../tui/interactive/native-parity-manifest.ts";
 
 export interface DPiWorkerAuthStorage {
 	readonly kind: "d-pi-auth-storage";
@@ -56,6 +66,7 @@ export interface DPiWorkerSession {
 	};
 	resourceLoader: ResourceLoader;
 	modelRegistry: DPiWorkerModelRegistry;
+	getToolDefinitions(): ToolDefinition[];
 	reload(): Promise<void>;
 	bindExtensions(options: DPiBindExtensionsOptions): Promise<void>;
 	navigateTree(targetId: string, options?: unknown): Promise<{ cancelled: boolean }>;
@@ -443,6 +454,26 @@ function extensionErrorPath(error: unknown): string | undefined {
 	return promptRecordString(error, "path");
 }
 
+function toolResultContent(result: unknown, fallbackText: string): unknown[] {
+	if (typeof result === "object" && result !== null && "content" in result) {
+		const content = (result as { content?: unknown }).content;
+		if (Array.isArray(content)) {
+			return content;
+		}
+	}
+	if (typeof result === "string") {
+		return [{ type: "text", text: result }];
+	}
+	return [{ type: "text", text: fallbackText }];
+}
+
+function toolResultDetails(result: unknown): unknown {
+	if (typeof result === "object" && result !== null && "details" in result) {
+		return (result as { details?: unknown }).details;
+	}
+	return undefined;
+}
+
 export interface DPiIpcTransport {
 	postMessage(message: unknown): void;
 	onMessage(handler: (message: unknown) => void): void;
@@ -455,12 +486,15 @@ export interface DPiIpcMessageHandlers {
 
 export interface DPiLocalAgentMessage {
 	id: string;
-	role: "assistant" | "custom" | "user";
+	role: "assistant" | "custom" | "toolResult" | "user";
 	content: unknown;
 	customType?: string;
 	display?: boolean;
 	details?: ExtensionMessage["details"];
 	images?: Array<{ url: string; mediaType?: string }>;
+	toolCallId?: string;
+	toolName?: string;
+	isError?: boolean;
 	timestamp: number;
 }
 
@@ -532,6 +566,18 @@ export type DPiLocalAgentEvent =
 	| { type: "new" | "resume" | "fork"; data: DPiLocalAgentState }
 	| { type: "turn_stats"; data: Extract<DPiRuntimeEvent, { type: "turn_stats" }> }
 	| { type: "agent_start" | "agent_end"; data: { type: "agent_start" } | { type: "agent_end" } }
+	| {
+			type: "tool_execution_start";
+			data: { type: "tool_execution_start"; toolCallId: string; toolName: string; args: unknown };
+	  }
+	| {
+			type: "tool_execution_update";
+			data: { type: "tool_execution_update"; toolCallId: string; partialResult: unknown };
+	  }
+	| {
+			type: "tool_execution_end";
+			data: { type: "tool_execution_end"; toolCallId: string; result: unknown; isError: boolean };
+	  }
 	| { type: "compaction_end" | "compaction_start" | "turn_end" | "turn_start"; data?: unknown };
 
 export interface DPiRegisteredTool {
@@ -676,8 +722,20 @@ export class DPiAgentIpcServer {
 			this.handlers.onHttpResponse(requestId, 200, this.proxy.getState().remoteSettings);
 			return;
 		}
-		if (query === "tree" || query === "user-messages" || query === "sessions" || query === "client-extensions") {
-			this.handlers.onHttpResponse(requestId, 200, []);
+		if (query === "tree") {
+			this.handlers.onHttpResponse(requestId, 200, this.proxy.getTree());
+			return;
+		}
+		if (query === "user-messages") {
+			this.handlers.onHttpResponse(requestId, 200, this.proxy.getUserMessagesForForking());
+			return;
+		}
+		if (query === "sessions") {
+			this.handlers.onHttpResponse(requestId, 200, this.proxy.getSessions());
+			return;
+		}
+		if (query === "client-extensions") {
+			this.handlers.onHttpResponse(requestId, 200, this.proxy.getClientExtensions());
 			return;
 		}
 		if (query === "commands") {
@@ -716,10 +774,12 @@ export class DPiAgentIpcServer {
 				return;
 			}
 			if (action === "abort") {
+				this.proxy.abort();
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
 				return;
 			}
 			if (action === "abort-bash") {
+				this.proxy.abortBash();
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
 				return;
 			}
@@ -727,22 +787,97 @@ export class DPiAgentIpcServer {
 				this.handlers.onHttpResponse(requestId, 200, { ok: true, dropped: this.proxy.clearQueue() });
 				return;
 			}
-			if (
-				action === "compact" ||
-				action === "set-model" ||
-				action === "cycle-model" ||
-				action === "set-thinking-level" ||
-				action === "cycle-thinking-level" ||
-				action === "new-session" ||
-				action === "switch-session" ||
-				action === "fork" ||
-				action === "name" ||
-				action === "label" ||
-				action === "scoped-models" ||
-				action === "enabled-models" ||
-				action === "reload" ||
-				action === "settings"
-			) {
+			if (action === "compact") {
+				await this.proxy.compact(
+					typeof payload.customInstructions === "string" ? payload.customInstructions : undefined,
+				);
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "set-model") {
+				if (typeof payload.modelId !== "string") {
+					this.handlers.onHttpResponse(requestId, 400, { ok: false, error: "Missing 'modelId'" });
+					return;
+				}
+				this.proxy.setModel(payload.modelId);
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "cycle-model") {
+				this.proxy.cycleModel(payload.direction === -1 ? -1 : 1);
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "set-thinking-level") {
+				if (typeof payload.level !== "string") {
+					this.handlers.onHttpResponse(requestId, 400, { ok: false, error: "Missing 'level'" });
+					return;
+				}
+				this.proxy.setThinkingLevel(payload.level as ThinkingLevel);
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "cycle-thinking-level") {
+				this.proxy.cycleThinkingLevel(payload.direction === -1 ? -1 : 1);
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "new-session") {
+				await this.proxy.newSession();
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "switch-session") {
+				if (typeof payload.sessionFile !== "string") {
+					this.handlers.onHttpResponse(requestId, 400, { ok: false, error: "Missing 'sessionFile'" });
+					return;
+				}
+				await this.proxy.switchSession(payload.sessionFile);
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "fork") {
+				await this.proxy.fork(typeof payload.entryId === "string" ? payload.entryId : undefined);
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "name") {
+				if (typeof payload.name !== "string") {
+					this.handlers.onHttpResponse(requestId, 400, { ok: false, error: "Missing 'name'" });
+					return;
+				}
+				this.proxy.renameSession(payload.name);
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "label") {
+				if (typeof payload.entryId !== "string") {
+					this.handlers.onHttpResponse(requestId, 400, { ok: false, error: "Missing 'entryId'" });
+					return;
+				}
+				this.proxy.setLabel(payload.entryId, typeof payload.label === "string" ? payload.label : undefined);
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "scoped-models") {
+				this.proxy.setScopedModels(Array.isArray(payload.enabledIds) ? payload.enabledIds.filter(isString) : null);
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "enabled-models") {
+				this.proxy.setEnabledModels(
+					Array.isArray(payload.patterns) ? payload.patterns.filter(isString) : undefined,
+				);
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "reload") {
+				await this.proxy.reload();
+				this.handlers.onHttpResponse(requestId, 200, { ok: true });
+				return;
+			}
+			if (action === "settings") {
+				this.proxy.updateSettings(payload);
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
 				return;
 			}
@@ -787,6 +922,10 @@ export class DPiLocalAgentSessionProxy {
 	private banner: DPiInteractiveBannerData | undefined;
 	private streaming = false;
 	private thinking: ThinkingLevel | undefined;
+	private sessionName: string | undefined;
+	private scopedModelIds: string[] | null = null;
+	private enabledModelPatterns: string[] | undefined;
+	private remoteSettingsOverrides: Partial<DPiInteractiveRemoteSettings> = {};
 	private tokenUsage: DPiLocalAgentState["tokenUsage"] = {
 		input: 0,
 		output: 0,
@@ -833,6 +972,11 @@ export class DPiLocalAgentSessionProxy {
 		const extensionState = getSessionExtensionSnapshot(this.runtime.session);
 		const model = metadata.model ?? getSessionExtensionState(this.runtime.session).currentModel;
 		const thinkingLevel = this.thinking ?? getSessionExtensionState(this.runtime.session).thinking ?? "off";
+		const remoteSettings = {
+			...createDefaultRemoteSettings(thinkingLevel),
+			...this.remoteSettingsOverrides,
+			thinkingLevel,
+		};
 		return {
 			model: model?.id ?? "",
 			thinkingLevel,
@@ -842,7 +986,7 @@ export class DPiLocalAgentSessionProxy {
 			steeringMessages: this.queued.filter((item) => item.kind === "steer").map((item) => item.text),
 			followUpMessages: this.queued.filter((item) => item.kind === "follow-up").map((item) => item.text),
 			sessionFile: metadata.path,
-			sessionName: undefined,
+			sessionName: this.sessionName,
 			tokenUsage: this.tokenUsage,
 			contextUsage: {
 				tokens: 0,
@@ -858,9 +1002,9 @@ export class DPiLocalAgentSessionProxy {
 			autoCompactEnabled: true,
 			cwd: metadata.cwd ?? "",
 			availableProviderCount: this.runtime.session.modelRegistry.getAll().length,
-			remoteSettings: createDefaultRemoteSettings(thinkingLevel),
-			scopedModelIds: null,
-			enabledModelPatterns: undefined,
+			remoteSettings,
+			scopedModelIds: this.scopedModelIds,
+			enabledModelPatterns: this.enabledModelPatterns,
 			extensionPaths: [],
 			agent: {
 				sessionId: metadata.id,
@@ -879,16 +1023,77 @@ export class DPiLocalAgentSessionProxy {
 		};
 	}
 
-	getCommands(): DPiRegisteredCommand[] {
-		return getSessionExtensionSnapshot(this.runtime.session).commands;
+	getCommands(): DPiInteractiveSlashCommand[] {
+		const extensionCommands = getSessionExtensionSnapshot(this.runtime.session).commands;
+		const byName = new Map<string, DPiInteractiveSlashCommand>();
+		for (const name of DPI_NATIVE_CONNECT_BUILTIN_COMMANDS) {
+			byName.set(name, { name, source: "builtin" });
+		}
+		for (const command of extensionCommands) {
+			byName.set(command.name, {
+				name: command.name,
+				description: command.description,
+				source: "extension",
+			});
+		}
+		return [...byName.values()];
 	}
 
-	getModels(): Array<{ id: string; name: string; provider: string }> {
-		return this.runtime.session.modelRegistry.getAll().map((model) => ({
-			id: model.id,
-			name: model.name,
-			provider: model.provider,
-		}));
+	getModels(): DPiInteractiveModelItemData[] {
+		return this.runtime.session.modelRegistry.getAll().map((model) => modelToInteractiveModel(model));
+	}
+
+	getTree(): DPiInteractiveTreeNodeData[] {
+		const nodes = this.messages.map((message, index): DPiInteractiveTreeNodeData => {
+			const previous = this.messages[index - 1];
+			return {
+				id: message.id,
+				type: message.role,
+				parentId: previous?.id ?? null,
+				timestamp: new Date(message.timestamp).toISOString(),
+				preview: messageContentText(message.content).replace(/\s+/g, " ").trim(),
+				content: message.content,
+				children: [],
+			};
+		});
+		const byId = new Map(nodes.map((node) => [node.id, node]));
+		const roots: DPiInteractiveTreeNodeData[] = [];
+		for (const node of nodes) {
+			if (node.parentId) {
+				byId.get(node.parentId)?.children.push(node);
+			} else {
+				roots.push(node);
+			}
+		}
+		return roots;
+	}
+
+	getUserMessagesForForking(): DPiInteractiveUserMessageItem[] {
+		return this.messages
+			.filter((message) => message.role === "user")
+			.map((message) => ({ id: message.id, text: messageContentText(message.content) }));
+	}
+
+	getSessions(): DPiInteractiveSessionItemData[] {
+		const metadata = getSessionMetadata(this.runtime.session);
+		const created = new Date(this.messages[0]?.timestamp ?? Date.now()).toISOString();
+		const modified = new Date(this.messages.at(-1)?.timestamp ?? Date.now()).toISOString();
+		return [
+			{
+				path: metadata.path ?? metadata.id,
+				id: metadata.id,
+				cwd: metadata.cwd ?? "",
+				...(this.sessionName ? { name: this.sessionName } : {}),
+				created,
+				modified,
+				messageCount: this.messages.length,
+				firstMessage: messageContentText(this.messages.find((message) => message.role === "user")?.content),
+			},
+		];
+	}
+
+	getClientExtensions(): DPiInteractiveClientExtensionData[] {
+		return [];
 	}
 
 	clearQueue(): { steering: string[]; followUp: string[] } {
@@ -900,6 +1105,127 @@ export class DPiLocalAgentSessionProxy {
 		this.emit({ type: "queue", data: { queued: [] } });
 		this.emitState();
 		return dropped;
+	}
+
+	async compact(customInstructions?: string): Promise<void> {
+		void customInstructions;
+		this.emit({ type: "compaction_start" });
+		await this.runtime.session.agent.waitForIdle();
+		this.emit({ type: "compaction_end" });
+		this.emitState();
+	}
+
+	setModel(modelId: string): void {
+		const model = this.resolveModel(modelId);
+		if (!model) {
+			return;
+		}
+		getSessionExtensionState(this.runtime.session).currentModel = model;
+		this.emitState();
+	}
+
+	cycleModel(direction: 1 | -1): void {
+		const models = this.runtime.session.modelRegistry.getAll();
+		if (models.length === 0) {
+			return;
+		}
+		const state = this.getState();
+		const currentIndex = models.findIndex(
+			(model) => model.id === state.model || `${model.provider}/${model.id}` === state.model,
+		);
+		const nextIndex = currentIndex < 0 ? 0 : (currentIndex + direction + models.length) % models.length;
+		const next = models[nextIndex];
+		if (next) {
+			getSessionExtensionState(this.runtime.session).currentModel = next;
+			this.emitState();
+		}
+	}
+
+	setThinkingLevel(level: ThinkingLevel): void {
+		this.thinking = level;
+		getSessionExtensionState(this.runtime.session).thinking = level;
+		this.emit({ type: "state", data: this.getState() });
+	}
+
+	cycleThinkingLevel(direction: 1 | -1): void {
+		const levels: ThinkingLevel[] = ["off", "low", "medium", "high"];
+		const current = this.thinking ?? getSessionExtensionState(this.runtime.session).thinking ?? "off";
+		const currentIndex = levels.indexOf(current);
+		const next =
+			levels[(currentIndex < 0 ? 0 : currentIndex + direction + levels.length) % levels.length] ?? "medium";
+		this.setThinkingLevel(next);
+	}
+
+	setAutoCompactEnabled(enabled: boolean): void {
+		this.remoteSettingsOverrides = { ...this.remoteSettingsOverrides, autoCompact: enabled };
+		this.emitState();
+	}
+
+	setSteeringMode(mode: "all" | "one-at-a-time"): void {
+		this.remoteSettingsOverrides = { ...this.remoteSettingsOverrides, steeringMode: mode };
+		this.emitState();
+	}
+
+	setFollowUpMode(mode: "all" | "one-at-a-time"): void {
+		this.remoteSettingsOverrides = { ...this.remoteSettingsOverrides, followUpMode: mode };
+		this.emitState();
+	}
+
+	async newSession(): Promise<void> {
+		await this.runtime.newSession();
+	}
+
+	async switchSession(sessionFile: string): Promise<void> {
+		await this.runtime.switchSession(sessionFile);
+	}
+
+	async fork(entryId?: string): Promise<void> {
+		await this.runtime.fork(entryId ?? "");
+	}
+
+	renameSession(name: string): void {
+		this.sessionName = name;
+		this.emit({ type: "state", data: this.getState() });
+	}
+
+	setLabel(entryId: string, label: string | undefined): void {
+		const node = this.messages.find((message) => message.id === entryId);
+		if (node) {
+			node.details = { ...(isRecord(node.details) ? node.details : {}), label };
+		}
+		this.emitState();
+	}
+
+	setScopedModels(enabledIds: string[] | null): void {
+		this.scopedModelIds = enabledIds;
+		this.emitState();
+	}
+
+	setEnabledModels(patterns: string[] | undefined): void {
+		this.enabledModelPatterns = patterns;
+		this.emitState();
+	}
+
+	async reload(): Promise<void> {
+		await this.runtime.session.reload();
+		this.emitState();
+	}
+
+	updateSettings(updates: Record<string, unknown>): void {
+		this.remoteSettingsOverrides = { ...this.remoteSettingsOverrides, ...remoteSettingsUpdates(updates) };
+		if (typeof updates.autoCompact === "boolean") {
+			this.setAutoCompactEnabled(updates.autoCompact);
+		}
+		if (updates.steeringMode === "all" || updates.steeringMode === "one-at-a-time") {
+			this.setSteeringMode(updates.steeringMode);
+		}
+		if (updates.followUpMode === "all" || updates.followUpMode === "one-at-a-time") {
+			this.setFollowUpMode(updates.followUpMode);
+		}
+		if (typeof updates.thinkingLevel === "string") {
+			this.setThinkingLevel(updates.thinkingLevel as ThinkingLevel);
+		}
+		this.emitState();
 	}
 
 	subscribe(listener: (event: DPiLocalAgentEvent) => void): () => void {
@@ -934,6 +1260,46 @@ export class DPiLocalAgentSessionProxy {
 				}
 				this.emitState();
 			}
+			return;
+		}
+		if (event.type === "tool_start") {
+			this.upsertToolCallMessage(event.tool.id, event.tool.name, event.tool.args);
+			this.emit({
+				type: "tool_execution_start",
+				data: {
+					type: "tool_execution_start",
+					toolCallId: event.tool.id,
+					toolName: event.tool.name,
+					args: event.tool.args,
+				},
+			});
+			this.emitState();
+			return;
+		}
+		if (event.type === "tool_update") {
+			this.emit({
+				type: "tool_execution_update",
+				data: {
+					type: "tool_execution_update",
+					toolCallId: event.toolCallId,
+					partialResult: event.details ?? { content: [{ type: "text", text: event.message ?? "" }] },
+				},
+			});
+			this.emitState();
+			return;
+		}
+		if (event.type === "tool_end") {
+			this.upsertToolResultMessage(event);
+			this.emit({
+				type: "tool_execution_end",
+				data: {
+					type: "tool_execution_end",
+					toolCallId: event.toolCallId,
+					result: event.result ?? { content: [{ type: "text", text: event.error ?? "" }] },
+					isError: event.status === "failed" || event.status === "cancelled",
+				},
+			});
+			this.emitState();
 			return;
 		}
 		if (event.type === "queue_update") {
@@ -972,8 +1338,23 @@ export class DPiLocalAgentSessionProxy {
 				this.recordSessionMessage(
 					{
 						id: nextGeneratedId("message"),
-						role: message.role === "assistant" ? "assistant" : message.role === "user" ? "user" : "custom",
+						role:
+							message.role === "assistant"
+								? "assistant"
+								: message.role === "user"
+									? "user"
+									: message.role === "toolResult"
+										? "toolResult"
+										: "custom",
 						content: "content" in message ? message.content : "",
+						...("toolCallId" in message && typeof message.toolCallId === "string"
+							? { toolCallId: message.toolCallId }
+							: {}),
+						...("toolName" in message && typeof message.toolName === "string"
+							? { toolName: message.toolName }
+							: {}),
+						...("isError" in message && message.isError ? { isError: true } : {}),
+						...("details" in message ? { details: message.details as ExtensionMessage["details"] } : {}),
 						timestamp: Date.now(),
 					},
 					false,
@@ -1038,6 +1419,16 @@ export class DPiLocalAgentSessionProxy {
 		await this.messageDispatcher?.followUp?.(text, images);
 	}
 
+	abort(): void {
+		this.streaming = false;
+		this.emit({ type: "agent_end", data: { type: "agent_end" } });
+		this.emitState();
+	}
+
+	abortBash(): void {
+		this.emitState();
+	}
+
 	resubscribe(reason: "new" | "resume" | "fork"): void {
 		this.subscribeToSessionMessages();
 		this.emit({ type: reason, data: this.getState() });
@@ -1073,6 +1464,14 @@ export class DPiLocalAgentSessionProxy {
 		}
 	}
 
+	private resolveModel(modelId: string): Model<Api> | undefined {
+		if (modelId.includes("/")) {
+			const slashIndex = modelId.indexOf("/");
+			return this.runtime.session.modelRegistry.find(modelId.slice(0, slashIndex), modelId.slice(slashIndex + 1));
+		}
+		return this.runtime.session.modelRegistry.getAll().find((model) => model.id === modelId);
+	}
+
 	private upsertStreamingAssistantMessage(message: DPiAgentMessage, emitEvents: boolean): void {
 		if (message.role !== "assistant") {
 			return;
@@ -1095,6 +1494,72 @@ export class DPiLocalAgentSessionProxy {
 			this.emit({ type: "message", data: localMessage });
 		}
 		this.emitState();
+	}
+
+	private upsertToolCallMessage(toolCallId: string, toolName: string, args: unknown): void {
+		const existingIndex = this.messages.findIndex(
+			(message) =>
+				message.role === "assistant" &&
+				Array.isArray(message.content) &&
+				message.content.some(
+					(part) =>
+						typeof part === "object" &&
+						part !== null &&
+						"type" in part &&
+						part.type === "toolCall" &&
+						"id" in part &&
+						part.id === toolCallId,
+				),
+		);
+		const toolCall = { type: "toolCall", id: toolCallId, name: toolName, arguments: args };
+		if (existingIndex >= 0) {
+			const existing = this.messages[existingIndex];
+			const content = Array.isArray(existing.content) ? existing.content : [];
+			this.messages[existingIndex] = {
+				...existing,
+				content: content.map((part) =>
+					typeof part === "object" &&
+					part !== null &&
+					"type" in part &&
+					part.type === "toolCall" &&
+					"id" in part &&
+					part.id === toolCallId
+						? toolCall
+						: part,
+				),
+			};
+			return;
+		}
+		this.messages.push({
+			id: nextGeneratedId("message"),
+			role: "assistant",
+			content: [toolCall],
+			timestamp: Date.now(),
+		});
+	}
+
+	private upsertToolResultMessage(event: Extract<DPiRuntimeEvent, { type: "tool_end" }>): void {
+		const isError = event.status === "failed" || event.status === "cancelled";
+		const resultMessage: DPiLocalAgentMessage = {
+			id: `tool-result-${event.toolCallId}`,
+			role: "toolResult",
+			toolCallId: event.toolCallId,
+			...(event.result && typeof event.result === "object" && "toolName" in event.result
+				? { toolName: String((event.result as { toolName?: unknown }).toolName) }
+				: {}),
+			content: toolResultContent(event.result, event.error ?? ""),
+			...(toolResultDetails(event.result) === undefined ? {} : { details: toolResultDetails(event.result) }),
+			...(isError ? { isError: true } : {}),
+			timestamp: event.endedAt,
+		};
+		const existingIndex = this.messages.findIndex(
+			(message) => message.role === "toolResult" && message.toolCallId === event.toolCallId,
+		);
+		if (existingIndex >= 0) {
+			this.messages[existingIndex] = resultMessage;
+		} else {
+			this.messages.push(resultMessage);
+		}
 	}
 
 	private recordLocalInput(
@@ -1166,6 +1631,7 @@ function createPlaceholderSession(
 		},
 		resourceLoader,
 		modelRegistry,
+		getToolDefinitions: () => getSessionExtensionState(session).toolDefinitions.map((tool) => ({ ...tool })),
 		reload: async () => {
 			await resourceLoader.reload();
 			if (lastBindOptions) {
@@ -1561,6 +2027,109 @@ function numberField(value: unknown, key: string): number {
 	}
 	const field = (value as Record<string, unknown>)[key];
 	return typeof field === "number" ? field : 0;
+}
+
+function isString(value: unknown): value is string {
+	return typeof value === "string";
+}
+
+function messageContentText(content: unknown): string {
+	if (typeof content === "string") {
+		return content;
+	}
+	if (content === undefined || content === null) {
+		return "";
+	}
+	return JSON.stringify(content);
+}
+
+function modelToInteractiveModel(model: Model<Api>): DPiInteractiveModelItemData {
+	return {
+		id: model.id,
+		name: model.name,
+		provider: model.provider,
+		api: model.api,
+		baseUrl: model.baseUrl,
+		cost: { ...model.cost },
+		reasoning: model.reasoning,
+		contextWindow: model.contextWindow,
+		maxTokens: model.maxTokens,
+		input: [...model.input],
+	};
+}
+
+function remoteSettingsUpdates(updates: Record<string, unknown>): Partial<DPiInteractiveRemoteSettings> {
+	const result: Partial<DPiInteractiveRemoteSettings> = {};
+	if (typeof updates.autoCompact === "boolean") {
+		result.autoCompact = updates.autoCompact;
+	}
+	if (typeof updates.showImages === "boolean") {
+		result.showImages = updates.showImages;
+	}
+	if (typeof updates.imageWidthCells === "number") {
+		result.imageWidthCells = updates.imageWidthCells;
+	}
+	if (typeof updates.autoResizeImages === "boolean") {
+		result.autoResizeImages = updates.autoResizeImages;
+	}
+	if (typeof updates.blockImages === "boolean") {
+		result.blockImages = updates.blockImages;
+	}
+	if (typeof updates.enableSkillCommands === "boolean") {
+		result.enableSkillCommands = updates.enableSkillCommands;
+	}
+	if (updates.steeringMode === "all" || updates.steeringMode === "one-at-a-time") {
+		result.steeringMode = updates.steeringMode;
+	}
+	if (updates.followUpMode === "all" || updates.followUpMode === "one-at-a-time") {
+		result.followUpMode = updates.followUpMode;
+	}
+	if (typeof updates.transport === "string") {
+		result.transport = updates.transport;
+	}
+	if (typeof updates.httpIdleTimeoutMs === "number") {
+		result.httpIdleTimeoutMs = updates.httpIdleTimeoutMs;
+	}
+	if (typeof updates.currentTheme === "string") {
+		result.currentTheme = updates.currentTheme;
+	}
+	if (Array.isArray(updates.availableThemes)) {
+		result.availableThemes = updates.availableThemes.filter(isString);
+	}
+	if (typeof updates.hideThinkingBlock === "boolean") {
+		result.hideThinkingBlock = updates.hideThinkingBlock;
+	}
+	if (typeof updates.collapseChangelog === "boolean") {
+		result.collapseChangelog = updates.collapseChangelog;
+	}
+	if (typeof updates.enableInstallTelemetry === "boolean") {
+		result.enableInstallTelemetry = updates.enableInstallTelemetry;
+	}
+	if (typeof updates.treeFilterMode === "string") {
+		result.treeFilterMode = updates.treeFilterMode;
+	}
+	if (typeof updates.showHardwareCursor === "boolean") {
+		result.showHardwareCursor = updates.showHardwareCursor;
+	}
+	if (typeof updates.editorPaddingX === "number") {
+		result.editorPaddingX = updates.editorPaddingX;
+	}
+	if (typeof updates.autocompleteMaxVisible === "number") {
+		result.autocompleteMaxVisible = updates.autocompleteMaxVisible;
+	}
+	if (typeof updates.quietStartup === "boolean") {
+		result.quietStartup = updates.quietStartup;
+	}
+	if (typeof updates.clearOnShrink === "boolean") {
+		result.clearOnShrink = updates.clearOnShrink;
+	}
+	if (typeof updates.showTerminalProgress === "boolean") {
+		result.showTerminalProgress = updates.showTerminalProgress;
+	}
+	if (isRecord(updates.warnings)) {
+		result.warnings = updates.warnings;
+	}
+	return result;
 }
 
 function toLocalAgentMessageRole(message: ExtensionMessage): DPiLocalAgentMessage["role"] {

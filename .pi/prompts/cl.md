@@ -15,29 +15,22 @@ Audit changelog entries for all commits since the last release.
    git log <tag>..HEAD --oneline
    ```
 
-3. **Read each package's [Unreleased] section:**
-   - packages/ai/CHANGELOG.md
-   - packages/tui/CHANGELOG.md
-   - packages/coding-agent/CHANGELOG.md
+3. **Read d-pi's [Unreleased] section:**
+   - packages/d-pi/CHANGELOG.md
 
 4. **For each commit, check:**
    - Skip: changelog updates, doc-only changes, release housekeeping
-   - Skip: changes to generated model catalogs (for example `packages/ai/src/models.generated.ts`) unless accompanied by an intentional product-facing change in non-generated source/docs.
-   - Determine which package(s) the commit affects (use `git show <hash> --stat`)
-   - Verify a changelog entry exists in the affected package(s)
+   - Determine whether the commit affects d-pi user-facing behavior (use `git show <hash> --stat`)
+   - Verify a changelog entry exists when needed
    - For external contributions (PRs), verify format: `Description ([#N](url) by [@user](url))`
 
-5. **Cross-package duplication rule:**
-   Changes in `ai`, `agent` or `tui` that affect end users should be duplicated to `coding-agent` changelog, since coding-agent is the user-facing package that depends on them.
-
-6. **Add New Features section after changelog fixes:**
-   - Insert a `### New Features` section at the start of `## [Unreleased]` in `packages/coding-agent/CHANGELOG.md`.
+5. **Add New Features section after changelog fixes:**
+   - Insert a `### Added` section at the start of `## [Unreleased]` in `packages/d-pi/CHANGELOG.md` when new user-facing features exist.
    - Propose the top new features to the user for confirmation before writing them.
    - Link to relevant docs and sections whenever possible.
 
-7. **Report:**
+6. **Report:**
    - List commits with missing entries
-   - List entries that need cross-package duplication
    - Add any missing entries directly
 
 ## Changelog Format Reference

@@ -1,15 +1,42 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { Container, ProcessTerminal, setKeybindings, type Terminal, Text, TUI } from "@earendil-works/pi-tui";
+import {
+	type AutocompleteProvider,
+	CombinedAutocompleteProvider,
+	Container,
+	ProcessTerminal,
+	type SelectItem,
+	SelectList,
+	type SlashCommand,
+	Spacer,
+	setKeybindings,
+	type Terminal,
+	Text,
+	TUI,
+} from "@earendil-works/pi-tui";
+import { AGENT_SWITCH_FILE } from "../../extension/multi-agent-extension.ts";
+import type { AgentStatus, SourceInfo, TeamAgentEntry, TeamSnapshot } from "../../types.ts";
 import { DPiNativeCustomEditor } from "../native/components/custom-editor.ts";
+import { DPiNativeDynamicBorder } from "../native/components/dynamic-border.ts";
 import { DPiNativeStatusContainer } from "../native/components/status-container.ts";
 import { createDPiNativeKeybindings } from "../native/keybindings.ts";
-import { createDPiNativeTheme, getDPiNativeEditorTheme } from "../native/theme/theme.ts";
+import {
+	createDPiNativeTheme,
+	type DPiNativeTheme,
+	getDPiNativeEditorTheme,
+	getDPiNativeSelectListTheme,
+} from "../native/theme/theme.ts";
 import type {
 	DPiInteractiveAgentSessionProxy,
 	DPiInteractiveBannerData,
+	DPiInteractiveModelItemData,
+	DPiInteractiveRemoteSettings,
+	DPiInteractiveSessionItemData,
 	DPiInteractiveSessionStateSnapshot,
+	DPiInteractiveSlashCommand,
+	DPiInteractiveTreeNodeData,
+	DPiInteractiveUserMessageItem,
 } from "./agent-session-proxy.ts";
 import { buildDPiInteractiveBannerView } from "./banner-view.ts";
 import { buildDPiInteractiveFooterView } from "./footer-view.ts";
@@ -37,15 +64,709 @@ export interface DPiConnectInteractiveModeHandle {
 	stop(): Promise<void>;
 }
 
+export interface DPiConnectRootLayout {
+	root: Container;
+	headerContainer: Container;
+	chatContainer: Container;
+	pendingMessagesContainer: Container;
+	statusContainer: Container;
+	widgetContainerAbove: Container;
+	editorContainer: Container;
+	widgetContainerBelow: Container;
+	footerContainer: Container;
+}
+
 export interface DPiConnectStartupBannerEnv {
 	HOME?: string;
 	DPI_NATIVE_PI_VERSION?: string;
 }
 
+export function createDPiConnectRootLayout(): DPiConnectRootLayout {
+	const root = new Container();
+	const headerContainer = new Container();
+	const chatContainer = new Container();
+	const pendingMessagesContainer = new Container();
+	const statusContainer = new Container();
+	const widgetContainerAbove = new Container();
+	const editorContainer = new Container();
+	const widgetContainerBelow = new Container();
+	const footerContainer = new Container();
+	root.addChild(headerContainer);
+	root.addChild(chatContainer);
+	root.addChild(pendingMessagesContainer);
+	root.addChild(statusContainer);
+	root.addChild(widgetContainerAbove);
+	root.addChild(editorContainer);
+	root.addChild(widgetContainerBelow);
+	root.addChild(footerContainer);
+	return {
+		root,
+		headerContainer,
+		chatContainer,
+		pendingMessagesContainer,
+		statusContainer,
+		widgetContainerAbove,
+		editorContainer,
+		widgetContainerBelow,
+		footerContainer,
+	};
+}
+
 export interface DPiConnectSlashCommandHandlers {
 	proxy: DPiInteractiveAgentSessionProxy;
 	showStatus(text: string): void;
+	showAgentSelector?(): Promise<void>;
+	showSourcesSelector?(): Promise<void>;
+	showModelSelector?(): Promise<void>;
+	showSettingsSelector?(): Promise<void>;
+	showScopedModelsSelector?(): Promise<void>;
+	showForkSelector?(): Promise<void>;
+	showTreeSelector?(): Promise<void>;
+	showResumeSelector?(): Promise<void>;
+	showPanel?(title: string, body: string): void;
+	copyLastAssistantMessage?(): Promise<void>;
+	refreshAutocomplete?(): Promise<void>;
 	stop(): Promise<void>;
+}
+
+export interface DPiConnectAutocompleteEditor {
+	setAutocompleteProvider(provider: AutocompleteProvider): void;
+}
+
+export interface DPiConnectHistoryEditor {
+	addToHistory?(text: string): void;
+}
+
+const DPI_CONNECT_FALLBACK_SLASH_COMMANDS: readonly SlashCommand[] = [
+	{ name: "settings", description: "Open settings" },
+	{ name: "model", description: "Switch model (e.g. /model provider/model-id)", argumentHint: "<provider/model-id>" },
+	{ name: "scoped-models", description: "Configure model cycling for this session" },
+	{ name: "compact", description: "Manually compact the session context" },
+	{ name: "new", description: "Start a new session" },
+	{ name: "fork", description: "Fork from a user message" },
+	{ name: "clone", description: "Duplicate the current session at the current position" },
+	{ name: "tree", description: "Open session tree" },
+	{ name: "resume", description: "Resume a previous session" },
+	{ name: "name", description: "Set session display name", argumentHint: "<session-name>" },
+	{ name: "copy", description: "Copy the last assistant message" },
+	{ name: "session", description: "Show session information" },
+	{ name: "changelog", description: "Show changelog" },
+	{ name: "hotkeys", description: "Show hotkeys" },
+	{ name: "trust", description: "Trust current project" },
+	{ name: "reload", description: "Reload resources" },
+	{ name: "quit", description: "Quit" },
+	{ name: "export", description: "Not available in connect mode" },
+	{ name: "import", description: "Not available in connect mode" },
+	{ name: "share", description: "Not available in connect mode" },
+	{ name: "login", description: "Not available in connect mode" },
+	{ name: "logout", description: "Not available in connect mode" },
+];
+
+class DPiConnectSelectComponent extends Container {
+	private readonly list: SelectList;
+
+	constructor(title: string, list: SelectList, theme: DPiNativeTheme) {
+		super();
+		this.list = list;
+		this.addChild(new DPiNativeDynamicBorder((text) => theme.fg("borderMuted", text)));
+		this.addChild(new Spacer(1));
+		this.addChild(new Text(theme.fg("accent", theme.bold(title)), 1, 0));
+		this.addChild(new Spacer(1));
+		this.addChild(list);
+		this.addChild(new Spacer(1));
+		this.addChild(new Text(theme.fg("muted", "↑↓ navigate  enter select  esc cancel"), 1, 0));
+		this.addChild(new Spacer(1));
+		this.addChild(new DPiNativeDynamicBorder((text) => theme.fg("borderMuted", text)));
+	}
+
+	handleInput(data: string): void {
+		this.list.handleInput(data);
+	}
+}
+
+class DPiConnectPanelComponent extends Container {
+	private readonly onCancel: () => void;
+
+	constructor(title: string, body: string, theme: DPiNativeTheme, onCancel: () => void) {
+		super();
+		this.onCancel = onCancel;
+		this.addChild(new DPiNativeDynamicBorder((text) => theme.fg("borderMuted", text)));
+		this.addChild(new Spacer(1));
+		this.addChild(new Text(theme.fg("accent", theme.bold(title)), 1, 0));
+		this.addChild(new Spacer(1));
+		for (const line of body.split("\n")) {
+			this.addChild(new Text(line, 1, 0));
+		}
+		this.addChild(new Spacer(1));
+		this.addChild(new Text(theme.fg("muted", "esc close"), 1, 0));
+		this.addChild(new Spacer(1));
+		this.addChild(new DPiNativeDynamicBorder((text) => theme.fg("borderMuted", text)));
+	}
+
+	handleInput(data: string): void {
+		if (data === "\x1b") {
+			this.onCancel();
+		}
+	}
+}
+
+function restoreDPiConnectEditor(options: {
+	tui: TUI;
+	editor: DPiNativeCustomEditor;
+	editorContainer: Container;
+}): void {
+	options.editorContainer.clear();
+	options.editorContainer.addChild(options.editor);
+	options.tui.setFocus(options.editor);
+	options.tui.requestRender();
+}
+
+function showDPiConnectSelectInEditorSlot(options: {
+	tui: TUI;
+	editor: DPiNativeCustomEditor;
+	editorContainer: Container;
+	theme: DPiNativeTheme;
+	title: string;
+	items: SelectItem[];
+	emptyStatus: string;
+	showStatus(text: string): void;
+	onSelect(item: SelectItem): void | Promise<void>;
+}): void {
+	if (options.items.length === 0) {
+		options.showStatus(options.emptyStatus);
+		return;
+	}
+	const list = new SelectList(options.items, 12, getDPiNativeSelectListTheme(options.theme), {
+		maxPrimaryColumnWidth: 72,
+	});
+	const selector = new DPiConnectSelectComponent(options.title, list, options.theme);
+	const restoreEditor = () => restoreDPiConnectEditor(options);
+	options.editorContainer.clear();
+	options.editorContainer.addChild(selector);
+	options.tui.setFocus(selector);
+	options.tui.requestRender();
+	list.onCancel = restoreEditor;
+	list.onSelect = (item) => {
+		restoreEditor();
+		void options.onSelect(item);
+	};
+}
+
+function dPiConnectAgentStatusIndicator(status: AgentStatus): string {
+	switch (status) {
+		case "busy":
+			return "●";
+		case "starting":
+			return "◌";
+		case "error":
+			return "✕";
+		default:
+			return "○";
+	}
+}
+
+function formatDPiConnectAgentSelectLabel(
+	agent: TeamAgentEntry,
+	depth: number,
+	isLast: boolean,
+	isCurrent: boolean,
+): string {
+	let indent = "";
+	if (depth > 0) {
+		indent = "│ ".repeat(depth - 1);
+		indent += isLast ? "└ " : "├ ";
+	}
+	const model = agent.model ? ` (${agent.model})` : "";
+	const current = isCurrent ? " ◀" : "";
+	return `${indent}${dPiConnectAgentStatusIndicator(agent.status)} ${agent.name}${model}${current}`;
+}
+
+export function extractDPiConnectSelectedAgentName(value: string): string | undefined {
+	return value.trim() || undefined;
+}
+
+export function buildDPiConnectAgentSelectItems(
+	team: TeamSnapshot,
+	currentAgentName: string | undefined,
+): SelectItem[] {
+	const agentMap = new Map(team.agents.map((agent) => [agent.name, agent]));
+	const items: SelectItem[] = [];
+	const visited = new Set<string>();
+	const visit = (agent: TeamAgentEntry, depth: number, isLast: boolean): void => {
+		visited.add(agent.name);
+		items.push({
+			value: agent.name,
+			label: formatDPiConnectAgentSelectLabel(agent, depth, isLast, agent.name === currentAgentName),
+			description: agent.parentName ? `parent: ${agent.parentName}` : "root",
+		});
+		for (let index = 0; index < agent.children.length; index++) {
+			const child = agentMap.get(agent.children[index]!);
+			if (child) {
+				visit(child, depth + 1, index === agent.children.length - 1);
+			}
+		}
+	};
+	const root = agentMap.get(team.rootName);
+	if (root) {
+		visit(root, 0, true);
+	}
+	for (const agent of team.agents) {
+		if (!visited.has(agent.name)) {
+			visit(agent, 0, true);
+		}
+	}
+	return items;
+}
+
+export function createDPiConnectAutocompleteProvider(
+	commands: readonly DPiInteractiveSlashCommand[],
+	cwd: string,
+): CombinedAutocompleteProvider {
+	const byName = new Map<string, SlashCommand>();
+	for (const command of DPI_CONNECT_FALLBACK_SLASH_COMMANDS) {
+		byName.set(command.name, command);
+	}
+	for (const command of commands) {
+		byName.set(command.name, {
+			name: command.name,
+			description: command.description,
+			...(command.argumentHint ? { argumentHint: command.argumentHint } : {}),
+		});
+	}
+	return new CombinedAutocompleteProvider([...byName.values()], cwd);
+}
+
+export async function setupDPiConnectAutocomplete(
+	editor: DPiConnectAutocompleteEditor,
+	proxy: DPiInteractiveAgentSessionProxy,
+	cwd: string,
+): Promise<void> {
+	try {
+		editor.setAutocompleteProvider(createDPiConnectAutocompleteProvider(await proxy.fetchCommands(), cwd));
+	} catch {
+		editor.setAutocompleteProvider(createDPiConnectAutocompleteProvider([], cwd));
+	}
+}
+
+async function fetchDPiConnectTeam(
+	hubUrl: string,
+	headers: Readonly<Record<string, string>> | undefined,
+	fetchFn: typeof fetch,
+): Promise<TeamSnapshot> {
+	const response = await fetchFn(`${hubUrl.replace(/\/+$/, "")}/_hub/team`, { headers });
+	if (!response.ok) {
+		throw new Error(`Failed to fetch team: ${response.status}`);
+	}
+	return (await response.json()) as TeamSnapshot;
+}
+
+async function fetchDPiConnectSources(
+	hubUrl: string,
+	headers: Readonly<Record<string, string>> | undefined,
+	fetchFn: typeof fetch,
+): Promise<SourceInfo[]> {
+	const response = await fetchFn(`${hubUrl.replace(/\/+$/, "")}/_hub/sources`, { headers });
+	if (!response.ok) {
+		throw new Error(`Failed to fetch sources: ${response.status}`);
+	}
+	return (await response.json()) as SourceInfo[];
+}
+
+export async function showDPiConnectAgentSelector(options: {
+	tui: TUI;
+	editor: DPiNativeCustomEditor;
+	editorContainer: Container;
+	theme: DPiNativeTheme;
+	hubUrl: string;
+	authHeaders?: Readonly<Record<string, string>>;
+	fetch?: typeof fetch;
+	currentAgentName?: string;
+	showStatus(text: string): void;
+	stop(): Promise<void>;
+}): Promise<void> {
+	try {
+		const team = await fetchDPiConnectTeam(options.hubUrl, options.authHeaders, options.fetch ?? fetch);
+		const items = buildDPiConnectAgentSelectItems(team, options.currentAgentName);
+		if (items.length === 0) {
+			options.showStatus("No agents in team");
+			return;
+		}
+		const list = new SelectList(items, 12, getDPiNativeSelectListTheme(options.theme), {
+			maxPrimaryColumnWidth: 72,
+		});
+		const selector = new DPiConnectSelectComponent(`Switch to agent (${items.length})`, list, options.theme);
+		const restoreEditor = () => {
+			options.editorContainer.clear();
+			options.editorContainer.addChild(options.editor);
+			options.tui.setFocus(options.editor);
+			options.tui.requestRender();
+		};
+		options.editorContainer.clear();
+		options.editorContainer.addChild(selector);
+		options.tui.setFocus(selector);
+		options.tui.requestRender();
+		list.onCancel = () => {
+			restoreEditor();
+		};
+		list.onSelect = (item) => {
+			const agentName = extractDPiConnectSelectedAgentName(item.value);
+			if (!agentName) {
+				return;
+			}
+			writeFileSync(AGENT_SWITCH_FILE, agentName, "utf-8");
+			restoreEditor();
+			void options.stop();
+		};
+	} catch (error) {
+		options.showStatus(error instanceof Error ? error.message : String(error));
+	}
+}
+
+export async function showDPiConnectSourcesSelector(options: {
+	tui: TUI;
+	editor: DPiNativeCustomEditor;
+	editorContainer: Container;
+	theme: DPiNativeTheme;
+	hubUrl: string;
+	authHeaders?: Readonly<Record<string, string>>;
+	fetch?: typeof fetch;
+	showStatus(text: string): void;
+}): Promise<void> {
+	try {
+		const sources = await fetchDPiConnectSources(options.hubUrl, options.authHeaders, options.fetch ?? fetch);
+		if (sources.length === 0) {
+			options.showStatus("No sources registered. Use set_source tool to register one.");
+			return;
+		}
+		const items: SelectItem[] = sources.map((source) => ({
+			value: source.name,
+			label: `${source.name} [${source.status}]`,
+			description: `command="${[source.command, ...source.args].join(" ")}" subscribers=${source.subscribers.join(",")}`,
+		}));
+		const list = new SelectList(items, 12, getDPiNativeSelectListTheme(options.theme), {
+			maxPrimaryColumnWidth: 40,
+		});
+		const selector = new DPiConnectSelectComponent(`Sources (${items.length})`, list, options.theme);
+		const restoreEditor = () => {
+			options.editorContainer.clear();
+			options.editorContainer.addChild(options.editor);
+			options.tui.setFocus(options.editor);
+			options.tui.requestRender();
+		};
+		options.editorContainer.clear();
+		options.editorContainer.addChild(selector);
+		options.tui.setFocus(selector);
+		options.tui.requestRender();
+		list.onCancel = () => {
+			restoreEditor();
+		};
+		list.onSelect = () => {
+			restoreEditor();
+		};
+	} catch (error) {
+		options.showStatus(error instanceof Error ? error.message : String(error));
+	}
+}
+
+export async function showDPiConnectModelSelector(options: {
+	tui: TUI;
+	editor: DPiNativeCustomEditor;
+	editorContainer: Container;
+	theme: DPiNativeTheme;
+	proxy: DPiInteractiveAgentSessionProxy;
+	showStatus(text: string): void;
+}): Promise<void> {
+	try {
+		const models = await options.proxy.fetchModels();
+		showDPiConnectSelectInEditorSlot({
+			...options,
+			title: `Select model (${models.length})`,
+			items: models.map(modelToSelectItem),
+			emptyStatus: "No models available",
+			onSelect: (item) => {
+				options.proxy.setModel(item.value);
+				options.showStatus(`Model: ${item.value}`);
+			},
+		});
+	} catch (error) {
+		options.showStatus(error instanceof Error ? error.message : String(error));
+	}
+}
+
+export function showDPiConnectSettingsSelector(options: {
+	tui: TUI;
+	editor: DPiNativeCustomEditor;
+	editorContainer: Container;
+	theme: DPiNativeTheme;
+	proxy: DPiInteractiveAgentSessionProxy;
+	showStatus(text: string): void;
+}): void {
+	const settings = options.proxy.getSnapshot().remoteSettings;
+	const items = buildSettingsSelectItems(settings);
+	showDPiConnectSelectInEditorSlot({
+		...options,
+		title: "Settings",
+		items,
+		emptyStatus: "No settings available",
+		onSelect: (item) => {
+			const update = settingUpdateFromSelectValue(item.value, settings);
+			if (update) {
+				options.proxy.updateSettings(update);
+				options.showStatus("Settings updated");
+			}
+		},
+	});
+}
+
+export async function showDPiConnectScopedModelsSelector(options: {
+	tui: TUI;
+	editor: DPiNativeCustomEditor;
+	editorContainer: Container;
+	theme: DPiNativeTheme;
+	proxy: DPiInteractiveAgentSessionProxy;
+	showStatus(text: string): void;
+}): Promise<void> {
+	try {
+		const models = await options.proxy.fetchModels();
+		const enabled = options.proxy.getSnapshot().scopedModelIds;
+		showDPiConnectSelectInEditorSlot({
+			...options,
+			title: `Model Configuration (${models.length})`,
+			items: models.map((model) => {
+				const value = modelFullId(model);
+				const active = enabled === null || enabled.includes(value);
+				return {
+					value,
+					label: `${active ? "✓" : " "} ${model.id}`,
+					description: `${model.provider} · ${model.name}`,
+				};
+			}),
+			emptyStatus: "No models available",
+			onSelect: (item) => {
+				const current = options.proxy.getSnapshot().scopedModelIds;
+				const next =
+					current === null
+						? models.map(modelFullId).filter((id) => id !== item.value)
+						: current.includes(item.value)
+							? current.filter((id) => id !== item.value)
+							: [...current, item.value];
+				options.proxy.setScopedModels(next.length === models.length ? null : next);
+				options.showStatus("Model configuration updated");
+			},
+		});
+	} catch (error) {
+		options.showStatus(error instanceof Error ? error.message : String(error));
+	}
+}
+
+export async function showDPiConnectForkSelector(options: {
+	tui: TUI;
+	editor: DPiNativeCustomEditor;
+	editorContainer: Container;
+	theme: DPiNativeTheme;
+	proxy: DPiInteractiveAgentSessionProxy;
+	showStatus(text: string): void;
+}): Promise<void> {
+	try {
+		const messages = await options.proxy.fetchUserMessagesForForking();
+		showDPiConnectSelectInEditorSlot({
+			...options,
+			title: "Fork from Message",
+			items: messages.map(userMessageToSelectItem),
+			emptyStatus: "No user messages found",
+			onSelect: (item) => {
+				void options.proxy.fork(item.value);
+			},
+		});
+	} catch (error) {
+		options.showStatus(error instanceof Error ? error.message : String(error));
+	}
+}
+
+export async function showDPiConnectTreeSelector(options: {
+	tui: TUI;
+	editor: DPiNativeCustomEditor;
+	editorContainer: Container;
+	theme: DPiNativeTheme;
+	proxy: DPiInteractiveAgentSessionProxy;
+	showStatus(text: string): void;
+}): Promise<void> {
+	try {
+		const tree = await options.proxy.fetchTree();
+		const items = flattenTreeSelectItems(tree);
+		showDPiConnectSelectInEditorSlot({
+			...options,
+			title: "Session Tree",
+			items,
+			emptyStatus: "No session tree entries",
+			onSelect: (item) => {
+				void options.proxy.fork(item.value);
+			},
+		});
+	} catch (error) {
+		options.showStatus(error instanceof Error ? error.message : String(error));
+	}
+}
+
+export async function showDPiConnectResumeSelector(options: {
+	tui: TUI;
+	editor: DPiNativeCustomEditor;
+	editorContainer: Container;
+	theme: DPiNativeTheme;
+	proxy: DPiInteractiveAgentSessionProxy;
+	showStatus(text: string): void;
+}): Promise<void> {
+	try {
+		const sessions = await options.proxy.getSessions();
+		showDPiConnectSelectInEditorSlot({
+			...options,
+			title: `Resume Session (${sessions.length})`,
+			items: sessions.map(sessionToSelectItem),
+			emptyStatus: "No sessions found",
+			onSelect: (item) => {
+				void options.proxy.switchSession(item.value);
+			},
+		});
+	} catch (error) {
+		options.showStatus(error instanceof Error ? error.message : String(error));
+	}
+}
+
+export function showDPiConnectPanel(options: {
+	tui: TUI;
+	editor: DPiNativeCustomEditor;
+	editorContainer: Container;
+	theme: DPiNativeTheme;
+	title: string;
+	body: string;
+}): void {
+	const panel = new DPiConnectPanelComponent(options.title, options.body, options.theme, () =>
+		restoreDPiConnectEditor(options),
+	);
+	options.editorContainer.clear();
+	options.editorContainer.addChild(panel);
+	options.tui.setFocus(panel);
+	options.tui.requestRender();
+}
+
+function modelFullId(model: DPiInteractiveModelItemData): string {
+	return `${model.provider}/${model.id}`;
+}
+
+function modelToSelectItem(model: DPiInteractiveModelItemData): SelectItem {
+	return {
+		value: modelFullId(model),
+		label: `${model.id} [${model.provider}]`,
+		description: `${model.name} · ${model.contextWindow.toLocaleString()} ctx`,
+	};
+}
+
+function userMessageToSelectItem(message: DPiInteractiveUserMessageItem): SelectItem {
+	return {
+		value: message.id,
+		label: message.text.replace(/\s+/g, " ").trim() || "(empty message)",
+		description: message.id,
+	};
+}
+
+function sessionToSelectItem(session: DPiInteractiveSessionItemData): SelectItem {
+	return {
+		value: session.path,
+		label: session.name ?? (session.firstMessage.replace(/\s+/g, " ").trim() || session.id),
+		description: `${session.cwd} · ${session.messageCount} messages · ${session.modified}`,
+	};
+}
+
+function flattenTreeSelectItems(tree: DPiInteractiveTreeNodeData[]): SelectItem[] {
+	const items: SelectItem[] = [];
+	const visit = (node: DPiInteractiveTreeNodeData, depth: number, isLast: boolean): void => {
+		const indent = depth === 0 ? "" : `${"│ ".repeat(Math.max(0, depth - 1))}${isLast ? "└ " : "├ "}`;
+		items.push({
+			value: node.id,
+			label: `${indent}${node.type}: ${node.preview ?? node.label ?? node.id}`,
+			description: node.timestamp,
+		});
+		for (let index = 0; index < node.children.length; index++) {
+			visit(node.children[index]!, depth + 1, index === node.children.length - 1);
+		}
+	};
+	for (let index = 0; index < tree.length; index++) {
+		visit(tree[index]!, 0, index === tree.length - 1);
+	}
+	return items;
+}
+
+function buildSettingsSelectItems(settings: DPiInteractiveRemoteSettings): SelectItem[] {
+	return [
+		{
+			value: "autoCompact",
+			label: `Auto-compact: ${settings.autoCompact ? "on" : "off"}`,
+			description: "Automatically compact context when it gets too large",
+		},
+		{
+			value: "steeringMode",
+			label: `Steering mode: ${settings.steeringMode}`,
+			description: "How steering messages are delivered while streaming",
+		},
+		{
+			value: "followUpMode",
+			label: `Follow-up mode: ${settings.followUpMode}`,
+			description: "How follow-up messages are delivered",
+		},
+		...settings.availableThinkingLevels.map((level) => ({
+			value: `thinking:${level}`,
+			label: `Thinking: ${level}${settings.thinkingLevel === level ? " ✓" : ""}`,
+			description: "Set reasoning effort",
+		})),
+	];
+}
+
+function settingUpdateFromSelectValue(
+	value: string,
+	settings: DPiInteractiveRemoteSettings,
+): Record<string, unknown> | undefined {
+	if (value === "autoCompact") {
+		return { autoCompact: !settings.autoCompact };
+	}
+	if (value === "steeringMode") {
+		return { steeringMode: settings.steeringMode === "all" ? "one-at-a-time" : "all" };
+	}
+	if (value === "followUpMode") {
+		return { followUpMode: settings.followUpMode === "all" ? "one-at-a-time" : "all" };
+	}
+	if (value.startsWith("thinking:")) {
+		return { thinkingLevel: value.slice("thinking:".length) };
+	}
+	return undefined;
+}
+
+function sessionPanelText(snapshot: DPiInteractiveSessionStateSnapshot): string {
+	return [
+		`Session: ${snapshot.sessionName ?? snapshot.sessionFile ?? "(unnamed)"}`,
+		`Path: ${snapshot.sessionFile ?? "(none)"}`,
+		`CWD: ${snapshot.cwd}`,
+		`Model: ${snapshot.model}`,
+		`Thinking: ${snapshot.thinkingLevel}`,
+		`Messages: ${snapshot.messages.length}`,
+		`Context: ${snapshot.contextUsage.tokens ?? "?"}/${snapshot.contextUsage.contextWindow}`,
+	].join("\n");
+}
+
+function hotkeysPanelText(): string {
+	return [
+		"escape interrupt/cancel",
+		"ctrl+c clear; ctrl+c twice exit",
+		"ctrl+d exit when editor is empty",
+		"ctrl+n/ctrl+p cycle models",
+		"ctrl+m select model",
+		"ctrl+t cycle thinking",
+		"ctrl+o expand tools",
+		"ctrl+r expand thinking",
+		"ctrl+x external editor",
+		"ctrl+j queue follow-up",
+		"/ open commands",
+		"! run bash (not available in connect mode)",
+	].join("\n");
 }
 
 export async function handleDPiConnectSlashCommand(
@@ -57,52 +778,178 @@ export async function handleDPiConnectSlashCommand(
 	}
 	const command = text.split(" ")[0] ?? text;
 	const arg = text.slice(command.length + 1).trim() || undefined;
-	const { proxy, showStatus, stop } = handlers;
-	switch (command) {
-		case "/quit":
-			await stop();
-			return true;
-		case "/compact":
-			await proxy.compact();
-			return true;
-		case "/model":
-			if (arg) {
-				proxy.setModel(arg);
-				showStatus(`Model: ${arg}`);
-			} else {
-				showStatus("Model selector not available in d-pi connect yet");
-			}
-			return true;
-		case "/new":
-			await proxy.newSession();
-			return true;
-		case "/clone":
-			await proxy.fork();
-			return true;
-		case "/name":
-			if (arg) {
-				proxy.renameSession(arg);
-				showStatus(`Session renamed to: ${arg}`);
-			} else {
-				showStatus("Usage: /name <session-name>");
-			}
-			return true;
-		case "/reload":
-			await proxy.reload();
-			showStatus("Reloaded");
-			return true;
-		case "/export":
-		case "/import":
-		case "/share":
-			showStatus("Not available in connect mode");
-			return true;
-		case "/login":
-		case "/logout":
-			showStatus("Not available in connect mode - configure auth on the server");
-			return true;
-		default:
-			return false;
+	const {
+		proxy,
+		copyLastAssistantMessage,
+		refreshAutocomplete,
+		showAgentSelector,
+		showChangelog,
+		showForkSelector,
+		showHotkeys,
+		showModelSelector,
+		showResumeSelector,
+		showScopedModelsSelector,
+		showSessionInfo,
+		showSettingsSelector,
+		showSourcesSelector,
+		showStatus,
+		showTreeSelector,
+		stop,
+	} = {
+		...handlers,
+		showChangelog: handlers.showPanel
+			? () =>
+					handlers.showPanel?.(
+						"Changelog",
+						handlers.proxy.getSnapshot().banner?.changelogMarkdown ?? "No changelog available",
+					)
+			: undefined,
+		showHotkeys: handlers.showPanel ? () => handlers.showPanel?.("Hotkeys", hotkeysPanelText()) : undefined,
+		showSessionInfo: handlers.showPanel
+			? () => handlers.showPanel?.("Session", sessionPanelText(handlers.proxy.getSnapshot()))
+			: undefined,
+	};
+	try {
+		switch (command) {
+			case "/settings":
+				if (showSettingsSelector) {
+					await showSettingsSelector();
+				} else {
+					showStatus("Settings selector not available in d-pi connect");
+				}
+				return true;
+			case "/agents":
+				if (showAgentSelector) {
+					await showAgentSelector();
+				} else {
+					showStatus("Agent selector not available in d-pi connect");
+				}
+				return true;
+			case "/sources":
+				if (showSourcesSelector) {
+					await showSourcesSelector();
+				} else {
+					showStatus("Sources selector not available in d-pi connect");
+				}
+				return true;
+			case "/quit":
+				await stop();
+				return true;
+			case "/compact":
+				await proxy.compact();
+				return true;
+			case "/model":
+				if (arg) {
+					proxy.setModel(arg);
+					showStatus(`Model: ${arg}`);
+				} else {
+					if (showModelSelector) {
+						await showModelSelector();
+					} else {
+						showStatus("Model selector not available in d-pi connect");
+					}
+				}
+				return true;
+			case "/scoped-models":
+				if (showScopedModelsSelector) {
+					await showScopedModelsSelector();
+				} else {
+					showStatus("Scoped model selector not available in d-pi connect");
+				}
+				return true;
+			case "/copy":
+				if (copyLastAssistantMessage) {
+					await copyLastAssistantMessage();
+				} else {
+					showStatus("Copy not available in d-pi connect");
+				}
+				return true;
+			case "/session":
+				showSessionInfo?.();
+				return true;
+			case "/changelog":
+				showChangelog?.();
+				return true;
+			case "/hotkeys":
+				showHotkeys?.();
+				return true;
+			case "/fork":
+				if (showForkSelector) {
+					await showForkSelector();
+				} else {
+					showStatus("Fork selector not available in d-pi connect");
+				}
+				return true;
+			case "/new":
+				await proxy.newSession();
+				return true;
+			case "/clone":
+				await proxy.fork();
+				return true;
+			case "/tree":
+				if (showTreeSelector) {
+					await showTreeSelector();
+				} else {
+					showStatus("Tree selector not available in d-pi connect");
+				}
+				return true;
+			case "/resume":
+				if (showResumeSelector) {
+					await showResumeSelector();
+				} else {
+					showStatus("Session selector not available in d-pi connect");
+				}
+				return true;
+			case "/name":
+				if (arg) {
+					proxy.renameSession(arg);
+					showStatus(`Session renamed to: ${arg}`);
+				} else {
+					showStatus("Usage: /name <session-name>");
+				}
+				return true;
+			case "/reload":
+				await proxy.reload();
+				await refreshAutocomplete?.();
+				showStatus("Reloaded");
+				return true;
+			case "/export":
+			case "/import":
+			case "/share":
+				showStatus("Not available in connect mode");
+				return true;
+			case "/login":
+			case "/logout":
+				showStatus("Not available in connect mode — configure auth on the server");
+				return true;
+			default:
+				return false;
+		}
+	} catch (error) {
+		showStatus(error instanceof Error ? error.message : String(error));
+		return true;
 	}
+}
+
+export function handleDPiConnectBashInput(text: string, showStatus: (text: string) => void): boolean {
+	const trimmed = text.trim();
+	if (trimmed === "!" || trimmed.startsWith("! ")) {
+		showStatus("Not available in connect mode");
+		return true;
+	}
+	if (trimmed === "!!" || trimmed.startsWith("!! ")) {
+		showStatus("Not available in connect mode");
+		return true;
+	}
+	return false;
+}
+
+export function recordDPiConnectPromptHistory(editor: DPiConnectHistoryEditor, text: string): void {
+	const trimmed = text.trim();
+	if (!trimmed || trimmed.startsWith("/") || trimmed.startsWith("!")) {
+		return;
+	}
+	editor.addToHistory?.(trimmed);
 }
 
 export async function runDPiConnectInteractiveMode(
@@ -119,13 +966,15 @@ export async function runDPiConnectInteractiveMode(
 	const status = new DPiNativeStatusContainer(tui, nativeTheme);
 	const footer = new Text("", 0, 0);
 	const editor = new DPiNativeCustomEditor(tui, getDPiNativeEditorTheme(nativeTheme), keybindings);
-	const root = new Container();
-	root.addChild(banner);
-	root.addChild(messages);
-	root.addChild(status);
-	root.addChild(editor);
-	root.addChild(footer);
-	tui.addChild(root);
+	const layout = createDPiConnectRootLayout();
+	const { editorContainer } = layout;
+	editorContainer.addChild(editor);
+	layout.headerContainer.addChild(banner);
+	layout.chatContainer.addChild(messages);
+	layout.statusContainer.addChild(status);
+	layout.widgetContainerAbove.addChild(new Spacer(1));
+	layout.footerContainer.addChild(footer);
+	tui.addChild(layout.root);
 	tui.setFocus(editor);
 
 	const proxy =
@@ -135,9 +984,12 @@ export async function runDPiConnectInteractiveMode(
 			headers: options.authHeaders,
 			fetch: options.fetch,
 		}));
+	void setupDPiConnectAutocomplete(editor, proxy, process.cwd());
 	const errors: string[] = [];
 	const turnStatusEntries: DPiInteractiveStatusEntry[] = [];
 	const gitBranch = options.gitBranch ?? readDPiConnectGitBranch(process.cwd());
+	let lastCtrlCTime = 0;
+	let toolsExpanded = false;
 	const stop = async (): Promise<void> => {
 		unsubscribe();
 		unsubscribeStatus();
@@ -160,6 +1012,8 @@ export async function runDPiConnectInteractiveMode(
 			buildDPiInteractiveMessageListComponent(messageSnapshot, {
 				color: true,
 				statusEntries: turnStatusEntries,
+				cwd: process.cwd(),
+				toolsExpanded,
 			}),
 		);
 		if (errorText) {
@@ -188,6 +1042,112 @@ export async function runDPiConnectInteractiveMode(
 		}
 		render();
 	};
+	const showAgentSelector = async (): Promise<void> => {
+		await showDPiConnectAgentSelector({
+			tui,
+			editor,
+			editorContainer,
+			theme: nativeTheme,
+			hubUrl: options.hubUrl,
+			authHeaders: options.authHeaders,
+			fetch: options.fetch,
+			currentAgentName: new URL(options.agentUrl).pathname.split("/").filter(Boolean).map(decodeURIComponent).at(-1),
+			showStatus: showChatStatus,
+			stop,
+		});
+	};
+	const showSourcesSelector = async (): Promise<void> => {
+		await showDPiConnectSourcesSelector({
+			tui,
+			editor,
+			editorContainer,
+			theme: nativeTheme,
+			hubUrl: options.hubUrl,
+			authHeaders: options.authHeaders,
+			fetch: options.fetch,
+			showStatus: showChatStatus,
+		});
+	};
+	const showModelSelector = async (): Promise<void> => {
+		await showDPiConnectModelSelector({
+			tui,
+			editor,
+			editorContainer,
+			theme: nativeTheme,
+			proxy,
+			showStatus: showChatStatus,
+		});
+	};
+	const showSettingsSelector = async (): Promise<void> => {
+		showDPiConnectSettingsSelector({
+			tui,
+			editor,
+			editorContainer,
+			theme: nativeTheme,
+			proxy,
+			showStatus: showChatStatus,
+		});
+	};
+	const showScopedModelsSelector = async (): Promise<void> => {
+		await showDPiConnectScopedModelsSelector({
+			tui,
+			editor,
+			editorContainer,
+			theme: nativeTheme,
+			proxy,
+			showStatus: showChatStatus,
+		});
+	};
+	const showForkSelector = async (): Promise<void> => {
+		await showDPiConnectForkSelector({
+			tui,
+			editor,
+			editorContainer,
+			theme: nativeTheme,
+			proxy,
+			showStatus: showChatStatus,
+		});
+	};
+	const showTreeSelector = async (): Promise<void> => {
+		await showDPiConnectTreeSelector({
+			tui,
+			editor,
+			editorContainer,
+			theme: nativeTheme,
+			proxy,
+			showStatus: showChatStatus,
+		});
+	};
+	const showResumeSelector = async (): Promise<void> => {
+		await showDPiConnectResumeSelector({
+			tui,
+			editor,
+			editorContainer,
+			theme: nativeTheme,
+			proxy,
+			showStatus: showChatStatus,
+		});
+	};
+	const showPanel = (title: string, body: string): void => {
+		showDPiConnectPanel({ tui, editor, editorContainer, theme: nativeTheme, title, body });
+	};
+	const copyLastAssistantMessage = async (): Promise<void> => {
+		const message = [...proxy.getSnapshot().messages].reverse().find((entry) => entry.role === "assistant");
+		const content = typeof message?.content === "string" ? message.content : undefined;
+		if (!content) {
+			showChatStatus("No assistant message to copy");
+			return;
+		}
+		try {
+			execFileSync("pbcopy", [], { input: content });
+			showChatStatus("Copied last assistant message");
+		} catch {
+			showChatStatus("Copy not available in this terminal");
+		}
+	};
+	const refreshAutocomplete = async (): Promise<void> => {
+		await setupDPiConnectAutocomplete(editor, proxy, process.cwd());
+	};
 	const unsubscribe = proxy.subscribe(render);
 	const unsubscribeStatus = proxy.subscribe((event) => {
 		if (event.type === "session_replaced") {
@@ -202,8 +1162,30 @@ export async function runDPiConnectInteractiveMode(
 	});
 	editor.onSubmit = (text) => {
 		const trimmed = text.trim();
+		if (handleDPiConnectBashInput(trimmed, showChatStatus)) {
+			editor.setText("");
+			render();
+			return;
+		}
 		if (trimmed.startsWith("/")) {
-			void handleDPiConnectSlashCommand(trimmed, { proxy, showStatus: showChatStatus, stop }).then((handled) => {
+			editor.setText("");
+			render();
+			void handleDPiConnectSlashCommand(trimmed, {
+				proxy,
+				showAgentSelector,
+				showSourcesSelector,
+				showModelSelector,
+				showSettingsSelector,
+				showScopedModelsSelector,
+				showForkSelector,
+				showTreeSelector,
+				showResumeSelector,
+				showPanel,
+				copyLastAssistantMessage,
+				refreshAutocomplete,
+				showStatus: showChatStatus,
+				stop,
+			}).then((handled) => {
 				if (!handled) {
 					void submitDPiInteractiveEditorText(proxy, trimmed, (error) => {
 						errors.push(error instanceof Error ? error.message : String(error));
@@ -213,12 +1195,23 @@ export async function runDPiConnectInteractiveMode(
 			});
 			return;
 		}
+		recordDPiConnectPromptHistory(editor, text);
 		void submitDPiInteractiveEditorText(proxy, text, (error) => {
 			errors.push(error instanceof Error ? error.message : String(error));
 			render();
 		});
 	};
 	editor.onEscape = () => proxy.abort();
+	editor.onAction("app.clear", () => {
+		const now = Date.now();
+		if (now - lastCtrlCTime < 500) {
+			void stop();
+			return;
+		}
+		editor.setText("");
+		lastCtrlCTime = now;
+		render();
+	});
 	editor.onCtrlD = () => {
 		void stop();
 	};
@@ -231,6 +1224,50 @@ export async function runDPiConnectInteractiveMode(
 		editor.setText("");
 		proxy.followUp(text);
 	});
+	editor.onAction("app.message.dequeue", () => {
+		const dropped = proxy.clearQueue();
+		const text = [...dropped.steering, ...dropped.followUp].join("\n");
+		if (text) {
+			editor.setText(text);
+		}
+	});
+	editor.onAction("app.model.cycleForward", () => {
+		proxy.cycleModel(1);
+	});
+	editor.onAction("app.model.cycleBackward", () => {
+		proxy.cycleModel(-1);
+	});
+	editor.onAction("app.model.select", () => {
+		void showModelSelector();
+	});
+	editor.onAction("app.thinking.cycle", () => {
+		proxy.cycleThinkingLevel(1);
+	});
+	editor.onAction("app.thinking.toggle", () => {
+		proxy.updateSettings({ hideThinkingBlock: !proxy.getSnapshot().remoteSettings.hideThinkingBlock });
+	});
+	editor.onAction("app.session.new", () => {
+		void proxy.newSession();
+	});
+	editor.onAction("app.session.tree", () => {
+		void showTreeSelector();
+	});
+	editor.onAction("app.session.fork", () => {
+		void showForkSelector();
+	});
+	editor.onAction("app.session.resume", () => {
+		void showResumeSelector();
+	});
+	editor.onAction("app.tools.expand", () => {
+		toolsExpanded = !toolsExpanded;
+		render();
+	});
+	editor.onAction("app.editor.external", () => {
+		showChatStatus("External editor not available in d-pi connect");
+	});
+	editor.onPasteImage = () => {
+		showChatStatus("Paste image not available in d-pi connect");
+	};
 
 	await proxy.connect?.();
 	render();

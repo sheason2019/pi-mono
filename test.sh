@@ -22,7 +22,7 @@ fi
 # Skip local LLM tests (ollama, lmstudio)
 export PI_NO_LOCAL_LLM=1
 
-# Unset API keys (see packages/ai/src/stream.ts getEnvApiKey)
+# Unset API keys used by upstream provider integrations.
 unset ANTHROPIC_API_KEY
 unset ANTHROPIC_OAUTH_TOKEN
 unset OPENAI_API_KEY

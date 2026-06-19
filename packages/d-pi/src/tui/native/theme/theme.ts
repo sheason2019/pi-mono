@@ -15,6 +15,10 @@ export type DPiNativeThemeColor =
 	| "text"
 	| "thinkingText"
 	| "userMessageText"
+	| "customMessageText"
+	| "customMessageLabel"
+	| "toolTitle"
+	| "toolOutput"
 	| "mdHeading"
 	| "mdLink"
 	| "mdLinkUrl"
@@ -24,9 +28,21 @@ export type DPiNativeThemeColor =
 	| "mdQuote"
 	| "mdQuoteBorder"
 	| "mdHr"
-	| "mdListBullet";
+	| "mdListBullet"
+	| "toolDiffAdded"
+	| "toolDiffRemoved"
+	| "toolDiffContext"
+	| "syntaxComment"
+	| "syntaxKeyword"
+	| "syntaxFunction"
+	| "syntaxVariable"
+	| "syntaxString"
+	| "syntaxNumber"
+	| "syntaxType"
+	| "syntaxOperator"
+	| "syntaxPunctuation";
 
-export type DPiNativeThemeBg = "selectedBg" | "userMessageBg";
+export type DPiNativeThemeBg = "selectedBg" | "userMessageBg" | "toolPendingBg" | "toolSuccessBg" | "toolErrorBg";
 
 export interface DPiNativeThemeOptions {
 	color?: boolean;
@@ -40,6 +56,7 @@ export interface DPiNativeTheme {
 	italic(text: string): string;
 	underline(text: string): string;
 	strikethrough(text: string): string;
+	inverse(text: string): string;
 	getColorMode(): DPiNativeColorMode;
 }
 
@@ -56,6 +73,10 @@ const FG_COLORS: Record<DPiNativeThemeColor, string> = {
 	text: "#d4d4d4",
 	thinkingText: "#808080",
 	userMessageText: "#d4d4d4",
+	customMessageText: "#d4d4d4",
+	customMessageLabel: "#8abeb7",
+	toolTitle: "#d4d4d4",
+	toolOutput: "#808080",
 	mdHeading: "#f0c674",
 	mdLink: "#81a2be",
 	mdLinkUrl: "#666666",
@@ -66,11 +87,26 @@ const FG_COLORS: Record<DPiNativeThemeColor, string> = {
 	mdQuoteBorder: "#808080",
 	mdHr: "#808080",
 	mdListBullet: "#8abeb7",
+	toolDiffAdded: "#b5bd68",
+	toolDiffRemoved: "#cc6666",
+	toolDiffContext: "#808080",
+	syntaxComment: "#666666",
+	syntaxKeyword: "#b294bb",
+	syntaxFunction: "#81a2be",
+	syntaxVariable: "#d4d4d4",
+	syntaxString: "#b5bd68",
+	syntaxNumber: "#de935f",
+	syntaxType: "#f0c674",
+	syntaxOperator: "#8abeb7",
+	syntaxPunctuation: "#d4d4d4",
 };
 
 const BG_COLORS: Record<DPiNativeThemeBg, string> = {
 	selectedBg: "#3a3a4a",
 	userMessageBg: "#343541",
+	toolPendingBg: "#282832",
+	toolSuccessBg: "#283228",
+	toolErrorBg: "#3c2828",
 };
 
 class DPiNativeThemeImpl implements DPiNativeTheme {
@@ -110,6 +146,10 @@ class DPiNativeThemeImpl implements DPiNativeTheme {
 
 	strikethrough(text: string): string {
 		return this.enabled && text.length > 0 ? `\x1b[9m${text}\x1b[29m` : text;
+	}
+
+	inverse(text: string): string {
+		return this.enabled && text.length > 0 ? `\x1b[7m${text}\x1b[27m` : text;
 	}
 
 	getColorMode(): DPiNativeColorMode {

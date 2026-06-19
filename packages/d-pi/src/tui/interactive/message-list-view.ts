@@ -1,7 +1,8 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { Container, Spacer, Text } from "@earendil-works/pi-tui";
+import type { AssistantMessage, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
+import { type Component, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { DPiNativeAssistantMessageComponent } from "../native/components/assistant-message.ts";
+import { DPiNativeToolExecutionComponent } from "../native/components/tool-execution.ts";
 import { DPiNativeUserMessageComponent } from "../native/components/user-message.ts";
 import { createDPiNativeTheme, getDPiNativeMarkdownTheme } from "../native/theme/theme.ts";
 import type { DPiInteractiveSessionStateSnapshot, DPiInteractiveTurnStats } from "./agent-session-proxy.ts";
@@ -18,6 +19,10 @@ export interface DPiInteractiveStatusEntry {
 
 export interface DPiInteractiveMessageListComponentOptions extends DPiInteractiveStyleOptions {
 	statusEntries?: readonly DPiInteractiveStatusEntry[];
+	cwd?: string;
+	toolsExpanded?: boolean;
+	showImages?: boolean;
+	imageWidthCells?: number;
 }
 
 export function buildDPiInteractiveMessageListView(
@@ -47,7 +52,7 @@ export function buildDPiInteractiveMessageListComponent(
 		container.addChild(new Text(style.dim(entry.text), 1, 0));
 	};
 	for (const [index, message] of snapshot.messages.entries()) {
-		const components = messageComponents(message, theme, markdownTheme);
+		const components = messageComponents(message, snapshot.messages, theme, markdownTheme, options);
 		if (message.role === "user" && components.length > 0 && container.children.length > 0) {
 			container.addChild(new Spacer(1));
 		}
@@ -102,9 +107,11 @@ export function buildDPiInteractiveStatusView(
 
 function messageComponents(
 	message: AgentMessage,
+	messages: readonly AgentMessage[],
 	theme: ReturnType<typeof createDPiNativeTheme>,
 	markdownTheme: ReturnType<typeof getDPiNativeMarkdownTheme>,
-): Array<DPiNativeUserMessageComponent | DPiNativeAssistantMessageComponent> {
+	options: DPiInteractiveMessageListComponentOptions,
+): Component[] {
 	if (message.role === "user") {
 		const text = stripDPiMetaWrapper(contentText(message.content));
 		if (!text) {
@@ -117,15 +124,47 @@ function messageComponents(
 			}),
 		];
 	}
-	if (message.role !== "assistant") {
+	if (isDPiMessageMirror(message)) {
 		return [];
 	}
+	if (message.role === "toolResult") {
+		return [];
+	}
+	if (message.role !== "assistant") {
+		const text = contentText("content" in message ? message.content : "");
+		return text ? [new Text(theme.fg("muted", text), 1, 0)] : [];
+	}
+	const assistant = normalizeAssistantMessage(message);
 	return [
-		new DPiNativeAssistantMessageComponent(message as AssistantMessage, {
+		new DPiNativeAssistantMessageComponent(assistant, {
 			theme,
 			markdownTheme,
 		}),
+		...assistant.content
+			.filter((part): part is ToolCall => part.type === "toolCall")
+			.map(
+				(toolCall) =>
+					new DPiNativeToolExecutionComponent(toolCall, findToolResult(messages, toolCall.id), {
+						theme,
+						cwd: options.cwd,
+						expanded: options.toolsExpanded,
+						showImages: options.showImages,
+						imageWidthCells: options.imageWidthCells,
+					}),
+			),
 	];
+}
+
+function normalizeAssistantMessage(message: AgentMessage): AssistantMessage {
+	const rawContent = "content" in message ? message.content : "";
+	const content = Array.isArray(rawContent) ? rawContent : [{ type: "text" as const, text: contentText(rawContent) }];
+	return { ...message, role: "assistant", content } as AssistantMessage;
+}
+
+function findToolResult(messages: readonly AgentMessage[], toolCallId: string): ToolResultMessage | undefined {
+	return messages.find(
+		(message): message is ToolResultMessage => message.role === "toolResult" && message.toolCallId === toolCallId,
+	);
 }
 
 function messageLines(message: AgentMessage, options: DPiInteractiveStyleOptions): string[] {
@@ -146,6 +185,9 @@ function messageLines(message: AgentMessage, options: DPiInteractiveStyleOptions
 			}
 			return [];
 		});
+	}
+	if (isDPiMessageMirror(message)) {
+		return [];
 	}
 	return [];
 }
@@ -183,4 +225,8 @@ function formatCompactTokens(count: number): string {
 function stripDPiMetaWrapper(text: string): string {
 	const match = text.match(/^\[meta\((?:.|\n)*?\)\]\s*\n?((?:.|\n)*)$/);
 	return match?.[1] ?? text;
+}
+
+function isDPiMessageMirror(message: AgentMessage): boolean {
+	return "customType" in message && message.customType === "d-pi-message";
 }

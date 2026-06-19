@@ -13,7 +13,7 @@ interface ScreenPair {
 }
 
 describeIf("d-pi visual parity against native pi coding-agent", () => {
-	it("prints and compares startup and prompt screens byte-for-byte", async () => {
+	it("prints and compares startup and prompt screens byte-for-byte, with and without ANSI", async () => {
 		const prompt = process.env.DPI_VISUAL_PROMPT ?? "你好";
 		const nativeCommand = process.env.DPI_VISUAL_NATIVE_CMD ?? "pi";
 		const dpiCommand = process.env.DPI_VISUAL_DPI_CMD ?? "d-pi connect lixujie@http://localhost:39090";
@@ -31,6 +31,12 @@ describeIf("d-pi visual parity against native pi coding-agent", () => {
 			};
 			printPair("startup", startup);
 			expect(startup.dpi).toBe(startup.native);
+			const startupAnsi = {
+				native: await captureTmux(nativeSession, { ansi: true }),
+				dpi: await captureTmux(dpiSession, { ansi: true }),
+			};
+			printPair("startup ANSI", startupAnsi);
+			expect(startupAnsi.dpi).toBe(startupAnsi.native);
 
 			await sendPrompt(nativeSession, prompt);
 			await sendPrompt(dpiSession, prompt);
@@ -42,6 +48,12 @@ describeIf("d-pi visual parity against native pi coding-agent", () => {
 			};
 			printPair("after prompt", afterPrompt);
 			expect(afterPrompt.dpi).toBe(afterPrompt.native);
+			const afterPromptAnsi = {
+				native: await captureTmux(nativeSession, { ansi: true }),
+				dpi: await captureTmux(dpiSession, { ansi: true }),
+			};
+			printPair("after prompt ANSI", afterPromptAnsi);
+			expect(afterPromptAnsi.dpi).toBe(afterPromptAnsi.native);
 		} finally {
 			await killTmux(nativeSession);
 			await killTmux(dpiSession);
@@ -54,8 +66,12 @@ async function startTmux(session: string, command: string): Promise<void> {
 	await execFileAsync("tmux", ["new-session", "-d", "-s", session, "-x", "120", "-y", "40", command]);
 }
 
-async function captureTmux(session: string): Promise<string> {
-	const result = await execFileAsync("tmux", ["capture-pane", "-t", `${session}:0.0`, "-p", "-S", "-"]);
+async function captureTmux(session: string, options: { ansi?: boolean } = {}): Promise<string> {
+	const args = ["capture-pane", "-t", `${session}:0.0`, "-p", "-S", "-"];
+	if (options.ansi) {
+		args.push("-e");
+	}
+	const result = await execFileAsync("tmux", args);
 	return result.stdout;
 }
 

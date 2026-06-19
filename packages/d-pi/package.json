@@ -21,12 +21,15 @@
 		"test": "vitest --run"
 	},
 	"dependencies": {
-		"@earendil-works/pi-agent-core": "^0.78.0",
-		"@earendil-works/pi-ai": "^0.78.0",
-		"@earendil-works/pi-tui": "^0.78.0",
+		"@earendil-works/pi-agent-core": "0.78.0",
+		"@earendil-works/pi-ai": "0.78.0",
+		"@earendil-works/pi-tui": "0.78.0",
+		"diff": "8.0.4",
+		"highlight.js": "10.7.3",
 		"typebox": "1.1.38"
 	},
 	"devDependencies": {
+		"@types/diff": "7.0.2",
 		"@types/node": "24.12.4",
 		"shx": "0.4.0",
 		"typescript": "5.9.3"

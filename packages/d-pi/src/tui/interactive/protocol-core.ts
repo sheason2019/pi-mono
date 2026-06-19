@@ -45,17 +45,17 @@ export async function handleDPiInteractiveProtocolQuery(
 		case "settings":
 			return ok(proxy.getSnapshot().remoteSettings);
 		case "tree":
-			return ok(proxy.getTree());
+			return ok(await proxy.fetchTree());
 		case "user-messages":
-			return ok(proxy.getUserMessagesForForking());
+			return ok(await proxy.fetchUserMessagesForForking());
 		case "sessions":
 			return ok(await proxy.getSessions());
 		case "commands":
-			return ok(proxy.getCommands());
+			return ok(await proxy.fetchCommands());
 		case "models":
-			return ok(proxy.getModels());
+			return ok(await proxy.fetchModels());
 		case "client-extensions":
-			return ok([]);
+			return ok(await proxy.fetchClientExtensions());
 		default:
 			return { status: 404, body: { error: `Unknown query: ${query}` } };
 	}

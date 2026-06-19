@@ -359,6 +359,35 @@ describe("d-pi runtime foundation", () => {
 		});
 	});
 
+	it("does not emit empty turn stats when an agent run has no assistant token usage", async () => {
+		const workspaceRoot = createTempWorkspace();
+		const fakeHarness = new FakeHarness();
+		const runtime = await createRuntime(workspaceRoot, fakeHarness);
+		const events: DPiAgentHarnessEvent[] = [];
+		runtime.subscribe((event) => {
+			events.push(event);
+		});
+
+		fakeHarness.emit({ type: "agent_start" });
+		fakeHarness.emit({
+			type: "agent_end",
+			messages: [
+				{
+					role: "toolResult",
+					toolCallId: "tool-ls",
+					toolName: "dispatch_ls",
+					content: [{ type: "text", text: ".pi/\nagent.ts" }],
+					isError: false,
+					timestamp: Date.now(),
+				},
+			],
+		});
+		await new Promise<void>((resolve) => setImmediate(resolve));
+
+		expect(events.some((event) => event.type === "agent_end")).toBe(true);
+		expect(events.some((event) => event.type === "turn_stats")).toBe(false);
+	});
+
 	it("queues next prompts while active and when the harness reports busy", async () => {
 		const workspaceRoot = createTempWorkspace();
 		const fakeHarness = new FakeHarness();

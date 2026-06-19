@@ -155,8 +155,12 @@ function createProxy(snapshot: DPiInteractiveSessionStateSnapshot): DPiInteracti
 		getSessions: vi.fn(async () => []),
 		fetchTree: vi.fn(async () => []),
 		fetchUserMessagesForForking: vi.fn(async () => []),
+		fetchCommands: vi.fn(async () => [{ name: "agents", source: "builtin" as const }]),
+		fetchModels: vi.fn(async () => []),
+		fetchClientExtensions: vi.fn(async () => []),
 		getCommands: vi.fn(() => [{ name: "agents", source: "builtin" as const }]),
 		getModels: vi.fn(() => []),
+		getClientExtensions: vi.fn(() => []),
 		getSnapshot: vi.fn(() => snapshot),
 	};
 }
@@ -198,5 +202,58 @@ describe("d-pi interactive protocol contract", () => {
 		expect(proxy.prompt).toHaveBeenCalledWith("hello", undefined);
 		expect(proxy.steer).toHaveBeenCalledWith("interrupt", undefined);
 		expect(proxy.followUp).toHaveBeenCalledWith("continue", undefined);
+	});
+
+	it("exposes commands through the interactive protocol for connect autocomplete", async () => {
+		const proxy = createProxy(createSnapshot());
+
+		const result = await handleDPiInteractiveProtocolQuery(proxy, "commands");
+
+		expect(result).toEqual({
+			status: 200,
+			body: [{ name: "agents", source: "builtin" }],
+		});
+	});
+
+	it("uses async connect data queries instead of synchronous empty fallbacks", async () => {
+		const snapshot = createSnapshot();
+		const model = {
+			id: "claude-sonnet-4",
+			name: "Claude Sonnet 4",
+			provider: "anthropic",
+			api: "anthropic-messages" as const,
+			baseUrl: "https://api.anthropic.com",
+			cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+			reasoning: true,
+			contextWindow: 200000,
+			maxTokens: 8192,
+			input: ["text" as const, "image" as const],
+		};
+		const proxy = createProxy(snapshot);
+		vi.mocked(proxy.fetchTree).mockResolvedValueOnce([
+			{ id: "entry-1", type: "user", parentId: null, timestamp: "2026-06-19T00:00:00Z", children: [] },
+		]);
+		vi.mocked(proxy.fetchUserMessagesForForking).mockResolvedValueOnce([{ id: "entry-1", text: "hello" }]);
+		vi.mocked(proxy.fetchModels).mockResolvedValueOnce([model]);
+		vi.mocked(proxy.fetchClientExtensions).mockResolvedValueOnce([
+			{ name: "client-ext", script: "export default {};" },
+		]);
+
+		await expect(handleDPiInteractiveProtocolQuery(proxy, "tree")).resolves.toMatchObject({
+			body: [{ id: "entry-1" }],
+		});
+		await expect(handleDPiInteractiveProtocolQuery(proxy, "user-messages")).resolves.toMatchObject({
+			body: [{ id: "entry-1", text: "hello" }],
+		});
+		await expect(handleDPiInteractiveProtocolQuery(proxy, "models")).resolves.toMatchObject({
+			body: [model],
+		});
+		await expect(handleDPiInteractiveProtocolQuery(proxy, "client-extensions")).resolves.toMatchObject({
+			body: [{ name: "client-ext", script: "export default {};" }],
+		});
+
+		expect(proxy.getTree).not.toHaveBeenCalled();
+		expect(proxy.getUserMessagesForForking).not.toHaveBeenCalled();
+		expect(proxy.getModels).not.toHaveBeenCalled();
 	});
 });
