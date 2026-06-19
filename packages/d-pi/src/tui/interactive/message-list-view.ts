@@ -1,6 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
-import { type Component, Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { type Component, Container, Spacer, Text, TruncatedText } from "@earendil-works/pi-tui";
 import { DPiNativeAssistantMessageComponent } from "../native/components/assistant-message.ts";
 import { DPiNativeToolExecutionComponent } from "../native/components/tool-execution.ts";
 import { DPiNativeUserMessageComponent } from "../native/components/user-message.ts";
@@ -65,12 +65,6 @@ export function buildDPiInteractiveMessageListComponent(
 			}
 		}
 	}
-	for (const message of snapshot.steeringMessages) {
-		container.addChild(new Text(style.dim(`Steering: ${message}`), 1, 0));
-	}
-	for (const message of snapshot.followUpMessages) {
-		container.addChild(new Text(style.dim(`Follow-up: ${message}`), 1, 0));
-	}
 	for (const entry of options.statusEntries ?? []) {
 		if (
 			entry.afterMessageCount > snapshot.messages.length ||
@@ -79,6 +73,26 @@ export function buildDPiInteractiveMessageListComponent(
 			addStatusEntry(entry);
 		}
 	}
+	return container;
+}
+
+export function buildDPiInteractivePendingMessagesComponent(
+	snapshot: Pick<DPiInteractiveSessionStateSnapshot, "followUpMessages" | "steeringMessages">,
+	options: DPiInteractiveStyleOptions = {},
+): Container {
+	const container = new Container();
+	const style = createDPiInteractiveStyle(options);
+	if (snapshot.steeringMessages.length === 0 && snapshot.followUpMessages.length === 0) {
+		return container;
+	}
+	container.addChild(new Spacer(1));
+	for (const message of snapshot.steeringMessages) {
+		container.addChild(new TruncatedText(style.dim(`Steering: ${message}`), 1, 0));
+	}
+	for (const message of snapshot.followUpMessages) {
+		container.addChild(new TruncatedText(style.dim(`Follow-up: ${message}`), 1, 0));
+	}
+	container.addChild(new TruncatedText(style.dim("↳ alt+up to edit all queued messages"), 1, 0));
 	return container;
 }
 

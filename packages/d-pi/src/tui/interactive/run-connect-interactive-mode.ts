@@ -42,6 +42,7 @@ import { buildDPiInteractiveBannerView } from "./banner-view.ts";
 import { buildDPiInteractiveFooterView } from "./footer-view.ts";
 import {
 	buildDPiInteractiveMessageListComponent,
+	buildDPiInteractivePendingMessagesComponent,
 	buildDPiInteractiveStatusView,
 	type DPiInteractiveStatusEntry,
 } from "./message-list-view.ts";
@@ -969,7 +970,7 @@ export async function runDPiConnectInteractiveMode(
 	const footer = new Text("", 0, 0);
 	const editor = new DPiNativeCustomEditor(tui, getDPiNativeEditorTheme(nativeTheme), keybindings);
 	const layout = createDPiConnectRootLayout();
-	const { editorContainer } = layout;
+	const { editorContainer, pendingMessagesContainer } = layout;
 	editorContainer.addChild(editor);
 	layout.headerContainer.addChild(banner);
 	layout.chatContainer.addChild(messages);
@@ -1039,6 +1040,8 @@ export async function runDPiConnectInteractiveMode(
 		if (errorText) {
 			messages.addChild(new Text(errorText, 1, 0));
 		}
+		pendingMessagesContainer.clear();
+		pendingMessagesContainer.addChild(buildDPiInteractivePendingMessagesComponent(snapshot, { color: true }));
 		status.setWorking(snapshot.isStreaming || snapshot.isBashRunning || snapshot.isCompacting);
 		footer.setText(
 			buildDPiInteractiveFooterView({

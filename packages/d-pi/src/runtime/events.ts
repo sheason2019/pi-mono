@@ -28,6 +28,12 @@ export interface DPiAssistantStreamEvent {
 	done: boolean;
 }
 
+export interface DPiMessageEvent {
+	type: "message";
+	agentName: string;
+	message: DPiAgentMessage;
+}
+
 export interface DPiCustomMessageEvent {
 	type: "d_pi_message";
 	agentName: string;
@@ -111,6 +117,7 @@ export type DPiRuntimeEvent =
 	| DPiAgentRunStartEvent
 	| DPiAgentRunEndEvent
 	| DPiAssistantStreamEvent
+	| DPiMessageEvent
 	| DPiCustomMessageEvent
 	| DPiToolStartEvent
 	| DPiToolUpdateEvent

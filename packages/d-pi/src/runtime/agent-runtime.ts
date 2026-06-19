@@ -417,6 +417,8 @@ export class DPiAgentRuntime {
 		}
 		if (runtimeEvent.type === "queue_update") {
 			this.queues = cloneQueues(runtimeEvent.queues);
+		} else if (runtimeEvent.type === "message") {
+			this.messages = [...this.messages, runtimeEvent.message];
 		} else if (runtimeEvent.type === "assistant_stream" && runtimeEvent.message && runtimeEvent.done) {
 			this.messages = [...this.messages, runtimeEvent.message];
 		} else if (runtimeEvent.type === "error") {
@@ -497,6 +499,13 @@ export class DPiAgentRuntime {
 				agentName: this.agentName,
 				message: event.message as DPiAgentMessage,
 				done: true,
+			};
+		}
+		if (event.type === "message_end" && event.message.role === "user") {
+			return {
+				type: "message",
+				agentName: this.agentName,
+				message: event.message as DPiAgentMessage,
 			};
 		}
 		if (event.type === "tool_execution_start") {

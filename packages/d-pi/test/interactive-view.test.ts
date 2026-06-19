@@ -6,6 +6,7 @@ import { buildDPiInteractiveFooterView } from "../src/tui/interactive/footer-vie
 import {
 	buildDPiInteractiveMessageListComponent,
 	buildDPiInteractiveMessageListView,
+	buildDPiInteractivePendingMessagesComponent,
 	buildDPiInteractiveStatusView,
 } from "../src/tui/interactive/message-list-view.ts";
 
@@ -134,6 +135,17 @@ describe("d-pi interactive view parity components", () => {
 		expect(lines.some((line) => line.includes("\x1b[48;2;52;53;65m"))).toBe(true);
 		expect(lines.some((line) => visibleWidth(line) === 40)).toBe(true);
 		expect(lines.join("\n")).toContain("你好");
+	});
+
+	it("keeps queued steering and follow-up messages out of the message list", () => {
+		const messageList = buildDPiInteractiveMessageListComponent(snapshot(), { color: false });
+		const pendingMessages = buildDPiInteractivePendingMessagesComponent(snapshot(), { color: false });
+
+		expect(messageList.render(80).join("\n")).not.toContain("Steering:");
+		expect(messageList.render(80).join("\n")).not.toContain("Follow-up:");
+		expect(pendingMessages.render(80).join("\n")).toContain("Steering: interrupt");
+		expect(pendingMessages.render(80).join("\n")).toContain("Follow-up: continue");
+		expect(pendingMessages.render(80).join("\n")).toContain("↳ alt+up to edit all queued messages");
 	});
 
 	it("renders working status and token speed estimates like native turn stats", () => {

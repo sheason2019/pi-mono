@@ -754,13 +754,16 @@ describe("worker runtime adapter", () => {
 			const state = await queryIpc(harness, "state-after-actions", "state");
 			expect(state.body).toMatchObject({
 				streaming: false,
-				queued: [],
-				messages: [
-					expect.objectContaining({ role: "user", content: "write a plan" }),
-					expect.objectContaining({ role: "custom", customType: "steer", content: "tighten scope" }),
-					expect.objectContaining({ role: "custom", customType: "follow-up", content: "continue" }),
+				queued: [
+					expect.objectContaining({ kind: "steer", text: "tighten scope" }),
+					expect.objectContaining({ kind: "follow-up", text: "continue" }),
 				],
+				steeringMessages: ["tighten scope"],
+				followUpMessages: ["continue"],
+				messages: [expect.objectContaining({ role: "user", content: "write a plan" })],
 			});
+			expect(JSON.stringify(state.body)).not.toContain('"customType":"steer"');
+			expect(JSON.stringify(state.body)).not.toContain('"customType":"follow-up"');
 			expect(JSON.stringify(state.body)).not.toContain("d-pi local runtime accepted");
 		} finally {
 			harness.server.stop();
@@ -841,6 +844,107 @@ describe("worker runtime adapter", () => {
 		} finally {
 			harness.server.stop();
 		}
+	});
+
+	it("does not record steering inputs as transcript messages while the runtime is streaming", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+
+		proxy.applyRuntimeEvent({ type: "agent_start", agentName: "root" });
+		await proxy.steer("interrupt one");
+		await proxy.steer("interrupt two");
+
+		const state = proxy.getState();
+		expect(state.steeringMessages).toEqual(["interrupt one", "interrupt two"]);
+		expect(JSON.stringify(state.messages)).not.toContain("interrupt one");
+		expect(JSON.stringify(state.messages)).not.toContain("customType");
+	});
+
+	it("records queued steering messages as user transcript messages when the runtime consumes them", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+
+		proxy.applyRuntimeEvent({ type: "agent_start", agentName: "root" });
+		await proxy.steer("interrupt one");
+		proxy.applyRuntimeEvent({
+			type: "message",
+			agentName: "root",
+			message: {
+				role: "user",
+				content: "interrupt one",
+				timestamp: 123,
+			},
+		} as never);
+		proxy.applyRuntimeEvent({
+			type: "queue_update",
+			agentName: "root",
+			queues: { prompts: [], tools: [] },
+		});
+
+		const state = proxy.getState();
+		expect(state.steeringMessages).toEqual([]);
+		expect(state.messages).toEqual([expect.objectContaining({ role: "user", content: "interrupt one" })]);
+		expect(JSON.stringify(state.messages)).not.toContain('"customType":"steer"');
+	});
+
+	it("does not duplicate direct prompt transcript messages when runtime user confirmation arrives later", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+
+		await proxy.prompt("direct prompt");
+		proxy.applyRuntimeEvent({
+			type: "assistant_stream",
+			agentName: "root",
+			done: true,
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "ack" }],
+				api: "anthropic-messages",
+				provider: "anthropic",
+				model: "claude-sonnet-4-5",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+				timestamp: 2,
+			},
+		});
+		proxy.applyRuntimeEvent({
+			type: "message",
+			agentName: "root",
+			message: {
+				role: "user",
+				content: [{ type: "text", text: "direct prompt" }],
+				timestamp: 1,
+			},
+		});
+
+		const state = proxy.getState();
+		expect(state.messages.filter((message) => message.role === "user")).toEqual([
+			expect.objectContaining({ content: "direct prompt" }),
+		]);
+		expect(state.messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+	});
+
+	it("keeps repeated direct prompts distinct while deduplicating their runtime confirmations", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+
+		await proxy.prompt("same");
+		proxy.applyRuntimeEvent({
+			type: "message",
+			agentName: "root",
+			message: { role: "user", content: [{ type: "text", text: "same" }], timestamp: 1 },
+		});
+		await proxy.prompt("same");
+		proxy.applyRuntimeEvent({
+			type: "message",
+			agentName: "root",
+			message: { role: "user", content: [{ type: "text", text: "same" }], timestamp: 2 },
+		});
+
+		expect(proxy.getState().messages.filter((message) => message.role === "user")).toHaveLength(2);
 	});
 
 	it("projects runtime tool lifecycle into native tool call and result messages", async () => {

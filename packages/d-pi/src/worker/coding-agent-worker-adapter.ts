@@ -918,6 +918,7 @@ export class DPiLocalAgentSessionProxy {
 	private readonly messages: DPiLocalAgentMessage[] = [];
 	private readonly importedSessionMessageIds = new Set<string>();
 	private readonly queued: DPiLocalQueueItem[] = [];
+	private readonly optimisticPromptTexts: string[] = [];
 	private streamingAssistantMessageId: string | undefined;
 	private banner: DPiInteractiveBannerData | undefined;
 	private streaming = false;
@@ -1262,6 +1263,10 @@ export class DPiLocalAgentSessionProxy {
 			}
 			return;
 		}
+		if (event.type === "message") {
+			this.recordSessionMessage(runtimeMessageToLocalMessage(event.message), true);
+			return;
+		}
 		if (event.type === "tool_start") {
 			this.upsertToolCallMessage(event.tool.id, event.tool.name, event.tool.args);
 			this.emit({
@@ -1334,6 +1339,7 @@ export class DPiLocalAgentSessionProxy {
 		if (event.type === "session_replaced") {
 			this.messages.splice(0, this.messages.length);
 			this.importedSessionMessageIds.clear();
+			this.optimisticPromptTexts.splice(0, this.optimisticPromptTexts.length);
 			for (const message of event.messages) {
 				this.recordSessionMessage(
 					{
@@ -1454,6 +1460,10 @@ export class DPiLocalAgentSessionProxy {
 
 	private recordSessionMessage(message: DPiLocalAgentMessage, emitEvents: boolean): void {
 		if (this.importedSessionMessageIds.has(message.id)) {
+			return;
+		}
+		if (emitEvents && this.acknowledgeOptimisticPrompt(message)) {
+			this.importedSessionMessageIds.add(message.id);
 			return;
 		}
 		this.importedSessionMessageIds.add(message.id);
@@ -1578,31 +1588,36 @@ export class DPiLocalAgentSessionProxy {
 		this.emit({ type: "queue", data: { queued: [...this.queued] } });
 		this.emitState();
 
-		const message: DPiLocalAgentMessage =
-			kind === "prompt"
-				? {
-						id: nextGeneratedId("message"),
-						role: "user",
-						content: text,
-						...(images ? { images } : {}),
-						timestamp: Date.now(),
-					}
-				: {
-						id: nextGeneratedId("message"),
-						role: "custom",
-						customType: kind,
-						content: text,
-						...(images ? { images } : {}),
-						timestamp: Date.now(),
-					};
-		this.messages.push(message);
-		this.emit({ type: "message", data: message });
-
-		const queuedIndex = this.queued.findIndex((candidate) => candidate.id === queueItem.id);
-		if (queuedIndex >= 0) {
-			this.queued.splice(queuedIndex, 1);
+		if (kind === "prompt") {
+			const message: DPiLocalAgentMessage = {
+				id: nextGeneratedId("message"),
+				role: "user",
+				content: text,
+				...(images ? { images } : {}),
+				timestamp: Date.now(),
+			};
+			this.optimisticPromptTexts.push(normalizedUserMessageText(message));
+			this.messages.push(message);
+			this.emit({ type: "message", data: message });
+			const queuedIndex = this.queued.findIndex((candidate) => candidate.id === queueItem.id);
+			if (queuedIndex >= 0) {
+				this.queued.splice(queuedIndex, 1);
+			}
 		}
 		this.emitState();
+	}
+
+	private acknowledgeOptimisticPrompt(message: DPiLocalAgentMessage): boolean {
+		if (message.role !== "user") {
+			return false;
+		}
+		const text = normalizedUserMessageText(message);
+		const index = this.optimisticPromptTexts.indexOf(text);
+		if (index < 0) {
+			return false;
+		}
+		this.optimisticPromptTexts.splice(index, 1);
+		return true;
 	}
 
 	private emitState(): void {
@@ -2011,6 +2026,36 @@ function toLocalAgentMessage(message: ExtensionMessage): DPiLocalAgentMessage {
 	};
 }
 
+function runtimeMessageToLocalMessage(message: DPiAgentMessage): DPiLocalAgentMessage {
+	return {
+		id: nextGeneratedId("message"),
+		role:
+			message.role === "assistant" || message.role === "custom" || message.role === "toolResult"
+				? message.role
+				: "user",
+		content: "content" in message ? message.content : "",
+		...("customType" in message && message.customType ? { customType: message.customType } : {}),
+		...("display" in message && message.display === undefined
+			? {}
+			: "display" in message
+				? { display: message.display }
+				: {}),
+		...("details" in message && message.details === undefined
+			? {}
+			: "details" in message
+				? { details: message.details }
+				: {}),
+		...("toolCallId" in message && typeof message.toolCallId === "string" ? { toolCallId: message.toolCallId } : {}),
+		...("toolName" in message && typeof message.toolName === "string" ? { toolName: message.toolName } : {}),
+		...("isError" in message && message.isError ? { isError: true } : {}),
+		timestamp: message.timestamp ?? Date.now(),
+	};
+}
+
+function normalizedUserMessageText(message: Pick<DPiLocalAgentMessage, "content">): string {
+	return stripDPiMetaWrapper(messageContentText(message.content));
+}
+
 function objectField(value: unknown, key: string): Record<string, unknown> | undefined {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) {
 		return undefined;
@@ -2037,10 +2082,24 @@ function messageContentText(content: unknown): string {
 	if (typeof content === "string") {
 		return content;
 	}
+	if (Array.isArray(content)) {
+		return content
+			.map((part) =>
+				typeof part === "object" && part !== null && "text" in part && typeof part.text === "string"
+					? part.text
+					: "",
+			)
+			.join("");
+	}
 	if (content === undefined || content === null) {
 		return "";
 	}
 	return JSON.stringify(content);
+}
+
+function stripDPiMetaWrapper(text: string): string {
+	const match = text.match(/^\[meta\((?:.|\n)*?\)\]\s*\n?((?:.|\n)*)$/);
+	return match?.[1] ?? text;
 }
 
 function modelToInteractiveModel(model: Model<Api>): DPiInteractiveModelItemData {

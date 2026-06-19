@@ -260,6 +260,44 @@ describe("d-pi runtime foundation", () => {
 		expect(events).toContain("queue_update");
 	});
 
+	it("normalizes consumed queued user messages into runtime message events", async () => {
+		const workspaceRoot = createTempWorkspace();
+		const fakeHarness = new FakeHarness();
+		const runtime = await createRuntime(workspaceRoot, fakeHarness);
+		const events: unknown[] = [];
+		runtime.subscribe((event) => {
+			events.push(event);
+		});
+
+		fakeHarness.emit({
+			type: "message_end",
+			message: {
+				role: "user",
+				content: [{ type: "text", text: "queued user input" }],
+				timestamp: 123,
+			},
+		});
+
+		expect(events).toEqual([
+			{
+				type: "message",
+				agentName: "root",
+				message: {
+					role: "user",
+					content: [{ type: "text", text: "queued user input" }],
+					timestamp: 123,
+				},
+			},
+		]);
+		expect(runtime.getSnapshot().messages).toEqual([
+			{
+				role: "user",
+				content: [{ type: "text", text: "queued user input" }],
+				timestamp: 123,
+			},
+		]);
+	});
+
 	it("normalizes error events without an agent name to the current agent", async () => {
 		const workspaceRoot = createTempWorkspace();
 		const fakeHarness = new FakeHarness();
