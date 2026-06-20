@@ -30,7 +30,6 @@ import {
 import type {
 	DPiInteractiveAgentSessionProxy,
 	DPiInteractiveBannerData,
-	DPiInteractiveModelItemData,
 	DPiInteractiveRemoteSettings,
 	DPiInteractiveSessionItemData,
 	DPiInteractiveSessionStateSnapshot,
@@ -119,9 +118,7 @@ export interface DPiConnectSlashCommandHandlers {
 	showStatus(text: string): void;
 	showAgentSelector?(): Promise<void>;
 	showSourcesSelector?(): Promise<void>;
-	showModelSelector?(): Promise<void>;
 	showSettingsSelector?(): Promise<void>;
-	showScopedModelsSelector?(): Promise<void>;
 	showForkSelector?(): Promise<void>;
 	showTreeSelector?(): Promise<void>;
 	showResumeSelector?(): Promise<void>;
@@ -141,8 +138,6 @@ export interface DPiConnectHistoryEditor {
 
 const DPI_CONNECT_FALLBACK_SLASH_COMMANDS: readonly SlashCommand[] = [
 	{ name: "settings", description: "Open settings menu" },
-	{ name: "model", description: "Select model (opens selector UI)" },
-	{ name: "scoped-models", description: "Enable/disable models for Ctrl+P cycling" },
 	{ name: "export", description: "Export session (HTML default, or specify path: .html/.jsonl)" },
 	{ name: "import", description: "Import and resume a session from a JSONL file" },
 	{ name: "share", description: "Share session as a secret GitHub gist" },
@@ -470,31 +465,6 @@ export async function showDPiConnectSourcesSelector(options: {
 	}
 }
 
-export async function showDPiConnectModelSelector(options: {
-	tui: TUI;
-	editor: DPiNativeCustomEditor;
-	editorContainer: Container;
-	theme: DPiNativeTheme;
-	proxy: DPiInteractiveAgentSessionProxy;
-	showStatus(text: string): void;
-}): Promise<void> {
-	try {
-		const models = await options.proxy.fetchModels();
-		showDPiConnectSelectInEditorSlot({
-			...options,
-			title: `Select model (${models.length})`,
-			items: models.map(modelToSelectItem),
-			emptyStatus: "No models available",
-			onSelect: (item) => {
-				options.proxy.setModel(item.value);
-				options.showStatus(`Model: ${item.value}`);
-			},
-		});
-	} catch (error) {
-		options.showStatus(error instanceof Error ? error.message : String(error));
-	}
-}
-
 export function showDPiConnectSettingsSelector(options: {
 	tui: TUI;
 	editor: DPiNativeCustomEditor;
@@ -518,47 +488,6 @@ export function showDPiConnectSettingsSelector(options: {
 			}
 		},
 	});
-}
-
-export async function showDPiConnectScopedModelsSelector(options: {
-	tui: TUI;
-	editor: DPiNativeCustomEditor;
-	editorContainer: Container;
-	theme: DPiNativeTheme;
-	proxy: DPiInteractiveAgentSessionProxy;
-	showStatus(text: string): void;
-}): Promise<void> {
-	try {
-		const models = await options.proxy.fetchModels();
-		const enabled = options.proxy.getSnapshot().scopedModelIds;
-		showDPiConnectSelectInEditorSlot({
-			...options,
-			title: `Model Configuration (${models.length})`,
-			items: models.map((model) => {
-				const value = modelFullId(model);
-				const active = enabled === null || enabled.includes(value);
-				return {
-					value,
-					label: `${active ? "✓" : " "} ${model.id}`,
-					description: `${model.provider} · ${model.name}`,
-				};
-			}),
-			emptyStatus: "No models available",
-			onSelect: (item) => {
-				const current = options.proxy.getSnapshot().scopedModelIds;
-				const next =
-					current === null
-						? models.map(modelFullId).filter((id) => id !== item.value)
-						: current.includes(item.value)
-							? current.filter((id) => id !== item.value)
-							: [...current, item.value];
-				options.proxy.setScopedModels(next.length === models.length ? null : next);
-				options.showStatus("Model configuration updated");
-			},
-		});
-	} catch (error) {
-		options.showStatus(error instanceof Error ? error.message : String(error));
-	}
 }
 
 export async function showDPiConnectForkSelector(options: {
@@ -649,18 +578,6 @@ export function showDPiConnectPanel(options: {
 	options.editorContainer.addChild(panel);
 	options.tui.setFocus(panel);
 	options.tui.requestRender();
-}
-
-function modelFullId(model: DPiInteractiveModelItemData): string {
-	return `${model.provider}/${model.id}`;
-}
-
-function modelToSelectItem(model: DPiInteractiveModelItemData): SelectItem {
-	return {
-		value: modelFullId(model),
-		label: `${model.id} [${model.provider}]`,
-		description: `${model.name} · ${model.contextWindow.toLocaleString()} ctx`,
-	};
 }
 
 function userMessageToSelectItem(message: DPiInteractiveUserMessageItem): SelectItem {
@@ -760,8 +677,6 @@ function hotkeysPanelText(): string {
 		"ctrl+c clear; ctrl+c twice exit",
 		"ctrl+d exit when editor is empty",
 		"shift+tab cycle thinking level",
-		"ctrl+p/shift+ctrl+p cycle models",
-		"ctrl+l select model",
 		"ctrl+o expand tools",
 		"ctrl+t expand thinking",
 		"ctrl+g external editor",
@@ -789,9 +704,7 @@ export async function handleDPiConnectSlashCommand(
 		showChangelog,
 		showForkSelector,
 		showHotkeys,
-		showModelSelector,
 		showResumeSelector,
-		showScopedModelsSelector,
 		showSessionInfo,
 		showSettingsSelector,
 		showSourcesSelector,
@@ -840,25 +753,6 @@ export async function handleDPiConnectSlashCommand(
 				return true;
 			case "/compact":
 				await proxy.compact();
-				return true;
-			case "/model":
-				if (arg) {
-					proxy.setModel(arg);
-					showStatus(`Model: ${arg}`);
-				} else {
-					if (showModelSelector) {
-						await showModelSelector();
-					} else {
-						showStatus("Model selector not available in d-pi connect");
-					}
-				}
-				return true;
-			case "/scoped-models":
-				if (showScopedModelsSelector) {
-					await showScopedModelsSelector();
-				} else {
-					showStatus("Scoped model selector not available in d-pi connect");
-				}
 				return true;
 			case "/copy":
 				if (copyLastAssistantMessage) {
@@ -1091,28 +985,8 @@ export async function runDPiConnectInteractiveMode(
 			showStatus: showChatStatus,
 		});
 	};
-	const showModelSelector = async (): Promise<void> => {
-		await showDPiConnectModelSelector({
-			tui,
-			editor,
-			editorContainer,
-			theme: nativeTheme,
-			proxy,
-			showStatus: showChatStatus,
-		});
-	};
 	const showSettingsSelector = async (): Promise<void> => {
 		showDPiConnectSettingsSelector({
-			tui,
-			editor,
-			editorContainer,
-			theme: nativeTheme,
-			proxy,
-			showStatus: showChatStatus,
-		});
-	};
-	const showScopedModelsSelector = async (): Promise<void> => {
-		await showDPiConnectScopedModelsSelector({
 			tui,
 			editor,
 			editorContainer,
@@ -1197,9 +1071,7 @@ export async function runDPiConnectInteractiveMode(
 				proxy,
 				showAgentSelector,
 				showSourcesSelector,
-				showModelSelector,
 				showSettingsSelector,
-				showScopedModelsSelector,
 				showForkSelector,
 				showTreeSelector,
 				showResumeSelector,
@@ -1254,15 +1126,6 @@ export async function runDPiConnectInteractiveMode(
 		if (text) {
 			editor.setText(text);
 		}
-	});
-	editor.onAction("app.model.cycleForward", () => {
-		proxy.cycleModel(1);
-	});
-	editor.onAction("app.model.cycleBackward", () => {
-		proxy.cycleModel(-1);
-	});
-	editor.onAction("app.model.select", () => {
-		void showModelSelector();
 	});
 	editor.onAction("app.thinking.cycle", () => {
 		proxy.cycleThinkingLevel(1);
@@ -1377,8 +1240,6 @@ function createNativePiBannerBase(env: DPiConnectStartupBannerEnv): DPiInteracti
 			{ key: "ctrl+z", description: "to suspend" },
 			{ key: "ctrl+k", description: "to delete to end" },
 			{ key: "shift+tab", description: "to cycle thinking level" },
-			{ key: "ctrl+p/shift+ctrl+p", description: "to cycle models" },
-			{ key: "ctrl+l", description: "to select model" },
 			{ key: "ctrl+o", description: "to expand tools" },
 			{ key: "ctrl+t", description: "to expand thinking" },
 			{ key: "ctrl+g", description: "for external editor" },

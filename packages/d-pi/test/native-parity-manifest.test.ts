@@ -11,8 +11,6 @@ describe("native coding-agent connect parity manifest", () => {
 	it("freezes the native connect builtin slash command surface", () => {
 		expect(DPI_NATIVE_CONNECT_BUILTIN_COMMANDS).toEqual([
 			"settings",
-			"model",
-			"scoped-models",
 			"export",
 			"import",
 			"share",
@@ -44,7 +42,6 @@ describe("native coding-agent connect parity manifest", () => {
 			"user-messages",
 			"sessions",
 			"commands",
-			"models",
 			"client-extensions",
 		]);
 		expect(DPI_NATIVE_CONNECT_PROTOCOL_ACTIONS).toEqual([
@@ -55,8 +52,6 @@ describe("native coding-agent connect parity manifest", () => {
 			"abort-bash",
 			"clear-queue",
 			"compact",
-			"set-model",
-			"cycle-model",
 			"set-thinking-level",
 			"cycle-thinking-level",
 			"new-session",
@@ -64,8 +59,6 @@ describe("native coding-agent connect parity manifest", () => {
 			"fork",
 			"name",
 			"label",
-			"scoped-models",
-			"enabled-models",
 			"reload",
 			"settings",
 		]);

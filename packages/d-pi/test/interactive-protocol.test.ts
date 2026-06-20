@@ -217,24 +217,11 @@ describe("d-pi interactive protocol contract", () => {
 
 	it("uses async connect data queries instead of synchronous empty fallbacks", async () => {
 		const snapshot = createSnapshot();
-		const model = {
-			id: "claude-sonnet-4",
-			name: "Claude Sonnet 4",
-			provider: "anthropic",
-			api: "anthropic-messages" as const,
-			baseUrl: "https://api.anthropic.com",
-			cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-			reasoning: true,
-			contextWindow: 200000,
-			maxTokens: 8192,
-			input: ["text" as const, "image" as const],
-		};
 		const proxy = createProxy(snapshot);
 		vi.mocked(proxy.fetchTree).mockResolvedValueOnce([
 			{ id: "entry-1", type: "user", parentId: null, timestamp: "2026-06-19T00:00:00Z", children: [] },
 		]);
 		vi.mocked(proxy.fetchUserMessagesForForking).mockResolvedValueOnce([{ id: "entry-1", text: "hello" }]);
-		vi.mocked(proxy.fetchModels).mockResolvedValueOnce([model]);
 		vi.mocked(proxy.fetchClientExtensions).mockResolvedValueOnce([
 			{ name: "client-ext", script: "export default {};" },
 		]);
@@ -245,9 +232,7 @@ describe("d-pi interactive protocol contract", () => {
 		await expect(handleDPiInteractiveProtocolQuery(proxy, "user-messages")).resolves.toMatchObject({
 			body: [{ id: "entry-1", text: "hello" }],
 		});
-		await expect(handleDPiInteractiveProtocolQuery(proxy, "models")).resolves.toMatchObject({
-			body: [model],
-		});
+		await expect(handleDPiInteractiveProtocolQuery(proxy, "models")).resolves.toMatchObject({ status: 404 });
 		await expect(handleDPiInteractiveProtocolQuery(proxy, "client-extensions")).resolves.toMatchObject({
 			body: [{ name: "client-ext", script: "export default {};" }],
 		});

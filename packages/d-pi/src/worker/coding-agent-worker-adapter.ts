@@ -375,8 +375,6 @@ export function generateDPiBanner(session: DPiWorkerSession): DPiInteractiveBann
 			{ key: "ctrl+z", description: "to suspend" },
 			{ key: "ctrl+k", description: "to delete to end" },
 			{ key: "shift+tab", description: "to cycle thinking level" },
-			{ key: "ctrl+p/shift+ctrl+p", description: "to cycle models" },
-			{ key: "ctrl+l", description: "to select model" },
 			{ key: "ctrl+o", description: "to expand tools" },
 			{ key: "ctrl+t", description: "to expand thinking" },
 			{ key: "ctrl+g", description: "for external editor" },
@@ -769,10 +767,6 @@ export class DPiAgentIpcServer {
 			this.handlers.onHttpResponse(requestId, 200, this.proxy.getCommands());
 			return;
 		}
-		if (query === "models") {
-			this.handlers.onHttpResponse(requestId, 200, this.proxy.getModels());
-			return;
-		}
 		this.handlers.onHttpResponse(requestId, 404, {
 			ok: false,
 			error: `Unknown query: ${String(query)}`,
@@ -818,20 +812,6 @@ export class DPiAgentIpcServer {
 				await this.proxy.compact(
 					typeof payload.customInstructions === "string" ? payload.customInstructions : undefined,
 				);
-				this.handlers.onHttpResponse(requestId, 200, { ok: true });
-				return;
-			}
-			if (action === "set-model") {
-				if (typeof payload.modelId !== "string") {
-					this.handlers.onHttpResponse(requestId, 400, { ok: false, error: "Missing 'modelId'" });
-					return;
-				}
-				this.proxy.setModel(payload.modelId);
-				this.handlers.onHttpResponse(requestId, 200, { ok: true });
-				return;
-			}
-			if (action === "cycle-model") {
-				this.proxy.cycleModel(payload.direction === -1 ? -1 : 1);
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
 				return;
 			}
@@ -883,18 +863,6 @@ export class DPiAgentIpcServer {
 					return;
 				}
 				this.proxy.setLabel(payload.entryId, typeof payload.label === "string" ? payload.label : undefined);
-				this.handlers.onHttpResponse(requestId, 200, { ok: true });
-				return;
-			}
-			if (action === "scoped-models") {
-				this.proxy.setScopedModels(Array.isArray(payload.enabledIds) ? payload.enabledIds.filter(isString) : null);
-				this.handlers.onHttpResponse(requestId, 200, { ok: true });
-				return;
-			}
-			if (action === "enabled-models") {
-				this.proxy.setEnabledModels(
-					Array.isArray(payload.patterns) ? payload.patterns.filter(isString) : undefined,
-				);
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
 				return;
 			}

@@ -249,8 +249,6 @@ describe("d-pi interactive view parity components", () => {
 					{ key: "ctrl+c twice", description: "to exit" },
 					{ key: "ctrl+d", description: "to exit (empty)" },
 					{ key: "shift+tab", description: "to cycle thinking level" },
-					{ key: "ctrl+p/shift+ctrl+p", description: "to cycle models" },
-					{ key: "ctrl+l", description: "to select model" },
 					{ key: "ctrl+t", description: "to expand thinking" },
 					{ key: "ctrl+g", description: "for external editor" },
 					{ key: "alt+enter", description: "to queue follow-up" },
@@ -270,8 +268,8 @@ describe("d-pi interactive view parity components", () => {
 		);
 
 		expect(view.text).toContain("escape to interrupt\n ctrl+c to clear\n ctrl+c twice to exit");
-		expect(view.text).toContain("ctrl+p/shift+ctrl+p to cycle models");
-		expect(view.text).toContain("ctrl+l to select model");
+		expect(view.text).not.toContain("cycle models");
+		expect(view.text).not.toContain("select model");
 		expect(view.text).toContain("alt+enter to queue follow-up");
 		expect(view.text).not.toContain("ctrl+c/ctrl+d clear/exit");
 		expect(view.text).not.toContain("ctrl+n/ctrl+p");

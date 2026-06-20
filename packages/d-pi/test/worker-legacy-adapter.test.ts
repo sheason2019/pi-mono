@@ -465,8 +465,6 @@ describe("worker runtime adapter", () => {
 			"ctrl+z to suspend",
 			"ctrl+k to delete to end",
 			"shift+tab to cycle thinking level",
-			"ctrl+p/shift+ctrl+p to cycle models",
-			"ctrl+l to select model",
 			"ctrl+o to expand tools",
 			"ctrl+t to expand thinking",
 			"ctrl+g for external editor",

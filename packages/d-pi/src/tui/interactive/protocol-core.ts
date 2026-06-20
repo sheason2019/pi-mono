@@ -52,8 +52,6 @@ export async function handleDPiInteractiveProtocolQuery(
 			return ok(await proxy.getSessions());
 		case "commands":
 			return ok(await proxy.fetchCommands());
-		case "models":
-			return ok(await proxy.fetchModels());
 		case "client-extensions":
 			return ok(await proxy.fetchClientExtensions());
 		default:
@@ -110,20 +108,6 @@ const protocolHandlers: Record<string, DPiInteractiveProtocolHandler> = {
 		return ok();
 	},
 
-	async "set-model"(proxy, data) {
-		if (!isRecord(data) || typeof data.modelId !== "string") {
-			return bad("Missing 'modelId'");
-		}
-		proxy.setModel(data.modelId);
-		return ok();
-	},
-
-	async "cycle-model"(proxy, data) {
-		const direction = isRecord(data) && data.direction === -1 ? -1 : 1;
-		proxy.cycleModel(direction);
-		return ok();
-	},
-
 	async "set-thinking-level"(proxy, data) {
 		if (!isRecord(data) || typeof data.level !== "string") {
 			return bad("Missing 'level'");
@@ -174,18 +158,6 @@ const protocolHandlers: Record<string, DPiInteractiveProtocolHandler> = {
 		return ok();
 	},
 
-	async "scoped-models"(proxy, data) {
-		const enabledIds = isRecord(data) && Array.isArray(data.enabledIds) ? data.enabledIds.filter(isString) : null;
-		proxy.setScopedModels(enabledIds);
-		return ok();
-	},
-
-	async "enabled-models"(proxy, data) {
-		const patterns = isRecord(data) && Array.isArray(data.patterns) ? data.patterns.filter(isString) : undefined;
-		proxy.setEnabledModels(patterns);
-		return ok();
-	},
-
 	async reload(proxy) {
 		await proxy.reload();
 		return ok();
@@ -211,10 +183,6 @@ const protocolHandlers: Record<string, DPiInteractiveProtocolHandler> = {
 		return ok();
 	},
 };
-
-function isString(value: unknown): value is string {
-	return typeof value === "string";
-}
 
 export async function handleDPiInteractiveProtocolRequest(
 	proxy: DPiInteractiveAgentSessionProxy,

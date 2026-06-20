@@ -64,9 +64,9 @@ describe("d-pi native editor", () => {
 	it("exposes the native coding-agent app action keybinding set", () => {
 		const keybindings = createDPiNativeKeybindings();
 
-		expect(keybindings.getKeys("app.model.cycleForward")).toEqual(["ctrl+p"]);
-		expect(keybindings.getKeys("app.model.cycleBackward")).toEqual(["shift+ctrl+p"]);
-		expect(keybindings.getKeys("app.model.select")).toEqual(["ctrl+l"]);
+		expect(keybindings.getKeys("app.model.cycleForward" as never)).toEqual([]);
+		expect(keybindings.getKeys("app.model.cycleBackward" as never)).toEqual([]);
+		expect(keybindings.getKeys("app.model.select" as never)).toEqual([]);
 		expect(keybindings.getKeys("app.thinking.cycle")).toEqual(["shift+tab"]);
 		expect(keybindings.getKeys("app.thinking.toggle")).toEqual(["ctrl+t"]);
 		expect(keybindings.getKeys("app.tools.expand")).toEqual(["ctrl+o"]);
@@ -84,13 +84,13 @@ describe("d-pi native editor", () => {
 			getDPiNativeEditorTheme(createDPiNativeTheme({ color: false })),
 			keybindings,
 		);
-		let selectedModel = false;
-		editor.onAction("app.model.select", () => {
-			selectedModel = true;
+		let expandedTools = false;
+		editor.onAction("app.tools.expand", () => {
+			expandedTools = true;
 		});
 
-		editor.handleInput("\f");
+		editor.handleInput("\x0f");
 
-		expect(selectedModel).toBe(true);
+		expect(expandedTools).toBe(true);
 	});
 });

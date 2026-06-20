@@ -1,7 +1,5 @@
 export const DPI_NATIVE_CONNECT_BUILTIN_COMMANDS = [
 	"settings",
-	"model",
-	"scoped-models",
 	"export",
 	"import",
 	"share",
@@ -41,7 +39,6 @@ export const DPI_NATIVE_CONNECT_PROTOCOL_QUERIES = [
 	"user-messages",
 	"sessions",
 	"commands",
-	"models",
 	"client-extensions",
 ] as const;
 
@@ -53,8 +50,6 @@ export const DPI_NATIVE_CONNECT_PROTOCOL_ACTIONS = [
 	"abort-bash",
 	"clear-queue",
 	"compact",
-	"set-model",
-	"cycle-model",
 	"set-thinking-level",
 	"cycle-thinking-level",
 	"new-session",
@@ -62,8 +57,6 @@ export const DPI_NATIVE_CONNECT_PROTOCOL_ACTIONS = [
 	"fork",
 	"name",
 	"label",
-	"scoped-models",
-	"enabled-models",
 	"reload",
 	"settings",
 ] as const;
