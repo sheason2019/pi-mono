@@ -165,7 +165,9 @@ function assertAgentDefinition(value: unknown): asserts value is AgentDefinition
 	for (let index = 0; index < value.tools.length; index++) {
 		assertTool(value.tools[index], index);
 	}
-	assertSkill(value.skills);
+	if (value.skills !== undefined) {
+		assertSkill(value.skills);
+	}
 	if (!Array.isArray(value.contextFiles)) {
 		throw new TypeError("Agent definition contextFiles must be an array");
 	}

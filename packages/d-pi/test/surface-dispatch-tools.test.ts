@@ -2,8 +2,6 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Type } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { createDispatchTools } from "../src/extension/dispatch-tools.ts";
-import type { HubChannel } from "../src/extension/hub-channel.ts";
 import {
 	createDPiDispatchTools,
 	type DPiDispatchLocalExecutors,
@@ -177,43 +175,5 @@ describe("d-pi surface dispatch tools", () => {
 
 		expect(result.isError).toBe(true);
 		expect(result.content.map((part) => part.text).join("\n")).toContain("client offline");
-	});
-});
-
-describe("dispatch tool adapter", () => {
-	it("does not import defineTool from the dispatch wrapper", async () => {
-		const sourcePath = fileURLToPath(new URL("../src/extension/dispatch-tools.ts", import.meta.url));
-		const source = await readFile(sourcePath, "utf8");
-
-		expect(source).not.toContain("defineTool({");
-	});
-
-	it("routes remote dispatch calls through the HubChannel adapter", async () => {
-		const dispatchCalls: Array<{ tool: string; params: unknown; connectId: string }> = [];
-		const channel = {
-			agentName: "root",
-			callDispatch: async (tool: string, params: unknown, connectId: string): Promise<DPiRemoteToolResult> => {
-				dispatchCalls.push({ tool, params, connectId });
-				return {
-					requestId: "adapter-call",
-					ok: true,
-					result: { content: [{ type: "text", text: "adapter remote ok" }], details: { remote: true } },
-				};
-			},
-		} as unknown as HubChannel;
-
-		const tool = getTool(createDispatchTools(channel, "/tmp"), "dispatch_bash");
-		const result = asTextToolResult(
-			await tool.execute("adapter-call", {
-				command: "pwd",
-				connect_id: "connect-client",
-			}),
-		);
-
-		expect(dispatchCalls).toEqual([{ tool: "bash", params: { command: "pwd" }, connectId: "connect-client" }]);
-		expect(result).toEqual({
-			content: [{ type: "text", text: "adapter remote ok" }],
-			details: { remote: true },
-		});
 	});
 });

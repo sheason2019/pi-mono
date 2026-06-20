@@ -163,7 +163,7 @@ describe("agent definition helpers", () => {
 		]);
 	});
 
-	it("normalizes omitted resource fields to stable defaults", () => {
+	it("does not add legacy resource defaults when fields are omitted", () => {
 		const agent = defineAgent({
 			description: "minimal",
 		});
@@ -171,11 +171,7 @@ describe("agent definition helpers", () => {
 		expect(agent).toEqual({
 			description: "minimal",
 			tools: [],
-			skills: { dir: "./skills" },
-			contextFiles: [
-				{ type: "context", path: "./AGENTS.md" },
-				{ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" },
-			],
+			contextFiles: [],
 		});
 	});
 

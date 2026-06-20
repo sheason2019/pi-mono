@@ -30,8 +30,6 @@ export const DEFAULT_AGENT_TOOL_NAMES = [
 	"reload",
 ] as const;
 
-const LEGACY_AGENT_TOOL_NAMES = ["set_model", "set_thinking_level"] as const;
-
 const DISPATCH_TOOL_NAMES = [
 	"dispatch_bash",
 	"dispatch_read",
@@ -219,9 +217,6 @@ export function assertKnownToolNames(
 	toolNames: string[],
 ): void {
 	const knownNames = new Set<string>(DEFAULT_AGENT_TOOL_NAMES);
-	for (const toolName of LEGACY_AGENT_TOOL_NAMES) {
-		knownNames.add(toolName);
-	}
 	for (const toolName of toolNames) {
 		if (!knownNames.has(toolName)) {
 			throw new Error(
@@ -238,8 +233,7 @@ export function resolveActiveToolNames(config: Pick<AgentConfig, "name" | "inclu
 	}
 	if (config.includeTools) {
 		assertKnownToolNames(config.name, "includeTools", config.includeTools);
-		const defaultToolNames = new Set<string>(DEFAULT_AGENT_TOOL_NAMES);
-		return config.includeTools.filter((toolName) => defaultToolNames.has(toolName));
+		return [...config.includeTools];
 	}
 	if (config.excludeTools) {
 		assertKnownToolNames(config.name, "excludeTools", config.excludeTools);

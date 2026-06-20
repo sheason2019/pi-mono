@@ -1,11 +1,6 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import {
-	loadAgentRuntimeResources,
-	resolveAgentSkillDir,
-	uniqueAgentContextFileDefinitions,
-} from "../agent-context.ts";
-import type { AgentContextFileDefinition, AgentSkillDefinition } from "../agent-definition.ts";
+import { loadAgentRuntimeResources, resolveAgentSkillDir } from "../agent-context.ts";
 import { type LoadedAgentDefinition, normalizeLoadedAgentDefinition } from "../agent-loader.ts";
 import { agentDefinitionToConfig, formatAgentIdentitySection } from "../hub/agent-identity.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
@@ -18,12 +13,6 @@ import {
 	uniqueStrings,
 	workspaceAgentsPath,
 } from "./resource-loader.ts";
-
-const DEFAULT_AGENT_CONTEXT_FILES: AgentContextFileDefinition[] = [
-	{ type: "context", path: "./AGENTS.md" },
-	{ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" },
-];
-const DEFAULT_AGENT_SKILL: AgentSkillDefinition = { dir: "./skills" };
 
 export interface DPiContextManagerOptions {
 	workspaceRoot: string;
@@ -44,25 +33,18 @@ interface DPiContextSnapshot {
 function createDefaultAgentDefinition(agentDir: string): LoadedAgentDefinition {
 	return normalizeLoadedAgentDefinition(join(resolve(agentDir), "agent.ts"), {
 		tools: [],
-		skills: DEFAULT_AGENT_SKILL,
-		contextFiles: DEFAULT_AGENT_CONTEXT_FILES,
+		contextFiles: [],
 	});
 }
 
 function createRuntimeAgentDefinition(agentDir: string): LoadedAgentDefinition {
-	const defaultAgent = createDefaultAgentDefinition(agentDir);
-	return {
-		...defaultAgent,
-		contextFiles: uniqueAgentContextFileDefinitions(defaultAgent, [
-			...defaultAgent.contextFiles,
-			...DEFAULT_AGENT_CONTEXT_FILES,
-		]),
-	};
+	return createDefaultAgentDefinition(agentDir);
 }
 
 function loadAgentSkillPaths(agent: LoadedAgentDefinition): string[] {
 	const paths: string[] = [];
-	for (const skill of [agent.skills, DEFAULT_AGENT_SKILL]) {
+	const skills = agent.skills ? [agent.skills] : [];
+	for (const skill of skills) {
 		const skillPath = resolveAgentSkillDir(agent, skill);
 		if (existsSync(skillPath)) {
 			paths.push(skillPath);

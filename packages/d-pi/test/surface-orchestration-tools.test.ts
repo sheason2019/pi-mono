@@ -1,10 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { createCreateAgentTool as createExtensionCreateAgentTool } from "../src/extension/create-agent.ts";
 import { createHubActionsClientFromHubChannel } from "../src/extension/hub-actions-adapter.ts";
 import type { HubChannel } from "../src/extension/hub-channel.ts";
-import { createSendMessageTool as createExtensionSendMessageTool } from "../src/extension/send-message.ts";
 import type {
 	DPiCreateAgentActionPayload,
 	DPiCreateAgentActionResult,
@@ -13,7 +11,6 @@ import type {
 	DPiGetSourceActionPayload,
 	DPiGetSourceActionResult,
 	DPiHubActionsClient,
-	DPiHubMessageMode,
 	DPiSendMessageActionPayload,
 	DPiSourceConfig,
 	DPiTeamSnapshot,
@@ -308,65 +305,5 @@ describe("orchestration tool adapters", () => {
 			},
 		]);
 		expect(result).toEqual({ agentName: "child", agentId: "agent-1" });
-	});
-
-	it("keeps create_agent wrapper result text and details compatible with agentId", async () => {
-		const channel = {
-			agentName: "root",
-			createAgent: async (name: string): Promise<{ agentId: string; name: string }> => ({
-				agentId: "agent-1",
-				name,
-			}),
-		} as unknown as HubChannel;
-		const tool = createExtensionCreateAgentTool(channel);
-
-		const result = asTextToolResult(await tool.execute("call-9", { name: "child" }));
-
-		expect(textOf(result)).toContain('Created agent "child"');
-		expect(textOf(result)).toContain("agent-1");
-		expect(result.details).toEqual({ agentName: "child", agentId: "agent-1" });
-	});
-
-	it("keeps the send_message wrapper behavior aligned with the surface tool", async () => {
-		const sendMessageCalls: Array<{ toAgentName: string; content: string; mode?: DPiHubMessageMode }> = [];
-		const channel = {
-			agentName: "root",
-			sendMessage: async (
-				toAgentName: string,
-				content: string,
-				mode?: DPiHubMessageMode,
-			): Promise<{ ok: boolean }> => {
-				sendMessageCalls.push({ toAgentName, content, mode });
-				return { ok: true };
-			},
-		} as unknown as HubChannel;
-		const tool = createExtensionSendMessageTool(channel);
-
-		const result = asTextToolResult(
-			await tool.execute("call-8", { agent_id: "child", message: "hello", mode: "next" }),
-		);
-
-		expect(sendMessageCalls).toEqual([{ toAgentName: "child", content: "hello", mode: "next" }]);
-		expect(textOf(result)).toContain("Message sent to agent child (mode=next)");
-		expect(result.isError).toBeUndefined();
-	});
-
-	it("keeps concrete extension tool files free of defineTool imports after migration", async () => {
-		const names = [
-			"send-message.ts",
-			"create-agent.ts",
-			"destroy-agent.ts",
-			"team.ts",
-			"set-source.ts",
-			"get-source.ts",
-			"delete-source.ts",
-		];
-
-		for (const name of names) {
-			const sourcePath = fileURLToPath(new URL(`../src/extension/${name}`, import.meta.url));
-			const source = await readFile(sourcePath, "utf8");
-
-			expect(source).not.toContain("defineTool({");
-		}
 	});
 });

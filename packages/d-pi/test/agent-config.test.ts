@@ -118,7 +118,7 @@ describe("persistModelInAgentTs", () => {
 		});
 	});
 
-	it("preserves a selected rich agent-local model when persisting set_model", async () => {
+	it("preserves a selected rich agent-local model when persisting a model selection", async () => {
 		const workspace = createWorkspace();
 		const agentDir = join(workspace, "agents", "rich");
 		mkdirSync(agentDir, { recursive: true });

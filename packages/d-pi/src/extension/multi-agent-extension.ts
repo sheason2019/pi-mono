@@ -4,25 +4,14 @@ import { join } from "node:path";
 import { Box, Container, Markdown, Text } from "@earendil-works/pi-tui";
 import type { AgentStatus, SourceInfo, TeamAgentEntry, TeamSnapshot, WorkerToHubMessage } from "../types.ts";
 import { type ExtensionAPI, type ExtensionFactory, getMarkdownTheme, type MessageRenderer } from "./contracts.ts";
-import { createCreateAgentTool } from "./create-agent.ts";
-import { createDeleteSourceTool } from "./delete-source.ts";
-import { createDestroyAgentTool } from "./destroy-agent.ts";
-import { createGetSourceTool } from "./get-source.ts";
 import { HubChannel } from "./hub-channel.ts";
 import type { MessageMeta } from "./message-meta.ts";
 import { extractMeta, injectMeta } from "./message-meta.ts";
-import { createSendMessageTool } from "./send-message.ts";
-import { createSetSourceTool } from "./set-source.ts";
-import { createTeamTool } from "./team.ts";
 
 /**
  * Multi-agent / orchestration extension for d-pi.
  *
  * This extension provides the core "multi-agent tree + sources" surface:
- * - Agent lifecycle tools: create_agent, destroy_agent
- * - Team discovery: team
- * - Inter-agent messaging: send_message (with next/steer modes)
- * - Long-running data sources: set_source, get_source, delete_source
  * - Slash commands /agents and /sources (dual registration: no-op stubs on the
  *   server side so they appear in /commands; real interactive handlers on the
  *   client/TUI side)
@@ -31,11 +20,6 @@ import { createTeamTool } from "./team.ts";
  * - Input routing for connect-mode and source messages (the "input" event
  *   handler and channel.onIncomingMessage wiring that feeds messages into the
  *   agent's session with correct triggerTurn / deliverAs semantics)
- *
- * Remote execution tools (remote_bash, remote_read, ...) are intentionally
- * excluded — they live in the separate remote-executor-extension so the two
- * concerns (orchestration vs. remote tool dispatch) can be registered,
- * traced, and reasoned about independently.
  *
  * Like the previous monolithic createDPiExtension, this factory supports both
  * "worker" mode (inside a d-pi agent worker thread, talking to the hub over
@@ -49,7 +33,6 @@ export interface DPiWorkerConfig {
 	/** The agent's name (unique key inside the d-pi workspace). */
 	agentName: string;
 	postToHub: (message: WorkerToHubMessage) => void;
-	registerTools?: boolean;
 }
 
 export interface DPiClientConfig {
@@ -158,15 +141,8 @@ function parseAgentName(selected: string): string | undefined {
  * Create the multi-agent / orchestration extension.
  *
  * This is the main "d-pi as a multi-agent system" behavior:
- * - All agent and source management tools
- * - Inter-agent and source messaging
- * - Team
  * - The /agents and /sources commands (client UI + server stubs)
  * - Message routing and custom d-pi message rendering
- *
- * Use this together with `createRemoteExecutorExtension` (for remote_* tools)
- * and `createAgentMetadataExtension` (for reload + set_model + set_thinking_level)
- * if you want the full previous "createDPiExtension" surface.
  */
 // Overloaded signatures give precise channel presence based on mode at call sites
 // (worker always yields a channel; client never does). This removes the need for
@@ -180,7 +156,7 @@ export function createMultiAgentExtension(config: DPiExtensionConfig): {
 } {
 	if (config.mode === "worker") {
 		const channel = new HubChannel(config.agentName, config.postToHub);
-		const factory = createMultiAgentWorkerFactory(channel, { registerTools: config.registerTools ?? true });
+		const factory = createMultiAgentWorkerFactory(channel);
 		return { factory, channel };
 	}
 	const factory = createMultiAgentClientFactory(config);
@@ -189,21 +165,10 @@ export function createMultiAgentExtension(config: DPiExtensionConfig): {
 
 // ── Worker-side implementation ───────────────────────────────────────────
 
-function createMultiAgentWorkerFactory(channel: HubChannel, options: { registerTools: boolean }): ExtensionFactory {
+function createMultiAgentWorkerFactory(channel: HubChannel): ExtensionFactory {
 	return (pi) => {
 		// Shared d-pi message rendering (connect / source / peer agent headers)
 		registerDPiMessageRenderer(pi);
-
-		if (options.registerTools) {
-			// Core multi-agent tools (everything except remote execution)
-			pi.registerTool(createSendMessageTool(channel));
-			pi.registerTool(createCreateAgentTool(channel));
-			pi.registerTool(createDestroyAgentTool(channel));
-			pi.registerTool(createTeamTool(channel));
-			pi.registerTool(createSetSourceTool(channel));
-			pi.registerTool(createGetSourceTool(channel));
-			pi.registerTool(createDeleteSourceTool(channel));
-		}
 
 		// Server-side command stubs so /sources and /agents appear in the TUI
 		// slash menu. Real execution happens in the client extension (synced

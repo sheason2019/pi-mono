@@ -67,16 +67,8 @@ export type {
 export { createDPiRuntimeHooks } from "./runtime-hooks.ts";
 export {
 	type CreateDPiReloadToolOptions,
-	type CreateDPiRuntimeToolsOptions,
-	type CreateDPiSetModelToolOptions,
-	type CreateDPiSetThinkingLevelToolOptions,
 	createDPiReloadTool,
-	createDPiRuntimeTools,
-	createDPiSetModelTool,
-	createDPiSetThinkingLevelTool,
 	type DPiReloadToolSnapshot,
-	type DPiRuntimeModelEntry,
-	type DPiRuntimeModelResolver,
 } from "./runtime-tools.ts";
 export type { DPiTool, DPiToolDefinition, DPiToolDetails, DPiToolExecute, DPiToolJsonValue } from "./tool-surface.ts";
 export { defineDPiTool, dPiToolJsonDetails, dPiToolTextResult } from "./tool-surface.ts";

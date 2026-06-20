@@ -179,17 +179,16 @@ describe("DPiContextManager", () => {
 		]);
 	});
 
-	it("loads agent.ts configured context files, append-system files, and skills before default agent resources", () => {
+	it("loads only agent.ts configured context files, append-system files, and skills", () => {
 		const workspaceRoot = createWorkspace();
 		const agentDir = createAgent(workspaceRoot, "root", "Root agent identity.");
 		const customContextPath = join(agentDir, "custom", "CONTEXT.md");
 		const customAppendPath = join(agentDir, "custom", "APPEND.md");
 		const customSkillsDir = join(agentDir, "custom-skills");
-		const defaultSkillsDir = join(agentDir, "skills");
 		write(customContextPath, "custom context");
 		write(customAppendPath, "custom append");
 		mkdirSync(customSkillsDir, { recursive: true });
-		mkdirSync(defaultSkillsDir, { recursive: true });
+		mkdirSync(join(agentDir, "skills"), { recursive: true });
 		writeAgentDefinition(
 			agentDir,
 			[
@@ -238,7 +237,7 @@ describe("DPiContextManager", () => {
 			systemPromptParts.indexOf("agent append for root"),
 		);
 		expect(systemPromptParts.filter((part) => part === "agent append for root")).toHaveLength(1);
-		expect(manager.loadSkills()).toEqual([customSkillsDir, defaultSkillsDir]);
+		expect(manager.loadSkills()).toEqual([customSkillsDir]);
 	});
 
 	it("uses an injected loaded agent definition for runtime context resources", () => {
@@ -317,9 +316,10 @@ describe("DPiContextManager", () => {
 		expect(manager.loadSkills()).toEqual([customSkillsDir]);
 	});
 
-	it("uses default resources when no loaded agent definition is provided", () => {
+	it("does not load convention-based agent resources when no loaded agent definition is provided", () => {
 		const workspaceRoot = createWorkspace();
 		const agentDir = createAgent(workspaceRoot, "root", "Root agent identity.");
+		mkdirSync(join(agentDir, "skills"), { recursive: true });
 		writeAgentDefinition(
 			agentDir,
 			[
@@ -333,8 +333,8 @@ describe("DPiContextManager", () => {
 		);
 		const manager = new DPiContextManager({ workspaceRoot, agentName: "root", agentDir, cwd: agentDir });
 
-		expect(manager.loadContextFiles()).toEqual([
-			{ path: join(agentDir, "AGENTS.md"), content: "agent context for root" },
-		]);
+		expect(manager.loadContextFiles()).toEqual([]);
+		expect(manager.loadSystemPromptParts()).not.toContain("agent append for root");
+		expect(manager.loadSkills()).toEqual([]);
 	});
 });

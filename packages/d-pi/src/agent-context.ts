@@ -21,7 +21,7 @@ export function resolveAgentContextFilePath(agent: LoadedAgentDefinition, entry:
 	return resolveAgentResourcePath(agent, entry.path, "Agent context file path");
 }
 
-export function resolveAgentSkillDir(agent: LoadedAgentDefinition, entry: AgentSkillDefinition = agent.skills): string {
+export function resolveAgentSkillDir(agent: LoadedAgentDefinition, entry: AgentSkillDefinition): string {
 	return resolveAgentResourcePath(agent, entry.dir, "Agent skills dir");
 }
 

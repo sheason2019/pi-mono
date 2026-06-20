@@ -7,33 +7,39 @@
  */
 import { join } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentToolResult, AgentToolUpdateCallback, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import type { TSchema } from "typebox";
 import type { AgentToolDefinition } from "../agent-definition.ts";
 import { readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
 import { type AgentBuiltinToolKind, getAgentBuiltinToolKind } from "../agent-tool-helpers.ts";
 import { DPiContextManager } from "../context/context-manager.ts";
 import { DPI_META_PROMPT } from "../dpi-meta.ts";
+import { buildNativeToolSet } from "../executor/native-tools.ts";
 import type { ExtensionFactory, ModelRegistry, ResourceLoader, ToolDefinition } from "../extension/contracts.ts";
-import { createCreateAgentTool } from "../extension/create-agent.ts";
-import { createDeleteSourceTool } from "../extension/delete-source.ts";
-import { createDestroyAgentTool } from "../extension/destroy-agent.ts";
-import { createDispatchTools } from "../extension/dispatch-tools.ts";
-import { createGetSourceTool } from "../extension/get-source.ts";
-import {
-	createMultiAgentExtension,
-	// dispatch imported directly from dispatch-extension
-	type HubChannel,
-} from "../extension/index.ts";
-import { createReloadTools } from "../extension/reload-tools.ts";
-import { createSendMessageTool } from "../extension/send-message.ts";
-import { createSetSourceTool } from "../extension/set-source.ts";
-import { createTeamTool } from "../extension/team.ts";
+import { createHubActionsClientFromHubChannel } from "../extension/hub-actions-adapter.ts";
+import { createMultiAgentExtension, type HubChannel } from "../extension/index.ts";
 import { agentDefinitionToConfig, formatAgentIdentitySection } from "../hub/agent-identity.ts";
 import { DPiAgentRuntime } from "../runtime/agent-runtime.ts";
 import { DPiModelManager } from "../runtime/model-manager.ts";
 import { DPiSessionStore } from "../runtime/session-store.ts";
 import type { DPiPromptImage } from "../runtime/types.ts";
+import {
+	createDPiCreateAgentTool,
+	createDPiDeleteSourceTool,
+	createDPiDestroyAgentTool,
+	createDPiDispatchTools,
+	createDPiGetSourceTool,
+	createDPiReloadTool,
+	createDPiSendMessageTool,
+	createDPiSetSourceTool,
+	createDPiTeamTool,
+	type DPiDispatchLocalExecutors,
+	type DPiDispatchParameterSchemas,
+	type DPiRemoteExecutor,
+	type DPiRemoteToolResult,
+	type DPiToolDetails,
+} from "../surface/index.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
 import {
@@ -109,26 +115,129 @@ function createAgentLocalToolsExtension(options: AgentLocalToolsExtensionOptions
 function createWorkerBuiltinToolMap(
 	options: AgentLocalToolsExtensionOptions,
 ): Map<AgentBuiltinToolKind, ToolDefinition> {
+	const hubClient = createHubActionsClientFromHubChannel(options.channel);
 	return new Map<AgentBuiltinToolKind, ToolDefinition>([
-		["send_message", createSendMessageTool(options.channel)],
-		["create_agent", createCreateAgentTool(options.channel)],
-		["destroy_agent", createDestroyAgentTool(options.channel)],
-		["team", createTeamTool(options.channel)],
-		["set_source", createSetSourceTool(options.channel)],
-		["get_source", createGetSourceTool(options.channel)],
-		["delete_source", createDeleteSourceTool(options.channel)],
-		...createDispatchTools(options.channel, options.cwd).map(
+		["send_message", createDPiSendMessageTool(hubClient, { agentName: options.channel.agentName })],
+		["create_agent", createDPiCreateAgentTool(hubClient)],
+		["destroy_agent", createDPiDestroyAgentTool(hubClient)],
+		["team", createDPiTeamTool(hubClient)],
+		["set_source", createDPiSetSourceTool(hubClient)],
+		["get_source", createDPiGetSourceTool(hubClient)],
+		["delete_source", createDPiDeleteSourceTool(hubClient)],
+		...createWorkerDispatchTools(options.channel, options.cwd).map(
 			(tool) => [tool.name as AgentBuiltinToolKind, tool as ToolDefinition] as const,
 		),
 		[
 			"reload",
-			createReloadTools({
-				getReloadFn: options.getReloadFn,
-				getResourceLoader: options.getResourceLoader,
-				getModelRegistry: options.getModelRegistry,
+			createDPiReloadTool({
+				runtimeHooks: {
+					reloadContext: async () => {
+						const reloadFn = options.getReloadFn();
+						if (!reloadFn) {
+							throw new Error("Reload not available: d-pi session is not initialized yet.");
+						}
+						await reloadFn();
+					},
+				},
+				getSnapshot: () => createReloadSnapshot(options),
 			}),
 		],
 	]);
+}
+
+function createWorkerDispatchTools(channel: HubChannel, cwd: string): ToolDefinition[] {
+	const localExecutors = {} as DPiDispatchLocalExecutors;
+	const parameterSchemas = {} as DPiDispatchParameterSchemas;
+	const nativeTools = new Map(buildNativeToolSet(cwd).map((tool) => [tool.name, tool as NativeToolDefinition]));
+
+	for (const nativeName of DISPATCH_NATIVE_TOOL_NAMES) {
+		const nativeDef = nativeTools.get(nativeName);
+		if (!nativeDef) {
+			throw new Error(`Missing d-pi native tool: ${nativeName}`);
+		}
+		parameterSchemas[nativeName] = nativeDef.parameters;
+		localExecutors[nativeName] = (toolCallId, params, signal, onUpdate) =>
+			nativeDef.execute(toolCallId, params, signal, onUpdate);
+	}
+
+	return createDPiDispatchTools({
+		localExecutors,
+		parameterSchemas,
+		remoteExecutor: createWorkerRemoteExecutor(channel),
+		sourceAgentName: channel.agentName,
+	}) as ToolDefinition[];
+}
+
+function createWorkerRemoteExecutor(channel: HubChannel): DPiRemoteExecutor {
+	return {
+		async executeRemoteTool(request): Promise<DPiRemoteToolResult> {
+			const result = await channel.callDispatch(request.toolName, request.params, request.connectId);
+			const dispatchResult = result as Partial<DPiRemoteToolResult>;
+			return {
+				requestId: request.requestId,
+				ok: dispatchResult.ok === true,
+				result: dispatchResult.result,
+				error: dispatchResult.error,
+			};
+		},
+	};
+}
+
+function createReloadSnapshot(options: AgentLocalToolsExtensionOptions): {
+	snapshot: DPiToolDetails;
+	details: DPiToolDetails;
+} {
+	const resourceLoader = options.getResourceLoader();
+	if (!resourceLoader) {
+		throw new Error("Reload completed, but the resource loader is no longer available.");
+	}
+	const skills = resourceLoader.getSkills().skills;
+	const systemPrompt = resourceLoader.getSystemPrompt();
+	const appendSystemPrompt = resourceLoader.getAppendSystemPrompt();
+	const contextFiles = resourceLoader.getAgentsFiles().agentsFiles;
+
+	const snapshot: DPiToolDetails = {
+		skills: skills.length,
+		skillNames: skills.map((skill) => skill.name),
+		systemPromptLen: systemPrompt?.length ?? 0,
+		appendSystemPromptCount: appendSystemPrompt.length,
+		contextFiles: contextFiles.length,
+		contextFilePaths: contextFiles.map((file) => file.path),
+	};
+	const details: DPiToolDetails = {
+		skills: skills.length,
+		systemPromptLen: systemPrompt?.length ?? 0,
+		contextFiles: contextFiles.length,
+	};
+
+	const modelRegistry = options.getModelRegistry();
+	if (!modelRegistry) {
+		return { snapshot, details };
+	}
+
+	try {
+		modelRegistry.refresh();
+		const modelsCount = modelRegistry.getAll().length;
+		snapshot.models = modelsCount;
+		details.models = modelsCount;
+	} catch (err) {
+		const modelsError = err instanceof Error ? err.message : String(err);
+		snapshot.modelsError = modelsError;
+		details.modelsError = modelsError;
+	}
+	return { snapshot, details };
+}
+
+const DISPATCH_NATIVE_TOOL_NAMES = ["bash", "read", "ls", "grep", "find", "write", "edit"] as const;
+
+interface NativeToolDefinition {
+	parameters: TSchema;
+	execute(
+		toolCallId: string,
+		params: Record<string, unknown>,
+		signal?: AbortSignal,
+		onUpdate?: AgentToolUpdateCallback<unknown>,
+	): Promise<AgentToolResult<unknown>>;
 }
 
 // Listen for messages from Hub
@@ -179,7 +288,6 @@ async function runAgentWorker(): Promise<void> {
 		mode: "worker",
 		agentName,
 		postToHub,
-		registerTools: false,
 	});
 	hubChannel = channel;
 

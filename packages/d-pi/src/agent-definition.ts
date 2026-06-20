@@ -91,15 +91,10 @@ export interface AgentDefinition {
 	model?: AgentModelDefinition;
 	models?: AgentModelDefinition[];
 	tools: AgentToolDefinition[];
-	skills: AgentSkillDefinition;
+	skills?: AgentSkillDefinition;
 	contextFiles: AgentContextFileDefinition[];
 }
 
-const DEFAULT_AGENT_SKILL: AgentSkillDefinition = { dir: "./skills" };
-const DEFAULT_AGENT_CONTEXT_FILES: AgentContextFileDefinition[] = [
-	{ type: "context", path: "./AGENTS.md" },
-	{ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" },
-];
 const AGENT_DEFINITION_METADATA = Symbol.for("@sheason/d-pi/agent-definition-metadata");
 
 export interface AgentDefinitionMetadata {
@@ -286,8 +281,8 @@ export function defineAgent(input: AgentDefinitionInput): AgentDefinition {
 		...(input.model === undefined ? {} : { model: defineModel(input.model) }),
 		...(input.models === undefined ? {} : { models: defineModels(...input.models) }),
 		tools: defineTools(...(input.tools ?? [])),
-		skills: defineSkill(input.skills ?? DEFAULT_AGENT_SKILL),
-		contextFiles: defineContextFiles(...(input.contextFiles ?? DEFAULT_AGENT_CONTEXT_FILES)),
+		...(input.skills === undefined ? {} : { skills: defineSkill(input.skills) }),
+		contextFiles: defineContextFiles(...(input.contextFiles ?? [])),
 	};
 	const agentFilePath = inferCallingFilePath();
 	return setAgentDefinitionMetadata(definition, {

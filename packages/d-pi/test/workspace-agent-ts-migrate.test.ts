@@ -71,7 +71,7 @@ describe("d-pi agent-ts migration", () => {
 			parentName: "root",
 			description: "Reviews changes",
 			roles: ["reviewer"],
-			excludeTools: ["dispatch_bash", "set_model"],
+			excludeTools: ["dispatch_bash"],
 		});
 		writeSessionFile(workspaceRoot, "root", "root-session.jsonl", "root session\n");
 		writeSessionFile(workspaceRoot, "reviewer", "reviewer-session.jsonl", "reviewer session\n");
@@ -99,7 +99,6 @@ describe("d-pi agent-ts migration", () => {
 		expect(reviewerAgentTs).toContain('roles: ["reviewer"]');
 		expect(reviewerAgentTs).toContain("createTeamTool()");
 		expect(reviewerAgentTs).not.toContain("createDispatchBashTool()");
-		expect(reviewerAgentTs).not.toContain("createSetModelTool");
 
 		expect(readFileSync(join(workspaceRoot, "agents", "root", "session", "root-session.jsonl"), "utf-8")).toBe(
 			"root session\n",
