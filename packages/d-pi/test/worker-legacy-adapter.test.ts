@@ -659,6 +659,13 @@ describe("worker runtime adapter", () => {
 		expect(source).toContain("agentTools: agentDefinition?.tools ?? []");
 	});
 
+	it("routes hub-delivered agent messages into the runtime turn, not just the display channel", async () => {
+		const source = await readFile(new URL("../src/worker/agent-worker.ts", import.meta.url), "utf8");
+
+		expect(source).toContain("void routeIncomingHubMessage(message);");
+		expect(source).toContain("agentRuntime.prompt(message.content");
+	});
+
 	it("serves current observable state over IPC instead of a placeholder list", async () => {
 		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
 		proxy.setBanner({

@@ -129,6 +129,21 @@ describe("d-pi surface orchestration tools", () => {
 		expect(result.isError).toBeUndefined();
 	});
 
+	it("accepts legacy target aliases for send_message", async () => {
+		const client = new RecordingHubActionsClient();
+		const tool = createDPiSendMessageTool(client, { agentName: "root" });
+
+		const result = asTextToolResult(
+			await tool.execute("call-1", { agentIds: ["child"], message: "hello", mode: "next" }),
+		);
+
+		expect(client.sendMessageCalls).toEqual([
+			{ fromAgentName: "root", toAgentName: "child", content: "hello", mode: "next" },
+		]);
+		expect(textOf(result)).toContain("Message sent to agent child (mode=next)");
+		expect(result.isError).toBeUndefined();
+	});
+
 	it("formats team snapshots with agent trees and executor details", async () => {
 		const client = new RecordingHubActionsClient();
 		client.teamSnapshot = {

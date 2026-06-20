@@ -200,12 +200,12 @@ describe("d-pi message renderer", () => {
 		harness.emit("agent_start");
 		harness.emit("turn_start");
 		harness.emit("turn_end");
-		// No mode → defaults to "next" → extension maps to { triggerTurn: true }
+		// No mode → defaults to "next" and must preserve that routing mode.
 		harness.channel.deliverMessage("queued during run", "source-a");
 
 		expect(harness.sendMessageCalls).toHaveLength(1);
 		const queuedContent = messageContentText(harness.sendMessageCalls[0].message.content);
-		expect(harness.sendMessageCalls[0].options).toEqual({ triggerTurn: true });
+		expect(harness.sendMessageCalls[0].options).toEqual({ deliverAs: "next", triggerTurn: true });
 		expect(queuedContent).toContain("queued during run");
 		expect(queuedContent).toContain("[meta(");
 		expect(harness.sendMessageCalls[0].message.details).toMatchObject({
@@ -223,6 +223,21 @@ describe("d-pi message renderer", () => {
 		harness.channel.deliverMessage("after run", "source-a", "steer");
 
 		expect(harness.sendMessageCalls[1].options).toEqual({ deliverAs: "steer", triggerTurn: true });
+	});
+
+	it("preserves send_message agent metadata and next routing on the target worker", () => {
+		const harness = createWorkerHarness();
+		const content = injectMeta("hello target", "agent", undefined, { agentName: "root" });
+
+		harness.channel.deliverMessage(content, undefined, "next");
+
+		expect(harness.sendMessageCalls).toHaveLength(1);
+		expect(harness.sendMessageCalls[0].options).toEqual({ deliverAs: "next", triggerTurn: true });
+		expect(messageContentText(harness.sendMessageCalls[0].message.content)).toBe(content);
+		expect(harness.sendMessageCalls[0].message.details).toMatchObject({
+			sourceType: "agent",
+			agentName: "root",
+		});
 	});
 
 	it("wraps interactive input as meta-bearing custom messages", () => {

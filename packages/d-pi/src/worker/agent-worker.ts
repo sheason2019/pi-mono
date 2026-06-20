@@ -246,7 +246,7 @@ port.on("message", (message: HubToWorkerMessage) => {
 			hubChannel?.resolveCall(message.callId, message.result);
 			break;
 		case "message":
-			hubChannel?.deliverMessage(message.content, message.sourceName, message.mode);
+			void routeIncomingHubMessage(message);
 			break;
 		case "destroy":
 			gracefulShutdown();
@@ -260,6 +260,20 @@ port.on("message", (message: HubToWorkerMessage) => {
 			break;
 	}
 });
+
+async function routeIncomingHubMessage(message: Extract<HubToWorkerMessage, { type: "message" }>): Promise<void> {
+	hubChannel?.deliverMessage(message.content, message.sourceName, message.mode);
+	if (!agentRuntime) {
+		process.stderr.write(`[d-pi worker ${config.agentName}] Dropping incoming message before runtime is ready\n`);
+		return;
+	}
+	try {
+		await agentRuntime.prompt(message.content, { mode: message.mode === "steer" ? "steer" : "next" });
+	} catch (err) {
+		const error = err instanceof Error ? err.message : String(err);
+		process.stderr.write(`[d-pi worker ${config.agentName}] Failed to route incoming message: ${error}\n`);
+	}
+}
 
 async function runAgentWorker(): Promise<void> {
 	// `agentName` is the worker's identity — there is no separate id.

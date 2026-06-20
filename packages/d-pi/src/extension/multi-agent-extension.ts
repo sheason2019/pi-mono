@@ -222,7 +222,7 @@ function createMultiAgentWorkerFactory(channel: HubChannel): ExtensionFactory {
 					display: true,
 					details: extracted?.meta,
 				},
-				{ triggerTurn: true, deliverAs: mode === "steer" ? "steer" : undefined },
+				{ triggerTurn: true, deliverAs: mode === "steer" ? "steer" : "next" },
 			);
 		});
 	};

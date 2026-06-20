@@ -440,13 +440,24 @@ export class Hub {
 
 			switch (tool) {
 				case "send_message": {
-					const p = params as { agent_id: string; message: string; mode?: "next" | "steer" };
+					const p = params as {
+						agent_id?: string;
+						agent_name?: string;
+						toAgentName?: string;
+						agentIds?: string | string[];
+						message: string;
+						mode?: "next" | "steer";
+					};
+					const targetAgentName = resolveSendMessageTarget(p);
 					// Names are the unique key — the registry is name-keyed
 					// so a single get() lookup suffices. No more "name or id"
 					// disambiguation; the user always passes the agent's name.
-					const targetAgent = this._registry.get(p.agent_id);
+					const targetAgent = targetAgentName ? this._registry.get(targetAgentName) : undefined;
 					if (!targetAgent) {
-						result = { ok: false, error: `Agent not found: ${p.agent_id}` } satisfies SendMessageResult;
+						result = {
+							ok: false,
+							error: `Agent not found: ${targetAgentName ?? "(missing)"}`,
+						} satisfies SendMessageResult;
 					} else {
 						const metaContent = injectMeta(p.message, "agent", undefined, {
 							agentName: fromAgentName,
@@ -638,4 +649,18 @@ export class Hub {
 			} satisfies HubToWorkerMessage);
 		}
 	}
+}
+
+function resolveSendMessageTarget(params: {
+	agent_id?: string;
+	agent_name?: string;
+	toAgentName?: string;
+	agentIds?: string | string[];
+}): string | undefined {
+	if (params.agent_id?.trim()) return params.agent_id.trim();
+	if (params.agent_name?.trim()) return params.agent_name.trim();
+	if (params.toAgentName?.trim()) return params.toAgentName.trim();
+	if (typeof params.agentIds === "string") return params.agentIds.trim() || undefined;
+	if (Array.isArray(params.agentIds) && params.agentIds.length === 1) return params.agentIds[0]?.trim() || undefined;
+	return undefined;
 }

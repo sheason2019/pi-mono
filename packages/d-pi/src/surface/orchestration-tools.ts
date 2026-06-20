@@ -20,7 +20,15 @@ export function createDPiSendMessageTool(client: DPiHubActionsClient, options: D
 		description:
 			"Send a message to another agent in the network. The target agent will receive the message as input. This is asynchronous - the tool returns immediately and does not wait for a reply. Use mode='steer' to interrupt the target's current turn; the default mode='next' queues the message at the start of the target's next turn.",
 		parameters: Type.Object({
-			agent_id: Type.String({ description: "ID or name of the target agent" }),
+			agent_id: Type.Optional(Type.String({ description: "Name of the target agent" })),
+			agent_name: Type.Optional(Type.String({ description: "Alias for agent_id" })),
+			toAgentName: Type.Optional(Type.String({ description: "Alias for agent_id" })),
+			agentIds: Type.Optional(
+				Type.Union([Type.String(), Type.Array(Type.String())], {
+					description:
+						"Legacy alias for agent_id; when an array is provided it must contain exactly one agent name",
+				}),
+			),
 			message: Type.String({ description: "Message content to send" }),
 			mode: Type.Optional(
 				Type.Union([Type.Literal("next"), Type.Literal("steer")], {
@@ -31,10 +39,14 @@ export function createDPiSendMessageTool(client: DPiHubActionsClient, options: D
 		}),
 		async execute(_toolCallId, params) {
 			try {
+				const targetAgentName = resolveSendMessageTarget(params);
+				if (!targetAgentName) {
+					return errorTextResult("Failed to send message: target agent name is required");
+				}
 				const mode: DPiHubMessageMode = params.mode ?? "next";
 				const result = await client.sendMessage({
 					fromAgentName: options.agentName,
-					toAgentName: params.agent_id,
+					toAgentName: targetAgentName,
 					content: params.message,
 					mode,
 				});
@@ -43,13 +55,27 @@ export function createDPiSendMessageTool(client: DPiHubActionsClient, options: D
 					return errorTextResult(`Failed to send message: ${actionError}`);
 				}
 				return dPiToolTextResult(
-					`Message sent to agent ${params.agent_id} (mode=${mode}). Result: ${JSON.stringify(result)}`,
+					`Message sent to agent ${targetAgentName} (mode=${mode}). Result: ${JSON.stringify(result)}`,
 				);
 			} catch (err) {
 				return errorTextResult(`Failed to send message: ${errorMessage(err)}`);
 			}
 		},
 	});
+}
+
+function resolveSendMessageTarget(params: {
+	agent_id?: string;
+	agent_name?: string;
+	toAgentName?: string;
+	agentIds?: string | string[];
+}): string | undefined {
+	if (params.agent_id?.trim()) return params.agent_id.trim();
+	if (params.agent_name?.trim()) return params.agent_name.trim();
+	if (params.toAgentName?.trim()) return params.toAgentName.trim();
+	if (typeof params.agentIds === "string") return params.agentIds.trim() || undefined;
+	if (Array.isArray(params.agentIds) && params.agentIds.length === 1) return params.agentIds[0]?.trim() || undefined;
+	return undefined;
 }
 
 export function createDPiCreateAgentTool(client: DPiHubActionsClient): DPiTool {
