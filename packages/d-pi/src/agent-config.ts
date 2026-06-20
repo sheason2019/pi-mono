@@ -1,5 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { getAgentDefinitionMetadata } from "./agent-definition.ts";
+import { type LoadedAgentDefinition, readLoadedAgentDefinitionFromTs } from "./agent-loader.ts";
 import type { AgentConfig } from "./types.ts";
 
 export const AGENT_TS_FILE = "agent.ts";
@@ -24,28 +26,6 @@ export const DEFAULT_AGENT_TOOL_NAMES = [
 	"set_model",
 	"set_thinking_level",
 ] as const;
-
-function parseStringLiteral(literal: string, context: string): string {
-	try {
-		return JSON.parse(literal) as string;
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		throw new Error(`Invalid string literal in ${context}: ${message}`);
-	}
-}
-
-function parseStringArrayLiteral(literal: string, context: string): string[] {
-	try {
-		const parsed = JSON.parse(literal) as unknown;
-		if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string")) {
-			throw new TypeError("expected an array of strings");
-		}
-		return parsed;
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		throw new Error(`Invalid array literal in ${context}: ${message}`);
-	}
-}
 
 function formatArrayLiteral(values: string[]): string {
 	return `[${values.map((value) => JSON.stringify(value)).join(", ")}]`;
@@ -143,52 +123,6 @@ export function buildAgentTsSource(
 	return lines.join("\n");
 }
 
-export function parseAgentTsSource(agentDir: string, source: string): AgentConfig {
-	const name = basename(agentDir);
-	if (!source.includes("defineAgent(")) {
-		throw new Error(`Invalid agent.ts in ${agentDir}: missing defineAgent(...)`);
-	}
-	if (!source.includes('defineSkill({ dir: "./skills" })')) {
-		throw new Error(`Invalid agent.ts in ${agentDir}: missing defineSkill({ dir: "./skills" })`);
-	}
-	if (!source.includes('defineContextFile({ type: "context", path: "./AGENTS.md" })')) {
-		throw new Error(`Invalid agent.ts in ${agentDir}: missing AGENTS.md context file`);
-	}
-	if (!source.includes('defineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" })')) {
-		throw new Error(`Invalid agent.ts in ${agentDir}: missing APPEND_SYSTEM context file`);
-	}
-	const parentMatch = source.match(/import\s+parentAgent\s+from\s+["']\.\.\/([^/]+)\/agent\.ts["'];/);
-	const descriptionMatch = source.match(/description:\s*("(?:\\.|[^"])*"),/s);
-	const rolesMatch = source.match(/roles:\s*(\[[\s\S]*?\]),/s);
-	const modelMatch = source.match(
-		/model:\s*defineModel\(\{\s*provider:\s*("(?:\\.|[^"])*"),\s*name:\s*("(?:\\.|[^"])*")\s*\}\),/s,
-	);
-	const toolMatches = Array.from(source.matchAll(/defineTool\(\{\s*name:\s*("(?:\\.|[^"])*")\s*\}\)/g));
-
-	return {
-		name,
-		parentName: parentMatch?.[1],
-		description: descriptionMatch ? parseStringLiteral(descriptionMatch[1], `${agentDir}/description`) : undefined,
-		roles: rolesMatch ? parseStringArrayLiteral(rolesMatch[1], `${agentDir}/roles`) : undefined,
-		model: modelMatch
-			? `${parseStringLiteral(modelMatch[1], `${agentDir}/model provider`)}/${parseStringLiteral(modelMatch[2], `${agentDir}/model name`)}`
-			: undefined,
-		includeTools:
-			toolMatches.length > 0
-				? toolMatches.map((match) => parseStringLiteral(match[1], `${agentDir}/tools`))
-				: undefined,
-	};
-}
-
-export function readAgentConfigFromTs(agentDir: string): AgentConfig | undefined {
-	const configPath = join(agentDir, AGENT_TS_FILE);
-	if (!existsSync(configPath)) {
-		return undefined;
-	}
-	const raw = readFileSync(configPath, "utf-8");
-	return parseAgentTsSource(agentDir, raw);
-}
-
 export function writeAgentTsConfig(
 	agentDir: string,
 	config: Pick<
@@ -199,11 +133,23 @@ export function writeAgentTsConfig(
 	writeFileSync(join(agentDir, AGENT_TS_FILE), buildAgentTsSource(config));
 }
 
-export function persistModelInAgentTs(agentDir: string, model: string): void {
-	const currentConfig = readAgentConfigFromTs(agentDir);
-	if (!currentConfig) {
+function agentDefinitionToPersistedConfig(agent: LoadedAgentDefinition): AgentConfig {
+	return {
+		name: agent.name,
+		parentName: agent.parent ? getAgentDefinitionMetadata(agent.parent)?.name : undefined,
+		description: agent.description,
+		roles: agent.roles,
+		model: agent.model ? `${agent.model.provider}/${agent.model.name}` : undefined,
+		includeTools: agent.tools.map((tool) => tool.name),
+	};
+}
+
+export async function persistModelInAgentTs(agentDir: string, model: string): Promise<void> {
+	const currentDefinition = await readLoadedAgentDefinitionFromTs(agentDir);
+	if (!currentDefinition) {
 		throw new Error(`agent.ts not present at ${join(agentDir, AGENT_TS_FILE)}`);
 	}
+	const currentConfig = agentDefinitionToPersistedConfig(currentDefinition);
 	writeAgentTsConfig(agentDir, {
 		name: currentConfig.name,
 		parentName: currentConfig.parentName,

@@ -1,12 +1,13 @@
-import { readAgentConfigFromTs } from "../agent-config.ts";
-import { type LoadedAgentDefinition, readLoadedAgentDefinitionFromTsSync } from "../agent-loader.ts";
+import { getAgentDefinitionMetadata } from "../agent-definition.ts";
+import { type LoadedAgentDefinition, readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
 import type { AgentConfig } from "../types.ts";
 
-function agentDefinitionToConfig(agent: LoadedAgentDefinition): AgentConfig {
+export function agentDefinitionToConfig(agent: LoadedAgentDefinition): AgentConfig {
 	const toolNames = agent.tools.map((tool) => tool.name);
+	const parentName = agent.parent ? getAgentDefinitionMetadata(agent.parent)?.name : undefined;
 	return {
 		name: agent.name,
-		parentName: undefined,
+		parentName,
 		description: agent.description,
 		roles: agent.roles,
 		model: agent.model ? `${agent.model.provider}/${agent.model.name}` : undefined,
@@ -26,33 +27,12 @@ function agentDefinitionToConfig(agent: LoadedAgentDefinition): AgentConfig {
  */
 export async function loadAgentIdentity(agentDir: string): Promise<AgentConfig | undefined> {
 	try {
-		return readAgentConfigFromTs(agentDir);
-	} catch {
-		try {
-			const agent = readLoadedAgentDefinitionFromTsSync(agentDir);
-			if (agent) {
-				return agentDefinitionToConfig(agent);
-			}
-		} catch {
-			// Fall through to the legacy diagnostic below.
+		const agent = await readLoadedAgentDefinitionFromTs(agentDir);
+		if (agent) {
+			return agentDefinitionToConfig(agent);
 		}
-		process.stderr.write(`[d-pi] Failed to load agent.ts at ${agentDir}; skipping identity injection\n`);
 		return undefined;
-	}
-}
-
-export function readAgentIdentitySync(agentDir: string): AgentConfig | undefined {
-	try {
-		return readAgentConfigFromTs(agentDir);
 	} catch {
-		try {
-			const agent = readLoadedAgentDefinitionFromTsSync(agentDir);
-			if (agent) {
-				return agentDefinitionToConfig(agent);
-			}
-		} catch {
-			// Fall through to the legacy diagnostic below.
-		}
 		process.stderr.write(`[d-pi] Failed to load agent.ts at ${agentDir}; skipping identity injection\n`);
 		return undefined;
 	}

@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildAgentTsSource } from "../src/agent-config.ts";
+import type { AgentContextFileDefinition, AgentSkillDefinition, AgentToolDefinition } from "../src/agent-definition.ts";
+import { normalizeLoadedAgentDefinition } from "../src/agent-loader.ts";
 import { DPiContextManager } from "../src/context/context-manager.ts";
 
 let tempDir: string | undefined;
@@ -36,6 +38,26 @@ function writeAgentDefinition(agentDir: string, source: string): void {
 	write(join(agentDir, "agent.ts"), source);
 }
 
+function createLoadedAgentDefinition(
+	agentDir: string,
+	options: {
+		description?: string;
+		skills?: AgentSkillDefinition;
+		tools?: AgentToolDefinition[];
+		contextFiles?: AgentContextFileDefinition[];
+	} = {},
+) {
+	return normalizeLoadedAgentDefinition(join(agentDir, "agent.ts"), {
+		description: options.description,
+		tools: options.tools ?? [],
+		skills: options.skills ?? { dir: "./skills" },
+		contextFiles: options.contextFiles ?? [
+			{ type: "context", path: "./AGENTS.md" },
+			{ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" },
+		],
+	});
+}
+
 afterEach(() => {
 	if (tempDir) {
 		rmSync(tempDir, { recursive: true, force: true });
@@ -49,7 +71,13 @@ describe("DPiContextManager", () => {
 		const agentDir = createAgent(workspaceRoot, "root", "Root agent identity.");
 		write(join(workspaceRoot, "APPEND_SYSTEM.md"), "workspace append block");
 
-		const manager = new DPiContextManager({ workspaceRoot, agentName: "root", agentDir, cwd: agentDir });
+		const manager = new DPiContextManager({
+			workspaceRoot,
+			agentName: "root",
+			agentDir,
+			cwd: agentDir,
+			agentDefinition: createLoadedAgentDefinition(agentDir, { description: "Root agent identity." }),
+		});
 
 		const parts = manager.loadSystemPromptParts();
 		const workspaceIndex = parts.indexOf("workspace append block");
@@ -60,10 +88,16 @@ describe("DPiContextManager", () => {
 		expect(parts[identityIndex]).toContain("Root agent identity.");
 	});
 
-	it("re-reads agent.ts identity when reloaded", () => {
+	it("uses the injected agent definition identity when reloaded", () => {
 		const workspaceRoot = createWorkspace();
 		const agentDir = createAgent(workspaceRoot, "reviewer", "Original identity.");
-		const manager = new DPiContextManager({ workspaceRoot, agentName: "reviewer", agentDir, cwd: agentDir });
+		const manager = new DPiContextManager({
+			workspaceRoot,
+			agentName: "reviewer",
+			agentDir,
+			cwd: agentDir,
+			agentDefinition: createLoadedAgentDefinition(agentDir, { description: "Original identity." }),
+		});
 
 		expect(manager.loadSystemPromptParts().join("\n")).toContain("Original identity.");
 
@@ -79,8 +113,8 @@ describe("DPiContextManager", () => {
 		manager.reload();
 
 		const reloadedParts = manager.loadSystemPromptParts().join("\n");
-		expect(reloadedParts).toContain("Reloaded identity.");
-		expect(reloadedParts).not.toContain("Original identity.");
+		expect(reloadedParts).toContain("Original identity.");
+		expect(reloadedParts).not.toContain("Reloaded identity.");
 	});
 
 	it("includes workspace and team-template AGENTS.md before local project and agent context", () => {
@@ -91,7 +125,13 @@ describe("DPiContextManager", () => {
 		write(join(workspaceRoot, "team-template", "AGENTS.md"), "team-template context");
 		write(join(projectDir, "AGENTS.md"), "local project context");
 
-		const manager = new DPiContextManager({ workspaceRoot, agentName: "root", agentDir, cwd: projectDir });
+		const manager = new DPiContextManager({
+			workspaceRoot,
+			agentName: "root",
+			agentDir,
+			cwd: projectDir,
+			agentDefinition: createLoadedAgentDefinition(agentDir, { description: "Root agent identity." }),
+		});
 
 		expect(manager.loadContextFiles()).toEqual([
 			{ path: join(workspaceRoot, "AGENTS.md"), content: "workspace project context" },
@@ -109,7 +149,13 @@ describe("DPiContextManager", () => {
 		write(join(workspaceRoot, "team-template", "extensions", "team.js"), "export default function team() {}");
 		write(join(workspaceRoot, "extensions", "workspace.ts"), "export default function workspace() {}");
 
-		const manager = new DPiContextManager({ workspaceRoot, agentName: "root", agentDir, cwd: agentDir });
+		const manager = new DPiContextManager({
+			workspaceRoot,
+			agentName: "root",
+			agentDir,
+			cwd: agentDir,
+			agentDefinition: createLoadedAgentDefinition(agentDir, { description: "Root agent identity." }),
+		});
 
 		expect(manager.loadSkills()).toEqual([
 			join(workspaceRoot, "team-template", "skills"),
@@ -152,7 +198,23 @@ describe("DPiContextManager", () => {
 			].join("\n"),
 		);
 
-		const manager = new DPiContextManager({ workspaceRoot, agentName: "root", agentDir, cwd: agentDir });
+		const manager = new DPiContextManager({
+			workspaceRoot,
+			agentName: "root",
+			agentDir,
+			cwd: agentDir,
+			agentDefinition: createLoadedAgentDefinition(agentDir, {
+				description: "Root agent identity.",
+				skills: { dir: "./custom-skills" },
+				tools: [{ name: "dispatch_read" }],
+				contextFiles: [
+					{ type: "context", path: "./custom/CONTEXT.md" },
+					{ type: "context", path: "./AGENTS.md" },
+					{ type: "append_system", path: "./custom/APPEND.md" },
+					{ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" },
+				],
+			}),
+		});
 
 		expect(manager.loadContextFiles()).toEqual([
 			{ path: customContextPath, content: "custom context" },
@@ -167,7 +229,47 @@ describe("DPiContextManager", () => {
 		expect(manager.loadSkills()).toEqual([customSkillsDir, defaultSkillsDir]);
 	});
 
-	it("statically parses multiline agent.ts resources with single quotes and ignores commented calls", () => {
+	it("uses an injected loaded agent definition for runtime context resources", () => {
+		const workspaceRoot = createWorkspace();
+		const agentDir = createAgent(workspaceRoot, "root", "Root agent identity.");
+		const customContextPath = join(agentDir, "custom", "CONTEXT.md");
+		const customAppendPath = join(agentDir, "custom", "APPEND.md");
+		const customSkillsDir = join(agentDir, "custom-skills");
+		write(customContextPath, "custom context");
+		write(customAppendPath, "custom append");
+		mkdirSync(customSkillsDir, { recursive: true });
+		const agentDefinition = normalizeLoadedAgentDefinition(join(agentDir, "agent.ts"), {
+			description: "Injected identity.",
+			skills: { dir: "./custom-skills" },
+			tools: [{ name: "dispatch_read" }],
+			contextFiles: [
+				{ type: "context", path: "./custom/CONTEXT.md" },
+				{ type: "append_system", path: "./custom/APPEND.md" },
+			],
+		});
+		writeAgentDefinition(
+			agentDir,
+			buildAgentTsSource({
+				name: "root",
+				parentName: undefined,
+				description: "Disk identity should not be read.",
+			}),
+		);
+
+		const manager = new DPiContextManager({
+			workspaceRoot,
+			agentName: "root",
+			agentDir,
+			cwd: agentDir,
+			agentDefinition,
+		});
+
+		expect(manager.loadContextFiles()).toEqual([{ path: customContextPath, content: "custom context" }]);
+		expect(manager.loadSystemPromptParts()).toEqual(expect.arrayContaining(["custom append"]));
+		expect(manager.loadSkills()).toEqual([customSkillsDir]);
+	});
+
+	it("uses injected resource definitions without parsing source text", () => {
 		const workspaceRoot = createWorkspace();
 		const agentDir = createAgent(workspaceRoot, "root", "Root agent identity.");
 		const customContextPath = join(agentDir, "custom", "CONTEXT.md");
@@ -178,40 +280,22 @@ describe("DPiContextManager", () => {
 		write(customAppendPath, "custom append");
 		write(commentedContextPath, "commented context");
 		mkdirSync(customSkillsDir, { recursive: true });
-		writeAgentDefinition(
+		const manager = new DPiContextManager({
+			workspaceRoot,
+			agentName: "root",
 			agentDir,
-			[
-				'import { defineAgent, defineContextFile, defineSkill, defineTool } from "@sheason/d-pi";',
-				"",
-				'// defineContextFile({ type: "context", path: "./commented/SHOULD_NOT_LOAD.md" })',
-				"export default defineAgent({",
-				"\tdescription: 'Root agent identity.',",
-				"\tskills: defineSkill({",
-				"\t\tdir: './custom-skills',",
-				"\t}),",
-				"\ttools: [",
-				"\t\tdefineTool({ name: 'dispatch_read' }),",
-				"\t],",
-				"\tcontextFiles: [",
-				"\t\tdefineContextFile({",
-				"\t\t\tpath: './custom/CONTEXT.md',",
-				"\t\t\ttype: 'context',",
-				"\t\t}),",
-				"\t\tdefineContextFile({",
-				"\t\t\ttype: 'context',",
-				"\t\t\tpath: './AGENTS.md',",
-				"\t\t}),",
-				"\t\tdefineContextFile({",
-				"\t\t\ttype: 'append_system',",
-				"\t\t\tpath: './custom/APPEND.md',",
-				"\t\t}),",
-				"\t],",
-				"});",
-				"",
-			].join("\n"),
-		);
-
-		const manager = new DPiContextManager({ workspaceRoot, agentName: "root", agentDir, cwd: agentDir });
+			cwd: agentDir,
+			agentDefinition: createLoadedAgentDefinition(agentDir, {
+				description: "Root agent identity.",
+				skills: { dir: "./custom-skills" },
+				tools: [{ name: "dispatch_read" }],
+				contextFiles: [
+					{ type: "context", path: "./custom/CONTEXT.md" },
+					{ type: "context", path: "./AGENTS.md" },
+					{ type: "append_system", path: "./custom/APPEND.md" },
+				],
+			}),
+		});
 
 		expect(manager.loadContextFiles()).toEqual([
 			{ path: customContextPath, content: "custom context" },
@@ -221,7 +305,7 @@ describe("DPiContextManager", () => {
 		expect(manager.loadSkills()).toEqual([customSkillsDir]);
 	});
 
-	it("throws instead of falling back to default resources when agent.ts exists but is invalid", () => {
+	it("uses default resources when no loaded agent definition is provided", () => {
 		const workspaceRoot = createWorkspace();
 		const agentDir = createAgent(workspaceRoot, "root", "Root agent identity.");
 		writeAgentDefinition(
@@ -237,6 +321,8 @@ describe("DPiContextManager", () => {
 		);
 		const manager = new DPiContextManager({ workspaceRoot, agentName: "root", agentDir, cwd: agentDir });
 
-		expect(() => manager.loadContextFiles()).toThrow(join(agentDir, "agent.ts"));
+		expect(manager.loadContextFiles()).toEqual([
+			{ path: join(agentDir, "AGENTS.md"), content: "agent context for root" },
+		]);
 	});
 });

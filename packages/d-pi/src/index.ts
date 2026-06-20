@@ -4,8 +4,31 @@ export {
 	loadAgentRuntimeResources,
 	loadAgentRuntimeSystemPromptBlocks,
 } from "./agent-context.ts";
-export { defineAgent, defineContextFile, defineModel, defineSkill, defineTool } from "./agent-definition.ts";
-export { loadAgentDefinitionFromFile, normalizeLoadedAgentDefinition } from "./agent-loader.ts";
+export {
+	type AgentContextFileDefinition,
+	type AgentDefinition,
+	type AgentDefinitionInput,
+	type AgentDefinitionMetadata,
+	type AgentModelDefinition,
+	type AgentRoleDefinition,
+	type AgentSkillDefinition,
+	type AgentToolDefinition,
+	defineAgent,
+	defineContextFile,
+	defineContextFiles,
+	defineModel,
+	defineRole,
+	defineRoles,
+	defineSkill,
+	defineTool,
+	defineTools,
+} from "./agent-definition.ts";
+export {
+	type LoadedAgentDefinition,
+	loadAgentDefinitionFromFile,
+	normalizeLoadedAgentDefinition,
+	readLoadedAgentDefinitionFromTs,
+} from "./agent-loader.ts";
 export { type DPiConnectOptions, runDPiConnectMode } from "./connect/connect-mode.ts";
 export { DPiContextManager, type DPiContextManagerOptions } from "./context/context-manager.ts";
 export type { DPiContextFile } from "./context/resource-loader.ts";
@@ -134,12 +157,7 @@ export {
 	runDPiConnectInteractiveMode,
 } from "./tui/interactive/run-connect-interactive-mode.ts";
 export type {
-	AgentContextFileDefinition,
-	AgentDefinition,
-	AgentModelDefinition,
-	AgentSkillDefinition,
 	AgentStatus,
-	AgentToolDefinition,
 	AgentWorkerConfig,
 	HubConfig,
 	HubToWorkerMessage,

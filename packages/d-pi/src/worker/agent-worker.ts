@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
 import { DPiContextManager } from "../context/context-manager.ts";
 import { DPI_META_PROMPT } from "../dpi-meta.ts";
 import {
@@ -18,7 +19,7 @@ import {
 	// dispatch imported directly from dispatch-extension
 	type HubChannel,
 } from "../extension/index.ts";
-import { formatAgentIdentitySection, readAgentIdentitySync } from "../hub/agent-identity.ts";
+import { agentDefinitionToConfig, formatAgentIdentitySection } from "../hub/agent-identity.ts";
 import { DPiAgentRuntime } from "../runtime/agent-runtime.ts";
 import { DPiModelManager } from "../runtime/model-manager.ts";
 import { DPiSessionStore } from "../runtime/session-store.ts";
@@ -118,6 +119,8 @@ async function runAgentWorker(): Promise<void> {
 	});
 	const dispatchFactory = createDispatchExtension(channel, cwd);
 	hubChannel = channel;
+	const agentDefinition = await readLoadedAgentDefinitionFromTs(cwd);
+	const agentConfig = agentDefinition ? agentDefinitionToConfig(agentDefinition) : undefined;
 
 	// 3. Build the runtime factory (mirrors main.ts pattern)
 	const createRuntime = async (opts: { cwd: string; agentDir: string; sessionManager: DPiWorkerSessionManager }) => {
@@ -159,23 +162,15 @@ async function runAgentWorker(): Promise<void> {
 			dPiClientExtensionPath,
 			...(config.workspaceContext?.additionalExtensionPaths ?? []),
 		];
-
-		// Re-read the workspace context and this agent's identity
-		// from disk. Called on every reload (and once at startup)
-		// so that edits to APPEND_SYSTEM.md / team-template
-		// AGENTS.md / agent.ts (description, roles, model name,
-		// tool allow/deny list) take effect without a hub restart.
-		// Returns `undefined` when there is no workspace context
-		// (e.g. ad-hoc session without a workspace root); the
-		// override closures handle that case by falling back to
-		// whatever the resourceLoader itself discovered.
+		// Keep the executable agent definition as the single source of truth.
+		// ResourceLoader overrides are synchronous, so this closure projects the
+		// definition loaded above instead of reparsing agent.ts from source.
 		const readFreshDPiContext = () => {
-			const freshAgentConfig = readAgentIdentitySync(cwd);
-			const roles = freshAgentConfig?.roles;
+			const roles = agentConfig?.roles;
 			const freshWorkspaceContext = workspaceRoot
 				? loadWorkspaceContext(workspaceRoot, { agentName, roles })
 				: undefined;
-			return { freshAgentConfig, freshWorkspaceContext };
+			return { freshAgentConfig: agentConfig, freshWorkspaceContext };
 		};
 
 		process.stderr.write(`[d-pi worker ${agentName}] Creating session services...\n`);
@@ -380,6 +375,7 @@ async function runAgentWorker(): Promise<void> {
 				agentName,
 				agentDir: cwd,
 				cwd,
+				agentDefinition,
 			}),
 			thinkingLevel: remoteFirstRuntimeThinkingLevel,
 			tools: runtime!.session.getToolDefinitions(),

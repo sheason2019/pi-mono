@@ -112,9 +112,9 @@ function createSetModelRuntimeTool(pi: ExtensionAPI, deps: AgentMetadataToolsDep
 					},
 				},
 				modelResolver: resolver,
-				persistModel: (modelSpec) => {
+				persistModel: async (modelSpec) => {
 					const agentDir = deps.getAgentCwd ? deps.getAgentCwd() : undefined;
-					persistModelInAgentTs(agentDir || ctx.cwd, modelSpec);
+					await persistModelInAgentTs(agentDir || ctx.cwd, modelSpec);
 				},
 				onPersistError: (message) => {
 					process.stderr.write(`[d-pi agent-metadata] ${message}\n`);

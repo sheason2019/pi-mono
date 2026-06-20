@@ -29,7 +29,7 @@ export interface DPiRuntimeModelResolver {
 export interface CreateDPiSetModelToolOptions {
 	runtimeHooks: Pick<DPiRuntimeHooks, "setModel">;
 	modelResolver: DPiRuntimeModelResolver;
-	persistModel?: (modelSpec: string) => void;
+	persistModel?: (modelSpec: string) => void | Promise<void>;
 	onPersistError?: (message: string) => void;
 }
 
@@ -119,7 +119,7 @@ export function createDPiSetModelTool(options: CreateDPiSetModelToolOptions): DP
 			let persistenceText = "Persistence is not configured for this runtime adapter.";
 			if (options.persistModel) {
 				try {
-					options.persistModel(spec);
+					await options.persistModel(spec);
 					details.persisted = true;
 					persistenceText = "Persisted to agent.ts.";
 				} catch (err) {

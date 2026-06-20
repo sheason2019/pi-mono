@@ -210,6 +210,7 @@ export type {
 	AgentContextFileDefinition,
 	AgentDefinition,
 	AgentModelDefinition,
+	AgentRoleDefinition,
 	AgentSkillDefinition,
 	AgentToolDefinition,
 } from "./agent-definition.ts";

@@ -1,9 +1,10 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readAgentConfigFromTs } from "../src/agent-config.ts";
+import { readLoadedAgentDefinitionFromTs } from "../src/agent-loader.ts";
 import { createAgentMetadataExtension } from "../src/extension/agent-metadata.ts";
 import type { ExtensionAPI, ModelRegistry, ResourceLoader, ToolDefinition } from "../src/extension/contracts.ts";
 
@@ -67,11 +68,12 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 
 	beforeEach(() => {
 		tmpDir = mkdtempSync(join(os.tmpdir(), "d-pi-agent-meta-"));
+		const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "agent-definition.ts")).href;
 		// Seed a minimal agent.ts so the persist path has something to update.
 		writeFileSync(
 			join(tmpDir, "agent.ts"),
 			[
-				'import { defineAgent, defineContextFile, defineModel, defineSkill, defineTool } from "@sheason/d-pi";',
+				`import { defineAgent, defineContextFile, defineModel, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
 				"",
 				"export default defineAgent({",
 				'\tdescription: "test-agent",',
@@ -165,8 +167,8 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 		expect(resultText(result)).toMatch(/Model switched to anthropic\/claude-sonnet-4/);
 
 		// Verify the write used the getAgentCwd (tmpDir) not the ctx.cwd
-		const written = readAgentConfigFromTs(tmpDir);
-		expect(written?.model).toBe("anthropic/claude-sonnet-4");
+		const written = await readLoadedAgentDefinitionFromTs(tmpDir);
+		expect(written?.model).toEqual({ provider: "anthropic", name: "claude-sonnet-4" });
 	});
 
 	it("set_model with model id containing '/' (e.g. versioned) uses first-slash split and still resolves", async () => {
@@ -385,8 +387,8 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 		expect(isError(result)).toBe(true); // review P1 #6: failure to activate must be isError
 		expect(resultText(result)).toMatch(/reported failure/);
 		// file should still have the original model (write only happens on success===true)
-		const written = readAgentConfigFromTs(tmpDir);
-		expect(written?.model).toBe("unknown/old-model");
+		const written = await readLoadedAgentDefinitionFromTs(tmpDir);
+		expect(written?.model).toEqual({ provider: "unknown", name: "old-model" });
 	});
 
 	it("set_thinking_level accepts a valid level, calls setThinkingLevel and returns effective value (no isError)", async () => {

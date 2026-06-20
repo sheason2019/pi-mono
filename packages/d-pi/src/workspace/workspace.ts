@@ -1,5 +1,17 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import {
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	readlinkSync,
+	renameSync,
+	statSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildAgentTsSource } from "../agent-config.ts";
 import type { WorkspaceConfig, WorkspaceContext } from "../types.ts";
 import { migrateWorkspaceToAgentTs } from "./migrate-agent-ts.ts";
@@ -13,7 +25,75 @@ const SKILLS_DIR = "skills";
 const EXTENSIONS_DIR = "extensions";
 const APPEND_SYSTEM_MD = "APPEND_SYSTEM.md";
 const AGENTS_MD = "AGENTS.md";
+const D_PI_PACKAGE_NAME = "@sheason/d-pi";
 export const TARGET_WORKSPACE_VERSION = 3;
+
+function dPiPackageRoot(): string {
+	return dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+}
+
+function packageNameFromDirectory(dir: string): string {
+	const basename = dir.split(/[\\/]/).filter(Boolean).at(-1) ?? "dpi-workspace";
+	const normalized = basename.toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
+	return normalized || "dpi-workspace";
+}
+
+function writeWorkspacePackageJson(workspaceRoot: string): void {
+	const packageJsonPath = join(workspaceRoot, "package.json");
+	const packageRoot = dPiPackageRoot();
+	const dependencyPath = relative(workspaceRoot, packageRoot) || ".";
+	const dependencySpec = `file:${dependencyPath.startsWith(".") ? dependencyPath : `./${dependencyPath}`}`;
+	const nextPackageJson = {
+		name: packageNameFromDirectory(workspaceRoot),
+		private: true,
+		type: "module",
+		dependencies: {
+			[D_PI_PACKAGE_NAME]: dependencySpec,
+		},
+	};
+
+	if (!existsSync(packageJsonPath)) {
+		writeFileSync(packageJsonPath, `${JSON.stringify(nextPackageJson, null, "\t")}\n`);
+		return;
+	}
+
+	const current = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as Record<string, unknown>;
+	const dependencies =
+		typeof current.dependencies === "object" && current.dependencies !== null
+			? (current.dependencies as Record<string, unknown>)
+			: {};
+	writeFileSync(
+		packageJsonPath,
+		`${JSON.stringify(
+			{
+				...current,
+				private: true,
+				type: "module",
+				dependencies: {
+					...dependencies,
+					[D_PI_PACKAGE_NAME]: dependencySpec,
+				},
+			},
+			null,
+			"\t",
+		)}\n`,
+	);
+}
+
+function linkDPiPackageIntoWorkspace(workspaceRoot: string): void {
+	const scopeDir = join(workspaceRoot, "node_modules", "@sheason");
+	const linkPath = join(scopeDir, "d-pi");
+	const packageRoot = dPiPackageRoot();
+	mkdirSync(scopeDir, { recursive: true });
+	if (existsSync(linkPath)) {
+		const stat = lstatSync(linkPath);
+		if (stat.isSymbolicLink() && resolve(dirname(linkPath), readlinkSync(linkPath)) === packageRoot) {
+			return;
+		}
+		throw new Error(`${linkPath} already exists and is not linked to ${packageRoot}`);
+	}
+	symlinkSync(packageRoot, linkPath, "dir");
+}
 
 export interface LoadWorkspaceContextOptions {
 	agentName?: string;
@@ -233,6 +313,10 @@ export function initWorkspace(dir: string): void {
 	if (isWorkspaceRoot(resolved)) {
 		throw new Error(`Already a d-pi workspace: ${resolved}`);
 	}
+
+	mkdirSync(resolved, { recursive: true });
+	writeWorkspacePackageJson(resolved);
+	linkDPiPackageIntoWorkspace(resolved);
 
 	// Create .dpi/
 	const dpiDir = join(resolved, DPI_DIR);

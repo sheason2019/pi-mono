@@ -6,12 +6,8 @@ import {
 	uniqueAgentContextFileDefinitions,
 } from "../agent-context.ts";
 import type { AgentContextFileDefinition, AgentSkillDefinition } from "../agent-definition.ts";
-import {
-	type LoadedAgentDefinition,
-	normalizeLoadedAgentDefinition,
-	readLoadedAgentDefinitionFromTsSync,
-} from "../agent-loader.ts";
-import { formatAgentIdentitySection, readAgentIdentitySync } from "../hub/agent-identity.ts";
+import { type LoadedAgentDefinition, normalizeLoadedAgentDefinition } from "../agent-loader.ts";
+import { agentDefinitionToConfig, formatAgentIdentitySection } from "../hub/agent-identity.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
 import {
 	cwdAgentsPath,
@@ -35,6 +31,7 @@ export interface DPiContextManagerOptions {
 	agentDir?: string;
 	cwd?: string;
 	roles?: string[];
+	agentDefinition?: LoadedAgentDefinition;
 }
 
 interface DPiContextSnapshot {
@@ -52,24 +49,12 @@ function createDefaultAgentDefinition(agentDir: string): LoadedAgentDefinition {
 	});
 }
 
-function readConfiguredAgentDefinition(agentDir: string): LoadedAgentDefinition | undefined {
-	try {
-		return readLoadedAgentDefinitionFromTsSync(agentDir);
-	} catch (err) {
-		const agentFilePath = join(resolve(agentDir), "agent.ts");
-		const message = err instanceof Error ? err.message : String(err);
-		throw new Error(`Failed to parse agent.ts at ${agentFilePath}: ${message}`);
-	}
-}
-
 function createRuntimeAgentDefinition(agentDir: string): LoadedAgentDefinition {
 	const defaultAgent = createDefaultAgentDefinition(agentDir);
-	const configuredAgent = readConfiguredAgentDefinition(agentDir);
-	const baseAgent = configuredAgent ?? defaultAgent;
 	return {
-		...baseAgent,
-		contextFiles: uniqueAgentContextFileDefinitions(baseAgent, [
-			...baseAgent.contextFiles,
+		...defaultAgent,
+		contextFiles: uniqueAgentContextFileDefinitions(defaultAgent, [
+			...defaultAgent.contextFiles,
 			...DEFAULT_AGENT_CONTEXT_FILES,
 		]),
 	};
@@ -92,6 +77,7 @@ export class DPiContextManager {
 	private readonly _agentDir: string;
 	private readonly _cwd: string;
 	private readonly _roles: string[] | undefined;
+	private readonly _agentDefinition: LoadedAgentDefinition | undefined;
 	private _snapshot: DPiContextSnapshot | undefined;
 
 	constructor(options: DPiContextManagerOptions) {
@@ -100,6 +86,7 @@ export class DPiContextManager {
 		this._agentDir = resolve(options.agentDir ?? join(this._workspaceRoot, "agents", options.agentName));
 		this._cwd = resolve(options.cwd ?? this._agentDir);
 		this._roles = options.roles ? [...options.roles] : undefined;
+		this._agentDefinition = options.agentDefinition;
 	}
 
 	loadSystemPromptParts(): string[] {
@@ -130,9 +117,9 @@ export class DPiContextManager {
 	}
 
 	private _loadSnapshot(): DPiContextSnapshot {
-		const agentDefinition = createRuntimeAgentDefinition(this._agentDir);
+		const agentDefinition = this._agentDefinition ?? createRuntimeAgentDefinition(this._agentDir);
 		const agentRuntimeResources = loadAgentRuntimeResources(agentDefinition);
-		const identity = readAgentIdentitySync(this._agentDir);
+		const identity = this._agentDefinition ? agentDefinitionToConfig(this._agentDefinition) : undefined;
 		const workspaceContext = loadWorkspaceContext(this._workspaceRoot, {
 			agentName: this._agentName,
 			roles: this._roles ?? identity?.roles,

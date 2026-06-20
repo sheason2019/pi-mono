@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runDPiCli } from "../src/cli-runner.ts";
 import { initWorkspace, TARGET_WORKSPACE_VERSION, validateWorkspace } from "../src/workspace/workspace.ts";
@@ -51,6 +52,26 @@ describe("init template: strict-JSON output", () => {
 		expect(raw).toContain('defineContextFile({ type: "context", path: "./AGENTS.md" })');
 		expect(raw).toContain('defineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" })');
 		expect(raw).not.toContain("parent:");
+	});
+
+	it("initializes the workspace as a node package linked to the current d-pi package", () => {
+		const workspace = freshWorkspace();
+		initWorkspace(workspace);
+
+		const packageJsonPath = join(workspace, "package.json");
+		const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
+			private?: boolean;
+			type?: string;
+			dependencies?: Record<string, string>;
+		};
+		expect(packageJson.private).toBe(true);
+		expect(packageJson.type).toBe("module");
+		expect(packageJson.dependencies?.["@sheason/d-pi"]).toMatch(/^file:/);
+
+		const linkedPackagePath = join(workspace, "node_modules", "@sheason", "d-pi");
+		expect(lstatSync(linkedPackagePath).isSymbolicLink()).toBe(true);
+		const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+		expect(realpathSync(linkedPackagePath)).toBe(realpathSync(packageRoot));
 	});
 
 	it("validateWorkspace accepts the freshly-init config and reports the target version", () => {

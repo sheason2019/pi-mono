@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type DiscoveredAgent, discoverPersistedAgents, orderAgentsForRestore } from "../src/hub/restore-agents.ts";
 import type { AgentConfig } from "../src/types.ts";
@@ -45,7 +46,10 @@ function writeAgentTs(
 ): void {
 	const dir = join(workspace, "agents", entryName);
 	mkdirSync(dir, { recursive: true });
-	const lines = ['import { defineAgent, defineContextFile, defineSkill, defineTool } from "@sheason/d-pi";'];
+	const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "agent-definition.ts")).href;
+	const lines = [
+		`import { defineAgent, defineContextFile, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
+	];
 	if (parentImportName) {
 		lines.push(`import parentAgent from "../${parentImportName}/agent.ts";`);
 	}
