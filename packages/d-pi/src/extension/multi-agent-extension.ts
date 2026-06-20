@@ -49,6 +49,7 @@ export interface DPiWorkerConfig {
 	/** The agent's name (unique key inside the d-pi workspace). */
 	agentName: string;
 	postToHub: (message: WorkerToHubMessage) => void;
+	registerTools?: boolean;
 }
 
 export interface DPiClientConfig {
@@ -179,7 +180,7 @@ export function createMultiAgentExtension(config: DPiExtensionConfig): {
 } {
 	if (config.mode === "worker") {
 		const channel = new HubChannel(config.agentName, config.postToHub);
-		const factory = createMultiAgentWorkerFactory(channel);
+		const factory = createMultiAgentWorkerFactory(channel, { registerTools: config.registerTools ?? true });
 		return { factory, channel };
 	}
 	const factory = createMultiAgentClientFactory(config);
@@ -188,19 +189,21 @@ export function createMultiAgentExtension(config: DPiExtensionConfig): {
 
 // ── Worker-side implementation ───────────────────────────────────────────
 
-function createMultiAgentWorkerFactory(channel: HubChannel): ExtensionFactory {
+function createMultiAgentWorkerFactory(channel: HubChannel, options: { registerTools: boolean }): ExtensionFactory {
 	return (pi) => {
 		// Shared d-pi message rendering (connect / source / peer agent headers)
 		registerDPiMessageRenderer(pi);
 
-		// Core multi-agent tools (everything except remote execution)
-		pi.registerTool(createSendMessageTool(channel));
-		pi.registerTool(createCreateAgentTool(channel));
-		pi.registerTool(createDestroyAgentTool(channel));
-		pi.registerTool(createTeamTool(channel));
-		pi.registerTool(createSetSourceTool(channel));
-		pi.registerTool(createGetSourceTool(channel));
-		pi.registerTool(createDeleteSourceTool(channel));
+		if (options.registerTools) {
+			// Core multi-agent tools (everything except remote execution)
+			pi.registerTool(createSendMessageTool(channel));
+			pi.registerTool(createCreateAgentTool(channel));
+			pi.registerTool(createDestroyAgentTool(channel));
+			pi.registerTool(createTeamTool(channel));
+			pi.registerTool(createSetSourceTool(channel));
+			pi.registerTool(createGetSourceTool(channel));
+			pi.registerTool(createDeleteSourceTool(channel));
+		}
 
 		// Server-side command stubs so /sources and /agents appear in the TUI
 		// slash menu. Real execution happens in the client extension (synced

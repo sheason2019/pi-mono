@@ -1,5 +1,9 @@
+import { Type } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import {
+	createDispatchTools,
+	createReloadTool,
+	createTeamTool,
 	defineAgent,
 	defineAnthropicProvider,
 	defineContextFile,
@@ -12,7 +16,19 @@ import {
 	defineSkill,
 	defineTool,
 	defineTools,
+	getAgentBuiltinToolKind,
 } from "../src/index.ts";
+
+function testTool(name: string) {
+	return defineTool({
+		name,
+		description: `${name} description`,
+		parameters: Type.Object({ value: Type.Optional(Type.String()) }),
+		async execute(_toolCallId, params) {
+			return { content: [{ type: "text", text: params.value ?? name }], details: {} };
+		},
+	});
+}
 
 describe("agent definition helpers", () => {
 	it("defines rich agent-local model resources with built-in provider helpers", () => {
@@ -78,13 +94,60 @@ describe("agent definition helpers", () => {
 		});
 	});
 
+	it("defines executable tools and rejects name-only refs", () => {
+		const tool = testTool("custom_tool");
+
+		expect(tool).toMatchObject({
+			name: "custom_tool",
+			label: "custom_tool",
+			description: "custom_tool description",
+			parameters: expect.objectContaining({ type: "object" }),
+		});
+		expect(tool.execute).toEqual(expect.any(Function));
+		expect(() => defineTool({ name: "dispatch_read" } as never)).toThrow(/description/i);
+	});
+
+	it("creates executable built-in tool helper definitions with hidden binding metadata", () => {
+		const dispatchTools = createDispatchTools();
+		const teamTool = createTeamTool();
+		const reloadTool = createReloadTool();
+
+		expect(dispatchTools.map((tool) => tool.name)).toEqual([
+			"dispatch_bash",
+			"dispatch_read",
+			"dispatch_ls",
+			"dispatch_grep",
+			"dispatch_find",
+			"dispatch_write",
+			"dispatch_edit",
+		]);
+		expect(dispatchTools[0]).toMatchObject({
+			name: "dispatch_bash",
+			label: "Dispatch bash",
+			description: expect.any(String),
+			parameters: expect.objectContaining({ type: "object" }),
+			execute: expect.any(Function),
+		});
+		expect(getAgentBuiltinToolKind(dispatchTools[0])).toBe("dispatch_bash");
+		expect(getAgentBuiltinToolKind(teamTool)).toBe("team");
+		expect(getAgentBuiltinToolKind(reloadTool)).toBe("reload");
+		expect(Object.keys(teamTool)).not.toContain("@sheason/d-pi.agentBuiltinToolKind");
+
+		const agent = defineAgent({
+			tools: [teamTool, reloadTool, ...dispatchTools],
+		});
+		expect(getAgentBuiltinToolKind(agent.tools[0])).toBe("team");
+		expect(getAgentBuiltinToolKind(agent.tools[1])).toBe("reload");
+		expect(getAgentBuiltinToolKind(agent.tools[2])).toBe("dispatch_bash");
+	});
+
 	it("composes associated resource helpers into an agent definition", () => {
 		const agent = defineAgent({
 			description: "resource-rich",
 			roles: defineRoles(defineRole("planner"), defineRole("reviewer")),
 			model: defineModel({ provider: "anthropic", name: "claude-sonnet-4" }),
 			skills: defineSkill({ dir: "./skills" }),
-			tools: defineTools(defineTool({ name: "dispatch_read" }), defineTool({ name: "team" })),
+			tools: defineTools(testTool("dispatch_read"), testTool("team")),
 			contextFiles: defineContextFiles(
 				defineContextFile({ type: "context", path: "./AGENTS.md" }),
 				defineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" }),
@@ -93,7 +156,7 @@ describe("agent definition helpers", () => {
 
 		expect(agent.roles).toEqual(["planner", "reviewer"]);
 		expect(agent.model).toEqual({ provider: "anthropic", name: "claude-sonnet-4" });
-		expect(agent.tools).toEqual([{ name: "dispatch_read" }, { name: "team" }]);
+		expect(agent.tools.map((tool) => tool.name)).toEqual(["dispatch_read", "team"]);
 		expect(agent.contextFiles).toEqual([
 			{ type: "context", path: "./AGENTS.md" },
 			{ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" },
@@ -118,7 +181,7 @@ describe("agent definition helpers", () => {
 
 	it("copies arrays and nested definitions so caller mutation cannot change the definition", () => {
 		const roles = ["reviewer"];
-		const tools = [defineTool({ name: "dispatch_read" })];
+		const tools = [testTool("dispatch_read")];
 		const contextFiles = [defineContextFile({ type: "context", path: "./AGENTS.md" })];
 		const agent = defineAgent({
 			roles,
@@ -128,11 +191,11 @@ describe("agent definition helpers", () => {
 		});
 
 		roles.push("mutated");
-		tools.push(defineTool({ name: "dispatch_write" }));
+		tools.push(testTool("dispatch_write"));
 		contextFiles[0] = defineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" });
 
 		expect(agent.roles).toEqual(["reviewer"]);
-		expect(agent.tools).toEqual([{ name: "dispatch_read" }]);
+		expect(agent.tools.map((tool) => tool.name)).toEqual(["dispatch_read"]);
 		expect(agent.contextFiles).toEqual([{ type: "context", path: "./AGENTS.md" }]);
 	});
 
@@ -142,7 +205,7 @@ describe("agent definition helpers", () => {
 			roles: [],
 			model: defineModel({ provider: "anthropic", name: "claude-sonnet-4" }),
 			skills: defineSkill({ dir: "./skills" }),
-			tools: [defineTool({ name: "team" })],
+			tools: [testTool("team")],
 			contextFiles: [],
 		});
 		const agent = defineAgent({
@@ -151,7 +214,7 @@ describe("agent definition helpers", () => {
 			roles: ["reviewer"],
 			model: defineModel({ provider: "anthropic", name: "claude-sonnet-4" }),
 			skills: defineSkill({ dir: "./skills" }),
-			tools: [defineTool({ name: "dispatch_read" }), defineTool({ name: "team" })],
+			tools: [testTool("dispatch_read"), testTool("team")],
 			contextFiles: [
 				defineContextFile({ type: "context", path: "./AGENTS.md" }),
 				defineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" }),

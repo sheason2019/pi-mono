@@ -46,9 +46,9 @@ function writeAgentTs(
 ): void {
 	const dir = join(workspace, "agents", entryName);
 	mkdirSync(dir, { recursive: true });
-	const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "agent-definition.ts")).href;
+	const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "index.ts")).href;
 	const lines = [
-		`import { defineAgent, defineContextFile, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
+		`import { createDispatchReadTool, createTeamTool, defineAgent, defineContextFile, defineSkill } from ${JSON.stringify(dPiDefinitionUrl)};`,
 	];
 	if (parentImportName) {
 		lines.push(`import parentAgent from "../${parentImportName}/agent.ts";`);
@@ -69,7 +69,7 @@ function writeAgentTs(
 	lines.push('\tskills: defineSkill({ dir: "./skills" }),');
 	lines.push("\ttools: [");
 	for (const toolName of config.includeTools ?? ["dispatch_read"]) {
-		lines.push(`\t\tdefineTool({ name: ${JSON.stringify(toolName)} }),`);
+		lines.push(`\t\t${toolName === "team" ? "createTeamTool" : "createDispatchReadTool"}(),`);
 	}
 	lines.push("\t],");
 	lines.push("\tcontextFiles: [");
@@ -207,6 +207,7 @@ describe("discoverPersistedAgents + orderAgentsForRestore", () => {
 
 describe("Hub.createAgent — parent invariant defensive check", () => {
 	beforeEach(async () => {
+		vi.resetModules();
 		// Replace node:worker_threads with a fake that immediately emits
 		// a matching ready message so the worker's "wait for ready"
 		// promise resolves.

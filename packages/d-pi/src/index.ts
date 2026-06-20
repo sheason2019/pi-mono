@@ -16,6 +16,7 @@ export {
 	type AgentRoleDefinition,
 	type AgentSkillDefinition,
 	type AgentToolDefinition,
+	type AgentToolDefinitionInput,
 	defineAgent,
 	defineAnthropicProvider,
 	defineContextFile,
@@ -36,6 +37,26 @@ export {
 	normalizeLoadedAgentDefinition,
 	readLoadedAgentDefinitionFromTs,
 } from "./agent-loader.ts";
+export {
+	type AgentBuiltinToolKind,
+	createCreateAgentTool,
+	createDeleteSourceTool,
+	createDestroyAgentTool,
+	createDispatchBashTool,
+	createDispatchEditTool,
+	createDispatchFindTool,
+	createDispatchGrepTool,
+	createDispatchLsTool,
+	createDispatchReadTool,
+	createDispatchTools,
+	createDispatchWriteTool,
+	createGetSourceTool,
+	createReloadTool,
+	createSendMessageTool,
+	createSetSourceTool,
+	createTeamTool,
+	getAgentBuiltinToolKind,
+} from "./agent-tool-helpers.ts";
 export { type DPiConnectOptions, runDPiConnectMode } from "./connect/connect-mode.ts";
 export { DPiContextManager, type DPiContextManagerOptions } from "./context/context-manager.ts";
 export type { DPiContextFile } from "./context/resource-loader.ts";

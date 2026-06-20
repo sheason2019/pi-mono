@@ -9,16 +9,26 @@ import { join } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import type { AgentToolDefinition } from "../agent-definition.ts";
 import { readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
+import { type AgentBuiltinToolKind, getAgentBuiltinToolKind } from "../agent-tool-helpers.ts";
 import { DPiContextManager } from "../context/context-manager.ts";
 import { DPI_META_PROMPT } from "../dpi-meta.ts";
+import type { ExtensionFactory, ModelRegistry, ResourceLoader, ToolDefinition } from "../extension/contracts.ts";
+import { createCreateAgentTool } from "../extension/create-agent.ts";
+import { createDeleteSourceTool } from "../extension/delete-source.ts";
+import { createDestroyAgentTool } from "../extension/destroy-agent.ts";
+import { createDispatchTools } from "../extension/dispatch-tools.ts";
+import { createGetSourceTool } from "../extension/get-source.ts";
 import {
-	createAgentMetadataExtension,
-	createDispatchExtension, // from dispatch-extension via index barrel
 	createMultiAgentExtension,
 	// dispatch imported directly from dispatch-extension
 	type HubChannel,
 } from "../extension/index.ts";
+import { createReloadTools } from "../extension/reload-tools.ts";
+import { createSendMessageTool } from "../extension/send-message.ts";
+import { createSetSourceTool } from "../extension/set-source.ts";
+import { createTeamTool } from "../extension/team.ts";
 import { agentDefinitionToConfig, formatAgentIdentitySection } from "../hub/agent-identity.ts";
 import { DPiAgentRuntime } from "../runtime/agent-runtime.ts";
 import { DPiModelManager } from "../runtime/model-manager.ts";
@@ -73,6 +83,54 @@ function toPromptImages(images: Array<{ url: string; mediaType?: string }> | und
 	}));
 }
 
+interface AgentLocalToolsExtensionOptions {
+	agentTools: AgentToolDefinition[];
+	channel: HubChannel;
+	cwd: string;
+	getReloadFn: () => (() => Promise<void>) | undefined;
+	getResourceLoader: () => ResourceLoader | undefined;
+	getModelRegistry: () => ModelRegistry | undefined;
+}
+
+function createAgentLocalToolsExtension(options: AgentLocalToolsExtensionOptions): ExtensionFactory {
+	return (pi) => {
+		const builtins = createWorkerBuiltinToolMap(options);
+		for (const tool of options.agentTools) {
+			const builtinKind = getAgentBuiltinToolKind(tool);
+			const resolvedTool = builtinKind ? builtins.get(builtinKind) : tool;
+			if (!resolvedTool) {
+				throw new Error(`Configured d-pi built-in tool "${tool.name}" is not available in this worker.`);
+			}
+			pi.registerTool(resolvedTool);
+		}
+	};
+}
+
+function createWorkerBuiltinToolMap(
+	options: AgentLocalToolsExtensionOptions,
+): Map<AgentBuiltinToolKind, ToolDefinition> {
+	return new Map<AgentBuiltinToolKind, ToolDefinition>([
+		["send_message", createSendMessageTool(options.channel)],
+		["create_agent", createCreateAgentTool(options.channel)],
+		["destroy_agent", createDestroyAgentTool(options.channel)],
+		["team", createTeamTool(options.channel)],
+		["set_source", createSetSourceTool(options.channel)],
+		["get_source", createGetSourceTool(options.channel)],
+		["delete_source", createDeleteSourceTool(options.channel)],
+		...createDispatchTools(options.channel, options.cwd).map(
+			(tool) => [tool.name as AgentBuiltinToolKind, tool as ToolDefinition] as const,
+		),
+		[
+			"reload",
+			createReloadTools({
+				getReloadFn: options.getReloadFn,
+				getResourceLoader: options.getResourceLoader,
+				getModelRegistry: options.getModelRegistry,
+			}),
+		],
+	]);
+}
+
 // Listen for messages from Hub
 port.on("message", (message: HubToWorkerMessage) => {
 	switch (message.type) {
@@ -121,8 +179,8 @@ async function runAgentWorker(): Promise<void> {
 		mode: "worker",
 		agentName,
 		postToHub,
+		registerTools: false,
 	});
-	const dispatchFactory = createDispatchExtension(channel, cwd);
 	hubChannel = channel;
 
 	// 3. Build the runtime factory (mirrors main.ts pattern)
@@ -188,64 +246,30 @@ async function runAgentWorker(): Promise<void> {
 				extensionFactories: [
 					{
 						// d-pi multi-agent / orchestration surface.
-						// Provides: create/destroy_agent, send_message, team,
-						// all source tools, the dual-registered /agents and /sources commands,
-						// d-pi custom message rendering, and the input / incoming-message routing
+						// Provides non-tool UI/session support: the dual-registered
+						// /agents and /sources commands, d-pi custom message rendering,
+						// and the input / incoming-message routing
 						// that feeds connect-mode and source messages into the agent's session.
 						factory: multiAgentFactory,
 						name: "<d-pi-multi-agent>",
 					},
 					{
-						// Remote executor tools (remote_bash, remote_read, remote_edit, ...).
-						// These let a hub-side agent invoke the corresponding native tools on
-						// a connected d-pi client (the user's local machine) via the IPC channel.
-						// If no client is bound, the tools surface a clear actionable error.
-						// This is kept as a separate named extension from the multi-agent surface
-						// so the two concerns can be understood, traced, and optionally gated
-						// independently.
-						factory: dispatchFactory,
-						name: "<d-pi-dispatch>",
-					},
-					{
-						// d-pi-built-in-metadata-extension: registers the
-						// `reload` tool plus the agent metadata controls
-						// (set_model, set_thinking_level). This is the single
-						// extension that lets agents (via LLM tools) control
-						// their own runtime model and thinking intensity, and
-						// also hosts reload so that one extension factory
-						// covers the "self-configuration + refresh" surface.
-						//
-						// The session is not available when the factory first
-						// runs (it is constructed later by
-						// createDPiAgentSessionFromServices), so the reload tool's
-						// deps use lazy getters that resolve `runtime?.session`
-						// at execute() time. The set_model / set_thinking_level
-						// tools obtain their setters from the ExtensionAPI (pi)
-						// at factory time (they are stable) and use
-						// ctx.modelRegistry (from the execute ctx) to resolve
-						// string specs to Model objects.
-						factory: createAgentMetadataExtension({
+						// Agent-local executable tools are the only LLM tool source.
+						// Built-in helpers in agent.ts are hydrated here with worker
+						// dependencies; custom defineTool() implementations are registered
+						// as-is.
+						factory: createAgentLocalToolsExtension({
+							agentTools: agentDefinition?.tools ?? [],
+							channel,
+							cwd,
 							getReloadFn: () => {
 								const session = runtime?.session;
 								return session ? () => session.reload() : undefined;
 							},
 							getResourceLoader: () => runtime?.session?.resourceLoader,
-							// Also re-read ~/.pi/agent/models.json on reload so
-							// newly added providers / rotated keys become
-							// available in the same call, without a hub
-							// restart. The model registry is owned by the
-							// agent session, so we resolve it lazily at
-							// execute() time the same way we do for the
-							// session / resource loader.
 							getModelRegistry: () => runtime?.session?.modelRegistry,
-							// Provide the worker's authoritative agent directory (the one
-							// containing this agent's agent.ts). The metadata tools use
-							// this (via getAgentCwd) in preference to ExtensionContext.cwd
-							// when persisting model changes, so that writes always target
-							// the correct persisted config even if ctx.cwd semantics differ.
-							getAgentCwd: () => cwd,
 						}),
-						name: "<d-pi-built-in-metadata-extension>",
+						name: "<d-pi-agent-local-tools>",
 					},
 				],
 				appendSystemPromptOverride: (base) => {

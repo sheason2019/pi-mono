@@ -89,17 +89,17 @@ describe("d-pi agent-ts migration", () => {
 		expect(rootAgentTs).toContain('defineContextFile({ type: "context", path: "./AGENTS.md" })');
 		expect(rootAgentTs).toContain('defineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" })');
 		expect(rootAgentTs).toContain('roles: ["root-role"]');
-		expect(rootAgentTs).toContain('defineTool({ name: "dispatch_read" })');
-		expect(rootAgentTs).toContain('defineTool({ name: "team" })');
-		expect(rootAgentTs).not.toContain('defineTool({ name: "dispatch_bash" })');
+		expect(rootAgentTs).toContain("createDispatchReadTool()");
+		expect(rootAgentTs).toContain("createTeamTool()");
+		expect(rootAgentTs).not.toContain("createDispatchBashTool()");
 
 		const reviewerAgentTs = readFileSync(join(workspaceRoot, "agents", "reviewer", "agent.ts"), "utf-8");
 		expect(reviewerAgentTs).toContain('import parentAgent from "../root/agent.ts"');
 		expect(reviewerAgentTs).toContain("parent: parentAgent");
 		expect(reviewerAgentTs).toContain('roles: ["reviewer"]');
-		expect(reviewerAgentTs).toContain('defineTool({ name: "team" })');
-		expect(reviewerAgentTs).not.toContain('defineTool({ name: "dispatch_bash" })');
-		expect(reviewerAgentTs).not.toContain('defineTool({ name: "set_model" })');
+		expect(reviewerAgentTs).toContain("createTeamTool()");
+		expect(reviewerAgentTs).not.toContain("createDispatchBashTool()");
+		expect(reviewerAgentTs).not.toContain("createSetModelTool");
 
 		expect(readFileSync(join(workspaceRoot, "agents", "root", "session", "root-session.jsonl"), "utf-8")).toBe(
 			"root session\n",

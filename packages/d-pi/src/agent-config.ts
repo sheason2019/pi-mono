@@ -28,9 +28,37 @@ export const DEFAULT_AGENT_TOOL_NAMES = [
 	"get_source",
 	"delete_source",
 	"reload",
-	"set_model",
-	"set_thinking_level",
 ] as const;
+
+const LEGACY_AGENT_TOOL_NAMES = ["set_model", "set_thinking_level"] as const;
+
+const DISPATCH_TOOL_NAMES = [
+	"dispatch_bash",
+	"dispatch_read",
+	"dispatch_ls",
+	"dispatch_grep",
+	"dispatch_find",
+	"dispatch_write",
+	"dispatch_edit",
+] as const;
+
+const TOOL_HELPER_NAMES: Record<(typeof DEFAULT_AGENT_TOOL_NAMES)[number], string> = {
+	dispatch_bash: "createDispatchBashTool",
+	dispatch_read: "createDispatchReadTool",
+	dispatch_ls: "createDispatchLsTool",
+	dispatch_grep: "createDispatchGrepTool",
+	dispatch_find: "createDispatchFindTool",
+	dispatch_write: "createDispatchWriteTool",
+	dispatch_edit: "createDispatchEditTool",
+	send_message: "createSendMessageTool",
+	create_agent: "createCreateAgentTool",
+	destroy_agent: "createDestroyAgentTool",
+	team: "createTeamTool",
+	set_source: "createSetSourceTool",
+	get_source: "createGetSourceTool",
+	delete_source: "createDeleteSourceTool",
+	reload: "createReloadTool",
+};
 
 function formatArrayLiteral(values: string[]): string {
 	return `[${values.map((value) => JSON.stringify(value)).join(", ")}]`;
@@ -162,12 +190,38 @@ function formatModelExpression(model: AgentModelDefinition, indent: string): str
 	return lines.join("\n");
 }
 
+function formatToolExpressions(toolNames: string[]): string[] {
+	const remainingToolNames = new Set(toolNames);
+	const expressions: string[] = [];
+	if (DISPATCH_TOOL_NAMES.every((toolName) => remainingToolNames.has(toolName))) {
+		expressions.push("...createDispatchTools()");
+		for (const toolName of DISPATCH_TOOL_NAMES) {
+			remainingToolNames.delete(toolName);
+		}
+	}
+	for (const toolName of toolNames) {
+		if (!remainingToolNames.has(toolName)) {
+			continue;
+		}
+		const helperName = TOOL_HELPER_NAMES[toolName as (typeof DEFAULT_AGENT_TOOL_NAMES)[number]];
+		if (!helperName) {
+			throw new Error(`Cannot emit agent.ts: unknown tool helper for ${toolName}`);
+		}
+		expressions.push(`${helperName}()`);
+		remainingToolNames.delete(toolName);
+	}
+	return expressions;
+}
+
 export function assertKnownToolNames(
 	agentName: string,
 	fieldName: "includeTools" | "excludeTools",
 	toolNames: string[],
 ): void {
 	const knownNames = new Set<string>(DEFAULT_AGENT_TOOL_NAMES);
+	for (const toolName of LEGACY_AGENT_TOOL_NAMES) {
+		knownNames.add(toolName);
+	}
 	for (const toolName of toolNames) {
 		if (!knownNames.has(toolName)) {
 			throw new Error(
@@ -184,7 +238,8 @@ export function resolveActiveToolNames(config: Pick<AgentConfig, "name" | "inclu
 	}
 	if (config.includeTools) {
 		assertKnownToolNames(config.name, "includeTools", config.includeTools);
-		return [...config.includeTools];
+		const defaultToolNames = new Set<string>(DEFAULT_AGENT_TOOL_NAMES);
+		return config.includeTools.filter((toolName) => defaultToolNames.has(toolName));
 	}
 	if (config.excludeTools) {
 		assertKnownToolNames(config.name, "excludeTools", config.excludeTools);
@@ -206,7 +261,7 @@ export function buildAgentTsSource(
 		excludeTools: config.excludeTools,
 	});
 	const lines = [
-		'import { defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill, defineTool } from "@sheason/d-pi";',
+		'import { createCreateAgentTool, createDeleteSourceTool, createDestroyAgentTool, createDispatchBashTool, createDispatchEditTool, createDispatchFindTool, createDispatchGrepTool, createDispatchLsTool, createDispatchReadTool, createDispatchTools, createDispatchWriteTool, createGetSourceTool, createReloadTool, createSendMessageTool, createSetSourceTool, createTeamTool, defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill } from "@sheason/d-pi";',
 	];
 	if (config.parentName) {
 		lines.push(`import parentAgent from "../${config.parentName}/agent.ts";`);
@@ -239,8 +294,8 @@ export function buildAgentTsSource(
 	}
 	lines.push('\tskills: defineSkill({ dir: "./skills" }),');
 	lines.push("\ttools: [");
-	for (const toolName of toolNames) {
-		lines.push(`\t\tdefineTool({ name: ${JSON.stringify(toolName)} }),`);
+	for (const expression of formatToolExpressions(toolNames)) {
+		lines.push(`\t\t${expression},`);
 	}
 	lines.push("\t],");
 	lines.push("\tcontextFiles: [");

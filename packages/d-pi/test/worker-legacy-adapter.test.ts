@@ -740,6 +740,9 @@ describe("worker runtime adapter", () => {
 		expect(runtimeIndex).toBeGreaterThan(bindIndex);
 		expect(source).toContain("tools: runtime!.session.getToolDefinitions()");
 		expect(source).toContain("activeToolNames: config.includeTools");
+		expect(source).toContain("registerTools: false");
+		expect(source).toContain("createAgentLocalToolsExtension");
+		expect(source).toContain("agentTools: agentDefinition?.tools ?? []");
 	});
 
 	it("serves current observable state over IPC instead of a placeholder list", async () => {

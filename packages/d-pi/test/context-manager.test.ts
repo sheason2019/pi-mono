@@ -38,6 +38,18 @@ function writeAgentDefinition(agentDir: string, source: string): void {
 	write(join(agentDir, "agent.ts"), source);
 }
 
+function testTool(name: string): AgentToolDefinition {
+	return {
+		name,
+		label: name,
+		description: `${name} description`,
+		parameters: { type: "object", properties: {} },
+		async execute() {
+			return { content: [{ type: "text", text: name }], details: {} };
+		},
+	};
+}
+
 function createLoadedAgentDefinition(
 	agentDir: string,
 	options: {
@@ -181,12 +193,12 @@ describe("DPiContextManager", () => {
 		writeAgentDefinition(
 			agentDir,
 			[
-				'import { defineAgent, defineContextFile, defineSkill, defineTool } from "@sheason/d-pi";',
+				'import { createDispatchReadTool, defineAgent, defineContextFile, defineSkill } from "@sheason/d-pi";',
 				"",
 				"export default defineAgent({",
 				'\tdescription: "Root agent identity.",',
 				'\tskills: defineSkill({ dir: "./custom-skills" }),',
-				'\ttools: [defineTool({ name: "dispatch_read" })],',
+				"\ttools: [createDispatchReadTool()],",
 				"\tcontextFiles: [",
 				'\t\tdefineContextFile({ type: "context", path: "./custom/CONTEXT.md" }),',
 				'\t\tdefineContextFile({ type: "context", path: "./AGENTS.md" }),',
@@ -206,7 +218,7 @@ describe("DPiContextManager", () => {
 			agentDefinition: createLoadedAgentDefinition(agentDir, {
 				description: "Root agent identity.",
 				skills: { dir: "./custom-skills" },
-				tools: [{ name: "dispatch_read" }],
+				tools: [testTool("dispatch_read")],
 				contextFiles: [
 					{ type: "context", path: "./custom/CONTEXT.md" },
 					{ type: "context", path: "./AGENTS.md" },
@@ -241,7 +253,7 @@ describe("DPiContextManager", () => {
 		const agentDefinition = normalizeLoadedAgentDefinition(join(agentDir, "agent.ts"), {
 			description: "Injected identity.",
 			skills: { dir: "./custom-skills" },
-			tools: [{ name: "dispatch_read" }],
+			tools: [testTool("dispatch_read")],
 			contextFiles: [
 				{ type: "context", path: "./custom/CONTEXT.md" },
 				{ type: "append_system", path: "./custom/APPEND.md" },
@@ -288,7 +300,7 @@ describe("DPiContextManager", () => {
 			agentDefinition: createLoadedAgentDefinition(agentDir, {
 				description: "Root agent identity.",
 				skills: { dir: "./custom-skills" },
-				tools: [{ name: "dispatch_read" }],
+				tools: [testTool("dispatch_read")],
 				contextFiles: [
 					{ type: "context", path: "./custom/CONTEXT.md" },
 					{ type: "context", path: "./AGENTS.md" },

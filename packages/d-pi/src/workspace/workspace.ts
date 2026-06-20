@@ -384,7 +384,8 @@ Each agent exports a standard definition:
   non-default provider settings.
 - \`roles\` (optional): array of role names — see \`team-template/roles/\`.
 - \`skills\` (required): use \`defineSkill({ dir: "./skills" })\` for agent-local skills.
-- \`tools\` (required): array of \`defineTool({ name })\` entries.
+- \`tools\` (required): executable tool definitions, usually explicit built-in helpers such as
+  \`...createDispatchTools()\`, \`createTeamTool()\`, and custom \`defineTool({ name, description, parameters, execute })\`.
   This is the effective tool set for the agent. Unknown tool names are rejected during migration.
   Legacy \`includeTools\` / \`excludeTools\` configs are migrated into this effective \`tools\` array.
 - \`contextFiles\` (required): include \`./AGENTS.md\` as \`context\` and \`./.pi/APPEND_SYSTEM.md\` as \`append_system\`.

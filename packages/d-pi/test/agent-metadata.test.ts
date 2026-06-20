@@ -67,8 +67,8 @@ function useSourceDefinitionImportInAgentFile(agentDir: string): void {
 	const agentFilePath = join(agentDir, "agent.ts");
 	const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "index.ts")).href;
 	const source = readFileSync(agentFilePath, "utf-8").replace(
-		'import { defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill, defineTool } from "@sheason/d-pi";',
-		`import { defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
+		'from "@sheason/d-pi"',
+		`from ${JSON.stringify(dPiDefinitionUrl)}`,
 	);
 	writeFileSync(agentFilePath, source);
 }
@@ -78,19 +78,19 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 
 	beforeEach(() => {
 		tmpDir = mkdtempSync(join(os.tmpdir(), "d-pi-agent-meta-"));
-		const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "agent-definition.ts")).href;
+		const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "index.ts")).href;
 		// Seed a minimal agent.ts so the persist path has something to update.
 		writeFileSync(
 			join(tmpDir, "agent.ts"),
 			[
-				`import { defineAgent, defineContextFile, defineModel, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
+				`import { createDispatchReadTool, defineAgent, defineContextFile, defineModel, defineSkill } from ${JSON.stringify(dPiDefinitionUrl)};`,
 				"",
 				"export default defineAgent({",
 				'\tdescription: "test-agent",',
 				'\tmodel: defineModel({ provider: "unknown", name: "old-model" }),',
 				'\tskills: defineSkill({ dir: "./skills" }),',
 				"\ttools: [",
-				'\t\tdefineTool({ name: "dispatch_read" }),',
+				"\t\tcreateDispatchReadTool(),",
 				"\t],",
 				"\tcontextFiles: [",
 				'\t\tdefineContextFile({ type: "context", path: "./AGENTS.md" }),',
@@ -177,6 +177,7 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 		expect(resultText(result)).toMatch(/Model switched to anthropic\/claude-sonnet-4/);
 
 		// Verify the write used the getAgentCwd (tmpDir) not the ctx.cwd
+		useSourceDefinitionImportInAgentFile(tmpDir);
 		const written = await readLoadedAgentDefinitionFromTs(tmpDir);
 		expect(written?.model).toEqual({ provider: "anthropic", name: "claude-sonnet-4" });
 	});

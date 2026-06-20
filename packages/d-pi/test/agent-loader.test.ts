@@ -25,6 +25,31 @@ function writeAgentModule(workspaceRoot: string, agentName: string, source: stri
 	return agentFilePath;
 }
 
+function executableTool(name: string) {
+	return {
+		name,
+		label: name,
+		description: `${name} description`,
+		parameters: { type: "object", properties: {} },
+		async execute() {
+			return { content: [{ type: "text" as const, text: name }] };
+		},
+	};
+}
+
+function executableToolSource(name: string): string {
+	return [
+		"defineTool({",
+		`\t\tname: ${JSON.stringify(name)},`,
+		`\t\tdescription: ${JSON.stringify(`${name} description`)},`,
+		'\t\tparameters: { type: "object", properties: {} },',
+		"\t\tasync execute() {",
+		`\t\t\treturn { content: [{ type: "text", text: ${JSON.stringify(name)} }] };`,
+		"\t\t},",
+		"\t})",
+	].join("\n");
+}
+
 afterEach(() => {
 	if (tempDir) {
 		rmSync(tempDir, { recursive: true, force: true });
@@ -41,7 +66,7 @@ describe("normalizeLoadedAgentDefinition", () => {
 			parent,
 			description: "reviewer",
 			roles: ["reviewer"],
-			tools: [{ name: "dispatch_read" }],
+			tools: [executableTool("dispatch_read")],
 			skills: { dir: "./skills" },
 			contextFiles: [{ type: "context", path: "./AGENTS.md" }],
 		});
@@ -74,7 +99,7 @@ describe("normalizeLoadedAgentDefinition", () => {
 	it("throws when nested fields have invalid shapes", () => {
 		expect(() =>
 			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
-				tools: [{ name: "dispatch_read" }],
+				tools: [executableTool("dispatch_read")],
 				skills: null,
 				contextFiles: [],
 			}),
@@ -82,11 +107,19 @@ describe("normalizeLoadedAgentDefinition", () => {
 
 		expect(() =>
 			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
-				tools: [{ name: "dispatch_read" }],
+				tools: [executableTool("dispatch_read")],
 				skills: { dir: "./skills" },
 				contextFiles: [{ type: "invalid", path: "./AGENTS.md" }],
 			}),
 		).toThrow(/contextFiles.*type/i);
+
+		expect(() =>
+			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
+				tools: [{ name: "dispatch_read" }],
+				skills: { dir: "./skills" },
+				contextFiles: [],
+			}),
+		).toThrow(/tools\[0\]\.label/i);
 	});
 
 	it("accepts rich model definitions and rejects invalid rich model shapes", () => {
@@ -109,7 +142,7 @@ describe("normalizeLoadedAgentDefinition", () => {
 					contextWindow: 100_000,
 				},
 			],
-			tools: [{ name: "dispatch_read" }],
+			tools: [executableTool("dispatch_read")],
 			skills: { dir: "./skills" },
 			contextFiles: [],
 		});
@@ -160,7 +193,17 @@ describe("loadAgentDefinitionFromFile", () => {
 				'  description: "reviewer",',
 				'  roles: ["reviewer"],',
 				'  model: { provider: "anthropic", name: "claude-sonnet-4" },',
-				'  tools: [{ name: "dispatch_read" }],',
+				"  tools: [",
+				"    {",
+				'      name: "dispatch_read",',
+				'      label: "dispatch_read",',
+				'      description: "dispatch_read description",',
+				'      parameters: { type: "object", properties: {} },',
+				"      async execute() {",
+				'        return { content: [{ type: "text", text: "dispatch_read" }] };',
+				"      },",
+				"    },",
+				"  ],",
 				'  skills: { dir: "./skills" },',
 				'  contextFiles: [{ type: "context", path: "./AGENTS.md" }],',
 				"};",
@@ -205,7 +248,7 @@ describe("readLoadedAgentDefinitionFromTs", () => {
 				"export default defineAgent({",
 				'\tdescription: "External workspace root",',
 				'\tskills: defineSkill({ dir: "./skills" }),',
-				'\ttools: [defineTool({ name: "dispatch_read" })],',
+				`\ttools: [${executableToolSource("dispatch_read")}],`,
 				"\tcontextFiles: [",
 				'\t\tdefineContextFile({ type: "context", path: "./AGENTS.md" }),',
 				'\t\tdefineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" }),',
@@ -256,7 +299,7 @@ describe("readLoadedAgentDefinitionFromTs", () => {
 				"\t\tcontextWindow: 200000,",
 				"\t}),",
 				'\tskills: defineSkill({ dir: "./skills" }),',
-				'\ttools: [defineTool({ name: "dispatch_read" })],',
+				`\ttools: [${executableToolSource("dispatch_read")}],`,
 				'\tcontextFiles: [defineContextFile({ type: "context", path: "./AGENTS.md" })],',
 				"});",
 				"",

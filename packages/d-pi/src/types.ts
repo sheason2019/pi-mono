@@ -216,4 +216,5 @@ export type {
 	AgentRoleDefinition,
 	AgentSkillDefinition,
 	AgentToolDefinition,
+	AgentToolDefinitionInput,
 } from "./agent-definition.ts";

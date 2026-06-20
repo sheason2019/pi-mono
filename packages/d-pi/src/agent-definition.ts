@@ -1,9 +1,27 @@
 import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Api, Model, Provider, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import type { Static, TSchema } from "typebox";
+import type { ToolDefinition } from "./extension/contracts.ts";
 
-export interface AgentToolDefinition {
+export interface AgentToolExecutionContext {
+	cwd: string;
+	hasUI?: boolean;
+}
+
+export interface AgentToolDefinition<TParams extends TSchema = TSchema, TDetails = unknown, TState = unknown>
+	extends Omit<ToolDefinition<TParams, TDetails, TState>, "label"> {
+	label: string;
+}
+
+export interface AgentToolDefinitionInput<TParams extends TSchema = TSchema, TDetails = unknown, TState = unknown> {
 	name: string;
+	label?: string;
+	description: string;
+	parameters: TParams;
+	prepareArguments?: (args: unknown) => Static<TParams>;
+	executionMode?: "sequential" | "parallel";
+	execute: ToolDefinition<TParams, TDetails, TState>["execute"];
 }
 
 export interface AgentSkillDefinition {
@@ -131,12 +149,39 @@ export function setAgentDefinitionMetadata(
 	return definition;
 }
 
-export function defineTool(input: AgentToolDefinition): AgentToolDefinition {
-	return { name: input.name };
+export function defineTool<TParams extends TSchema, TDetails = unknown, TState = unknown>(
+	input: AgentToolDefinitionInput<TParams, TDetails, TState>,
+): AgentToolDefinition<TParams, TDetails, TState> {
+	if (typeof input.description !== "string" || input.description.length === 0) {
+		throw new TypeError("defineTool requires a non-empty description");
+	}
+	if (typeof input.execute !== "function") {
+		throw new TypeError("defineTool requires an execute function");
+	}
+	const tool = {
+		name: input.name,
+		label: input.label ?? input.name,
+		description: input.description,
+		parameters: input.parameters,
+		...(input.prepareArguments === undefined ? {} : { prepareArguments: input.prepareArguments }),
+		...(input.executionMode === undefined ? {} : { executionMode: input.executionMode }),
+		execute: input.execute,
+	};
+	copyHiddenToolProperties(input, tool);
+	return tool;
 }
 
 export function defineTools(...input: AgentToolDefinition[]): AgentToolDefinition[] {
-	return input.map(defineTool);
+	return input.map((tool) => defineTool(tool));
+}
+
+function copyHiddenToolProperties(source: object, target: object): void {
+	for (const symbol of Object.getOwnPropertySymbols(source)) {
+		const descriptor = Object.getOwnPropertyDescriptor(source, symbol);
+		if (descriptor) {
+			Object.defineProperty(target, symbol, descriptor);
+		}
+	}
 }
 
 export function defineSkill(input: AgentSkillDefinition): AgentSkillDefinition {

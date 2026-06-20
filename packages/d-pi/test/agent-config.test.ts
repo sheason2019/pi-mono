@@ -15,10 +15,7 @@ function createWorkspace(): string {
 
 function useSourceDefinitionImport(source: string): string {
 	const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "index.ts")).href;
-	return source.replace(
-		'import { defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill, defineTool } from "@sheason/d-pi";',
-		`import { defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
-	);
+	return source.replaceAll('from "@sheason/d-pi"', `from ${JSON.stringify(dPiDefinitionUrl)}`);
 }
 
 function useSourceDefinitionImportInAgentFile(agentDir: string): void {
@@ -65,6 +62,7 @@ describe("persistModelInAgentTs", () => {
 		);
 
 		await persistModelInAgentTs(reviewerDir, "anthropic/claude-sonnet-4");
+		useSourceDefinitionImportInAgentFile(reviewerDir);
 
 		const written = await readLoadedAgentDefinitionFromTs(reviewerDir);
 		expect(written).toMatchObject({
@@ -88,17 +86,16 @@ describe("persistModelInAgentTs", () => {
 		writeFileSync(
 			join(agentDir, "agent.ts"),
 			[
-				`import { defineAgent, defineContextFile, defineModel, defineRole, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
+				`import { createDispatchReadTool, createTeamTool, defineAgent, defineContextFile, defineModel, defineRole, defineSkill } from ${JSON.stringify(dPiDefinitionUrl)};`,
 				"",
 				'const role = defineRole("reviewer");',
-				'const toolNames = ["dispatch_read", "team"];',
 				"",
 				"export default defineAgent({",
 				"\tdescription: `Dynamic reviewer`,",
 				"\troles: [role],",
 				'\tmodel: defineModel({ provider: "unknown", name: "old-model" }),',
 				'\tskills: defineSkill({ dir: "./skills" }),',
-				"\ttools: toolNames.map((name) => defineTool({ name })),",
+				"\ttools: [createDispatchReadTool(), createTeamTool()],",
 				"\tcontextFiles: [",
 				'\t\tdefineContextFile({ type: "context", path: "./AGENTS.md" }),',
 				'\t\tdefineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" }),',
@@ -109,6 +106,7 @@ describe("persistModelInAgentTs", () => {
 		);
 
 		await persistModelInAgentTs(agentDir, "anthropic/claude-sonnet-4");
+		useSourceDefinitionImportInAgentFile(agentDir);
 
 		const written = await readLoadedAgentDefinitionFromTs(agentDir);
 		expect(written).toMatchObject({

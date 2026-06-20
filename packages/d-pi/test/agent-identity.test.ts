@@ -27,9 +27,8 @@ function freshWorkspace(): string {
 function writeAgentTs(workspace: string, entryName: string, config: AgentConfig, parentImportName?: string): void {
 	const dir = join(workspace, "agents", entryName);
 	mkdirSync(dir, { recursive: true });
-	const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "agent-definition.ts")).href;
 	const lines = [
-		`import { defineAgent, defineContextFile, defineModel, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
+		`import { createDispatchBashTool, createDispatchReadTool, defineAgent, defineContextFile, defineModel, defineSkill } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src", "index.ts")).href)};`,
 	];
 	if (parentImportName) {
 		lines.push(`import parentAgent from "../${parentImportName}/agent.ts";`);
@@ -60,7 +59,9 @@ function writeAgentTs(workspace: string, entryName: string, config: AgentConfig,
 				? ["dispatch_read"]
 				: ["dispatch_read", "dispatch_bash"];
 	for (const toolName of toolNames) {
-		lines.push(`\t\tdefineTool({ name: ${JSON.stringify(toolName)} }),`);
+		lines.push(
+			`\t\t${toolName === "dispatch_bash" || toolName === "bash" ? "createDispatchBashTool" : "createDispatchReadTool"}(),`,
+		);
 	}
 	lines.push("\t],");
 	lines.push("\tcontextFiles: [");
@@ -141,7 +142,7 @@ describe("loadAgentIdentity", () => {
 			description: "A child agent.",
 			roles: ["writer", "reviewer"],
 			model: "anthropic/claude-sonnet-4",
-			includeTools: ["read", "bash"],
+			includeTools: ["dispatch_read", "dispatch_bash"],
 		});
 	});
 });

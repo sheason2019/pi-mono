@@ -24,8 +24,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function assertTool(value: unknown, index: number): asserts value is AgentToolDefinition {
-	if (!isRecord(value) || typeof value.name !== "string") {
+	if (!isRecord(value)) {
+		throw new TypeError(`Agent definition tools[${index}] must be an executable tool object`);
+	}
+	if (typeof value.name !== "string") {
 		throw new TypeError(`Agent definition tools[${index}].name must be a string`);
+	}
+	if (typeof value.label !== "string") {
+		throw new TypeError(`Agent definition tools[${index}].label must be a string`);
+	}
+	if (typeof value.description !== "string") {
+		throw new TypeError(`Agent definition tools[${index}].description must be a string`);
+	}
+	if (!isRecord(value.parameters)) {
+		throw new TypeError(`Agent definition tools[${index}].parameters must be an object`);
+	}
+	if (typeof value.execute !== "function") {
+		throw new TypeError(`Agent definition tools[${index}].execute must be a function`);
 	}
 }
 
