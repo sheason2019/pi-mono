@@ -47,6 +47,8 @@ describe("init template: strict-JSON output", () => {
 		expect(existsSync(join(workspace, "agents", "root", "agent.json"))).toBe(false);
 
 		const raw = readFileSync(agentConfigPath, "utf-8");
+		expect(raw).toContain("defineOpenAIProvider");
+		expect(raw).toContain("defineProvider");
 		expect(raw).toContain("export default defineAgent(");
 		expect(raw).toContain('defineSkill({ dir: "./skills" })');
 		expect(raw).toContain('defineContextFile({ type: "context", path: "./AGENTS.md" })');
@@ -126,6 +128,10 @@ describe("init template: strict-JSON output", () => {
 		expect(agentsMd).toMatch(/includeTools/);
 		expect(agentsMd).toMatch(/excludeTools/);
 		expect(agentsMd).toMatch(/description/);
+		expect(agentsMd).toMatch(/defineOpenAIProvider/);
+		expect(agentsMd).toMatch(/defineProvider/);
+		expect(agentsMd).toMatch(/contextWindow/);
+		expect(agentsMd).toMatch(/thinkingLevelMap/);
 		expect(agentsMd).not.toMatch(/agent\.json/);
 		expect(agentsMd).not.toMatch(/sessionId/);
 	});

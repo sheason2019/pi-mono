@@ -5,6 +5,7 @@ import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type Api, type Model, Type } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
+import type { LoadedAgentDefinition } from "../src/agent-loader.ts";
 import type { ExtensionAPI } from "../src/extension/contracts.ts";
 import {
 	createDPiAgentSessionFromServices,
@@ -305,21 +306,110 @@ describe("worker runtime adapter", () => {
 		expect(DPiLocalAgentSessionProxy).toEqual(expect.any(Function));
 	});
 
-	it("loads pi-compatible settings and built-in models for worker infrastructure", () => {
+	it("does not load model defaults or models from pi settings and models.json", () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "d-pi-pi-settings-"));
 		writeFileSync(
 			join(agentDir, "settings.json"),
 			JSON.stringify({ defaultProvider: "stepfun", defaultModel: "step-3.7-flash" }),
+		);
+		writeFileSync(
+			join(agentDir, "models.json"),
+			JSON.stringify({
+				providers: {
+					"custom-openai": {
+						api: "openai-responses",
+						baseUrl: "https://example.invalid/v1",
+						models: [{ id: "custom-model", contextWindow: 1000 }],
+					},
+				},
+			}),
 		);
 		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 		process.env.PI_CODING_AGENT_DIR = agentDir;
 		try {
 			const infrastructure = createDPiWorkerInfrastructure("/tmp/d-pi-worker-infra");
 
-			expect(infrastructure.settingsManager.getDefaultProvider()).toBe("stepfun");
-			expect(infrastructure.settingsManager.getDefaultModel()).toBe("step-3.7-flash");
-			expect(infrastructure.modelRegistry.getAll().length).toBeGreaterThan(0);
-			expect(infrastructure.modelRegistry.find("stepfun", "step-3.7-flash")?.id).toBe("stepfun/step-3.7-flash");
+			expect(infrastructure.settingsManager.getDefaultProvider()).toBeUndefined();
+			expect(infrastructure.settingsManager.getDefaultModel()).toBeUndefined();
+			expect(infrastructure.modelRegistry.getAll()).toEqual([]);
+			expect(infrastructure.modelRegistry.find("stepfun", "step-3.7-flash")).toBeUndefined();
+			expect(infrastructure.modelRegistry.find("custom-openai", "custom-model")).toBeUndefined();
+		} finally {
+			if (previousAgentDir === undefined) {
+				delete process.env.PI_CODING_AGENT_DIR;
+			} else {
+				process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+			}
+		}
+	});
+
+	it("registers only agent-local rich models as loadable models", () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "d-pi-pi-models-"));
+		writeFileSync(
+			join(agentDir, "models.json"),
+			JSON.stringify({
+				providers: {
+					stepfun: {
+						api: "openai-responses",
+						baseUrl: "https://pi-config.example/v1",
+						models: [{ id: "step-3.7-flash", contextWindow: 256000 }],
+					},
+				},
+			}),
+		);
+		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		const agentDefinition: LoadedAgentDefinition = {
+			name: "root",
+			agentDir: "/tmp/d-pi-local-model",
+			agentFilePath: "/tmp/d-pi-local-model/agent.ts",
+			model: {
+				id: "stepfun/step-3.7-flash",
+				name: "Agent Local Flash",
+				provider: {
+					provider: "stepfun",
+					api: "openai-responses",
+					baseUrl: "https://agent-local.example/v1",
+					apiKey: "agent-local-key",
+					authHeader: true,
+					headers: { "x-agent": "root" },
+				},
+				reasoning: true,
+				thinkingLevelMap: { off: null, high: "high" },
+				input: ["text", "image"],
+				cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
+				contextWindow: 123_456,
+				maxTokens: 12_345,
+				headers: { "x-model": "flash" },
+			},
+			tools: [],
+			skills: { dir: "./skills" },
+			contextFiles: [],
+		};
+
+		try {
+			const infrastructure = createDPiWorkerInfrastructure("/tmp/d-pi-worker-infra", { agentDefinition });
+			const model = infrastructure.modelRegistry.find("stepfun", "step-3.7-flash");
+
+			expect(model).toMatchObject({
+				id: "stepfun/step-3.7-flash",
+				name: "Agent Local Flash",
+				api: "openai-responses",
+				provider: "stepfun",
+				baseUrl: "https://agent-local.example/v1",
+				reasoning: true,
+				thinkingLevelMap: { off: null, high: "high" },
+				input: ["text", "image"],
+				cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
+				contextWindow: 123_456,
+				maxTokens: 12_345,
+				headers: { "x-model": "flash" },
+			});
+			expect(infrastructure.modelRegistry.getAll()).toEqual([model]);
+			expect(infrastructure.modelRegistry.getApiKeyAndHeaders?.(model!)).toEqual({
+				apiKey: "agent-local-key",
+				headers: { Authorization: "Bearer agent-local-key", "x-agent": "root" },
+			});
 		} finally {
 			if (previousAgentDir === undefined) {
 				delete process.env.PI_CODING_AGENT_DIR;
@@ -451,6 +541,80 @@ describe("worker runtime adapter", () => {
 		expect(result).toBe(target);
 		expect(registry.find).not.toHaveBeenCalled();
 		expect(registry.getAll).toHaveBeenCalledOnce();
+	});
+
+	it("uses the agent-local current model before settings defaults when no CLI model is provided", async () => {
+		const local = makeModel("openai", "gpt-local");
+		const fallback = makeModel("anthropic", "claude-fallback");
+		const registry = makeModelRegistry({
+			find: (provider, modelId) => {
+				if (provider === local.provider && modelId === local.id) return local;
+				if (provider === fallback.provider && modelId === fallback.id) return fallback;
+				return undefined;
+			},
+		});
+
+		const result = await resolveDPiInitialModel({
+			modelRegistry: asWorkerModelRegistry(registry),
+			settingsManager: asWorkerSettingsManager(
+				makeSettingsManager({
+					defaultProvider: fallback.provider,
+					defaultModel: fallback.id,
+				}),
+			),
+			agentDefinition: {
+				name: "root",
+				agentDir: "/tmp/root",
+				agentFilePath: "/tmp/root/agent.ts",
+				model: {
+					id: local.id,
+					provider: {
+						provider: local.provider,
+						api: local.api,
+						baseUrl: local.baseUrl,
+					},
+					contextWindow: local.contextWindow,
+				},
+				tools: [],
+				skills: { dir: "./skills" },
+				contextFiles: [],
+			},
+		});
+
+		expect(result).toBe(local);
+		expect(registry.find).toHaveBeenCalledWith(local.provider, local.id);
+		expect(registry.find).not.toHaveBeenCalledWith(fallback.provider, fallback.id);
+	});
+
+	it("keeps explicit CLI model specs above agent-local current model", async () => {
+		const explicit = makeModel("anthropic", "claude-explicit");
+		const local = makeModel("openai", "gpt-local");
+		const registry = makeModelRegistry({
+			find: (provider, modelId) => {
+				if (provider === explicit.provider && modelId === explicit.id) return explicit;
+				if (provider === local.provider && modelId === local.id) return local;
+				return undefined;
+			},
+		});
+
+		const result = await resolveDPiInitialModel({
+			modelSpec: `${explicit.provider}/${explicit.id}`,
+			modelRegistry: asWorkerModelRegistry(registry),
+			settingsManager: asWorkerSettingsManager(makeSettingsManager()),
+			agentDefinition: {
+				name: "root",
+				agentDir: "/tmp/root",
+				agentFilePath: "/tmp/root/agent.ts",
+				model: { id: local.id, provider: local.provider, contextWindow: local.contextWindow },
+				tools: [],
+				skills: { dir: "./skills" },
+				contextFiles: [],
+			},
+		});
+
+		expect(result).toBe(explicit);
+		expect(registry.find).toHaveBeenCalledWith(explicit.provider, explicit.id);
+		expect(registry.find).not.toHaveBeenCalledWith(local.provider, local.id);
 	});
 
 	it("falls back through configured defaults when an explicit provider/model spec is not found", async () => {

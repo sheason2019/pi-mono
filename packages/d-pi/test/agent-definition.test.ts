@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
 	defineAgent,
+	defineAnthropicProvider,
 	defineContextFile,
 	defineContextFiles,
 	defineModel,
+	defineOpenAIProvider,
+	defineProvider,
 	defineRole,
 	defineRoles,
 	defineSkill,
@@ -12,6 +15,69 @@ import {
 } from "../src/index.ts";
 
 describe("agent definition helpers", () => {
+	it("defines rich agent-local model resources with built-in provider helpers", () => {
+		const openai = defineOpenAIProvider({
+			apiKey: "test-key",
+			headers: { "x-test": "1" },
+		});
+		const anthropic = defineAnthropicProvider();
+		const custom = defineProvider({
+			provider: "custom-openai",
+			api: "openai-responses",
+			baseUrl: "https://models.example.test/v1",
+		});
+
+		const model = defineModel({
+			id: "gpt-test",
+			name: "GPT Test",
+			provider: openai,
+			reasoning: true,
+			thinkingLevelMap: { off: null, high: "high" },
+			input: ["text", "image"],
+			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
+			contextWindow: 200_000,
+			maxTokens: 32_000,
+			headers: { "x-model": "agent" },
+		});
+
+		expect(openai).toMatchObject({
+			provider: "openai",
+			api: "openai-responses",
+			baseUrl: "https://api.openai.com/v1",
+			apiKey: "test-key",
+			headers: { "x-test": "1" },
+		});
+		expect(anthropic).toMatchObject({
+			provider: "anthropic",
+			api: "anthropic-messages",
+			baseUrl: "https://api.anthropic.com",
+		});
+		expect(custom).toEqual({
+			provider: "custom-openai",
+			api: "openai-responses",
+			baseUrl: "https://models.example.test/v1",
+		});
+		expect(model).toEqual({
+			id: "gpt-test",
+			name: "GPT Test",
+			provider: openai,
+			reasoning: true,
+			thinkingLevelMap: { off: null, high: "high" },
+			input: ["text", "image"],
+			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
+			contextWindow: 200_000,
+			maxTokens: 32_000,
+			headers: { "x-model": "agent" },
+		});
+	});
+
+	it("keeps legacy provider/name model references valid", () => {
+		expect(defineModel({ provider: "anthropic", name: "claude-sonnet-4" })).toEqual({
+			provider: "anthropic",
+			name: "claude-sonnet-4",
+		});
+	});
+
 	it("composes associated resource helpers into an agent definition", () => {
 		const agent = defineAgent({
 			description: "resource-rich",

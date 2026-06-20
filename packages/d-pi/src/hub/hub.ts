@@ -170,6 +170,7 @@ export class Hub {
 					model: d.config.model,
 					includeTools: d.config.includeTools,
 					excludeTools: d.config.excludeTools,
+					persistDefinition: false,
 				});
 			} catch (err) {
 				process.stderr.write(
@@ -210,6 +211,7 @@ export class Hub {
 			roles?: string[];
 			includeTools?: string[];
 			excludeTools?: string[];
+			persistDefinition?: boolean;
 		},
 	): Promise<CreateAgentResult> {
 		// Mutex validation: includeTools and excludeTools cannot both be set.
@@ -266,7 +268,9 @@ export class Hub {
 			includeTools: options.includeTools,
 			excludeTools: options.excludeTools,
 		};
-		writeAgentTsConfig(agentDir, agentConfig);
+		if (options.persistDefinition !== false) {
+			writeAgentTsConfig(agentDir, agentConfig);
+		}
 
 		// Compute isolated session directory
 		const sessionDir = join(agentDir, AGENT_SESSION_DIR);

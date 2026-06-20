@@ -1310,24 +1310,6 @@ export function createDPiConnectFooterSnapshot(
 	localCwd: string,
 	env: DPiConnectStartupBannerEnv = {},
 ): ReturnType<DPiInteractiveAgentSessionProxy["getSnapshot"]> {
-	const localDefaults = readLocalPiSettings(env.HOME);
-	if ((snapshot.model === "no-model" || snapshot.modelInfo.contextWindow === 0) && localDefaults) {
-		const contextWindow = localDefaults.contextWindow;
-		return {
-			...snapshot,
-			model: localDefaults.model,
-			thinkingLevel: localDefaults.thinkingLevel,
-			contextUsage: { tokens: 0, contextWindow, percent: 0 },
-			modelInfo: {
-				id: localDefaults.model,
-				provider: localDefaults.provider,
-				reasoning: localDefaults.reasoning,
-				contextWindow,
-			},
-			cwd: displayPath(localCwd, env.HOME),
-			availableProviderCount: Math.max(snapshot.availableProviderCount, 2),
-		};
-	}
 	return { ...snapshot, cwd: displayPath(localCwd, env.HOME) };
 }
 
@@ -1437,44 +1419,6 @@ function nativePiStartupNotices(): string {
 		separator,
 		"",
 	].join("\n");
-}
-
-interface DPiConnectLocalModelDefaults {
-	model: string;
-	provider: string;
-	thinkingLevel: DPiInteractiveSessionStateSnapshot["thinkingLevel"];
-	reasoning: boolean;
-	contextWindow: number;
-}
-
-function readLocalPiSettings(home: string | undefined): DPiConnectLocalModelDefaults | undefined {
-	if (!home) {
-		return undefined;
-	}
-	try {
-		const path = join(home, ".pi", "agent", "settings.json");
-		const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-		const defaultProvider = typeof parsed.defaultProvider === "string" ? parsed.defaultProvider : undefined;
-		const defaultModel = typeof parsed.defaultModel === "string" ? parsed.defaultModel : undefined;
-		const thinkingLevel = parseThinkingLevel(parsed.defaultThinkingLevel);
-		if (!defaultProvider || !defaultModel) {
-			return undefined;
-		}
-		const model = defaultModel.includes("/") ? defaultModel : `${defaultProvider}/${defaultModel}`;
-		return {
-			model,
-			provider: defaultProvider === "stepfun" ? "openrouter" : defaultProvider,
-			thinkingLevel,
-			reasoning: thinkingLevel !== "off",
-			contextWindow: 256000,
-		};
-	} catch {
-		return undefined;
-	}
-}
-
-function parseThinkingLevel(value: unknown): DPiInteractiveSessionStateSnapshot["thinkingLevel"] {
-	return value === "off" || value === "low" || value === "medium" || value === "high" ? value : "medium";
 }
 
 function collectLocalAgentsFiles(localCwd: string, home: string | undefined): string[] {

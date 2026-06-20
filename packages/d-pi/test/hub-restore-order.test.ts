@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -284,5 +284,37 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 		const child = registry.getByName("direct-child");
 		expect(child?.parentName).toBe("root");
 		expect(registry.get("root")?.children).toContain(child?.name);
+	});
+
+	it("does not rewrite an existing agent.ts when restoring persisted agents", async () => {
+		const { Hub: HubMocked } = await import("../src/hub/hub.ts");
+		const workspace = freshWorkspace();
+		const agentDir = join(workspace, "agents", "root");
+		mkdirSync(agentDir, { recursive: true });
+		const original = [
+			'import { defineAgent, defineModel, defineOpenAIProvider } from "@sheason/d-pi";',
+			"",
+			"export default defineAgent({",
+			"\tmodel: defineModel({",
+			'\t\tid: "gpt-local",',
+			"\t\tprovider: defineOpenAIProvider(),",
+			"\t\tcontextWindow: 200000,",
+			"\t}),",
+			"});",
+			"",
+		].join("\n");
+		writeFileSync(join(agentDir, "agent.ts"), original);
+		const hub = new HubMocked({
+			port: 50000 + Math.floor(Math.random() * 1000),
+			workspaceRoot: workspace,
+			cwd: workspace,
+			model: undefined,
+			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
+			workspaceConfig: { version: 1 },
+		});
+
+		await hub.createAgent(undefined, { name: "root", persistDefinition: false });
+
+		expect(readFileSync(join(agentDir, "agent.ts"), "utf-8")).toBe(original);
 	});
 });

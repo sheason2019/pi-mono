@@ -1,5 +1,6 @@
 import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Api, Model, Provider, ThinkingLevelMap } from "@earendil-works/pi-ai";
 
 export interface AgentToolDefinition {
 	name: string;
@@ -14,10 +15,41 @@ export interface AgentContextFileDefinition {
 	path: string;
 }
 
-export interface AgentModelDefinition {
+export interface AgentProviderDefinition {
+	provider: string;
+	api: Api;
+	baseUrl: string;
+	apiKey?: string;
+	authHeader?: boolean;
+	headers?: Record<string, string>;
+	compat?: Model<Api>["compat"];
+}
+
+export interface AgentModelReferenceDefinition {
 	provider: string;
 	name: string;
 }
+
+export interface AgentLocalModelDefinition {
+	id: string;
+	name?: string;
+	provider: AgentProviderDefinition | Provider;
+	reasoning?: boolean;
+	thinkingLevelMap?: ThinkingLevelMap;
+	input?: Array<"text" | "image">;
+	cost?: {
+		input: number;
+		output: number;
+		cacheRead: number;
+		cacheWrite: number;
+	};
+	contextWindow: number;
+	maxTokens?: number;
+	headers?: Record<string, string>;
+	compat?: Model<Api>["compat"];
+}
+
+export type AgentModelDefinition = AgentModelReferenceDefinition | AgentLocalModelDefinition;
 
 export type AgentRoleDefinition = string;
 
@@ -27,6 +59,7 @@ export interface AgentDefinitionInput {
 	description?: string;
 	roles?: AgentRoleDefinition[];
 	model?: AgentModelDefinition;
+	models?: AgentModelDefinition[];
 	tools?: AgentToolDefinition[];
 	skills?: AgentSkillDefinition;
 	contextFiles?: AgentContextFileDefinition[];
@@ -38,6 +71,7 @@ export interface AgentDefinition {
 	description?: string;
 	roles?: AgentRoleDefinition[];
 	model?: AgentModelDefinition;
+	models?: AgentModelDefinition[];
 	tools: AgentToolDefinition[];
 	skills: AgentSkillDefinition;
 	contextFiles: AgentContextFileDefinition[];
@@ -117,8 +151,78 @@ export function defineContextFiles(...input: AgentContextFileDefinition[]): Agen
 	return input.map(defineContextFile);
 }
 
+export function defineProvider(input: AgentProviderDefinition): AgentProviderDefinition {
+	return {
+		provider: input.provider,
+		api: input.api,
+		baseUrl: input.baseUrl,
+		...(input.apiKey === undefined ? {} : { apiKey: input.apiKey }),
+		...(input.authHeader === undefined ? {} : { authHeader: input.authHeader }),
+		...(input.headers === undefined ? {} : { headers: { ...input.headers } }),
+		...(input.compat === undefined ? {} : { compat: input.compat }),
+	};
+}
+
+export function defineOpenAIProvider(
+	input: Partial<Omit<AgentProviderDefinition, "api" | "baseUrl" | "provider">> &
+		Pick<Partial<AgentProviderDefinition>, "api" | "baseUrl" | "provider"> = {},
+): AgentProviderDefinition {
+	return defineProvider({
+		provider: input.provider ?? "openai",
+		api: input.api ?? "openai-responses",
+		baseUrl: input.baseUrl ?? "https://api.openai.com/v1",
+		...(input.apiKey === undefined ? {} : { apiKey: input.apiKey }),
+		...(input.authHeader === undefined ? {} : { authHeader: input.authHeader }),
+		...(input.headers === undefined ? {} : { headers: input.headers }),
+		...(input.compat === undefined ? {} : { compat: input.compat }),
+	});
+}
+
+export function defineAnthropicProvider(
+	input: Partial<Omit<AgentProviderDefinition, "api" | "baseUrl" | "provider">> &
+		Pick<Partial<AgentProviderDefinition>, "api" | "baseUrl" | "provider"> = {},
+): AgentProviderDefinition {
+	return defineProvider({
+		provider: input.provider ?? "anthropic",
+		api: input.api ?? "anthropic-messages",
+		baseUrl: input.baseUrl ?? "https://api.anthropic.com",
+		...(input.apiKey === undefined ? {} : { apiKey: input.apiKey }),
+		...(input.authHeader === undefined ? {} : { authHeader: input.authHeader }),
+		...(input.headers === undefined ? {} : { headers: input.headers }),
+		...(input.compat === undefined ? {} : { compat: input.compat }),
+	});
+}
+
 export function defineModel(input: AgentModelDefinition): AgentModelDefinition {
+	if ("id" in input) {
+		return {
+			id: input.id,
+			...(input.name === undefined ? {} : { name: input.name }),
+			provider: typeof input.provider === "string" ? input.provider : defineProvider(input.provider),
+			...(input.reasoning === undefined ? {} : { reasoning: input.reasoning }),
+			...(input.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: { ...input.thinkingLevelMap } }),
+			...(input.input === undefined ? {} : { input: [...input.input] }),
+			...(input.cost === undefined
+				? {}
+				: {
+						cost: {
+							input: input.cost.input,
+							output: input.cost.output,
+							cacheRead: input.cost.cacheRead,
+							cacheWrite: input.cost.cacheWrite,
+						},
+					}),
+			contextWindow: input.contextWindow,
+			...(input.maxTokens === undefined ? {} : { maxTokens: input.maxTokens }),
+			...(input.headers === undefined ? {} : { headers: { ...input.headers } }),
+			...(input.compat === undefined ? {} : { compat: input.compat }),
+		};
+	}
 	return { provider: input.provider, name: input.name };
+}
+
+export function defineModels(...input: AgentModelDefinition[]): AgentModelDefinition[] {
+	return input.map(defineModel);
 }
 
 export function defineRole(input: AgentRoleDefinition): AgentRoleDefinition {
@@ -135,6 +239,7 @@ export function defineAgent(input: AgentDefinitionInput): AgentDefinition {
 		...(input.description === undefined ? {} : { description: input.description }),
 		...(input.roles === undefined ? {} : { roles: defineRoles(...input.roles) }),
 		...(input.model === undefined ? {} : { model: defineModel(input.model) }),
+		...(input.models === undefined ? {} : { models: defineModels(...input.models) }),
 		tools: defineTools(...(input.tools ?? [])),
 		skills: defineSkill(input.skills ?? DEFAULT_AGENT_SKILL),
 		contextFiles: defineContextFiles(...(input.contextFiles ?? DEFAULT_AGENT_CONTEXT_FILES)),

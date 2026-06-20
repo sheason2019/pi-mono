@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -61,6 +61,16 @@ function makeModel(id: string, provider = "anthropic"): Model<Api> {
 		contextWindow: 1,
 		maxTokens: 1,
 	};
+}
+
+function useSourceDefinitionImportInAgentFile(agentDir: string): void {
+	const agentFilePath = join(agentDir, "agent.ts");
+	const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "index.ts")).href;
+	const source = readFileSync(agentFilePath, "utf-8").replace(
+		'import { defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill, defineTool } from "@sheason/d-pi";',
+		`import { defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
+	);
+	writeFileSync(agentFilePath, source);
 }
 
 describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 coverage)", () => {
@@ -169,6 +179,77 @@ describe("createAgentMetadataExtension — set_model + set_thinking_level (P0 co
 		// Verify the write used the getAgentCwd (tmpDir) not the ctx.cwd
 		const written = await readLoadedAgentDefinitionFromTs(tmpDir);
 		expect(written?.model).toEqual({ provider: "anthropic", name: "claude-sonnet-4" });
+	});
+
+	it("set_model preserves full rich agent-local model fields when selecting that model", async () => {
+		const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "index.ts")).href;
+		writeFileSync(
+			join(tmpDir, "agent.ts"),
+			[
+				`import { defineAgent, defineModel, defineSkill } from ${JSON.stringify(dPiDefinitionUrl)};`,
+				"",
+				"export default defineAgent({",
+				"\tmodel: defineModel({",
+				'\t\tid: "gpt-local",',
+				'\t\tname: "GPT Local",',
+				'\t\tprovider: { provider: "openai", api: "openai-responses", baseUrl: "https://api.openai.com/v1", apiKey: "agent-key", authHeader: true },',
+				"\t\treasoning: true,",
+				'\t\tthinkingLevelMap: { off: null, high: "high" },',
+				"\t\tcost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },",
+				"\t\tcontextWindow: 200000,",
+				"\t\tmaxTokens: 32000,",
+				"\t}),",
+				'\tskills: defineSkill({ dir: "./skills" }),',
+				"});",
+				"",
+			].join("\n"),
+		);
+		const target = makeModel("gpt-local", "openai");
+		const mockRegistry = makeMockRegistry(target);
+		const fakeSetModel = vi.fn().mockResolvedValue(true);
+		const registered: ToolDefinition[] = [];
+		const fakePi = {
+			registerTool: (t: ToolDefinition) => registered.push(t),
+			setModel: fakeSetModel,
+			getThinkingLevel: vi.fn(),
+			setThinkingLevel: vi.fn(),
+		} as unknown as ExtensionAPI;
+		const factory = createAgentMetadataExtension({
+			getReloadFn: () => undefined,
+			getResourceLoader: () => makeMockResourceLoader(),
+			getModelRegistry: () => mockRegistry,
+			getAgentCwd: () => tmpDir,
+		});
+		factory(fakePi);
+
+		const tool = registered.find((t) => t.name === "set_model")!;
+		const result = await tool.execute(
+			"c-rich",
+			{ model: "openai/gpt-local" },
+			undefined,
+			undefined,
+			makeCtx({ modelRegistry: mockRegistry }) as never,
+		);
+		useSourceDefinitionImportInAgentFile(tmpDir);
+
+		expect(isError(result)).toBe(false);
+		const written = await readLoadedAgentDefinitionFromTs(tmpDir);
+		expect(written?.model).toMatchObject({
+			id: "gpt-local",
+			name: "GPT Local",
+			provider: {
+				provider: "openai",
+				api: "openai-responses",
+				baseUrl: "https://api.openai.com/v1",
+				apiKey: "agent-key",
+				authHeader: true,
+			},
+			reasoning: true,
+			thinkingLevelMap: { off: null, high: "high" },
+			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
+			contextWindow: 200_000,
+			maxTokens: 32_000,
+		});
 	});
 
 	it("set_model with model id containing '/' (e.g. versioned) uses first-slash split and still resolves", async () => {

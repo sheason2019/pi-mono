@@ -378,7 +378,10 @@ Each agent exports a standard definition:
   "## Agent identity" section so the LLM has a self-description to refer to
   during multi-agent coordination. Recommended: a few sentences in plain
   English, no formatting.
-- \`model\` (optional): \`defineModel({ provider, name })\` override for this agent.
+- \`model\` (optional): \`defineModel({ provider, name })\` for an existing registry model, or
+  \`defineModel({ id, provider: defineOpenAIProvider(...), contextWindow, thinkingLevelMap, ... })\`
+  for an agent-local model. Use \`defineProvider(...)\` for custom OpenAI-compatible or
+  non-default provider settings.
 - \`roles\` (optional): array of role names — see \`team-template/roles/\`.
 - \`skills\` (required): use \`defineSkill({ dir: "./skills" })\` for agent-local skills.
 - \`tools\` (required): array of \`defineTool({ name })\` entries.

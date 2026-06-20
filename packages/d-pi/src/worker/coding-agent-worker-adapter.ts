@@ -1,8 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { type Api, getModels, getProviders, type KnownProvider, type Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type { AgentLocalModelDefinition, AgentModelDefinition, AgentProviderDefinition } from "../agent-definition.ts";
+import type { LoadedAgentDefinition } from "../agent-loader.ts";
 import type {
 	ExtensionAPI,
 	ExtensionFactory,
@@ -58,6 +58,10 @@ export interface DPiWorkerInfrastructure {
 	authStorage: DPiWorkerAuthStorage;
 	settingsManager: DPiWorkerSettingsManager;
 	modelRegistry: DPiWorkerModelRegistry;
+}
+
+export interface DPiWorkerInfrastructureOptions {
+	agentDefinition?: LoadedAgentDefinition;
 }
 
 export interface DPiWorkerSession {
@@ -138,9 +142,12 @@ export type DPiCreateSessionRuntimeFactory = (options: {
 	sessionManager: DPiWorkerSessionManager;
 }) => Promise<DPiCreateSessionResult & { services: DPiAgentSessionServices }>;
 
-export function createDPiWorkerInfrastructure(cwd: string): DPiWorkerInfrastructure {
+export function createDPiWorkerInfrastructure(
+	cwd: string,
+	options: DPiWorkerInfrastructureOptions = {},
+): DPiWorkerInfrastructure {
 	const settingsManager = createSettingsManager(cwd);
-	const modelRegistry = createBuiltInModelRegistry();
+	const modelRegistry = createBuiltInModelRegistry(options.agentDefinition);
 	return {
 		agentDir: cwd,
 		authStorage: { kind: "d-pi-auth-storage" },
@@ -157,8 +164,9 @@ export async function resolveDPiInitialModel(options: {
 	modelSpec?: string;
 	modelRegistry: DPiWorkerModelRegistry;
 	settingsManager: DPiWorkerSettingsManager;
+	agentDefinition?: LoadedAgentDefinition;
 }): Promise<Model<Api> | undefined> {
-	const { modelSpec, modelRegistry, settingsManager } = options;
+	const { agentDefinition, modelSpec, modelRegistry, settingsManager } = options;
 	let resolvedModel: Model<Api> | undefined;
 
 	if (modelSpec) {
@@ -176,12 +184,31 @@ export async function resolveDPiInitialModel(options: {
 		return resolvedModel;
 	}
 
+	if (agentDefinition?.model) {
+		resolvedModel = resolveAgentDefinitionModel(modelRegistry, agentDefinition.model);
+	}
+
+	if (resolvedModel) {
+		return resolvedModel;
+	}
+
 	const defaultProvider = settingsManager.getDefaultProvider();
 	const defaultModel = settingsManager.getDefaultModel();
 	if (defaultProvider && defaultModel) {
 		return modelRegistry.find(defaultProvider, defaultModel);
 	}
 	return undefined;
+}
+
+function resolveAgentDefinitionModel(
+	modelRegistry: DPiWorkerModelRegistry,
+	modelDefinition: AgentModelDefinition,
+): Model<Api> | undefined {
+	if ("id" in modelDefinition) {
+		const provider = resolveAgentModelProvider(modelDefinition.provider);
+		return provider ? modelRegistry.find(provider.provider, modelDefinition.id) : undefined;
+	}
+	return modelRegistry.find(modelDefinition.provider, modelDefinition.name);
 }
 
 export function runtimeModelSpecFromResolvedModel(model: Model<Api> | undefined): string | undefined {
@@ -1683,7 +1710,8 @@ interface PiSettings {
 }
 
 function createSettingsManager(cwd: string): DPiWorkerSettingsManager {
-	const settings = loadPiSettings(cwd);
+	void cwd;
+	const settings: PiSettings = {};
 	return {
 		getDefaultProvider: () => settings.defaultProvider,
 		getDefaultModel: () => settings.defaultModel,
@@ -1691,45 +1719,8 @@ function createSettingsManager(cwd: string): DPiWorkerSettingsManager {
 	};
 }
 
-function loadPiSettings(cwd: string): PiSettings {
-	const globalSettings = readPiSettingsFile(join(getPiAgentDir(), "settings.json"));
-	const projectSettings = readPiSettingsFile(join(cwd, ".pi", "settings.json"));
-	return { ...globalSettings, ...projectSettings };
-}
-
-function getPiAgentDir(): string {
-	return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
-}
-
-function readPiSettingsFile(path: string): PiSettings {
-	if (!existsSync(path)) {
-		return {};
-	}
-	const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-		return {};
-	}
-	const record = parsed as Record<string, unknown>;
-	return {
-		...(typeof record.defaultProvider === "string" ? { defaultProvider: record.defaultProvider } : {}),
-		...(typeof record.defaultModel === "string" ? { defaultModel: record.defaultModel } : {}),
-		...(isThinkingLevel(record.defaultThinkingLevel) ? { defaultThinkingLevel: record.defaultThinkingLevel } : {}),
-	};
-}
-
-function isThinkingLevel(value: unknown): value is ThinkingLevel {
-	return (
-		value === "off" ||
-		value === "minimal" ||
-		value === "low" ||
-		value === "medium" ||
-		value === "high" ||
-		value === "xhigh"
-	);
-}
-
-function createBuiltInModelRegistry(): DPiWorkerModelRegistry {
-	let registry = loadAvailableModels();
+function createBuiltInModelRegistry(agentDefinition?: LoadedAgentDefinition): DPiWorkerModelRegistry {
+	let registry = loadAvailableModels(agentDefinition);
 	return {
 		find: (provider, modelId) => findBuiltInModel(registry.models, provider, modelId),
 		getAll: () => [...registry.models],
@@ -1739,33 +1730,30 @@ function createBuiltInModelRegistry(): DPiWorkerModelRegistry {
 			if (!config?.apiKey) {
 				return undefined;
 			}
+			const headers = {
+				...(config?.authHeader && config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+				...(config.headers ?? {}),
+			};
 			return {
 				apiKey: config.apiKey,
-				...(config?.authHeader && config.apiKey ? { headers: { Authorization: `Bearer ${config.apiKey}` } } : {}),
+				...(Object.keys(headers).length > 0 ? { headers } : {}),
 			};
 		},
 		refresh: () => {
-			registry = loadAvailableModels();
+			registry = loadAvailableModels(agentDefinition);
 		},
 	};
 }
 
 function findBuiltInModel(models: Model<Api>[], provider: string, modelId: string): Model<Api> | undefined {
-	const direct = models.find((model) => model.provider === provider && model.id === modelId);
-	if (direct) {
-		return direct;
-	}
 	const aliasedModelId = `${provider}/${modelId}`;
-	return models.find((model) => model.id === aliasedModelId);
-}
-
-function loadBuiltInModels(): Model<Api>[] {
-	return getProviders().flatMap((provider) => getModels(provider as KnownProvider) as Model<Api>[]);
+	return models.find((model) => (model.provider === provider && model.id === modelId) || model.id === aliasedModelId);
 }
 
 interface DPiProviderAuthConfig {
 	apiKey?: string;
 	authHeader?: boolean;
+	headers?: Record<string, string>;
 }
 
 interface DPiAvailableModels {
@@ -1773,86 +1761,105 @@ interface DPiAvailableModels {
 	providerAuth: Map<string, DPiProviderAuthConfig>;
 }
 
-function loadAvailableModels(): DPiAvailableModels {
-	const custom = loadCustomModels();
+function loadAvailableModels(agentDefinition?: LoadedAgentDefinition): DPiAvailableModels {
+	const agentLocal = loadAgentLocalModels(agentDefinition);
 	return {
-		models: [...custom.models, ...loadBuiltInModels()],
-		providerAuth: custom.providerAuth,
+		models: agentLocal.models,
+		providerAuth: agentLocal.providerAuth,
 	};
 }
 
-function loadCustomModels(): DPiAvailableModels {
-	const modelsJsonPath = join(getPiAgentDir(), "models.json");
-	if (!existsSync(modelsJsonPath)) {
+function loadAgentLocalModels(agentDefinition: LoadedAgentDefinition | undefined): DPiAvailableModels {
+	if (!agentDefinition) {
 		return { models: [], providerAuth: new Map() };
 	}
-	const parsed = JSON.parse(readFileSync(modelsJsonPath, "utf8")) as unknown;
-	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-		return { models: [], providerAuth: new Map() };
-	}
-	const providers = (parsed as Record<string, unknown>).providers;
-	if (typeof providers !== "object" || providers === null || Array.isArray(providers)) {
-		return { models: [], providerAuth: new Map() };
-	}
-	const models: Model<Api>[] = [];
 	const providerAuth = new Map<string, DPiProviderAuthConfig>();
-	for (const [provider, rawConfig] of Object.entries(providers as Record<string, unknown>)) {
-		if (typeof rawConfig !== "object" || rawConfig === null || Array.isArray(rawConfig)) {
+	const models: Model<Api>[] = [];
+	for (const definition of agentLocalModelDefinitions(agentDefinition)) {
+		const provider = resolveAgentModelProvider(definition.provider);
+		if (!provider) {
 			continue;
 		}
-		const config = rawConfig as Record<string, unknown>;
-		const api = typeof config.api === "string" ? config.api : undefined;
-		const baseUrl = typeof config.baseUrl === "string" ? config.baseUrl : undefined;
-		if (!api || !baseUrl) {
-			continue;
-		}
-		providerAuth.set(provider, {
-			...(typeof config.apiKey === "string" ? { apiKey: config.apiKey } : {}),
-			...(typeof config.authHeader === "boolean" ? { authHeader: config.authHeader } : {}),
+		providerAuth.set(provider.provider, {
+			...(provider.apiKey === undefined ? {} : { apiKey: provider.apiKey }),
+			...(provider.authHeader === undefined ? {} : { authHeader: provider.authHeader }),
+			...(provider.headers === undefined ? {} : { headers: { ...provider.headers } }),
 		});
-		const rawModels = Array.isArray(config.models) ? config.models : [];
-		for (const rawModel of rawModels) {
-			const model = customModelFromConfig(provider, api, baseUrl, rawModel);
-			if (model) {
-				models.push(model);
-			}
-		}
+		models.push(agentLocalModelToPiModel(definition, provider));
 	}
 	return { models, providerAuth };
 }
 
-function customModelFromConfig(
-	provider: string,
-	api: string,
-	baseUrl: string,
-	rawModel: unknown,
-): Model<Api> | undefined {
-	if (typeof rawModel !== "object" || rawModel === null || Array.isArray(rawModel)) {
-		return undefined;
+function agentLocalModelDefinitions(agentDefinition: LoadedAgentDefinition): AgentLocalModelDefinition[] {
+	const definitions: AgentLocalModelDefinition[] = [];
+	for (const candidate of [agentDefinition.model, ...(agentDefinition.models ?? [])]) {
+		if (candidate && isAgentLocalModelDefinition(candidate)) {
+			definitions.push(candidate);
+		}
 	}
-	const record = rawModel as Record<string, unknown>;
-	const id = typeof record.id === "string" ? record.id : undefined;
-	if (!id) {
-		return undefined;
+	return definitions;
+}
+
+function isAgentLocalModelDefinition(model: AgentModelDefinition): model is AgentLocalModelDefinition {
+	return "id" in model;
+}
+
+function resolveAgentModelProvider(
+	provider: AgentLocalModelDefinition["provider"],
+): AgentProviderDefinition | undefined {
+	if (typeof provider !== "string") {
+		return provider;
 	}
-	const name = typeof record.name === "string" ? record.name : id;
-	const input = Array.isArray(record.input)
-		? record.input.filter((item): item is "text" | "image" => item === "text" || item === "image")
-		: ["text" as const];
-	const contextWindow = typeof record.contextWindow === "number" ? record.contextWindow : 0;
-	const maxTokens = typeof record.maxTokens === "number" ? record.maxTokens : contextWindow;
+	if (provider === "openai") {
+		return {
+			provider: "openai",
+			api: "openai-responses",
+			baseUrl: "https://api.openai.com/v1",
+		};
+	}
+	if (provider === "anthropic") {
+		return {
+			provider: "anthropic",
+			api: "anthropic-messages",
+			baseUrl: "https://api.anthropic.com",
+		};
+	}
+	return undefined;
+}
+
+function agentLocalModelToPiModel(
+	definition: AgentLocalModelDefinition,
+	provider: AgentProviderDefinition,
+): Model<Api> {
 	return {
-		id,
-		name,
-		api,
-		provider,
-		baseUrl,
-		reasoning: true,
-		input,
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow,
-		maxTokens,
+		id: definition.id,
+		name: definition.name ?? definition.id,
+		api: provider.api,
+		provider: provider.provider,
+		baseUrl: provider.baseUrl,
+		reasoning: definition.reasoning ?? false,
+		...(definition.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: { ...definition.thinkingLevelMap } }),
+		input: definition.input ? [...definition.input] : ["text"],
+		cost: definition.cost ? { ...definition.cost } : { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: definition.contextWindow,
+		maxTokens: definition.maxTokens ?? definition.contextWindow,
+		headers: mergeHeaders(provider.headers, definition.headers),
+		...(definition.compat === undefined
+			? provider.compat === undefined
+				? {}
+				: { compat: provider.compat }
+			: { compat: definition.compat }),
 	};
+}
+
+function mergeHeaders(
+	providerHeaders: Record<string, string> | undefined,
+	modelHeaders: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+	if (!providerHeaders && !modelHeaders) {
+		return undefined;
+	}
+	return { ...(providerHeaders ?? {}), ...(modelHeaders ?? {}) };
 }
 
 function createEmptyModelRegistry(): DPiWorkerModelRegistry {

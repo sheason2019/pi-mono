@@ -14,11 +14,16 @@ function createWorkspace(): string {
 }
 
 function useSourceDefinitionImport(source: string): string {
-	const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "agent-definition.ts")).href;
+	const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "index.ts")).href;
 	return source.replace(
-		'import { defineAgent, defineContextFile, defineModel, defineSkill, defineTool } from "@sheason/d-pi";',
-		`import { defineAgent, defineContextFile, defineModel, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
+		'import { defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill, defineTool } from "@sheason/d-pi";',
+		`import { defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
 	);
+}
+
+function useSourceDefinitionImportInAgentFile(agentDir: string): void {
+	const agentFilePath = join(agentDir, "agent.ts");
+	writeFileSync(agentFilePath, useSourceDefinitionImport(readFileSync(agentFilePath, "utf-8")));
 }
 
 afterEach(() => {
@@ -79,7 +84,7 @@ describe("persistModelInAgentTs", () => {
 		const workspace = createWorkspace();
 		const agentDir = join(workspace, "agents", "dynamic");
 		mkdirSync(agentDir, { recursive: true });
-		const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "agent-definition.ts")).href;
+		const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "index.ts")).href;
 		writeFileSync(
 			join(agentDir, "agent.ts"),
 			[
@@ -113,5 +118,64 @@ describe("persistModelInAgentTs", () => {
 			model: { provider: "anthropic", name: "claude-sonnet-4" },
 			tools: [{ name: "dispatch_read" }, { name: "team" }],
 		});
+	});
+
+	it("preserves a selected rich agent-local model when persisting set_model", async () => {
+		const workspace = createWorkspace();
+		const agentDir = join(workspace, "agents", "rich");
+		mkdirSync(agentDir, { recursive: true });
+		const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "index.ts")).href;
+		writeFileSync(
+			join(agentDir, "agent.ts"),
+			[
+				`import { defineAgent, defineModel, defineSkill } from ${JSON.stringify(dPiDefinitionUrl)};`,
+				"",
+				"export default defineAgent({",
+				'\tdescription: "Rich model agent",',
+				"\tmodel: defineModel({",
+				'\t\tid: "gpt-local",',
+				'\t\tname: "GPT Local",',
+				'\t\tprovider: { provider: "openai", api: "openai-responses", baseUrl: "https://api.openai.com/v1", apiKey: "agent-key", authHeader: true, headers: { "x-agent": "rich" } },',
+				"\t\treasoning: true,",
+				'\t\tthinkingLevelMap: { off: null, high: "high" },',
+				'\t\tinput: ["text", "image"],',
+				"\t\tcost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },",
+				"\t\tcontextWindow: 200000,",
+				"\t\tmaxTokens: 32000,",
+				'\t\theaders: { "x-model": "local" },',
+				"\t}),",
+				'\tskills: defineSkill({ dir: "./skills" }),',
+				"});",
+				"",
+			].join("\n"),
+		);
+
+		await persistModelInAgentTs(agentDir, "openai/gpt-local");
+		useSourceDefinitionImportInAgentFile(agentDir);
+
+		const written = await readLoadedAgentDefinitionFromTs(agentDir);
+		expect(written?.model).toMatchObject({
+			id: "gpt-local",
+			name: "GPT Local",
+			provider: {
+				provider: "openai",
+				api: "openai-responses",
+				baseUrl: "https://api.openai.com/v1",
+				apiKey: "agent-key",
+				authHeader: true,
+				headers: { "x-agent": "rich" },
+			},
+			reasoning: true,
+			thinkingLevelMap: { off: null, high: "high" },
+			input: ["text", "image"],
+			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
+			contextWindow: 200_000,
+			maxTokens: 32_000,
+			headers: { "x-model": "local" },
+		});
+		const source = readFileSync(join(agentDir, "agent.ts"), "utf-8");
+		expect(source).toContain("defineOpenAIProvider");
+		expect(source).toContain('apiKey: "agent-key"');
+		expect(source).toContain("contextWindow: 200000");
 	});
 });

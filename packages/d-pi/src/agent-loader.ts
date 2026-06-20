@@ -5,6 +5,7 @@ import type {
 	AgentContextFileDefinition,
 	AgentDefinition,
 	AgentModelDefinition,
+	AgentProviderDefinition,
 	AgentSkillDefinition,
 	AgentToolDefinition,
 } from "./agent-definition.ts";
@@ -47,8 +48,95 @@ function assertContextFile(value: unknown, index: number): asserts value is Agen
 }
 
 function assertModel(value: unknown): asserts value is AgentModelDefinition {
-	if (!isRecord(value) || typeof value.provider !== "string" || typeof value.name !== "string") {
-		throw new TypeError("Agent definition model.provider and model.name must be strings");
+	if (!isRecord(value)) {
+		throw new TypeError("Agent definition model must be an object");
+	}
+	if ("id" in value) {
+		assertLocalModel(value, "model");
+		return;
+	}
+	if (typeof value.provider !== "string" || typeof value.name !== "string") {
+		throw new TypeError("Agent definition model.provider and model.name must be strings for model references");
+	}
+}
+
+function assertProvider(value: unknown, context: string): asserts value is AgentProviderDefinition {
+	if (!isRecord(value)) {
+		throw new TypeError(`Agent definition ${context} must be an object or provider string`);
+	}
+	if (typeof value.provider !== "string") {
+		throw new TypeError(`Agent definition ${context}.provider must be a string`);
+	}
+	if (typeof value.api !== "string") {
+		throw new TypeError(`Agent definition ${context}.api must be a string`);
+	}
+	if (typeof value.baseUrl !== "string") {
+		throw new TypeError(`Agent definition ${context}.baseUrl must be a string`);
+	}
+	if (value.apiKey !== undefined && typeof value.apiKey !== "string") {
+		throw new TypeError(`Agent definition ${context}.apiKey must be a string`);
+	}
+	if (value.authHeader !== undefined && typeof value.authHeader !== "boolean") {
+		throw new TypeError(`Agent definition ${context}.authHeader must be a boolean`);
+	}
+	if (value.headers !== undefined && !isStringRecord(value.headers)) {
+		throw new TypeError(`Agent definition ${context}.headers must be a string record`);
+	}
+}
+
+function assertLocalModel(value: Record<string, unknown>, context: string): void {
+	if (typeof value.id !== "string") {
+		throw new TypeError(`Agent definition ${context}.id must be a string`);
+	}
+	if (value.name !== undefined && typeof value.name !== "string") {
+		throw new TypeError(`Agent definition ${context}.name must be a string`);
+	}
+	if (typeof value.provider !== "string") {
+		assertProvider(value.provider, `${context}.provider`);
+	}
+	if (value.reasoning !== undefined && typeof value.reasoning !== "boolean") {
+		throw new TypeError(`Agent definition ${context}.reasoning must be a boolean`);
+	}
+	if (value.input !== undefined) {
+		if (!Array.isArray(value.input) || value.input.some((item) => item !== "text" && item !== "image")) {
+			throw new TypeError(`Agent definition ${context}.input must contain text or image`);
+		}
+	}
+	if (value.cost !== undefined) {
+		assertCost(value.cost, `${context}.cost`);
+	}
+	if (typeof value.contextWindow !== "number") {
+		throw new TypeError(`Agent definition ${context}.contextWindow must be a number`);
+	}
+	if (value.maxTokens !== undefined && typeof value.maxTokens !== "number") {
+		throw new TypeError(`Agent definition ${context}.maxTokens must be a number`);
+	}
+	if (value.headers !== undefined && !isStringRecord(value.headers)) {
+		throw new TypeError(`Agent definition ${context}.headers must be a string record`);
+	}
+}
+
+function assertCost(value: unknown, context: string): void {
+	if (!isRecord(value)) {
+		throw new TypeError(`Agent definition ${context} must be an object`);
+	}
+	for (const key of ["input", "output", "cacheRead", "cacheWrite"]) {
+		if (typeof value[key] !== "number") {
+			throw new TypeError(`Agent definition ${context}.${key} must be a number`);
+		}
+	}
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+	return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
+}
+
+function assertModels(value: unknown): asserts value is AgentModelDefinition[] {
+	if (!Array.isArray(value)) {
+		throw new TypeError("Agent definition models must be an array");
+	}
+	for (let index = 0; index < value.length; index++) {
+		assertModel(value[index]);
 	}
 }
 
@@ -80,6 +168,9 @@ function assertAgentDefinition(value: unknown): asserts value is AgentDefinition
 	}
 	if (value.model !== undefined) {
 		assertModel(value.model);
+	}
+	if (value.models !== undefined) {
+		assertModels(value.models);
 	}
 	if (value.parent !== undefined) {
 		assertAgentDefinition(value.parent);

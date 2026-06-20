@@ -71,7 +71,7 @@ describe("d-pi connect footer snapshot", () => {
 		expect(snapshot().cwd).toBe("/remote/agent/root");
 	});
 
-	it("uses local pi settings as a footer fallback when the remote snapshot has no model", () => {
+	it("does not use local pi settings as a footer fallback when the remote snapshot has no model", () => {
 		const home = mkdtempSync(join(tmpdir(), "d-pi-settings-home-"));
 		mkdirSync(join(home, ".pi", "agent"), { recursive: true });
 		writeFileSync(
@@ -88,15 +88,10 @@ describe("d-pi connect footer snapshot", () => {
 		const footerSnapshot = createDPiConnectFooterSnapshot(remote, join(home, "workspace"), { HOME: home });
 
 		expect(footerSnapshot.cwd).toBe("~/workspace");
-		expect(footerSnapshot.model).toBe("stepfun/step-3.7-flash");
-		expect(footerSnapshot.thinkingLevel).toBe("high");
-		expect(footerSnapshot.contextUsage).toEqual({ tokens: 0, contextWindow: 256000, percent: 0 });
-		expect(footerSnapshot.modelInfo).toEqual({
-			id: "stepfun/step-3.7-flash",
-			provider: "openrouter",
-			reasoning: true,
-			contextWindow: 256000,
-		});
+		expect(footerSnapshot.model).toBe("no-model");
+		expect(footerSnapshot.thinkingLevel).toBe(remote.thinkingLevel);
+		expect(footerSnapshot.contextUsage).toEqual({ tokens: null, contextWindow: 0, percent: null });
+		expect(footerSnapshot.modelInfo).toEqual({ id: "", provider: "", reasoning: false, contextWindow: 0 });
 	});
 
 	it("preserves restored session messages when connecting to an existing agent", () => {

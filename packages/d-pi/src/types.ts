@@ -209,7 +209,10 @@ export interface DeleteSourceResult {
 export type {
 	AgentContextFileDefinition,
 	AgentDefinition,
+	AgentLocalModelDefinition,
 	AgentModelDefinition,
+	AgentModelReferenceDefinition,
+	AgentProviderDefinition,
 	AgentRoleDefinition,
 	AgentSkillDefinition,
 	AgentToolDefinition,

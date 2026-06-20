@@ -1,6 +1,11 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { getAgentDefinitionMetadata } from "./agent-definition.ts";
+import {
+	type AgentLocalModelDefinition,
+	type AgentModelDefinition,
+	type AgentProviderDefinition,
+	getAgentDefinitionMetadata,
+} from "./agent-definition.ts";
 import { type LoadedAgentDefinition, readLoadedAgentDefinitionFromTs } from "./agent-loader.ts";
 import type { AgentConfig } from "./types.ts";
 
@@ -42,6 +47,121 @@ function parseModelSpec(model: string): { provider: string; name: string } {
 	};
 }
 
+function modelDefinitionSpec(model: AgentModelDefinition): string {
+	if ("id" in model) {
+		const provider = modelProviderName(model);
+		return model.id.startsWith(`${provider}/`) ? model.id : `${provider}/${model.id}`;
+	}
+	return `${model.provider}/${model.name}`;
+}
+
+function modelProviderName(model: AgentLocalModelDefinition): string {
+	return typeof model.provider === "string" ? model.provider : model.provider.provider;
+}
+
+function modelMatchesSpec(model: AgentModelDefinition, spec: string): boolean {
+	if (modelDefinitionSpec(model) === spec) {
+		return true;
+	}
+	if ("id" in model) {
+		const provider = modelProviderName(model);
+		return spec === `${provider}/${model.id}`;
+	}
+	return false;
+}
+
+function formatStringRecord(record: Record<string, string>): string {
+	const entries = Object.entries(record);
+	if (entries.length === 0) {
+		return "{}";
+	}
+	return `{ ${entries.map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`).join(", ")} }`;
+}
+
+function formatJsonValue(value: unknown): string {
+	return JSON.stringify(value);
+}
+
+function formatProviderExpression(provider: AgentProviderDefinition): string {
+	const helper = providerHelper(provider);
+	if (helper) {
+		const fields: string[] = [];
+		if (provider.provider !== helper.defaultProvider) fields.push(`provider: ${JSON.stringify(provider.provider)}`);
+		if (provider.api !== helper.defaultApi) fields.push(`api: ${JSON.stringify(provider.api)}`);
+		if (provider.baseUrl !== helper.defaultBaseUrl) fields.push(`baseUrl: ${JSON.stringify(provider.baseUrl)}`);
+		if (provider.apiKey !== undefined) fields.push(`apiKey: ${JSON.stringify(provider.apiKey)}`);
+		if (provider.authHeader !== undefined) fields.push(`authHeader: ${JSON.stringify(provider.authHeader)}`);
+		if (provider.headers !== undefined) fields.push(`headers: ${formatStringRecord(provider.headers)}`);
+		if (provider.compat !== undefined) fields.push(`compat: ${formatJsonValue(provider.compat)}`);
+		return fields.length === 0 ? `${helper.name}()` : `${helper.name}({ ${fields.join(", ")} })`;
+	}
+	const fields = [
+		`provider: ${JSON.stringify(provider.provider)}`,
+		`api: ${JSON.stringify(provider.api)}`,
+		`baseUrl: ${JSON.stringify(provider.baseUrl)}`,
+	];
+	if (provider.apiKey !== undefined) fields.push(`apiKey: ${JSON.stringify(provider.apiKey)}`);
+	if (provider.authHeader !== undefined) fields.push(`authHeader: ${JSON.stringify(provider.authHeader)}`);
+	if (provider.headers !== undefined) fields.push(`headers: ${formatStringRecord(provider.headers)}`);
+	if (provider.compat !== undefined) fields.push(`compat: ${formatJsonValue(provider.compat)}`);
+	return `defineProvider({ ${fields.join(", ")} })`;
+}
+
+function providerHelper(provider: AgentProviderDefinition):
+	| {
+			name: "defineOpenAIProvider" | "defineAnthropicProvider";
+			defaultProvider: string;
+			defaultApi: string;
+			defaultBaseUrl: string;
+	  }
+	| undefined {
+	if (provider.provider === "openai") {
+		return {
+			name: "defineOpenAIProvider",
+			defaultProvider: "openai",
+			defaultApi: "openai-responses",
+			defaultBaseUrl: "https://api.openai.com/v1",
+		};
+	}
+	if (provider.provider === "anthropic") {
+		return {
+			name: "defineAnthropicProvider",
+			defaultProvider: "anthropic",
+			defaultApi: "anthropic-messages",
+			defaultBaseUrl: "https://api.anthropic.com",
+		};
+	}
+	return undefined;
+}
+
+function formatModelExpression(model: AgentModelDefinition, indent: string): string {
+	if (!("id" in model)) {
+		return `defineModel({ provider: ${JSON.stringify(model.provider)}, name: ${JSON.stringify(model.name)} })`;
+	}
+	const lines = ["defineModel({"];
+	lines.push(`${indent}\tid: ${JSON.stringify(model.id)},`);
+	if (model.name !== undefined) lines.push(`${indent}\tname: ${JSON.stringify(model.name)},`);
+	lines.push(
+		`${indent}\tprovider: ${
+			typeof model.provider === "string" ? JSON.stringify(model.provider) : formatProviderExpression(model.provider)
+		},`,
+	);
+	if (model.reasoning !== undefined) lines.push(`${indent}\treasoning: ${JSON.stringify(model.reasoning)},`);
+	if (model.thinkingLevelMap !== undefined) {
+		lines.push(`${indent}\tthinkingLevelMap: ${formatJsonValue(model.thinkingLevelMap)},`);
+	}
+	if (model.input !== undefined) lines.push(`${indent}\tinput: ${formatArrayLiteral(model.input)},`);
+	if (model.cost !== undefined) {
+		lines.push(`${indent}\tcost: ${formatJsonValue(model.cost)},`);
+	}
+	lines.push(`${indent}\tcontextWindow: ${model.contextWindow},`);
+	if (model.maxTokens !== undefined) lines.push(`${indent}\tmaxTokens: ${model.maxTokens},`);
+	if (model.headers !== undefined) lines.push(`${indent}\theaders: ${formatStringRecord(model.headers)},`);
+	if (model.compat !== undefined) lines.push(`${indent}\tcompat: ${formatJsonValue(model.compat)},`);
+	lines.push(`${indent}})`);
+	return lines.join("\n");
+}
+
 export function assertKnownToolNames(
 	agentName: string,
 	fieldName: "includeTools" | "excludeTools",
@@ -78,7 +198,7 @@ export function buildAgentTsSource(
 	config: Pick<
 		AgentConfig,
 		"name" | "parentName" | "description" | "roles" | "model" | "includeTools" | "excludeTools"
-	>,
+	> & { modelDefinition?: AgentModelDefinition; models?: AgentModelDefinition[] },
 ): string {
 	const toolNames = resolveActiveToolNames({
 		name: config.name,
@@ -86,7 +206,7 @@ export function buildAgentTsSource(
 		excludeTools: config.excludeTools,
 	});
 	const lines = [
-		'import { defineAgent, defineContextFile, defineModel, defineSkill, defineTool } from "@sheason/d-pi";',
+		'import { defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill, defineTool } from "@sheason/d-pi";',
 	];
 	if (config.parentName) {
 		lines.push(`import parentAgent from "../${config.parentName}/agent.ts";`);
@@ -102,11 +222,20 @@ export function buildAgentTsSource(
 	if (config.roles && config.roles.length > 0) {
 		lines.push(`\troles: ${formatArrayLiteral(config.roles)},`);
 	}
-	if (config.model) {
+	if (config.modelDefinition) {
+		lines.push(`\tmodel: ${formatModelExpression(config.modelDefinition, "\t")},`);
+	} else if (config.model) {
 		const model = parseModelSpec(config.model);
 		lines.push(
 			`\tmodel: defineModel({ provider: ${JSON.stringify(model.provider)}, name: ${JSON.stringify(model.name)} }),`,
 		);
+	}
+	if (config.models && config.models.length > 0) {
+		lines.push("\tmodels: [");
+		for (const model of config.models) {
+			lines.push(`${formatModelExpression(model, "\t\t")},`.replace(/^/gm, "\t\t"));
+		}
+		lines.push("\t],");
 	}
 	lines.push('\tskills: defineSkill({ dir: "./skills" }),');
 	lines.push("\ttools: [");
@@ -128,7 +257,7 @@ export function writeAgentTsConfig(
 	config: Pick<
 		AgentConfig,
 		"name" | "parentName" | "description" | "roles" | "model" | "includeTools" | "excludeTools"
-	>,
+	> & { modelDefinition?: AgentModelDefinition; models?: AgentModelDefinition[] },
 ): void {
 	writeFileSync(join(agentDir, AGENT_TS_FILE), buildAgentTsSource(config));
 }
@@ -139,7 +268,7 @@ function agentDefinitionToPersistedConfig(agent: LoadedAgentDefinition): AgentCo
 		parentName: agent.parent ? getAgentDefinitionMetadata(agent.parent)?.name : undefined,
 		description: agent.description,
 		roles: agent.roles,
-		model: agent.model ? `${agent.model.provider}/${agent.model.name}` : undefined,
+		model: agent.model ? modelDefinitionSpec(agent.model) : undefined,
 		includeTools: agent.tools.map((tool) => tool.name),
 	};
 }
@@ -150,12 +279,18 @@ export async function persistModelInAgentTs(agentDir: string, model: string): Pr
 		throw new Error(`agent.ts not present at ${join(agentDir, AGENT_TS_FILE)}`);
 	}
 	const currentConfig = agentDefinitionToPersistedConfig(currentDefinition);
+	const existingModels = [currentDefinition.model, ...(currentDefinition.models ?? [])].filter(
+		(candidate): candidate is AgentModelDefinition => candidate !== undefined,
+	);
+	const modelDefinition = existingModels.find((candidate) => modelMatchesSpec(candidate, model));
 	writeAgentTsConfig(agentDir, {
 		name: currentConfig.name,
 		parentName: currentConfig.parentName,
 		description: currentConfig.description,
 		roles: currentConfig.roles,
-		model,
+		model: modelDefinition ? undefined : model,
+		modelDefinition,
+		models: currentDefinition.models,
 		includeTools: currentConfig.includeTools,
 	});
 }

@@ -88,6 +88,57 @@ describe("normalizeLoadedAgentDefinition", () => {
 			}),
 		).toThrow(/contextFiles.*type/i);
 	});
+
+	it("accepts rich model definitions and rejects invalid rich model shapes", () => {
+		const rich = normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
+			model: {
+				id: "gpt-test",
+				provider: {
+					provider: "openai",
+					api: "openai-responses",
+					baseUrl: "https://api.openai.com/v1",
+				},
+				contextWindow: 200_000,
+				maxTokens: 32_000,
+				cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
+			},
+			models: [
+				{
+					id: "claude-test",
+					provider: "anthropic",
+					contextWindow: 100_000,
+				},
+			],
+			tools: [{ name: "dispatch_read" }],
+			skills: { dir: "./skills" },
+			contextFiles: [],
+		});
+
+		expect(rich.model).toMatchObject({
+			id: "gpt-test",
+			provider: { provider: "openai", api: "openai-responses" },
+			contextWindow: 200_000,
+		});
+		expect(rich.models).toEqual([{ id: "claude-test", provider: "anthropic", contextWindow: 100_000 }]);
+
+		expect(() =>
+			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
+				model: { id: "bad", provider: "openai" },
+				tools: [],
+				skills: { dir: "./skills" },
+				contextFiles: [],
+			}),
+		).toThrow(/model.contextWindow must be a number/i);
+
+		expect(() =>
+			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
+				model: { id: "bad", provider: { provider: "openai", api: "openai-responses" }, contextWindow: 1 },
+				tools: [],
+				skills: { dir: "./skills" },
+				contextFiles: [],
+			}),
+		).toThrow(/model.provider.baseUrl must be a string/i);
+	});
 });
 
 describe("loadAgentDefinitionFromFile", () => {
@@ -194,12 +245,16 @@ describe("readLoadedAgentDefinitionFromTs", () => {
 		writeFileSync(
 			join(agentDir, "agent.ts"),
 			[
-				`import { defineAgent, defineContextFile, defineModel, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
+				`import { defineAgent, defineContextFile, defineModel, defineOpenAIProvider, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
 				"",
 				"export default defineAgent({",
 				'\tdescription: "Executable reviewer",',
 				'\troles: ["reviewer"],',
-				'\tmodel: defineModel({ provider: "anthropic", name: "claude-sonnet-4" }),',
+				"\tmodel: defineModel({",
+				'\t\tid: "gpt-test",',
+				'\t\tprovider: defineOpenAIProvider({ apiKey: "test-key" }),',
+				"\t\tcontextWindow: 200000,",
+				"\t}),",
 				'\tskills: defineSkill({ dir: "./skills" }),',
 				'\ttools: [defineTool({ name: "dispatch_read" })],',
 				'\tcontextFiles: [defineContextFile({ type: "context", path: "./AGENTS.md" })],',
@@ -215,7 +270,16 @@ describe("readLoadedAgentDefinitionFromTs", () => {
 			agentDir,
 			description: "Executable reviewer",
 			roles: ["reviewer"],
-			model: { provider: "anthropic", name: "claude-sonnet-4" },
+			model: {
+				id: "gpt-test",
+				provider: {
+					provider: "openai",
+					api: "openai-responses",
+					baseUrl: "https://api.openai.com/v1",
+					apiKey: "test-key",
+				},
+				contextWindow: 200_000,
+			},
 			tools: [{ name: "dispatch_read" }],
 			skills: { dir: "./skills" },
 			contextFiles: [{ type: "context", path: "./AGENTS.md" }],

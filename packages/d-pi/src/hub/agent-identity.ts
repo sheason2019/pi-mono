@@ -1,6 +1,15 @@
+import type { AgentModelDefinition } from "../agent-definition.ts";
 import { getAgentDefinitionMetadata } from "../agent-definition.ts";
 import { type LoadedAgentDefinition, readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
 import type { AgentConfig } from "../types.ts";
+
+function agentModelSpec(model: AgentModelDefinition): string {
+	if ("id" in model) {
+		const provider = typeof model.provider === "string" ? model.provider : model.provider.provider;
+		return model.id.startsWith(`${provider}/`) ? model.id : `${provider}/${model.id}`;
+	}
+	return `${model.provider}/${model.name}`;
+}
 
 export function agentDefinitionToConfig(agent: LoadedAgentDefinition): AgentConfig {
 	const toolNames = agent.tools.map((tool) => tool.name);
@@ -10,7 +19,7 @@ export function agentDefinitionToConfig(agent: LoadedAgentDefinition): AgentConf
 		parentName,
 		description: agent.description,
 		roles: agent.roles,
-		model: agent.model ? `${agent.model.provider}/${agent.model.name}` : undefined,
+		model: agent.model ? agentModelSpec(agent.model) : undefined,
 		includeTools: toolNames.length > 0 ? toolNames : undefined,
 	};
 }

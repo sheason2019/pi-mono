@@ -103,8 +103,13 @@ async function runAgentWorker(): Promise<void> {
 
 	process.stderr.write(`[d-pi worker ${agentName}] Starting agent "${agentName}"...\n`);
 
+	const agentDefinition = await readLoadedAgentDefinitionFromTs(cwd);
+	const agentConfig = agentDefinition ? agentDefinitionToConfig(agentDefinition) : undefined;
+
 	// 1. Create infrastructure
-	const { agentDir, authStorage, settingsManager, modelRegistry } = createDPiWorkerInfrastructure(cwd);
+	const { agentDir, authStorage, settingsManager, modelRegistry } = createDPiWorkerInfrastructure(cwd, {
+		agentDefinition,
+	});
 
 	process.stderr.write(`[d-pi worker ${agentName}] Infrastructure created\n`);
 
@@ -119,8 +124,6 @@ async function runAgentWorker(): Promise<void> {
 	});
 	const dispatchFactory = createDispatchExtension(channel, cwd);
 	hubChannel = channel;
-	const agentDefinition = await readLoadedAgentDefinitionFromTs(cwd);
-	const agentConfig = agentDefinition ? agentDefinitionToConfig(agentDefinition) : undefined;
 
 	// 3. Build the runtime factory (mirrors main.ts pattern)
 	const createRuntime = async (opts: { cwd: string; agentDir: string; sessionManager: DPiWorkerSessionManager }) => {
@@ -279,7 +282,12 @@ async function runAgentWorker(): Promise<void> {
 
 		process.stderr.write(`[d-pi worker ${agentName}] Session services created, resolving model...\n`);
 
-		const resolvedModel = await resolveDPiInitialModel({ modelSpec, modelRegistry, settingsManager });
+		const resolvedModel = await resolveDPiInitialModel({
+			modelSpec,
+			modelRegistry,
+			settingsManager,
+			agentDefinition,
+		});
 		remoteFirstRuntimeModelSpec = runtimeModelSpecFromResolvedModel(resolvedModel);
 		remoteFirstRuntimeModel = resolvedModel;
 		remoteFirstRuntimeThinkingLevel = settingsManager.getDefaultThinkingLevel();
