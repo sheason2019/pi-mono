@@ -52,7 +52,6 @@ function invokeRemoteViaIpc(
 			status: "ready",
 			worker: fakeWorker as never,
 			cwd: tempDir!,
-			model: undefined,
 		});
 		void (
 			hub as unknown as {

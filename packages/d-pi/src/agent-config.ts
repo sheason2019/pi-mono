@@ -1,13 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-	type AgentLocalModelDefinition,
-	type AgentModelDefinition,
-	type AgentProviderDefinition,
-	getAgentDefinitionMetadata,
-} from "./agent-definition.ts";
-import { type LoadedAgentDefinition, readLoadedAgentDefinitionFromTs } from "./agent-loader.ts";
-import type { AgentConfig } from "./types.ts";
+import type { AgentModelDefinition, AgentProviderDefinition } from "./agent-definition.ts";
 
 export const AGENT_TS_FILE = "agent.ts";
 export const AGENT_SESSION_DIR = "session";
@@ -60,40 +53,6 @@ const TOOL_HELPER_NAMES: Record<(typeof DEFAULT_AGENT_TOOL_NAMES)[number], strin
 
 function formatArrayLiteral(values: string[]): string {
 	return `[${values.map((value) => JSON.stringify(value)).join(", ")}]`;
-}
-
-function parseModelSpec(model: string): { provider: string; name: string } {
-	const separatorIndex = model.indexOf("/");
-	if (separatorIndex <= 0 || separatorIndex === model.length - 1) {
-		return { provider: "unknown", name: model };
-	}
-	return {
-		provider: model.slice(0, separatorIndex),
-		name: model.slice(separatorIndex + 1),
-	};
-}
-
-function modelDefinitionSpec(model: AgentModelDefinition): string {
-	if ("id" in model) {
-		const provider = modelProviderName(model);
-		return model.id.startsWith(`${provider}/`) ? model.id : `${provider}/${model.id}`;
-	}
-	return `${model.provider}/${model.name}`;
-}
-
-function modelProviderName(model: AgentLocalModelDefinition): string {
-	return typeof model.provider === "string" ? model.provider : model.provider.provider;
-}
-
-function modelMatchesSpec(model: AgentModelDefinition, spec: string): boolean {
-	if (modelDefinitionSpec(model) === spec) {
-		return true;
-	}
-	if ("id" in model) {
-		const provider = modelProviderName(model);
-		return spec === `${provider}/${model.id}`;
-	}
-	return false;
 }
 
 function formatStringRecord(record: Record<string, string>): string {
@@ -213,7 +172,7 @@ function formatToolExpressions(toolNames: string[]): string[] {
 
 export function assertKnownToolNames(
 	agentName: string,
-	fieldName: "includeTools" | "excludeTools",
+	fieldName: "includeTools" | "excludeTools" | "toolNames",
 	toolNames: string[],
 ): void {
 	const knownNames = new Set<string>(DEFAULT_AGENT_TOOL_NAMES);
@@ -227,7 +186,21 @@ export function assertKnownToolNames(
 	}
 }
 
-export function resolveActiveToolNames(config: Pick<AgentConfig, "name" | "includeTools" | "excludeTools">): string[] {
+export interface AgentTsSourceConfig {
+	name: string;
+	parentName?: string;
+	description?: string;
+	roles?: string[];
+	modelDefinition?: AgentModelDefinition;
+	models?: AgentModelDefinition[];
+	toolNames?: string[];
+}
+
+export function resolveMigratedToolNames(config: {
+	name: string;
+	includeTools?: string[];
+	excludeTools?: string[];
+}): string[] {
 	if (config.includeTools && config.excludeTools) {
 		throw new Error(`Cannot migrate agent "${config.name}": includeTools and excludeTools are mutually exclusive.`);
 	}
@@ -243,17 +216,9 @@ export function resolveActiveToolNames(config: Pick<AgentConfig, "name" | "inclu
 	return [...DEFAULT_AGENT_TOOL_NAMES];
 }
 
-export function buildAgentTsSource(
-	config: Pick<
-		AgentConfig,
-		"name" | "parentName" | "description" | "roles" | "model" | "includeTools" | "excludeTools"
-	> & { modelDefinition?: AgentModelDefinition; models?: AgentModelDefinition[] },
-): string {
-	const toolNames = resolveActiveToolNames({
-		name: config.name,
-		includeTools: config.includeTools,
-		excludeTools: config.excludeTools,
-	});
+export function buildAgentTsSource(config: AgentTsSourceConfig): string {
+	const toolNames = config.toolNames ?? [...DEFAULT_AGENT_TOOL_NAMES];
+	assertKnownToolNames(config.name, "toolNames", toolNames);
 	const lines = [
 		'import { createCreateAgentTool, createDeleteSourceTool, createDestroyAgentTool, createDispatchBashTool, createDispatchEditTool, createDispatchFindTool, createDispatchGrepTool, createDispatchLsTool, createDispatchReadTool, createDispatchTools, createDispatchWriteTool, createGetSourceTool, createReloadTool, createSendMessageTool, createSetSourceTool, createTeamTool, defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill } from "@sheason/d-pi";',
 	];
@@ -273,11 +238,6 @@ export function buildAgentTsSource(
 	}
 	if (config.modelDefinition) {
 		lines.push(`\tmodel: ${formatModelExpression(config.modelDefinition, "\t")},`);
-	} else if (config.model) {
-		const model = parseModelSpec(config.model);
-		lines.push(
-			`\tmodel: defineModel({ provider: ${JSON.stringify(model.provider)}, name: ${JSON.stringify(model.name)} }),`,
-		);
 	}
 	if (config.models && config.models.length > 0) {
 		lines.push("\tmodels: [");
@@ -301,45 +261,6 @@ export function buildAgentTsSource(
 	return lines.join("\n");
 }
 
-export function writeAgentTsConfig(
-	agentDir: string,
-	config: Pick<
-		AgentConfig,
-		"name" | "parentName" | "description" | "roles" | "model" | "includeTools" | "excludeTools"
-	> & { modelDefinition?: AgentModelDefinition; models?: AgentModelDefinition[] },
-): void {
+export function writeAgentTsConfig(agentDir: string, config: AgentTsSourceConfig): void {
 	writeFileSync(join(agentDir, AGENT_TS_FILE), buildAgentTsSource(config));
-}
-
-function agentDefinitionToPersistedConfig(agent: LoadedAgentDefinition): AgentConfig {
-	return {
-		name: agent.name,
-		parentName: agent.parent ? getAgentDefinitionMetadata(agent.parent)?.name : undefined,
-		description: agent.description,
-		roles: agent.roles,
-		model: agent.model ? modelDefinitionSpec(agent.model) : undefined,
-		includeTools: agent.tools.map((tool) => tool.name),
-	};
-}
-
-export async function persistModelInAgentTs(agentDir: string, model: string): Promise<void> {
-	const currentDefinition = await readLoadedAgentDefinitionFromTs(agentDir);
-	if (!currentDefinition) {
-		throw new Error(`agent.ts not present at ${join(agentDir, AGENT_TS_FILE)}`);
-	}
-	const currentConfig = agentDefinitionToPersistedConfig(currentDefinition);
-	const existingModels = [currentDefinition.model, ...(currentDefinition.models ?? [])].filter(
-		(candidate): candidate is AgentModelDefinition => candidate !== undefined,
-	);
-	const modelDefinition = existingModels.find((candidate) => modelMatchesSpec(candidate, model));
-	writeAgentTsConfig(agentDir, {
-		name: currentConfig.name,
-		parentName: currentConfig.parentName,
-		description: currentConfig.description,
-		roles: currentConfig.roles,
-		model: modelDefinition ? undefined : model,
-		modelDefinition,
-		models: currentDefinition.models,
-		includeTools: currentConfig.includeTools,
-	});
 }

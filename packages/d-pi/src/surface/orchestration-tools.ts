@@ -63,41 +63,12 @@ export function createDPiCreateAgentTool(client: DPiHubActionsClient): DPiTool {
 			cwd: Type.Optional(
 				Type.String({ description: "Working directory override (defaults to workspace/agents/<name>/)" }),
 			),
-			model: Type.Optional(
-				Type.String({ description: "Model to use for the new agent (e.g. 'anthropic/claude-sonnet-4')" }),
-			),
-			roles: Type.Optional(
-				Type.Array(Type.String(), {
-					description: "Team role names to apply from team-template/roles/<role>/",
-				}),
-			),
-			includeTools: Type.Optional(
-				Type.Array(Type.String(), {
-					description:
-						"Allowlist of tool names. When provided, only these tools are exposed to the agent; all other tools are disabled. Mutually exclusive with excludeTools - passing both is rejected with isError.",
-				}),
-			),
-			excludeTools: Type.Optional(
-				Type.Array(Type.String(), {
-					description:
-						"Denylist of tool names. These tools will not be exposed; all other tools remain available. Mutually exclusive with includeTools - passing both is rejected with isError. If both are omitted, the agent inherits all available tools.",
-				}),
-			),
 		}),
 		async execute(_toolCallId, params) {
-			if (params.includeTools && params.excludeTools) {
-				return errorTextResult(
-					"includeTools and excludeTools are mutually exclusive; provide at most one. Both omitted = inherit all tools.",
-				);
-			}
 			try {
 				const payload: DPiCreateAgentActionPayload = {
 					name: params.name,
 					cwd: params.cwd,
-					model: params.model,
-					roles: params.roles,
-					includeTools: params.includeTools,
-					excludeTools: params.excludeTools,
 				};
 				const result = await client.createAgent(payload);
 				const agentIdText = result.agentId === undefined ? "" : ` (agentId=${result.agentId})`;

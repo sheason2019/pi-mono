@@ -378,17 +378,17 @@ Each agent exports a standard definition:
   "## Agent identity" section so the LLM has a self-description to refer to
   during multi-agent coordination. Recommended: a few sentences in plain
   English, no formatting.
-- \`model\` (optional): \`defineModel({ provider, name })\` for an existing registry model, or
+- \`model\` (optional): \`defineModel({ provider, name })\` for a model declared in this
+  agent's \`models\` array, or
   \`defineModel({ id, provider: defineOpenAIProvider(...), contextWindow, thinkingLevelMap, ... })\`
-  for an agent-local model. Use \`defineProvider(...)\` for custom OpenAI-compatible or
-  non-default provider settings.
+  for an agent-local model. Custom providers must use \`defineProvider(...)\`.
 - \`roles\` (optional): array of role names — see \`team-template/roles/\`.
-- \`skills\` (required): use \`defineSkill({ dir: "./skills" })\` for agent-local skills.
+- \`skills\` (optional): use \`defineSkill({ dir: "./skills" })\` for agent-local skills.
 - \`tools\` (required): executable tool definitions, usually explicit built-in helpers such as
   \`...createDispatchTools()\`, \`createTeamTool()\`, and custom \`defineTool({ name, description, parameters, execute })\`.
-  This is the effective tool set for the agent. Unknown tool names are rejected during migration.
-  Legacy \`includeTools\` / \`excludeTools\` configs are migrated into this effective \`tools\` array.
-- \`contextFiles\` (required): include \`./AGENTS.md\` as \`context\` and \`./.pi/APPEND_SYSTEM.md\` as \`append_system\`.
+  This is the effective tool set for the agent.
+- \`contextFiles\` (optional): explicitly include \`./AGENTS.md\` as \`context\` and
+  \`./.pi/APPEND_SYSTEM.md\` as \`append_system\` when this agent needs local context.
 `,
 		);
 	}

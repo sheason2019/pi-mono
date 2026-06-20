@@ -27,7 +27,7 @@ import {
 
 type InitialModelOptions = Parameters<typeof resolveDPiInitialModel>[0];
 type WorkerModelRegistry = InitialModelOptions["modelRegistry"];
-type WorkerSettingsManager = InitialModelOptions["settingsManager"];
+type WorkerSettingsManager = Parameters<typeof createDPiAgentSessionServices>[0]["settingsManager"];
 type DefaultThinkingLevel = ReturnType<WorkerSettingsManager["getDefaultThinkingLevel"]>;
 
 interface MinimalModelRegistry {
@@ -37,8 +37,6 @@ interface MinimalModelRegistry {
 }
 
 interface MinimalSettingsManager {
-	getDefaultProvider(): string | undefined;
-	getDefaultModel(): string | undefined;
 	getDefaultThinkingLevel(): DefaultThinkingLevel;
 }
 
@@ -82,12 +80,8 @@ function asWorkerSettingsManager(settingsManager: MinimalSettingsManager): Worke
 	return settingsManager as unknown as WorkerSettingsManager;
 }
 
-function makeSettingsManager(
-	options: { defaultProvider?: string; defaultModel?: string; defaultThinkingLevel?: DefaultThinkingLevel } = {},
-): MinimalSettingsManager {
+function makeSettingsManager(options: { defaultThinkingLevel?: DefaultThinkingLevel } = {}): MinimalSettingsManager {
 	return {
-		getDefaultProvider: vi.fn(() => options.defaultProvider),
-		getDefaultModel: vi.fn(() => options.defaultModel),
 		getDefaultThinkingLevel: vi.fn(() => options.defaultThinkingLevel),
 	};
 }
@@ -329,8 +323,8 @@ describe("worker runtime adapter", () => {
 		try {
 			const infrastructure = createDPiWorkerInfrastructure("/tmp/d-pi-worker-infra");
 
-			expect(infrastructure.settingsManager.getDefaultProvider()).toBeUndefined();
-			expect(infrastructure.settingsManager.getDefaultModel()).toBeUndefined();
+			expect("getDefaultProvider" in infrastructure.settingsManager).toBe(false);
+			expect("getDefaultModel" in infrastructure.settingsManager).toBe(false);
 			expect(infrastructure.modelRegistry.getAll()).toEqual([]);
 			expect(infrastructure.modelRegistry.find("stepfun", "step-3.7-flash")).toBeUndefined();
 			expect(infrastructure.modelRegistry.find("custom-openai", "custom-model")).toBeUndefined();
@@ -509,57 +503,17 @@ describe("worker runtime adapter", () => {
 		]);
 	});
 
-	it("resolves provider/model specs using the first slash as the provider separator", async () => {
-		const target = makeModel("openrouter", "openai/gpt-4.1");
-		const registry = makeModelRegistry({
-			find: (provider, modelId) => (provider === target.provider && modelId === target.id ? target : undefined),
-		});
-
-		const result = await resolveDPiInitialModel({
-			modelSpec: "openrouter/openai/gpt-4.1",
-			modelRegistry: asWorkerModelRegistry(registry),
-			settingsManager: asWorkerSettingsManager(makeSettingsManager()),
-		});
-
-		expect(result).toBe(target);
-		expect(registry.find).toHaveBeenCalledWith("openrouter", "openai/gpt-4.1");
-		expect(registry.getAll).not.toHaveBeenCalled();
-	});
-
-	it("resolves bare model specs from all models by exact id", async () => {
-		const target = makeModel("openrouter", "gpt-4.1");
-		const registry = makeModelRegistry({ all: [target] });
-
-		const result = await resolveDPiInitialModel({
-			modelSpec: "gpt-4.1",
-			modelRegistry: asWorkerModelRegistry(registry),
-			settingsManager: asWorkerSettingsManager(makeSettingsManager()),
-		});
-
-		expect(result).toBe(target);
-		expect(registry.find).not.toHaveBeenCalled();
-		expect(registry.getAll).toHaveBeenCalledOnce();
-	});
-
-	it("uses the agent-local current model before settings defaults when no CLI model is provided", async () => {
+	it("resolves the initial model only from the agent.ts current model", async () => {
 		const local = makeModel("openai", "gpt-local");
-		const fallback = makeModel("anthropic", "claude-fallback");
 		const registry = makeModelRegistry({
 			find: (provider, modelId) => {
 				if (provider === local.provider && modelId === local.id) return local;
-				if (provider === fallback.provider && modelId === fallback.id) return fallback;
 				return undefined;
 			},
 		});
 
 		const result = await resolveDPiInitialModel({
 			modelRegistry: asWorkerModelRegistry(registry),
-			settingsManager: asWorkerSettingsManager(
-				makeSettingsManager({
-					defaultProvider: fallback.provider,
-					defaultModel: fallback.id,
-				}),
-			),
 			agentDefinition: {
 				name: "root",
 				agentDir: "/tmp/root",
@@ -581,61 +535,22 @@ describe("worker runtime adapter", () => {
 
 		expect(result).toBe(local);
 		expect(registry.find).toHaveBeenCalledWith(local.provider, local.id);
-		expect(registry.find).not.toHaveBeenCalledWith(fallback.provider, fallback.id);
 	});
 
-	it("keeps explicit CLI model specs above agent-local current model", async () => {
-		const explicit = makeModel("anthropic", "claude-explicit");
-		const local = makeModel("openai", "gpt-local");
-		const registry = makeModelRegistry({
-			find: (provider, modelId) => {
-				if (provider === explicit.provider && modelId === explicit.id) return explicit;
-				if (provider === local.provider && modelId === local.id) return local;
-				return undefined;
-			},
-		});
-
-		const result = await resolveDPiInitialModel({
-			modelSpec: `${explicit.provider}/${explicit.id}`,
-			modelRegistry: asWorkerModelRegistry(registry),
-			settingsManager: asWorkerSettingsManager(makeSettingsManager()),
-			agentDefinition: {
-				name: "root",
-				agentDir: "/tmp/root",
-				agentFilePath: "/tmp/root/agent.ts",
-				model: { id: local.id, provider: local.provider, contextWindow: local.contextWindow },
-				tools: [],
-				skills: { dir: "./skills" },
-				contextFiles: [],
-			},
-		});
-
-		expect(result).toBe(explicit);
-		expect(registry.find).toHaveBeenCalledWith(explicit.provider, explicit.id);
-		expect(registry.find).not.toHaveBeenCalledWith(local.provider, local.id);
-	});
-
-	it("falls back through configured defaults when an explicit provider/model spec is not found", async () => {
-		const fallback = makeModel("anthropic", "claude-sonnet");
+	it("does not fall back to settings or provider defaults without an agent.ts model", async () => {
+		const fallback = makeModel("anthropic", "claude-fallback");
 		const registry = makeModelRegistry({
 			find: (provider, modelId) =>
 				provider === fallback.provider && modelId === fallback.id ? fallback : undefined,
 		});
 
 		const result = await resolveDPiInitialModel({
-			modelSpec: "openrouter/missing-model",
 			modelRegistry: asWorkerModelRegistry(registry),
-			settingsManager: asWorkerSettingsManager(
-				makeSettingsManager({
-					defaultProvider: fallback.provider,
-					defaultModel: fallback.id,
-				}),
-			),
 		});
 
-		expect(result).toBe(fallback);
-		expect(registry.find).toHaveBeenNthCalledWith(1, "openrouter", "missing-model");
-		expect(registry.find).toHaveBeenNthCalledWith(2, fallback.provider, fallback.id);
+		expect(result).toBeUndefined();
+		expect(registry.find).not.toHaveBeenCalled();
+		expect(registry.getAll).not.toHaveBeenCalled();
 	});
 
 	it("uses the resolved default model as the remote-first runtime model spec", () => {
@@ -739,7 +654,7 @@ describe("worker runtime adapter", () => {
 		expect(bindIndex).toBeGreaterThan(0);
 		expect(runtimeIndex).toBeGreaterThan(bindIndex);
 		expect(source).toContain("tools: runtime!.session.getToolDefinitions()");
-		expect(source).toContain("activeToolNames: config.includeTools");
+		expect(source).toContain("activeToolNames: agentToolNames");
 		expect(source).toContain("createAgentLocalToolsExtension");
 		expect(source).toContain("agentTools: agentDefinition?.tools ?? []");
 	});

@@ -171,6 +171,15 @@ describe("normalizeLoadedAgentDefinition", () => {
 				contextFiles: [],
 			}),
 		).toThrow(/model.provider.baseUrl must be a string/i);
+
+		expect(() =>
+			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
+				model: { id: "bad", provider: "stepfun", contextWindow: 1 },
+				tools: [],
+				skills: { dir: "./skills" },
+				contextFiles: [],
+			}),
+		).toThrow(/model.provider must be openai or anthropic when passed as a string/i);
 	});
 });
 

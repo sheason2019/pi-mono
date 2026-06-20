@@ -24,14 +24,7 @@ interface LegacyOkResult {
 export function createHubActionsClientFromHubChannel(channel: HubChannel): DPiHubActionsClient {
 	return {
 		async createAgent(payload): Promise<DPiCreateAgentActionResult> {
-			const raw = await channel.createAgent(
-				payload.name,
-				payload.cwd,
-				payload.model,
-				payload.roles,
-				payload.includeTools,
-				payload.excludeTools,
-			);
+			const raw = await channel.createAgent(payload.name, payload.cwd);
 			const result = legacyCreateAgentResult(raw);
 			if (result.error) {
 				throw new Error(result.error);

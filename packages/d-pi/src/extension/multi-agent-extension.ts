@@ -123,9 +123,8 @@ function formatAgentEntry(agent: TeamAgentEntry, depth: number, isLast: boolean,
 		indent += isLast ? "\u2514 " : "\u251C ";
 	}
 	const indicator = statusIndicator(agent.status);
-	const model = agent.model ? ` (${agent.model})` : "";
 	const current = isCurrent ? " \u25C0" : "";
-	return `${indent}${indicator} ${agent.name}${model}${current}\t${agent.name}`;
+	return `${indent}${indicator} ${agent.name}${current}\t${agent.name}`;
 }
 
 /** Extract the agent name from a formatted selector line (after the tab). */

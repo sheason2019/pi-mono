@@ -95,7 +95,6 @@ export class Hub {
 		if (!this._registry.getByName("root")) {
 			await this.createAgent(undefined, {
 				name: "root",
-				model: this._config.model,
 			});
 		}
 
@@ -167,9 +166,6 @@ export class Hub {
 					name: d.config.name,
 					description: d.config.description,
 					roles: d.config.roles,
-					model: d.config.model,
-					includeTools: d.config.includeTools,
-					excludeTools: d.config.excludeTools,
 					persistDefinition: false,
 				});
 			} catch (err) {
@@ -207,23 +203,10 @@ export class Hub {
 			name: string;
 			cwd?: string;
 			description?: string;
-			model?: string;
 			roles?: string[];
-			includeTools?: string[];
-			excludeTools?: string[];
 			persistDefinition?: boolean;
 		},
 	): Promise<CreateAgentResult> {
-		// Mutex validation: includeTools and excludeTools cannot both be set.
-		// This is a defensive second-layer check — the extension layer also
-		// rejects the combination, but in-process callers (e.g. agent
-		// restoration on hub restart) go through this code path directly.
-		if (options.includeTools && options.excludeTools) {
-			throw new Error(
-				"includeTools and excludeTools are mutually exclusive; provide at most one. Both omitted = inherit all tools.",
-			);
-		}
-
 		// Parent invariant: a non-undefined parentName MUST refer to a live
 		// agent in the registry. The runtime create_agent path (worker → hub)
 		// already guarantees this because the worker passes its own name
@@ -264,9 +247,6 @@ export class Hub {
 			parentName,
 			description: options.description,
 			roles: options.roles,
-			model: options.model,
-			includeTools: options.includeTools,
-			excludeTools: options.excludeTools,
 		};
 		if (options.persistDefinition !== false) {
 			writeAgentTsConfig(agentDir, agentConfig);
@@ -274,11 +254,6 @@ export class Hub {
 
 		// Compute isolated session directory
 		const sessionDir = join(agentDir, AGENT_SESSION_DIR);
-
-		// Tools config is agent-only — declared in agent.ts and passed via
-		// the create_agent tool call. There is no workspace-level fallback.
-		const includeTools = options.includeTools;
-		const excludeTools = options.excludeTools;
 
 		process.stderr.write(`[d-pi hub] Creating agent "${options.name}" (IPC mode), cwd=${agentDir}\n`);
 
@@ -288,11 +263,8 @@ export class Hub {
 				agentName: options.name,
 				parentName,
 				cwd: agentDir,
-				model: options.model,
 				workspaceContext,
 				sessionDir,
-				includeTools,
-				excludeTools,
 			},
 		});
 
@@ -321,7 +293,6 @@ export class Hub {
 			status: "starting",
 			worker,
 			cwd: agentDir,
-			model: options.model,
 		});
 
 		// Wait for ready signal
@@ -496,18 +467,10 @@ export class Hub {
 					const p = params as {
 						name: string;
 						cwd?: string;
-						model?: string;
-						roles?: string[];
-						includeTools?: string[];
-						excludeTools?: string[];
 					};
 					const created = await this.createAgent(fromAgentName, {
 						name: p.name,
 						cwd: p.cwd,
-						model: p.model,
-						roles: p.roles,
-						includeTools: p.includeTools,
-						excludeTools: p.excludeTools,
 					});
 					result = { agentName: created.agentName } satisfies CreateAgentResult;
 					break;

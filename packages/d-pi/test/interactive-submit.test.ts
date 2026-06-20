@@ -150,7 +150,6 @@ describe("d-pi interactive editor submit", () => {
 		const proxy = createProxy({
 			prompt: vi.fn(async () => {}),
 			reload: vi.fn(async () => {}),
-			setModel: vi.fn(),
 		});
 
 		await expect(
@@ -160,18 +159,10 @@ describe("d-pi interactive editor submit", () => {
 				stop: vi.fn(async () => {}),
 			}),
 		).resolves.toBe(true);
-		await expect(
-			handleDPiConnectSlashCommand("/model anthropic/claude-sonnet-4", {
-				proxy,
-				showStatus: (text) => statuses.push(text),
-				stop: vi.fn(async () => {}),
-			}),
-		).resolves.toBe(true);
 
 		expect(proxy.reload).toHaveBeenCalled();
-		expect(proxy.setModel).toHaveBeenCalledWith("anthropic/claude-sonnet-4");
 		expect(proxy.prompt).not.toHaveBeenCalled();
-		expect(statuses).toEqual(["Reloaded", "Model: anthropic/claude-sonnet-4"]);
+		expect(statuses).toEqual(["Reloaded"]);
 	});
 
 	it("shows remote slash command errors without rejecting out of the TUI input handler", async () => {
@@ -299,7 +290,6 @@ describe("d-pi interactive editor submit", () => {
 			stop: vi.fn(async () => {}),
 		};
 		const commandText: Record<string, string> = {
-			model: "/model",
 			name: "/name renamed",
 		};
 
@@ -309,8 +299,6 @@ describe("d-pi interactive editor submit", () => {
 		}
 
 		expect(handlers.showSettingsSelector).toHaveBeenCalled();
-		expect(handlers.showModelSelector).toHaveBeenCalled();
-		expect(handlers.showScopedModelsSelector).toHaveBeenCalled();
 		expect(handlers.showForkSelector).toHaveBeenCalled();
 		expect(handlers.showTreeSelector).toHaveBeenCalled();
 		expect(handlers.showResumeSelector).toHaveBeenCalled();
@@ -474,10 +462,9 @@ describe("d-pi interactive editor submit", () => {
 						name: "root",
 						parentName: undefined,
 						status: "ready",
-						model: "anthropic/sonnet",
 						children: ["helper"],
 					},
-					{ name: "helper", parentName: "root", status: "busy", model: undefined, children: [] },
+					{ name: "helper", parentName: "root", status: "busy", children: [] },
 				],
 				executors: [],
 			},
@@ -485,7 +472,8 @@ describe("d-pi interactive editor submit", () => {
 		);
 
 		expect(items.map((item) => item.value)).toEqual(["root", "helper"]);
-		expect(items[0]?.label).toContain("root (anthropic/sonnet)");
+		expect(items[0]?.label).toContain("root");
+		expect(items[0]?.label).not.toContain("anthropic/sonnet");
 		expect(items[1]?.label).toContain("helper");
 		expect(items[1]?.label).toContain("◀");
 		expect(extractDPiConnectSelectedAgentName(items[1]!.value)).toBe("helper");
@@ -532,8 +520,8 @@ describe("d-pi interactive editor submit", () => {
 				Response.json({
 					rootName: "root",
 					agents: [
-						{ name: "root", parentName: undefined, status: "ready", model: undefined, children: ["helper"] },
-						{ name: "helper", parentName: "root", status: "ready", model: undefined, children: [] },
+						{ name: "root", parentName: undefined, status: "ready", children: ["helper"] },
+						{ name: "helper", parentName: "root", status: "ready", children: [] },
 					],
 					executors: [],
 				}),

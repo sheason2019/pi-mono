@@ -69,7 +69,7 @@ function printHelp(runtime: DPiCliRuntime): void {
 Usage:
   d-pi init [--team-template <git-repo>]  Initialize a workspace in the current directory
   d-pi migrate                      Migrate the current workspace to the latest schema
-  d-pi serve [--port ${DEFAULT_HUB_PORT}] [--model <model>]  Start the hub (must be in a workspace)
+  d-pi serve [--port ${DEFAULT_HUB_PORT}]  Start the hub (must be in a workspace)
   d-pi connect <user@url> [--agent <id|name>]
   d-pi users create <name> [--description <text>]
   d-pi users update <name> [--description <text>]
@@ -236,12 +236,10 @@ export async function runDPiCli(args: string[], runtime: DPiCliRuntime = default
 		const workspaceContext = loadWorkspaceContext(runtime.cwd);
 		const portValue = optionValue(args, "--port");
 		const port = portValue ? parseInt(portValue, 10) : DEFAULT_HUB_PORT;
-		const model = optionValue(args, "--model");
 		const createHub = runtime.createHub ?? ((config: HubConfig) => new Hub(config));
 		const hub = createHub({
 			port,
 			cwd: runtime.cwd,
-			model: model ?? undefined,
 			workspaceRoot: runtime.cwd,
 			workspaceContext,
 			workspaceConfig,

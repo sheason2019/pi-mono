@@ -16,7 +16,6 @@ import type {
 	DPiTeamSnapshot,
 } from "../src/surface/index.ts";
 import {
-	createDPiCreateAgentTool,
 	createDPiDeleteSourceTool,
 	createDPiDestroyAgentTool,
 	createDPiGetSourceTool,
@@ -130,31 +129,14 @@ describe("d-pi surface orchestration tools", () => {
 		expect(result.isError).toBeUndefined();
 	});
 
-	it("rejects create_agent when includeTools and excludeTools are both provided", async () => {
-		const client = new RecordingHubActionsClient();
-		const tool = createDPiCreateAgentTool(client);
-
-		const result = asTextToolResult(
-			await tool.execute("call-2", {
-				name: "child",
-				includeTools: ["read"],
-				excludeTools: ["bash"],
-			}),
-		);
-
-		expect(result.isError).toBe(true);
-		expect(textOf(result)).toMatch(/mutually exclusive/i);
-		expect(client.createAgentCalls).toEqual([]);
-	});
-
 	it("formats team snapshots with agent trees and executor details", async () => {
 		const client = new RecordingHubActionsClient();
 		client.teamSnapshot = {
 			rootName: "root",
 			agents: [
-				{ name: "root", parentName: undefined, status: "ready", model: "model-a", children: ["child"] },
-				{ name: "child", parentName: "root", status: "busy", model: undefined, children: ["grandchild"] },
-				{ name: "grandchild", parentName: "child", status: "starting", model: undefined, children: [] },
+				{ name: "root", parentName: undefined, status: "ready", children: ["child"] },
+				{ name: "child", parentName: "root", status: "busy", children: ["grandchild"] },
+				{ name: "grandchild", parentName: "child", status: "starting", children: [] },
 			],
 			executors: [
 				{ connectId: "exec-1", cwd: "/repo", attached: true, boundAgentName: "child" },
@@ -174,7 +156,7 @@ describe("d-pi surface orchestration tools", () => {
 		expect(JSON.parse(JSON.stringify(result.details))).toEqual(result.details);
 		expect(result.details).toEqual({
 			agents: [
-				{ name: "root", status: "ready", model: "model-a", children: ["child"] },
+				{ name: "root", status: "ready", children: ["child"] },
 				{ name: "child", parentName: "root", status: "busy", children: ["grandchild"] },
 				{ name: "grandchild", parentName: "child", status: "starting", children: [] },
 			],
@@ -272,15 +254,8 @@ describe("orchestration tool adapters", () => {
 		const createAgentCalls: DPiCreateAgentActionPayload[] = [];
 		const channel = {
 			agentName: "root",
-			createAgent: async (
-				name: string,
-				cwd?: string,
-				model?: string,
-				roles?: string[],
-				includeTools?: string[],
-				excludeTools?: string[],
-			): Promise<{ agentId: string; name: string }> => {
-				createAgentCalls.push({ name, cwd, model, roles, includeTools, excludeTools });
+			createAgent: async (name: string, cwd?: string): Promise<{ agentId: string; name: string }> => {
+				createAgentCalls.push({ name, cwd });
 				return { agentId: "agent-1", name };
 			},
 		} as unknown as HubChannel;
@@ -289,19 +264,12 @@ describe("orchestration tool adapters", () => {
 		const result = await client.createAgent({
 			name: "child",
 			cwd: "/repo",
-			model: "model-a",
-			roles: ["reviewer"],
-			includeTools: ["read"],
 		});
 
 		expect(createAgentCalls).toEqual([
 			{
 				name: "child",
 				cwd: "/repo",
-				model: "model-a",
-				roles: ["reviewer"],
-				includeTools: ["read"],
-				excludeTools: undefined,
 			},
 		]);
 		expect(result).toEqual({ agentName: "child", agentId: "agent-1" });

@@ -55,7 +55,6 @@ import {
 	type DPiWorkerSessionManager,
 	generateDPiBanner,
 	resolveDPiInitialModel,
-	runtimeModelSpecFromResolvedModel,
 } from "./coding-agent-worker-adapter.ts";
 
 const dPiClientExtensionPath = new URL(
@@ -69,7 +68,6 @@ const port = parentPort!;
 let hubChannel: HubChannel | undefined;
 let runtime: DPiAgentSessionRuntime | undefined;
 let agentRuntime: DPiAgentRuntime | undefined;
-let remoteFirstRuntimeModelSpec: string | undefined;
 let remoteFirstRuntimeModel: Model<Api> | undefined;
 let remoteFirstRuntimeThinkingLevel: ThinkingLevel | undefined;
 let ipcServer: DPiAgentIpcServer | undefined;
@@ -266,12 +264,13 @@ port.on("message", (message: HubToWorkerMessage) => {
 async function runAgentWorker(): Promise<void> {
 	// `agentName` is the worker's identity — there is no separate id.
 	// See "name is identity" in the changelog for the rationale.
-	const { agentName, cwd, model: modelSpec } = config;
+	const { agentName, cwd } = config;
 
 	process.stderr.write(`[d-pi worker ${agentName}] Starting agent "${agentName}"...\n`);
 
 	const agentDefinition = await readLoadedAgentDefinitionFromTs(cwd);
 	const agentConfig = agentDefinition ? agentDefinitionToConfig(agentDefinition) : undefined;
+	const agentToolNames = agentDefinition?.tools.map((tool) => tool.name) ?? [];
 
 	// 1. Create infrastructure
 	const { agentDir, authStorage, settingsManager, modelRegistry } = createDPiWorkerInfrastructure(cwd, {
@@ -415,14 +414,14 @@ async function runAgentWorker(): Promise<void> {
 		process.stderr.write(`[d-pi worker ${agentName}] Session services created, resolving model...\n`);
 
 		const resolvedModel = await resolveDPiInitialModel({
-			modelSpec,
 			modelRegistry,
-			settingsManager,
 			agentDefinition,
 		});
-		remoteFirstRuntimeModelSpec = runtimeModelSpecFromResolvedModel(resolvedModel);
 		remoteFirstRuntimeModel = resolvedModel;
 		remoteFirstRuntimeThinkingLevel = settingsManager.getDefaultThinkingLevel();
+		if (!remoteFirstRuntimeModel) {
+			throw new Error(`Agent "${agentName}" must define a loadable model in agent.ts`);
+		}
 
 		process.stderr.write(`[d-pi worker ${agentName}] Model resolved: ${resolvedModel?.id ?? "unknown"}\n`);
 
@@ -430,8 +429,8 @@ async function runAgentWorker(): Promise<void> {
 			services,
 			sessionManager: opts.sessionManager,
 			model: resolvedModel,
-			tools: config.includeTools,
-			excludeTools: ["bash", "read", "edit", "write", "grep", "find", "ls", ...(config.excludeTools ?? [])],
+			tools: agentToolNames,
+			excludeTools: ["bash", "read", "edit", "write", "grep", "find", "ls"],
 		});
 
 		process.stderr.write(`[d-pi worker ${agentName}] Session created from services\n`);
@@ -496,7 +495,7 @@ async function runAgentWorker(): Promise<void> {
 	// Bind before creating DPiAgentRuntime so AgentHarness receives the real extension tools.
 	await rebindSession();
 
-	if (remoteFirstRuntimeModelSpec) {
+	if (remoteFirstRuntimeModel) {
 		const sessionStore = new DPiSessionStore({
 			cwd,
 			sessionsRoot: config.sessionDir ?? join(cwd, "session"),
@@ -509,7 +508,7 @@ async function runAgentWorker(): Promise<void> {
 			session: sessionHandle.session,
 			sessionInfo: sessionHandle.info,
 			initialMessages: initialSessionContext.messages,
-			modelManager: new DPiModelManager({ defaultModel: remoteFirstRuntimeModel ?? remoteFirstRuntimeModelSpec }),
+			modelManager: new DPiModelManager({ model: remoteFirstRuntimeModel }),
 			contextManager: new DPiContextManager({
 				workspaceRoot: config.workspaceContext?.workspaceRoot ?? cwd,
 				agentName,
@@ -519,7 +518,7 @@ async function runAgentWorker(): Promise<void> {
 			}),
 			thinkingLevel: remoteFirstRuntimeThinkingLevel,
 			tools: runtime!.session.getToolDefinitions(),
-			activeToolNames: config.includeTools,
+			activeToolNames: agentToolNames,
 			getApiKeyAndHeaders: modelRegistry.getApiKeyAndHeaders
 				? async (model) => await modelRegistry.getApiKeyAndHeaders?.(model)
 				: undefined,

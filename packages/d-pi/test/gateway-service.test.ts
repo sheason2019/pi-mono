@@ -112,7 +112,6 @@ async function startHub(
 		status: "ready",
 		worker: worker as never,
 		cwd: workspaceRoot,
-		model: undefined,
 	});
 	const gateway = new HubGateway(
 		registry,

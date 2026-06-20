@@ -52,7 +52,7 @@ export class HubGateway {
 	private readonly _sourceManager: SourceManager;
 	private readonly _onCreateAgent: (
 		parentName: string | undefined,
-		options: { name: string; cwd?: string; model?: string; roles?: string[] },
+		options: { name: string; cwd?: string },
 	) => Promise<{ agentName: string }>;
 	private readonly _onDestroyAgent: (agentName: string) => Promise<void>;
 	private readonly _auth: AuthSessionManager | undefined;
@@ -384,15 +384,11 @@ export class HubGateway {
 				parentName?: string;
 				name: string;
 				cwd?: string;
-				model?: string;
-				roles?: string[];
 			};
 			try {
 				const result = await this._onCreateAgent(params.parentName, {
 					name: params.name,
 					cwd: params.cwd,
-					model: params.model,
-					roles: params.roles,
 				});
 				res.writeHead(201, { "Content-Type": "application/json" });
 				res.end(JSON.stringify(result));

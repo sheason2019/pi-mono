@@ -8,10 +8,11 @@ import type {
 	AgentTool,
 	ThinkingLevel,
 } from "@earendil-works/pi-agent-core/node";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildAgentTsSource } from "../src/agent-config.ts";
+import { readLoadedAgentDefinitionFromTs } from "../src/agent-loader.ts";
 import { DPiContextManager } from "../src/context/context-manager.ts";
 import {
 	type DPiAgentHarness,
@@ -26,6 +27,21 @@ import { DPiSessionStore } from "../src/runtime/session-store.ts";
 import type { DPiPromptOptions } from "../src/runtime/types.ts";
 
 let tempDir: string | undefined;
+
+function makeModel(provider = "anthropic", id = "claude-sonnet-4-5"): Model<Api> {
+	return {
+		id,
+		name: id,
+		api: "anthropic-messages",
+		baseUrl: "https://api.anthropic.com",
+		provider,
+		reasoning: true,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 200_000,
+		maxTokens: 32_000,
+	};
+}
 
 function createTempWorkspace(): string {
 	tempDir = mkdtempSync(join(tmpdir(), "d-pi-runtime-foundation-"));
@@ -124,6 +140,7 @@ class FakeHarness implements DPiAgentHarness {
 
 async function createRuntime(workspaceRoot: string, fakeHarness: FakeHarness): Promise<DPiAgentRuntime> {
 	const agentDir = createAgent(workspaceRoot, "root", "Original identity.");
+	const agentDefinition = await readLoadedAgentDefinitionFromTs(agentDir);
 	const sessionStore = new DPiSessionStore({
 		cwd: workspaceRoot,
 		sessionsRoot: join(workspaceRoot, ".pi", "sessions"),
@@ -133,8 +150,14 @@ async function createRuntime(workspaceRoot: string, fakeHarness: FakeHarness): P
 		agentName: "root",
 		cwd: workspaceRoot,
 		session: session.session,
-		modelManager: new DPiModelManager({ defaultModel: "anthropic/claude-sonnet-4-5" }),
-		contextManager: new DPiContextManager({ workspaceRoot, agentName: "root", agentDir, cwd: agentDir }),
+		modelManager: new DPiModelManager({ model: makeModel() }),
+		contextManager: new DPiContextManager({
+			workspaceRoot,
+			agentName: "root",
+			agentDir,
+			cwd: agentDir,
+			agentDefinition,
+		}),
 		harnessFactory: () => fakeHarness,
 	});
 }
@@ -147,25 +170,16 @@ afterEach(() => {
 });
 
 describe("d-pi runtime foundation", () => {
-	it("resolves provider/model specs and maps missing models to DPiRuntimeError", () => {
-		const manager = new DPiModelManager({ defaultModel: "anthropic/claude-sonnet-4-5" });
+	it("uses an already resolved agent.ts model without loading provider defaults", () => {
+		const manager = new DPiModelManager({ model: makeModel() });
 
 		expect(manager.getModelInfo()).toMatchObject({
 			id: "claude-sonnet-4-5",
 			provider: "anthropic",
-			displayName: "Claude Sonnet 4.5 (latest)",
+			displayName: "claude-sonnet-4-5",
 			contextWindow: 200_000,
 		});
-
-		manager.setModelSpec("anthropic/claude-3-5-haiku-20241022");
-
-		expect(manager.getModelInfo()).toMatchObject({
-			id: "claude-3-5-haiku-20241022",
-			provider: "anthropic",
-		});
-		expect(() => manager.setModelSpec("anthropic/not-a-real-model")).toThrow(
-			expect.objectContaining({ name: "DPiRuntimeError", code: "missing_model" }),
-		);
+		expect("setModelSpec" in manager).toBe(false);
 	});
 
 	it("creates, lists, and opens sessions through the d-pi session boundary", async () => {
@@ -226,7 +240,7 @@ describe("d-pi runtime foundation", () => {
 			session: session.session,
 			sessionInfo: session.info,
 			initialMessages: initialContext.messages,
-			modelManager: new DPiModelManager({ defaultModel: "anthropic/claude-sonnet-4-5" }),
+			modelManager: new DPiModelManager({ model: makeModel() }),
 			contextManager: new DPiContextManager({ workspaceRoot, agentName: "root", agentDir, cwd: agentDir }),
 			harnessFactory: () => new FakeHarness(),
 		});
@@ -496,7 +510,7 @@ describe("d-pi runtime foundation", () => {
 			agentName: "root",
 			cwd: workspaceRoot,
 			session: session.session,
-			modelManager: new DPiModelManager({ defaultModel: "anthropic/claude-sonnet-4-5" }),
+			modelManager: new DPiModelManager({ model: makeModel() }),
 			contextManager: new DPiContextManager({ workspaceRoot, agentName: "root", agentDir, cwd: agentDir }),
 			tools: [tool],
 			resources,
@@ -539,21 +553,16 @@ describe("d-pi runtime foundation", () => {
 
 		expect(runtime.getSnapshot().context.systemPromptParts.join("\n")).toContain("Original identity.");
 
-		write(
-			join(agentDir, "agent.ts"),
-			buildAgentTsSource({
-				name: "root",
-				parentName: undefined,
-				description: "Reloaded identity.",
-			}),
-		);
+		write(join(agentDir, "AGENTS.md"), "reloaded agent context");
 
 		await runtime.reloadContext();
 		const snapshot = runtime.getSnapshot();
 		const parsed = JSON.parse(JSON.stringify(snapshot)) as typeof snapshot;
 
-		expect(snapshot.context.systemPromptParts.join("\n")).toContain("Reloaded identity.");
-		expect(snapshot.context.systemPromptParts.join("\n")).not.toContain("Original identity.");
+		expect(snapshot.context.systemPromptParts.join("\n")).toContain("Original identity.");
+		expect(snapshot.context.contextFiles).toEqual([
+			{ path: join(agentDir, "AGENTS.md"), content: "reloaded agent context" },
+		]);
 		expect(parsed.context.systemPromptParts).toEqual(snapshot.context.systemPromptParts);
 		expect(isDPiRuntimeError(parsed)).toBe(false);
 	});

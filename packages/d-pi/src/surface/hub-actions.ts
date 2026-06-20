@@ -6,7 +6,6 @@ export interface DPiTeamAgentEntry {
 	name: string;
 	parentName: string | undefined;
 	status: DPiAgentStatus;
-	model: string | undefined;
 	children: string[];
 }
 
@@ -26,10 +25,6 @@ export interface DPiTeamSnapshot {
 export interface DPiCreateAgentActionPayload {
 	name: string;
 	cwd?: string;
-	model?: string;
-	roles?: string[];
-	includeTools?: string[];
-	excludeTools?: string[];
 }
 
 export interface DPiCreateAgentActionResult {

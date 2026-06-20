@@ -273,9 +273,8 @@ function formatDPiConnectAgentSelectLabel(
 		indent = "│ ".repeat(depth - 1);
 		indent += isLast ? "└ " : "├ ";
 	}
-	const model = agent.model ? ` (${agent.model})` : "";
 	const current = isCurrent ? " ◀" : "";
-	return `${indent}${dPiConnectAgentStatusIndicator(agent.status)} ${agent.name}${model}${current}`;
+	return `${indent}${dPiConnectAgentStatusIndicator(agent.status)} ${agent.name}${current}`;
 }
 
 export function extractDPiConnectSelectedAgentName(value: string): string | undefined {

@@ -96,7 +96,6 @@ export type {
 export {
 	DPiModelManager,
 	type DPiModelManagerOptions,
-	type DPiModelSpec,
 } from "./runtime/model-manager.ts";
 export {
 	type DPiSessionCreateOptions,

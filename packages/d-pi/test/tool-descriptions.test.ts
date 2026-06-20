@@ -59,26 +59,6 @@ function toolParamDescriptions(name: string, fieldName: string): string[] {
 	return [prop.description];
 }
 
-describe("create_agent tool — includeTools/excludeTools mutex", () => {
-	it("includeTools description mentions mutual exclusion with excludeTools", () => {
-		const [desc] = toolParamDescriptions("create_agent", "includeTools");
-		expect(desc).toMatch(/mutually exclusive/i);
-		expect(desc).toContain("excludeTools");
-	});
-
-	it("excludeTools description mentions mutual exclusion with includeTools", () => {
-		const [desc] = toolParamDescriptions("create_agent", "excludeTools");
-		expect(desc).toMatch(/mutually exclusive/i);
-		expect(desc).toContain("includeTools");
-	});
-
-	it("excludeTools description mentions the inherit-all default behavior", () => {
-		const [desc] = toolParamDescriptions("create_agent", "excludeTools");
-		// LLM must know that omitting both fields gives all tools.
-		expect(desc).toMatch(/both.*omitted|inherit/i);
-	});
-});
-
 describe("send_message tool — mode semantics", () => {
 	it("top-level description explains next/steer mode meaning", () => {
 		const desc = toolDescription("send_message");

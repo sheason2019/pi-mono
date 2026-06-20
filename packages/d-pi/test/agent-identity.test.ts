@@ -28,7 +28,7 @@ function writeAgentTs(workspace: string, entryName: string, config: AgentConfig,
 	const dir = join(workspace, "agents", entryName);
 	mkdirSync(dir, { recursive: true });
 	const lines = [
-		`import { createDispatchBashTool, createDispatchReadTool, defineAgent, defineContextFile, defineModel, defineSkill } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src", "index.ts")).href)};`,
+		`import { createDispatchBashTool, createDispatchReadTool, defineAgent, defineContextFile, defineSkill } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src", "index.ts")).href)};`,
 	];
 	if (parentImportName) {
 		lines.push(`import parentAgent from "../${parentImportName}/agent.ts";`);
@@ -44,25 +44,10 @@ function writeAgentTs(workspace: string, entryName: string, config: AgentConfig,
 	if (config.roles && config.roles.length > 0) {
 		lines.push(`\troles: ${JSON.stringify(config.roles)},`);
 	}
-	if (config.model) {
-		const slashIndex = config.model.indexOf("/");
-		const provider = slashIndex === -1 ? "unknown" : config.model.slice(0, slashIndex);
-		const name = slashIndex === -1 ? config.model : config.model.slice(slashIndex + 1);
-		lines.push(`\tmodel: defineModel({ provider: ${JSON.stringify(provider)}, name: ${JSON.stringify(name)} }),`);
-	}
 	lines.push('\tskills: defineSkill({ dir: "./skills" }),');
 	lines.push("\ttools: [");
-	const toolNames =
-		config.includeTools && config.includeTools.length > 0
-			? config.includeTools
-			: config.excludeTools && config.excludeTools.length > 0
-				? ["dispatch_read"]
-				: ["dispatch_read", "dispatch_bash"];
-	for (const toolName of toolNames) {
-		lines.push(
-			`\t\t${toolName === "dispatch_bash" || toolName === "bash" ? "createDispatchBashTool" : "createDispatchReadTool"}(),`,
-		);
-	}
+	lines.push("\t\tcreateDispatchReadTool(),");
+	lines.push("\t\tcreateDispatchBashTool(),");
 	lines.push("\t],");
 	lines.push("\tcontextFiles: [");
 	lines.push('\t\tdefineContextFile({ type: "context", path: "./AGENTS.md" }),');
@@ -129,8 +114,6 @@ describe("loadAgentIdentity", () => {
 				parentName: "wrong-parent",
 				description: "A child agent.",
 				roles: ["writer", "reviewer"],
-				model: "anthropic/claude-sonnet-4",
-				includeTools: ["read", "bash"],
 			},
 			"root",
 		);
@@ -141,8 +124,6 @@ describe("loadAgentIdentity", () => {
 			parentName: "root",
 			description: "A child agent.",
 			roles: ["writer", "reviewer"],
-			model: "anthropic/claude-sonnet-4",
-			includeTools: ["dispatch_read", "dispatch_bash"],
 		});
 	});
 });
@@ -184,30 +165,18 @@ describe("formatAgentIdentitySection", () => {
 		expect(emptyBodyLines).toHaveLength(0);
 	});
 
-	it("emits all optional metadata fields when set", () => {
+	it("emits parent and roles metadata when set", () => {
 		const section = formatAgentIdentitySection({
 			name: "child",
 			parentName: "root",
 			description: "A child agent.",
 			roles: ["writer", "reviewer"],
-			model: "anthropic/claude-sonnet-4",
-			includeTools: ["read", "bash"],
 		});
 		expect(section).toContain("parent: `root`");
 		expect(section).toContain("roles: `writer`, `reviewer`");
-		expect(section).toContain("model: `anthropic/claude-sonnet-4`");
-		expect(section).toContain("includeTools: `read`, `bash`");
-		expect(section).not.toContain("excludeTools");
-	});
-
-	it("emits excludeTools when includeTools is absent", () => {
-		const section = formatAgentIdentitySection({
-			name: "auditor",
-			parentName: "root",
-			excludeTools: ["write", "edit", "bash"],
-		});
-		expect(section).toContain("excludeTools: `write`, `edit`, `bash`");
+		expect(section).not.toContain("model:");
 		expect(section).not.toContain("includeTools");
+		expect(section).not.toContain("excludeTools");
 	});
 
 	it("omits parentName when null (root agent case)", () => {
@@ -215,16 +184,12 @@ describe("formatAgentIdentitySection", () => {
 		expect(section).not.toMatch(/parent:/);
 	});
 
-	it("omits empty arrays (zero-role, zero-include, zero-exclude) rather than rendering empty lists", () => {
+	it("omits empty roles rather than rendering empty lists", () => {
 		const section = formatAgentIdentitySection({
 			name: "minimal",
 			parentName: undefined,
 			roles: [],
-			includeTools: [],
-			excludeTools: [],
 		});
 		expect(section).not.toMatch(/roles:/);
-		expect(section).not.toMatch(/includeTools:/);
-		expect(section).not.toMatch(/excludeTools:/);
 	});
 });

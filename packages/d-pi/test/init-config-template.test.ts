@@ -117,16 +117,12 @@ describe("init template: strict-JSON output", () => {
 		// Workspace-level keys — only `version` is documented (reserved as a
 		// migration marker)
 		expect(agentsMd).toMatch(/version/);
-		// includeTools / excludeTools are agent-only — they should NOT appear
-		// under the Workspace Configuration section header
 		const workspaceSection = agentsMd.split("## Agent Configuration")[0];
 		expect(workspaceSection).not.toMatch(/includeTools/);
 		expect(workspaceSection).not.toMatch(/excludeTools/);
 		expect(workspaceSection).not.toMatch(/defaultModel/);
 		// Agent-level keys
 		expect(agentsMd).toMatch(/parent/);
-		expect(agentsMd).toMatch(/includeTools/);
-		expect(agentsMd).toMatch(/excludeTools/);
 		expect(agentsMd).toMatch(/description/);
 		expect(agentsMd).toMatch(/defineOpenAIProvider/);
 		expect(agentsMd).toMatch(/defineProvider/);

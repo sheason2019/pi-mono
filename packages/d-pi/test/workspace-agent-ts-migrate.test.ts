@@ -11,7 +11,6 @@ interface PersistedAgentConfig {
 	parentName: string | null;
 	description?: string;
 	roles?: string[];
-	model?: string;
 	includeTools?: string[];
 	excludeTools?: string[];
 }
@@ -63,7 +62,6 @@ describe("d-pi agent-ts migration", () => {
 			parentName: null,
 			description: "Root coordinator",
 			roles: ["root-role"],
-			model: "anthropic/claude-sonnet-4",
 			includeTools: ["dispatch_read", "team"],
 		});
 		writeAgentConfig(workspaceRoot, "reviewer", {
@@ -84,7 +82,7 @@ describe("d-pi agent-ts migration", () => {
 
 		const rootAgentTs = readFileSync(join(workspaceRoot, "agents", "root", "agent.ts"), "utf-8");
 		expect(rootAgentTs).toContain("defineAgent(");
-		expect(rootAgentTs).toContain('defineModel({ provider: "anthropic", name: "claude-sonnet-4" })');
+		expect(rootAgentTs).not.toContain("defineModel(");
 		expect(rootAgentTs).toContain('defineSkill({ dir: "./skills" })');
 		expect(rootAgentTs).toContain('defineContextFile({ type: "context", path: "./AGENTS.md" })');
 		expect(rootAgentTs).toContain('defineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" })');

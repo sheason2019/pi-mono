@@ -106,7 +106,13 @@ function assertLocalModel(value: Record<string, unknown>, context: string): void
 	if (value.name !== undefined && typeof value.name !== "string") {
 		throw new TypeError(`Agent definition ${context}.name must be a string`);
 	}
-	if (typeof value.provider !== "string") {
+	if (typeof value.provider === "string") {
+		if (value.provider !== "openai" && value.provider !== "anthropic") {
+			throw new TypeError(
+				`Agent definition ${context}.provider must be openai or anthropic when passed as a string; use defineProvider(...) for custom providers`,
+			);
+		}
+	} else {
 		assertProvider(value.provider, `${context}.provider`);
 	}
 	if (value.reasoning !== undefined && typeof value.reasoning !== "boolean") {

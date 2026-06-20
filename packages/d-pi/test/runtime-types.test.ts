@@ -140,7 +140,6 @@ const snapshot = {
 				name: "root",
 				parentName: undefined,
 				status: "busy",
-				model: "claude-sonnet-4-5",
 				children: ["child"],
 			},
 		],

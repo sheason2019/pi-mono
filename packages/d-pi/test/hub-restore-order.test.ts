@@ -6,6 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type DiscoveredAgent, discoverPersistedAgents, orderAgentsForRestore } from "../src/hub/restore-agents.ts";
 import type { AgentConfig } from "../src/types.ts";
 
+interface TestAgentConfig extends AgentConfig {
+	toolNames?: string[];
+}
+
 /**
  * Regression tests for the parent-child topology invariant of the agent
  * tree. See the commit that introduced `orderAgentsForRestore` for
@@ -40,7 +44,7 @@ function freshWorkspace(): string {
 function writeAgentTs(
 	workspace: string,
 	entryName: string,
-	config: AgentConfig,
+	config: TestAgentConfig,
 	parentImportName?: string,
 	overrideName?: string,
 ): void {
@@ -68,7 +72,7 @@ function writeAgentTs(
 	}
 	lines.push('\tskills: defineSkill({ dir: "./skills" }),');
 	lines.push("\ttools: [");
-	for (const toolName of config.includeTools ?? ["dispatch_read"]) {
+	for (const toolName of config.toolNames ?? ["dispatch_read"]) {
 		lines.push(`\t\t${toolName === "team" ? "createTeamTool" : "createDispatchReadTool"}(),`);
 	}
 	lines.push("\t],");
@@ -243,7 +247,6 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			port: 50000 + Math.floor(Math.random() * 1000),
 			workspaceRoot: workspace,
 			cwd: workspace,
-			model: "test/model",
 			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
 			workspaceConfig: { version: 1 },
 		});
@@ -260,7 +263,6 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			port: 50000 + Math.floor(Math.random() * 1000),
 			workspaceRoot: workspace,
 			cwd: workspace,
-			model: "test/model",
 			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
 			workspaceConfig: { version: 1 },
 		});
@@ -276,7 +278,6 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			children: [],
 			port: 39091,
 			status: "ready",
-			model: undefined,
 			worker: { postMessage: () => {}, on: () => {}, off: () => {} } as never,
 			cwd: workspace,
 		});
@@ -309,7 +310,6 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			port: 50000 + Math.floor(Math.random() * 1000),
 			workspaceRoot: workspace,
 			cwd: workspace,
-			model: undefined,
 			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
 			workspaceConfig: { version: 1 },
 		});

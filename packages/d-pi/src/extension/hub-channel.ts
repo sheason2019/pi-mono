@@ -61,15 +61,8 @@ export class HubChannel {
 	}
 
 	/** Create a new child agent */
-	createAgent(
-		name: string,
-		cwd?: string,
-		model?: string,
-		roles?: string[],
-		includeTools?: string[],
-		excludeTools?: string[],
-	): Promise<unknown> {
-		return this._callTool("create_agent", { name, cwd, model, roles, includeTools, excludeTools });
+	createAgent(name: string, cwd?: string): Promise<unknown> {
+		return this._callTool("create_agent", { name, cwd });
 	}
 
 	/** Destroy an agent (by name) */

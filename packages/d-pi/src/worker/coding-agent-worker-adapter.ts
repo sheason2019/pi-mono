@@ -34,8 +34,6 @@ export interface DPiWorkerAuthStorage {
 }
 
 export interface DPiWorkerSettingsManager {
-	getDefaultProvider(): string | undefined;
-	getDefaultModel(): string | undefined;
 	getDefaultThinkingLevel(): ThinkingLevel | undefined;
 }
 
@@ -161,28 +159,11 @@ export function createDPiSessionManager(cwd: string, sessionDir?: string): DPiWo
 }
 
 export async function resolveDPiInitialModel(options: {
-	modelSpec?: string;
 	modelRegistry: DPiWorkerModelRegistry;
-	settingsManager: DPiWorkerSettingsManager;
 	agentDefinition?: LoadedAgentDefinition;
 }): Promise<Model<Api> | undefined> {
-	const { agentDefinition, modelSpec, modelRegistry, settingsManager } = options;
+	const { agentDefinition, modelRegistry } = options;
 	let resolvedModel: Model<Api> | undefined;
-
-	if (modelSpec) {
-		if (modelSpec.includes("/")) {
-			const slashIndex = modelSpec.indexOf("/");
-			const provider = modelSpec.slice(0, slashIndex);
-			const modelId = modelSpec.slice(slashIndex + 1);
-			resolvedModel = modelRegistry.find(provider, modelId);
-		} else {
-			resolvedModel = modelRegistry.getAll().find((model) => model.id === modelSpec);
-		}
-	}
-
-	if (resolvedModel) {
-		return resolvedModel;
-	}
 
 	if (agentDefinition?.model) {
 		resolvedModel = resolveAgentDefinitionModel(modelRegistry, agentDefinition.model);
@@ -192,11 +173,6 @@ export async function resolveDPiInitialModel(options: {
 		return resolvedModel;
 	}
 
-	const defaultProvider = settingsManager.getDefaultProvider();
-	const defaultModel = settingsManager.getDefaultModel();
-	if (defaultProvider && defaultModel) {
-		return modelRegistry.find(defaultProvider, defaultModel);
-	}
 	return undefined;
 }
 
@@ -1672,8 +1648,6 @@ function createPlaceholderSession(
 }
 
 interface PiSettings {
-	defaultProvider?: string;
-	defaultModel?: string;
 	defaultThinkingLevel?: ThinkingLevel;
 }
 
@@ -1681,8 +1655,6 @@ function createSettingsManager(cwd: string): DPiWorkerSettingsManager {
 	void cwd;
 	const settings: PiSettings = {};
 	return {
-		getDefaultProvider: () => settings.defaultProvider,
-		getDefaultModel: () => settings.defaultModel,
 		getDefaultThinkingLevel: () => settings.defaultThinkingLevel,
 	};
 }
