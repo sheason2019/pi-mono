@@ -355,6 +355,10 @@ describe("d-pi interactive view parity components", () => {
 					customType: "compact-divider",
 					content: "Compact completed 15s",
 					display: true,
+					details: {
+						summary: "The compacted session focused on remote-first view model pagination.",
+						tokensBefore: 12345,
+					},
 					timestamp: 2,
 				},
 				{ role: "user" as const, content: "after compact", timestamp: 3 },
@@ -365,6 +369,33 @@ describe("d-pi interactive view parity components", () => {
 
 		expect(view.text).toContain("before compact");
 		expect(view.text).toContain("Compact completed 15s");
+		expect(view.text).toContain("The compacted session focused on remote-first view model pagination.");
+		expect(view.text).toContain("────────────────");
 		expect(view.text).toContain("after compact");
+	});
+
+	it("renders compact completion label with only the top divider in the component view", () => {
+		const state = {
+			...snapshot(),
+			messages: [
+				{
+					role: "custom" as const,
+					customType: "compact-divider",
+					content: "Compact completed 15s",
+					display: true,
+					details: {
+						summary: "Persisted compact summary",
+						tokensBefore: 12345,
+					},
+					timestamp: 1,
+				},
+			],
+		};
+
+		const rendered = buildDPiInteractiveMessageListComponent(state, { color: false }).render(40);
+
+		expect(rendered.filter((line) => line === "─".repeat(40))).toHaveLength(1);
+		expect(rendered.join("\n")).toContain("Compact completed 15s");
+		expect(rendered.join("\n")).toContain("Persisted compact summary");
 	});
 });

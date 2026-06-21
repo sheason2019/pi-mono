@@ -721,6 +721,10 @@ export class DPiAgentIpcServer {
 	}
 
 	private handleHttpQuery(requestId: string, query: unknown): void {
+		if (query === "snapshot") {
+			this.handlers.onHttpResponse(requestId, 200, this.proxy.getState());
+			return;
+		}
 		if (query === "state") {
 			this.handlers.onHttpResponse(requestId, 200, this.proxy.getState());
 			return;
@@ -875,9 +879,10 @@ export class DPiAgentIpcServer {
 				error: `Unknown action: ${String(action)}`,
 			});
 		} catch (error) {
-			this.handlers.onHttpResponse(requestId, 500, {
+			const status = action === "compact" ? compactErrorHttpStatus(error) : 500;
+			this.handlers.onHttpResponse(requestId, status, {
 				ok: false,
-				error: error instanceof Error ? error.message : String(error),
+				error: errorMessage(error),
 			});
 		}
 	}
@@ -944,6 +949,7 @@ export class DPiLocalAgentSessionProxy {
 				) => Promise<void> | void;
 				steer?: (text: string, images?: Array<{ url: string; mediaType?: string }>) => Promise<void> | void;
 				followUp?: (text: string, images?: Array<{ url: string; mediaType?: string }>) => Promise<void> | void;
+				compact?: (customInstructions?: string) => Promise<unknown> | unknown;
 		  }
 		| undefined;
 
@@ -964,6 +970,7 @@ export class DPiLocalAgentSessionProxy {
 		) => Promise<void> | void;
 		steer?: (text: string, images?: Array<{ url: string; mediaType?: string }>) => Promise<void> | void;
 		followUp?: (text: string, images?: Array<{ url: string; mediaType?: string }>) => Promise<void> | void;
+		compact?: (customInstructions?: string) => Promise<unknown> | unknown;
 	}): void {
 		this.messageDispatcher = dispatcher;
 	}
@@ -1129,12 +1136,16 @@ export class DPiLocalAgentSessionProxy {
 		this.emit({ type: "compaction_start" });
 		this.emitState();
 		try {
-			await this.runtime.session.agent.waitForIdle();
+			const compact = this.messageDispatcher?.compact;
+			if (!compact) {
+				throw new Error("Compaction is not available for this agent runtime");
+			}
+			const result = await compact(customInstructions);
 			const completedAt = Date.now();
 			this.compacting = false;
 			this.emit({ type: "compaction_end" });
 			this.emitState();
-			this.startRealtimePageWithCompactDivider(startedAt, completedAt);
+			this.startRealtimePageWithCompactDivider(startedAt, completedAt, result);
 			this.emitState();
 		} catch (error) {
 			this.compacting = false;
@@ -1369,31 +1380,8 @@ export class DPiLocalAgentSessionProxy {
 			this.startRealtimePage("resume", { emit: false });
 			this.importedSessionMessageIds.clear();
 			this.optimisticPromptTexts.splice(0, this.optimisticPromptTexts.length);
-			for (const message of event.messages) {
-				this.recordSessionMessage(
-					{
-						id: nextGeneratedId("message"),
-						role:
-							message.role === "assistant"
-								? "assistant"
-								: message.role === "user"
-									? "user"
-									: message.role === "toolResult"
-										? "toolResult"
-										: "custom",
-						content: "content" in message ? message.content : "",
-						...("toolCallId" in message && typeof message.toolCallId === "string"
-							? { toolCallId: message.toolCallId }
-							: {}),
-						...("toolName" in message && typeof message.toolName === "string"
-							? { toolName: message.toolName }
-							: {}),
-						...("isError" in message && message.isError ? { isError: true } : {}),
-						...("details" in message ? { details: message.details as ExtensionMessage["details"] } : {}),
-						timestamp: Date.now(),
-					},
-					false,
-				);
+			for (const message of runtimeMessagesToLocalCurrentPageMessages(event.messages)) {
+				this.recordSessionMessage(message, false);
 			}
 			this.emitRealtimeSnapshot();
 			this.emit({ type: "resume", data: this.getState() });
@@ -1681,20 +1669,16 @@ export class DPiLocalAgentSessionProxy {
 		}
 	}
 
-	private startRealtimePageWithCompactDivider(startedAt: number, completedAt: number): void {
+	private startRealtimePageWithCompactDivider(startedAt: number, completedAt: number, result: unknown): void {
 		this.startRealtimePage("compact", { emit: false });
-		const durationSeconds = Math.max(0, Math.round((completedAt - startedAt) / 1000));
-		const label = `Compact completed ${durationSeconds}s`;
+		const divider = compactDividerFromResult(result, startedAt, completedAt);
 		const message: DPiLocalAgentMessage = {
 			id: nextGeneratedId("message"),
 			role: "custom",
 			customType: "compact-divider",
 			display: true,
-			content: label,
-			details: {
-				durationMs: completedAt - startedAt,
-				completedAt,
-			},
+			content: divider.label,
+			details: divider.details,
 			timestamp: completedAt,
 		};
 		this.messages.push(message);
@@ -2088,6 +2072,20 @@ function toLocalAgentMessage(message: ExtensionMessage): DPiLocalAgentMessage {
 }
 
 function runtimeMessageToLocalMessage(message: DPiAgentMessage): DPiLocalAgentMessage {
+	if (message.role === "compactionSummary") {
+		return {
+			id: nextGeneratedId("message"),
+			role: "custom",
+			customType: "compact-divider",
+			display: true,
+			content: "Compact completed",
+			details: {
+				tokensBefore: message.tokensBefore,
+				summary: message.summary,
+			},
+			timestamp: message.timestamp ?? Date.now(),
+		};
+	}
 	return {
 		id: nextGeneratedId("message"),
 		role:
@@ -2111,6 +2109,97 @@ function runtimeMessageToLocalMessage(message: DPiAgentMessage): DPiLocalAgentMe
 		...("isError" in message && message.isError ? { isError: true } : {}),
 		timestamp: message.timestamp ?? Date.now(),
 	};
+}
+
+function runtimeMessagesToLocalCurrentPageMessages(messages: readonly DPiAgentMessage[]): DPiLocalAgentMessage[] {
+	return messages.map((message) => runtimeMessageToLocalMessage(message));
+}
+
+function compactDividerFromResult(
+	result: unknown,
+	startedAt: number,
+	completedAt: number,
+): { label: string; details: Record<string, unknown> } {
+	const durationMs = completedAt - startedAt;
+	const fallback = {
+		label: `Compact completed ${Math.max(1, Math.ceil(durationMs / 1000))}s`,
+		details: {
+			durationMs,
+			completedAt,
+			...compactDividerDetails(result),
+			result,
+		},
+	};
+	if (typeof result !== "object" || result === null) {
+		return fallback;
+	}
+	const record = result as Record<string, unknown>;
+	if (typeof record.divider !== "object" || record.divider === null) {
+		return fallback;
+	}
+	const divider = record.divider as Record<string, unknown>;
+	if (typeof divider.label !== "string") {
+		return fallback;
+	}
+	return {
+		label: divider.label,
+		details:
+			typeof divider.details === "object" && divider.details !== null && !Array.isArray(divider.details)
+				? { ...(divider.details as Record<string, unknown>), result }
+				: fallback.details,
+	};
+}
+
+function compactDividerDetails(result: unknown): Record<string, unknown> {
+	if (typeof result !== "object" || result === null) {
+		return {};
+	}
+	const record = result as Record<string, unknown>;
+	return {
+		...(typeof record.summary === "string" ? { summary: record.summary } : {}),
+		...(typeof record.tokensBefore === "number" ? { tokensBefore: record.tokensBefore } : {}),
+	};
+}
+
+function compactErrorHttpStatus(error: unknown): number {
+	const message = errorMessage(error);
+	if (
+		message === "Already compacted" ||
+		message === "Nothing to compact (session too small)" ||
+		message === "Compaction cancelled" ||
+		message.includes("Compaction is not available")
+	) {
+		return 400;
+	}
+	if (typeof error === "object" && error !== null && "code" in error) {
+		const code = (error as { code?: unknown }).code;
+		if (code === "auth") {
+			return 401;
+		}
+		if (code === "missing_model" || code === "invalid_session" || code === "invalid_argument") {
+			return 400;
+		}
+		if (code === "aborted") {
+			return 400;
+		}
+		if (code === "network" || code === "summarization_failed") {
+			return 502;
+		}
+	}
+	return 500;
+}
+
+function errorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		return error.message;
+	}
+	if (typeof error === "object" && error !== null && "message" in error) {
+		const message = (error as { message?: unknown }).message;
+		if (typeof message === "string") {
+			return message;
+		}
+	}
+	return String(error);
 }
 
 function normalizedUserMessageText(message: Pick<DPiLocalAgentMessage, "content">): string {

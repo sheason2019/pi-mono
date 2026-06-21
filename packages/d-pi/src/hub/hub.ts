@@ -5,7 +5,6 @@ import { Worker } from "node:worker_threads";
 import { AGENT_SESSION_DIR, AGENT_TS_FILE, writeAgentTsConfig } from "../agent-config.ts";
 import { AuthSessionManager } from "../auth/auth-session.ts";
 import { DEFAULT_HUB_PORT } from "../defaults.ts";
-import { injectMeta } from "../extension/message-meta.ts";
 import type {
 	AgentConfig,
 	CreateAgentResult,
@@ -48,14 +47,13 @@ export class Hub {
 
 		this._sourceManager = new SourceManager(
 			(sourceName, content, subscriberNames, mode) => {
-				const metaContent = injectMeta(content, "source", undefined, { sourceName });
 				for (const agentName of subscriberNames) {
 					const record = this._registry.get(agentName);
 					if (record) {
 						record.worker.postMessage({
 							type: "message",
 							fromAgentName: `source:${sourceName}`,
-							content: metaContent,
+							content,
 							sourceName,
 							mode,
 						} satisfies HubToWorkerMessage);
@@ -459,14 +457,11 @@ export class Hub {
 							error: `Agent not found: ${targetAgentName ?? "(missing)"}`,
 						} satisfies SendMessageResult;
 					} else {
-						const metaContent = injectMeta(p.message, "agent", undefined, {
-							agentName: fromAgentName,
-						});
 						const mode = p.mode ?? "next";
 						targetAgent.worker.postMessage({
 							type: "message",
 							fromAgentName,
-							content: metaContent,
+							content: p.message,
 							mode,
 						} satisfies HubToWorkerMessage);
 						result = { ok: true } satisfies SendMessageResult;

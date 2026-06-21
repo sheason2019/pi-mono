@@ -3,15 +3,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import type { DPiCustomMessage } from "../src/runtime/types.ts";
 import {
 	createDPiHubActionsClient,
-	createDPiMessageEnvelope,
 	createDPiRuntimeHooks,
-	createDPiSurfaceMessage,
 	type DPiHubActionRequest,
 	type DPiHubActionsTransport,
-	type DPiMessageSourceType,
 	type DPiRemoteToolRequest,
 	type DPiRuntimeHookEvent,
 	defineDPiCommand,
@@ -47,11 +43,13 @@ describe("d-pi surface contracts", () => {
 			expect.arrayContaining([
 				expect.stringContaining("tool-surface.ts"),
 				expect.stringContaining("command-surface.ts"),
-				expect.stringContaining("message-surface.ts"),
 				expect.stringContaining("hub-actions.ts"),
 				expect.stringContaining("runtime-hooks.ts"),
 				expect.stringContaining("remote-executor.ts"),
 			]),
+		);
+		expect(sources.map((file) => file.path)).not.toEqual(
+			expect.arrayContaining([expect.stringContaining("message-surface.ts")]),
 		);
 		for (const file of sources) {
 			expect(file.source).not.toContain("ExtensionAPI");
@@ -89,40 +87,6 @@ describe("d-pi surface contracts", () => {
 		expect(action).toEqual({ type: "showAgentSwitcher", query: "child" });
 		expect("parameters" in command).toBe(false);
 		expect(command.execute.length).toBe(1);
-	});
-
-	it("round-trips d-pi custom message envelopes through JSON", () => {
-		const sourceTypes = ["connect", "agent", "source", "runtime"] satisfies DPiMessageSourceType[];
-		const message = createDPiSurfaceMessage({
-			content: { text: "connected" },
-			sourceType: "connect",
-			connectId: "connect-1",
-			auth: { name: "alice", description: "local developer", roles: ["operator"] },
-			metadata: { sourceTypes },
-			display: true,
-			timestamp: 1_700_000_000,
-		}) satisfies DPiCustomMessage;
-
-		const parsed = JSON.parse(JSON.stringify(createDPiMessageEnvelope(message))) as ReturnType<
-			typeof createDPiMessageEnvelope
-		>;
-
-		expect(parsed).toEqual({
-			type: "d-pi/custom-message",
-			message: {
-				role: "custom",
-				customType: "d-pi-message",
-				content: { text: "connected" },
-				display: true,
-				details: {
-					sourceType: "connect",
-					connectId: "connect-1",
-					auth: { name: "alice", description: "local developer", roles: ["operator"] },
-					metadata: { sourceTypes },
-				},
-				timestamp: 1_700_000_000,
-			},
-		});
 	});
 
 	it("sends typed hub action requests through a transport-backed client", async () => {

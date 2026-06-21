@@ -21,6 +21,7 @@ import { createHubActionsClientFromHubChannel } from "../extension/hub-actions-a
 import { createMultiAgentExtension, type HubChannel } from "../extension/index.ts";
 import { agentDefinitionToConfig, formatAgentIdentitySection } from "../hub/agent-identity.ts";
 import { DPiAgentRuntime } from "../runtime/agent-runtime.ts";
+import { buildDPiCurrentPageMessagesFromSessionEntries } from "../runtime/current-page.ts";
 import { DPiModelManager } from "../runtime/model-manager.ts";
 import { DPiSessionStore } from "../runtime/session-store.ts";
 import type { DPiPromptImage } from "../runtime/types.ts";
@@ -262,7 +263,6 @@ port.on("message", (message: HubToWorkerMessage) => {
 });
 
 async function routeIncomingHubMessage(message: Extract<HubToWorkerMessage, { type: "message" }>): Promise<void> {
-	hubChannel?.deliverMessage(message.content, message.sourceName, message.mode);
 	if (!agentRuntime) {
 		process.stderr.write(`[d-pi worker ${config.agentName}] Dropping incoming message before runtime is ready\n`);
 		return;
@@ -516,12 +516,17 @@ async function runAgentWorker(): Promise<void> {
 		});
 		const sessionHandle = (await sessionStore.openRecent({ cwd })) ?? (await sessionStore.create({ cwd }));
 		const initialSessionContext = await sessionHandle.session.buildContext();
+		const initialCurrentPageMessages = buildDPiCurrentPageMessagesFromSessionEntries(
+			await sessionHandle.session.getBranch(),
+		);
+		const initialMessages =
+			initialCurrentPageMessages.length > 0 ? initialCurrentPageMessages : initialSessionContext.messages;
 		agentRuntime = new DPiAgentRuntime({
 			agentName,
 			cwd,
 			session: sessionHandle.session,
 			sessionInfo: sessionHandle.info,
-			initialMessages: initialSessionContext.messages,
+			initialMessages,
 			modelManager: new DPiModelManager({ model: remoteFirstRuntimeModel }),
 			contextManager: new DPiContextManager({
 				workspaceRoot: config.workspaceContext?.workspaceRoot ?? cwd,
@@ -545,47 +550,40 @@ async function runAgentWorker(): Promise<void> {
 				postToHub({ type: "status_update", agentName, status: "ready" });
 			}
 		});
-		if (initialSessionContext.messages.length > 0) {
+		if (initialMessages.length > 0) {
 			proxy.applyRuntimeEvent({
 				type: "session_replaced",
 				agentName,
 				session: sessionHandle.info,
-				messages: initialSessionContext.messages,
+				messages: initialMessages,
 			});
 		}
 	}
 
-	// All user prompts are routed through hubChannel.deliverMessage() so the extension
-	// creates a CustomMessage instead of a UserMessageComponent (which has OSC133 markers
-	// that produce unwanted editor divider lines in the TUI).
-	//
-	// mode is set to "next" explicitly: TUI /prompt and HTTP /prompt are
-	// user-driven new-turn requests (equivalent to the TUI Enter key), so they
-	// should map to {triggerTurn: true} at the extension layer. Without this,
-	// deliverMessage would fall through to the default "next" path which the
-	// extension then maps to {triggerTurn: true} anyway — but the explicit
-	// declaration documents the intent at the call site.
 	proxy.setMessageDispatcher({
 		prompt: async (_text: string, _options?: { images?: Array<{ url: string; mediaType?: string }> }) => {
-			hubChannel?.deliverMessage(_text, undefined, "next");
 			if (!agentRuntime) {
 				throw new Error(`Agent "${agentName}" has no model configured`);
 			}
 			await agentRuntime.prompt(_text, { mode: "next", images: toPromptImages(_options?.images) });
 		},
 		steer: async (_text: string, images?: Array<{ url: string; mediaType?: string }>) => {
-			hubChannel?.deliverMessage(_text, undefined, "steer");
 			if (!agentRuntime) {
 				throw new Error(`Agent "${agentName}" has no model configured`);
 			}
 			await agentRuntime.prompt(_text, { mode: "steer", images: toPromptImages(images) });
 		},
 		followUp: async (_text: string, images?: Array<{ url: string; mediaType?: string }>) => {
-			hubChannel?.deliverMessage(_text, undefined, "next");
 			if (!agentRuntime) {
 				throw new Error(`Agent "${agentName}" has no model configured`);
 			}
 			await agentRuntime.prompt(_text, { mode: "followUp", images: toPromptImages(images) });
+		},
+		compact: async (customInstructions?: string) => {
+			if (!agentRuntime) {
+				throw new Error(`Agent "${agentName}" has no model configured`);
+			}
+			return await agentRuntime.compact(customInstructions);
 		},
 	});
 

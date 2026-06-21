@@ -6,7 +6,6 @@ import { createAllowedUser } from "../src/auth/allowed-users.ts";
 import { AuthSessionManager } from "../src/auth/auth-session.ts";
 import { createLocalUser } from "../src/auth/local-users.ts";
 import { signChallenge } from "../src/auth/signing.ts";
-import { extractMeta } from "../src/extension/message-meta.ts";
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { ExecutorRegistry } from "../src/hub/executor-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
@@ -57,7 +56,7 @@ function createFakeWorker(agentName: string, state: unknown, options: FakeWorker
 			setTimeout(() => {
 				const response =
 					options.respond?.(message) ??
-					(message.type === "http_query" && message.query === "state"
+					(message.type === "http_query" && (message.query === "snapshot" || message.query === "state")
 						? { status: 200, body: state }
 						: { status: 200, body: { ok: true } });
 				emit({
@@ -209,7 +208,7 @@ describe("d-pi service gateway API", () => {
 			});
 			expect(findLastPosted(hub.worker, "http_query")).toMatchObject({
 				type: "http_query",
-				query: "state",
+				query: "snapshot",
 			});
 		} finally {
 			await hub.gateway.stop();
@@ -357,7 +356,7 @@ describe("d-pi service gateway API", () => {
 		}
 	});
 
-	it("POST prompt injects connect meta and forwards the legacy prompt action", async () => {
+	it("POST prompt forwards plain text to the legacy prompt action", async () => {
 		const hub = await startHub();
 		try {
 			const response = await fetch(`${hub.url}/api/agents/root/actions/prompt`, {
@@ -374,11 +373,7 @@ describe("d-pi service gateway API", () => {
 				throw new Error("Expected prompt request");
 			}
 			const data = message.data as { text: string; options?: unknown };
-			const extracted = extractMeta(data.text);
-			expect(extracted?.text).toBe("hello");
-			expect(extracted?.meta.sourceType).toBe("connect");
-			expect(extracted?.meta.connectId).toBe("connect-123");
-			expect(extracted?.meta.auth).toEqual({ name: "server-alias", description: "Server approved identity" });
+			expect(data.text).toBe("hello");
 			expect(data.options).toEqual({ images: [{ url: "file:///tmp/a.png" }] });
 		} finally {
 			await hub.gateway.stop();
@@ -449,7 +444,7 @@ describe("d-pi service gateway API", () => {
 				throw new Error("Expected steer request");
 			}
 			const steerData = steer.data as { text: string; mode?: unknown; options?: unknown };
-			expect(extractMeta(steerData.text)?.text).toBe("adjust plan");
+			expect(steerData.text).toBe("adjust plan");
 			expect(steerData.mode).toBeUndefined();
 			expect(steerData.options).toBeUndefined();
 
@@ -470,7 +465,7 @@ describe("d-pi service gateway API", () => {
 				throw new Error("Expected follow-up request");
 			}
 			const followUpData = followUp.data as { text: string; mode?: unknown; options?: unknown };
-			expect(extractMeta(followUpData.text)?.text).toBe("continue");
+			expect(followUpData.text).toBe("continue");
 			expect(followUpData.mode).toBeUndefined();
 			expect(followUpData.options).toBeUndefined();
 		} finally {

@@ -767,6 +767,13 @@ describe("worker runtime adapter", () => {
 
 	it("resets the server current page to a compact divider after compaction completes", async () => {
 		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		proxy.setMessageDispatcher({
+			compact: vi.fn(async () => ({
+				summary: "Fresh compact summary",
+				tokensBefore: 12345,
+				messages: [],
+			})),
+		});
 		const events: string[] = [];
 		proxy.subscribe((event) => {
 			if (event.type === "compaction_end") {
@@ -794,7 +801,11 @@ describe("worker runtime adapter", () => {
 				expect.objectContaining({
 					role: "custom",
 					customType: "compact-divider",
-					content: expect.stringMatching(/^Compact completed /),
+					content: expect.stringMatching(/^Compact completed [1-9]\d*s$/),
+					details: expect.objectContaining({
+						summary: "Fresh compact summary",
+						tokensBefore: 12345,
+					}),
 				}),
 			],
 		});
@@ -813,20 +824,15 @@ describe("worker runtime adapter", () => {
 
 	it("publishes compacting status while manual compaction is in progress", async () => {
 		let finishCompaction: (() => void) | undefined;
-		const proxy = new DPiLocalAgentSessionProxy(
-			createTestRuntime(
-				createTestSession("compacting", {
-					agent: {
-						waitForIdle: vi.fn(
-							() =>
-								new Promise<void>((resolve) => {
-									finishCompaction = resolve;
-								}),
-						),
-					},
-				}),
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		proxy.setMessageDispatcher({
+			compact: vi.fn(
+				() =>
+					new Promise((resolve) => {
+						finishCompaction = () => resolve({ messages: [] });
+					}),
 			),
-		);
+		});
 		const harness = createIpcHarness(proxy);
 		try {
 			const compactPromise = proxy.compact();
@@ -852,6 +858,82 @@ describe("worker runtime adapter", () => {
 
 			expect(proxy.getStatusState().isCompacting).toBe(false);
 			expect(proxy.getState().isCompacting).toBe(false);
+		} finally {
+			harness.server.stop();
+		}
+	});
+
+	it("emits a compact divider over SSE after the compact action completes", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		proxy.setMessageDispatcher({
+			compact: vi.fn(async () => ({ messages: [] })),
+		});
+		const harness = createIpcHarness(proxy);
+		try {
+			harness.transport.emit({ type: "sse_subscribe", subscriberId: "sub-compact-divider" });
+			await waitFor(() =>
+				harness.events.some((event) => event.subscriberId === "sub-compact-divider" && event.event === "realtime"),
+			);
+
+			await requestIpc(harness, "compact-action", "compact", {});
+
+			await waitFor(() =>
+				harness.events.some(
+					(event) =>
+						event.subscriberId === "sub-compact-divider" &&
+						event.event === "realtime" &&
+						typeof event.data === "object" &&
+						event.data !== null &&
+						"type" in event.data &&
+						event.data.type === "upsert" &&
+						"message" in event.data &&
+						typeof event.data.message === "object" &&
+						event.data.message !== null &&
+						"customType" in event.data.message &&
+						event.data.message.customType === "compact-divider",
+				),
+			);
+		} finally {
+			harness.server.stop();
+		}
+	});
+
+	it("does not emit a completed compact divider when no runtime compact dispatcher is bound", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		const events: string[] = [];
+		proxy.subscribe((event) => {
+			if (
+				event.type === "realtime" &&
+				event.data.type === "upsert" &&
+				"customType" in event.data.message &&
+				event.data.message.customType === "compact-divider"
+			) {
+				events.push("compact_divider");
+			}
+		});
+
+		await expect(proxy.compact()).rejects.toThrow("Compaction is not available for this agent runtime");
+
+		expect(proxy.getStatusState().isCompacting).toBe(false);
+		expect(events).toEqual([]);
+	});
+
+	it("returns a request error instead of HTTP 500 for expected compact failures", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		proxy.setMessageDispatcher({
+			compact: vi.fn(async () => {
+				throw new Error("Nothing to compact (session too small)");
+			}),
+		});
+		const harness = createIpcHarness(proxy);
+		try {
+			const response = await requestIpc(harness, "compact-too-small", "compact", {});
+
+			expect(response).toEqual({
+				requestId: "compact-too-small",
+				status: 400,
+				body: { ok: false, error: "Nothing to compact (session too small)" },
+			});
 		} finally {
 			harness.server.stop();
 		}
@@ -1291,6 +1373,49 @@ describe("worker runtime adapter", () => {
 				}),
 			]),
 		);
+	});
+
+	it("rebuilds a resumed compacted session as the current realtime page", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+
+		proxy.applyRuntimeEvent({
+			type: "session_replaced",
+			agentName: "root",
+			session: { id: "compacted-session" },
+			messages: [
+				{
+					role: "compactionSummary",
+					summary: "Summary of old history",
+					tokensBefore: 12345,
+					timestamp: 1,
+				},
+				{
+					role: "user",
+					content: "current page prompt",
+					timestamp: 2,
+				},
+			],
+		} as never);
+
+		expect(proxy.getRealtimeState()).toMatchObject({
+			page: expect.objectContaining({ reason: "resume" }),
+			messages: [
+				expect.objectContaining({
+					role: "custom",
+					customType: "compact-divider",
+					content: "Compact completed",
+					details: expect.objectContaining({
+						summary: "Summary of old history",
+						tokensBefore: 12345,
+					}),
+				}),
+				expect.objectContaining({
+					role: "user",
+					content: "current page prompt",
+				}),
+			],
+		});
+		expect(JSON.stringify(proxy.getRealtimeState())).not.toContain('content":""');
 	});
 
 	it("forwards native agent start and end events so connect mode can show the working loader immediately", async () => {

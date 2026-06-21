@@ -20,22 +20,6 @@ const assistantMessage = {
 	timestamp: 1_700_000_001,
 } satisfies DPiAgentMessage;
 
-const customMessage = {
-	role: "custom",
-	customType: "d-pi-message",
-	content: "Queued from connect.",
-	display: true,
-	details: {
-		sourceType: "connect",
-		connectId: "connect-1",
-		auth: {
-			name: "alice",
-			description: "local developer",
-		},
-	},
-	timestamp: 1_700_000_002,
-} satisfies DPiAgentMessage;
-
 const snapshot = {
 	agentName: "root",
 	connectId: "connect-1",
@@ -53,7 +37,6 @@ const snapshot = {
 			timestamp: 1_700_000_000,
 		},
 		assistantMessage,
-		customMessage,
 	],
 	streaming: {
 		active: true,
@@ -159,12 +142,7 @@ describe("d-pi runtime contracts", () => {
 		const parsed = JSON.parse(JSON.stringify(snapshot)) as DPiRuntimeSnapshot;
 
 		expect(parsed.agentName).toBe("root");
-		expect(parsed.messages).toHaveLength(3);
-		expect(parsed.messages[2]).toMatchObject({
-			role: "custom",
-			customType: "d-pi-message",
-			details: { sourceType: "connect", connectId: "connect-1" },
-		});
+		expect(parsed.messages).toHaveLength(2);
 		expect(parsed.streaming.active).toBe(true);
 		expect(parsed.queues.prompts[0]).toMatchObject({ mode: "next", source: "connect" });
 		expect(parsed.contextUsage).toEqual({ tokens: 12_345, contextWindow: 200_000, percent: 6.1725 });
@@ -183,11 +161,6 @@ describe("d-pi runtime contracts", () => {
 				message: assistantMessage,
 				delta: "I can",
 				done: false,
-			},
-			{
-				type: "d_pi_message",
-				agentName: "root",
-				message: customMessage,
 			},
 			{
 				type: "tool_start",
@@ -250,7 +223,6 @@ describe("d-pi runtime contracts", () => {
 
 		expect(parsed.map((event) => event.type)).toEqual([
 			"assistant_stream",
-			"d_pi_message",
 			"tool_start",
 			"tool_update",
 			"tool_end",
@@ -261,15 +233,14 @@ describe("d-pi runtime contracts", () => {
 			"error",
 		]);
 		expect(parsed[0]).toMatchObject({ type: "assistant_stream", delta: "I can", done: false });
-		expect(parsed[1]).toMatchObject({ type: "d_pi_message", message: { customType: "d-pi-message" } });
-		expect(parsed[2]).toMatchObject({ type: "tool_start", tool: { name: "remote_call" } });
-		expect(parsed[3]).toMatchObject({ type: "tool_update", status: "running" });
-		expect(parsed[4]).toMatchObject({ type: "tool_end", status: "succeeded", result: { ok: true } });
-		expect(parsed[5]).toMatchObject({ type: "queue_update", queues: { prompts: [{ id: "prompt-1" }] } });
-		expect(parsed[6]).toMatchObject({ type: "session_replaced", previousSessionId: "session-0" });
-		expect(parsed[7]).toMatchObject({ type: "state_update", state: { contextUsage: snapshot.contextUsage } });
-		expect(parsed[8]).toMatchObject({ type: "snapshot_update", snapshot: { agentName: "root" } });
-		expect(parsed[9]).toMatchObject({
+		expect(parsed[1]).toMatchObject({ type: "tool_start", tool: { name: "remote_call" } });
+		expect(parsed[2]).toMatchObject({ type: "tool_update", status: "running" });
+		expect(parsed[3]).toMatchObject({ type: "tool_end", status: "succeeded", result: { ok: true } });
+		expect(parsed[4]).toMatchObject({ type: "queue_update", queues: { prompts: [{ id: "prompt-1" }] } });
+		expect(parsed[5]).toMatchObject({ type: "session_replaced", previousSessionId: "session-0" });
+		expect(parsed[6]).toMatchObject({ type: "state_update", state: { contextUsage: snapshot.contextUsage } });
+		expect(parsed[7]).toMatchObject({ type: "snapshot_update", snapshot: { agentName: "root" } });
+		expect(parsed[8]).toMatchObject({
 			type: "error",
 			error: { name: "DPiRuntimeError", code: "busy", retryable: true },
 		});

@@ -203,4 +203,19 @@ describe("remote-first interactive view model", () => {
 			"https://dp.example/agents/root/realtime",
 		]);
 	});
+
+	it("includes the worker error body when a POST request fails", async () => {
+		const full = snapshot();
+		const { status, realtime } = splitDPiInteractiveSnapshot(full);
+		const proxy = new DPiInteractiveRemoteAgentSessionProxy(status, realtime, {
+			baseUrl: "https://dp.example/agents/root",
+			fetch: vi.fn(async () =>
+				Response.json({ ok: false, error: "Nothing to compact (session too small)" }, { status: 400 }),
+			) as unknown as typeof fetch,
+		});
+
+		await expect(proxy.compact()).rejects.toThrow(
+			"compact returned HTTP 400: Nothing to compact (session too small)",
+		);
+	});
 });

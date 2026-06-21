@@ -34,27 +34,9 @@ export interface DPiPromptOptions {
 	connect?: DPiConnectMetadata;
 }
 
-export type DPiCustomMessageSource = "connect" | "agent" | "source" | "runtime";
+export type DPiPromptSource = "connect" | "agent" | "source" | "runtime";
 
-export interface DPiCustomMessageDetails {
-	sourceType: DPiCustomMessageSource;
-	agentName?: string;
-	sourceName?: string;
-	connectId?: string;
-	auth?: DPiAuthMetadata;
-	metadata?: { [key: string]: DPiJsonValue };
-}
-
-export interface DPiCustomMessage {
-	role: "custom";
-	customType: "d-pi-message" | (string & {});
-	content: DPiJsonValue;
-	display?: boolean;
-	details: DPiCustomMessageDetails;
-	timestamp?: number;
-}
-
-export type DPiAgentMessage = AgentMessage | DPiCustomMessage;
+export type DPiAgentMessage = AgentMessage;
 
 export interface DPiStreamingState {
 	active: boolean;
@@ -91,7 +73,7 @@ export interface DPiPromptQueueItem {
 	id: string;
 	text: string;
 	mode: DPiPromptMode;
-	source: DPiCustomMessageSource;
+	source: DPiPromptSource;
 	createdAt: number;
 	options?: DPiPromptOptions;
 }
@@ -148,6 +130,18 @@ export interface DPiRuntimeSessionInfo {
 	path?: string;
 	parentSessionId?: string;
 	replacedAt?: number;
+}
+
+export interface DPiRuntimeCompactResult<TDetails = unknown> {
+	summary: string;
+	firstKeptEntryId: string;
+	tokensBefore: number;
+	details?: TDetails;
+	divider?: {
+		label: string;
+		details: DPiJsonValue;
+	};
+	messages: DPiAgentMessage[];
 }
 
 export interface DPiRuntimeCommand {

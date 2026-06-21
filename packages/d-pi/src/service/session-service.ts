@@ -18,8 +18,8 @@ export type WorkerActionBridge =
 			};
 	  };
 
-export function toWorkerSnapshotQuery(): "state" {
-	return "state";
+export function toWorkerSnapshotQuery(): "snapshot" {
+	return "snapshot";
 }
 
 export function parseServiceActionName(action: string): DPiServiceActionName | undefined {

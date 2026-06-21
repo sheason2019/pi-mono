@@ -1,12 +1,9 @@
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Box, Container, Markdown, Text } from "@earendil-works/pi-tui";
 import type { AgentStatus, SourceInfo, TeamAgentEntry, TeamSnapshot, WorkerToHubMessage } from "../types.ts";
-import { type ExtensionAPI, type ExtensionFactory, getMarkdownTheme, type MessageRenderer } from "./contracts.ts";
+import type { ExtensionFactory } from "./contracts.ts";
 import { HubChannel } from "./hub-channel.ts";
-import type { MessageMeta } from "./message-meta.ts";
-import { extractMeta, injectMeta } from "./message-meta.ts";
 
 /**
  * Multi-agent / orchestration extension for d-pi.
@@ -15,11 +12,7 @@ import { extractMeta, injectMeta } from "./message-meta.ts";
  * - Slash commands /agents and /sources (dual registration: no-op stubs on the
  *   server side so they appear in /commands; real interactive handlers on the
  *   client/TUI side)
- * - d-pi custom message rendering (the [meta(...)] headers for connect, source,
- *   and peer agent messages)
- * - Input routing for connect-mode and source messages (the "input" event
- *   handler and channel.onIncomingMessage wiring that feeds messages into the
- *   agent's session with correct triggerTurn / deliverAs semantics)
+ * - The worker's HubChannel for orchestration tools.
  *
  * Like the previous monolithic createDPiExtension, this factory supports both
  * "worker" mode (inside a d-pi agent worker thread, talking to the hub over
@@ -48,56 +41,6 @@ export type DPiExtensionConfig = DPiWorkerConfig | DPiClientConfig;
 
 /** Temp file used by the client-side /agents handler to request an agent switch. */
 export const AGENT_SWITCH_FILE = join(tmpdir(), "d-pi-agent-switch.txt");
-
-// ── Shared helpers (renderer + agent selector formatting) ────────────────
-
-function registerDPiMessageRenderer(pi: ExtensionAPI): void {
-	pi.registerMessageRenderer<MessageMeta>("d-pi-message", (message, _options, theme) => {
-		const rawText = messageContentToText(message.content);
-		const extracted = extractMeta(rawText);
-		const meta = extracted?.meta ?? message.details;
-		if (!meta) {
-			return undefined;
-		}
-		const textContent = extracted?.text ?? rawText;
-
-		let source: string = meta.sourceType;
-		if (meta.sourceType === "connect" && meta.connectId) {
-			source = `${source} ${meta.connectId}`;
-		} else if (meta.sourceName) {
-			source = `${source}:${meta.sourceName}`;
-		} else if (meta.agentName) {
-			source = `${source}:${meta.agentName}`;
-		}
-		const headerParts = [source, meta.auth?.name, meta.createTime].filter((part) => part?.trim());
-
-		const container = new Container();
-		container.addChild(new Text(theme.fg("warning", headerParts.join(" · ")), 0, 0));
-		if (textContent) {
-			const box = new Box(1, 1, (t: string) => theme.bg("userMessageBg", t));
-			box.addChild(
-				new Markdown(textContent, 0, 0, getMarkdownTheme(), {
-					color: (t: string) => theme.fg("userMessageText", t),
-				}),
-			);
-			container.addChild(box);
-		}
-		return container;
-	});
-}
-
-function messageContentToText(content: Parameters<MessageRenderer<MessageMeta>>[0]["content"]): string {
-	if (typeof content === "string") {
-		return content;
-	}
-	const textParts: string[] = [];
-	for (const part of content) {
-		if (part.type === "text") {
-			textParts.push(part.text);
-		}
-	}
-	return textParts.join("\n");
-}
 
 /** Map agent status to a visual indicator (used by the /agents selector). */
 function statusIndicator(status: AgentStatus): string {
@@ -141,7 +84,7 @@ function parseAgentName(selected: string): string | undefined {
  *
  * This is the main "d-pi as a multi-agent system" behavior:
  * - The /agents and /sources commands (client UI + server stubs)
- * - Message routing and custom d-pi message rendering
+ * - HubChannel wiring for orchestration tools.
  */
 // Overloaded signatures give precise channel presence based on mode at call sites
 // (worker always yields a channel; client never does). This removes the need for
@@ -166,9 +109,6 @@ export function createMultiAgentExtension(config: DPiExtensionConfig): {
 
 function createMultiAgentWorkerFactory(channel: HubChannel): ExtensionFactory {
 	return (pi) => {
-		// Shared d-pi message rendering (connect / source / peer agent headers)
-		registerDPiMessageRenderer(pi);
-
 		// Server-side command stubs so /sources and /agents appear in the TUI
 		// slash menu. Real execution happens in the client extension (synced
 		// to the TUI process). This replaces the previous gateway hack that
@@ -185,46 +125,7 @@ function createMultiAgentWorkerFactory(channel: HubChannel): ExtensionFactory {
 				// No-op on the server side; the client extension provides the UI.
 			},
 		});
-
-		// Wire TUI connect-mode input into the agent's session as a d-pi custom message.
-		pi.on("input", (event) => {
-			if (event.source !== "interactive") {
-				return { action: "continue" };
-			}
-			const metaContent = injectMeta(event.text, "connect");
-			const extracted = extractMeta(metaContent);
-			const isSteer = event.streamingBehavior === "steer";
-			pi.sendMessage(
-				{
-					customType: "d-pi-message",
-					content: metaContent,
-					display: true,
-					details: extracted?.meta,
-				},
-				{ triggerTurn: true, deliverAs: isSteer ? ("steer" as const) : undefined },
-			);
-			return { action: "handled" };
-		});
-
-		// Wire source / peer messages arriving over the hub channel.
-		channel.onIncomingMessage((content, sourceName, mode) => {
-			if (sourceName) {
-				process.stderr.write(`[d-pi extension] Received source message from "${sourceName}"\n`);
-			}
-			const metaContent = extractMeta(content)
-				? content
-				: injectMeta(content, sourceName ? "source" : "connect", undefined, { sourceName });
-			const extracted = extractMeta(metaContent);
-			pi.sendMessage(
-				{
-					customType: "d-pi-message",
-					content: metaContent,
-					display: true,
-					details: extracted?.meta,
-				},
-				{ triggerTurn: true, deliverAs: mode === "steer" ? "steer" : "next" },
-			);
-		});
+		void channel;
 	};
 }
 
@@ -232,8 +133,6 @@ function createMultiAgentWorkerFactory(channel: HubChannel): ExtensionFactory {
 
 function createMultiAgentClientFactory(config: DPiClientConfig): ExtensionFactory {
 	return (pi) => {
-		registerDPiMessageRenderer(pi);
-
 		// Real /sources command handler (runs in the connected TUI process)
 		pi.registerCommand("sources", {
 			description: "List all registered sources",

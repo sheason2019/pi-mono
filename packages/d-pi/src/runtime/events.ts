@@ -1,6 +1,5 @@
 import type {
 	DPiAgentMessage,
-	DPiCustomMessage,
 	DPiJsonValue,
 	DPiRuntimeError,
 	DPiRuntimeQueues,
@@ -32,12 +31,6 @@ export interface DPiMessageEvent {
 	type: "message";
 	agentName: string;
 	message: DPiAgentMessage;
-}
-
-export interface DPiCustomMessageEvent {
-	type: "d_pi_message";
-	agentName: string;
-	message: DPiCustomMessage;
 }
 
 export interface DPiToolStartEvent {
@@ -118,7 +111,6 @@ export type DPiRuntimeEvent =
 	| DPiAgentRunEndEvent
 	| DPiAssistantStreamEvent
 	| DPiMessageEvent
-	| DPiCustomMessageEvent
 	| DPiToolStartEvent
 	| DPiToolUpdateEvent
 	| DPiToolEndEvent

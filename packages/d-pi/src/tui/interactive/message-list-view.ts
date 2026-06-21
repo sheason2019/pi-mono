@@ -1,7 +1,8 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
-import { type Component, Container, Spacer, Text, TruncatedText } from "@earendil-works/pi-tui";
+import { type Component, Container, Markdown, Spacer, Text, TruncatedText } from "@earendil-works/pi-tui";
 import { DPiNativeAssistantMessageComponent } from "../native/components/assistant-message.ts";
+import { DPiNativeDynamicBorder } from "../native/components/dynamic-border.ts";
 import { DPiNativeToolExecutionComponent } from "../native/components/tool-execution.ts";
 import { DPiNativeUserMessageComponent } from "../native/components/user-message.ts";
 import { createDPiNativeTheme, getDPiNativeMarkdownTheme } from "../native/theme/theme.ts";
@@ -141,11 +142,21 @@ function messageComponents(
 			}),
 		];
 	}
-	if (isDPiMessageMirror(message)) {
-		return [];
-	}
 	if (isCompactDividerMessage(message)) {
-		return [new Text(theme.fg("muted", compactDividerLabel(message)), 1, 0)];
+		const divider = new Container();
+		const summary = compactDividerSummary(message);
+		divider.addChild(new Spacer(1));
+		divider.addChild(new DPiNativeDynamicBorder((text) => theme.fg("borderMuted", text)));
+		divider.addChild(new Text(theme.fg("muted", compactDividerLabel(message)), 1, 0));
+		if (summary) {
+			divider.addChild(
+				new Markdown(summary, 1, 0, markdownTheme, {
+					color: (text: string) => theme.fg("muted", text),
+				}),
+			);
+		}
+		divider.addChild(new Spacer(1));
+		return [divider];
 	}
 	if (message.role === "toolResult") {
 		return [];
@@ -206,11 +217,14 @@ function messageLines(message: AgentMessage, options: DPiInteractiveStyleOptions
 			return [];
 		});
 	}
-	if (isDPiMessageMirror(message)) {
-		return [];
-	}
 	if (isCompactDividerMessage(message)) {
-		return ["", style.dim(compactDividerLabel(message)), ""];
+		const summary = compactDividerSummary(message);
+		return [
+			"",
+			style.dim(`──────────────── ${compactDividerLabel(message)} ────────────────`),
+			...(summary ? summary.split("\n").map((line) => style.dim(` ${line}`)) : []),
+			"",
+		];
 	}
 	return [];
 }
@@ -250,10 +264,6 @@ function stripDPiMetaWrapper(text: string): string {
 	return match?.[1] ?? text;
 }
 
-function isDPiMessageMirror(message: AgentMessage): boolean {
-	return "customType" in message && message.customType === "d-pi-message";
-}
-
 function isCompactDividerMessage(message: AgentMessage): boolean {
 	return "customType" in message && message.customType === "compact-divider";
 }
@@ -273,4 +283,21 @@ function compactDividerLabel(message: AgentMessage): string {
 		}
 	}
 	return "Compact completed";
+}
+
+function compactDividerSummary(message: AgentMessage): string | undefined {
+	if (!("details" in message) || typeof message.details !== "object" || message.details === null) {
+		return undefined;
+	}
+	const details = message.details as Record<string, unknown>;
+	if (typeof details.summary === "string" && details.summary.trim()) {
+		return details.summary;
+	}
+	if (typeof details.result === "object" && details.result !== null) {
+		const result = details.result as Record<string, unknown>;
+		if (typeof result.summary === "string" && result.summary.trim()) {
+			return result.summary;
+		}
+	}
+	return undefined;
 }

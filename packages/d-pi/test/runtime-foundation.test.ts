@@ -21,6 +21,7 @@ import {
 	type DPiAgentHarnessFactoryOptions,
 	DPiAgentRuntime,
 } from "../src/runtime/agent-runtime.ts";
+import { buildDPiCurrentPageMessagesFromSessionEntries } from "../src/runtime/current-page.ts";
 import { createDPiRuntimeError, isDPiRuntimeError } from "../src/runtime/errors.ts";
 import { DPiModelManager } from "../src/runtime/model-manager.ts";
 import { DPiSessionStore } from "../src/runtime/session-store.ts";
@@ -250,6 +251,43 @@ describe("d-pi runtime foundation", () => {
 			{ role: "user", content: [{ type: "text", text: "hello before reconnect" }], timestamp },
 		]);
 		runtime.dispose();
+	});
+
+	it("restores the current compact page from persisted session entries", async () => {
+		const workspaceRoot = createTempWorkspace();
+		const store = new DPiSessionStore({
+			cwd: workspaceRoot,
+			sessionsRoot: join(workspaceRoot, ".pi", "sessions"),
+		});
+		const session = await store.create({ id: "compacted-session" });
+		const beforeId = await session.session.appendMessage({ role: "user", content: "before compact", timestamp: 1 });
+		await session.session.appendCompaction("Persistent compact summary", beforeId, 12345);
+		await session.session.appendCustomEntry("d-pi-compact-divider", {
+			label: "Compact completed 9s",
+			summary: "Persistent compact summary",
+			tokensBefore: 12345,
+			durationMs: 9000,
+			completedAt: 10,
+		});
+		await session.session.appendMessage({ role: "user", content: "after compact", timestamp: 11 });
+
+		const reopened = await store.open("compacted-session");
+		const currentPage = buildDPiCurrentPageMessagesFromSessionEntries(await reopened.session.getBranch());
+
+		expect(currentPage).toEqual([
+			expect.objectContaining({
+				role: "custom",
+				customType: "compact-divider",
+				content: "Compact completed 9s",
+				details: expect.objectContaining({
+					summary: "Persistent compact summary",
+					tokensBefore: 12345,
+					durationMs: 9000,
+				}),
+			}),
+			expect.objectContaining({ role: "user", content: "after compact" }),
+		]);
+		expect(JSON.stringify(currentPage)).not.toContain("before compact");
 	});
 
 	it("routes prompt modes to the harness and normalizes harness queue events", async () => {

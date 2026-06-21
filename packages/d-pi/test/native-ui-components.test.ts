@@ -108,30 +108,6 @@ describe("d-pi native interactive components", () => {
 		expect(component.children[1]).toBeInstanceOf(DPiNativeAssistantMessageComponent);
 	});
 
-	it("does not render d-pi meta custom message mirrors as raw plain text", () => {
-		const state = {
-			...snapshot(),
-			messages: [
-				{ role: "user" as const, content: "ls 一下", timestamp: 1 },
-				{
-					role: "custom" as const,
-					customType: "d-pi-message",
-					content: '[meta({"sourceType":"connect","connectId":"id"})]\nls 一下',
-					display: true,
-					details: { sourceType: "connect", connectId: "id" },
-					timestamp: 2,
-				},
-			],
-		};
-		const component = buildDPiInteractiveMessageListComponent(state, { color: true, colorMode: "truecolor" });
-		const rendered = component.render(80).join("\n");
-
-		expect(component.children[0]).toBeInstanceOf(DPiNativeUserMessageComponent);
-		expect(rendered).not.toContain("[meta(");
-		expect(rendered).not.toContain("connectId");
-		expect(rendered.match(/ls 一下/g)).toHaveLength(1);
-	});
-
 	it("renders tool calls and tool results as native tool execution components", () => {
 		const output = Array.from({ length: 24 }, (_, index) => `entry-${index + 1}`).join("\n");
 		const state = {

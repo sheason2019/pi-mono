@@ -2,7 +2,6 @@ import { randomUUID as gatewayRandomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { AuthSessionInfo, AuthSessionManager } from "../auth/auth-session.ts";
-import { injectMeta } from "../extension/message-meta.ts";
 import {
 	type DPiJsonValue,
 	type DPiServiceActionRequest,
@@ -747,13 +746,6 @@ export class HubGateway {
 		}
 
 		const workerAction = toWorkerAction(serviceAction, actionRequest);
-		const connectId = this._agentBindings.get(agentName);
-		workerAction.data.text = injectMeta(
-			workerAction.data.text,
-			"connect",
-			auth.auth,
-			connectId ? { connectId } : undefined,
-		);
 
 		const requestId = gatewayRandomUUID();
 		const responsePromise = this._waitForWorkerHttpResponse(agent, requestId, { req, res });
@@ -1014,9 +1006,6 @@ export class HubGateway {
 			return;
 		}
 
-		// Intercept POST /prompt to inject message meta header
-		const isPromptRequest = method === "POST" && cleanPath === "prompt";
-
 		// Read the request body (for POST)
 		let body: unknown;
 		if (method === "POST") {
@@ -1024,13 +1013,6 @@ export class HubGateway {
 				const rawBody = await this._readBody(req);
 				if (rawBody) {
 					body = JSON.parse(rawBody);
-					if (isPromptRequest) {
-						const parsed = body as { text?: string; options?: unknown };
-						if (parsed.text) {
-							const connectId = this._agentBindings.get(agentName);
-							parsed.text = injectMeta(parsed.text, "connect", auth.auth, connectId ? { connectId } : undefined);
-						}
-					}
 				}
 			} catch (_err) {
 				if (!res.headersSent) {

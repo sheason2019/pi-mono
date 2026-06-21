@@ -239,7 +239,8 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 			body: body === undefined ? undefined : JSON.stringify(body),
 		});
 		if (!response.ok) {
-			throw new Error(`${endpoint} returned HTTP ${response.status}`);
+			const message = await responseErrorMessage(response);
+			throw new Error(`${endpoint} returned HTTP ${response.status}${message ? `: ${message}` : ""}`);
 		}
 	}
 
@@ -416,6 +417,30 @@ function parseSseEventData(data: string): unknown {
 		return undefined;
 	}
 	return JSON.parse(data) as unknown;
+}
+
+async function responseErrorMessage(response: Response): Promise<string | undefined> {
+	try {
+		const body = (await response.clone().json()) as unknown;
+		if (typeof body === "object" && body !== null && "error" in body) {
+			const error = (body as { error?: unknown }).error;
+			if (typeof error === "string") {
+				return error;
+			}
+			if (typeof error === "object" && error !== null && "message" in error) {
+				const message = (error as { message?: unknown }).message;
+				return typeof message === "string" ? message : undefined;
+			}
+		}
+	} catch {
+		try {
+			const text = await response.text();
+			return text.trim() || undefined;
+		} catch {
+			return undefined;
+		}
+	}
+	return undefined;
 }
 
 function isInteractiveSnapshot(value: unknown): value is DPiInteractiveSessionStateSnapshot {

@@ -32,18 +32,6 @@ export {
 	type DPiTeamSnapshot,
 } from "./hub-actions.ts";
 export {
-	type CreateDPiSurfaceMessageOptions,
-	createDPiMessageEnvelope,
-	createDPiSurfaceMessage,
-	type DPiMessageAuthMetadata,
-	type DPiMessageEnvelope,
-	type DPiMessageJsonValue,
-	type DPiMessageMetadata,
-	type DPiMessageSourceType,
-	type DPiSurfaceCustomMessage,
-	type DPiSurfaceMessageDetails,
-} from "./message-surface.ts";
-export {
 	createDPiCreateAgentTool,
 	createDPiDeleteSourceTool,
 	createDPiDestroyAgentTool,

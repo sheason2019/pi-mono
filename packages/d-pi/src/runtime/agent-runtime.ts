@@ -9,9 +9,22 @@ import type {
 	Session,
 	ThinkingLevel,
 } from "@earendil-works/pi-agent-core/node";
-import { AgentHarness, AgentHarnessError, NodeExecutionEnv, SessionError } from "@earendil-works/pi-agent-core/node";
+import {
+	AgentHarness,
+	AgentHarnessError,
+	compact as compactSession,
+	DEFAULT_COMPACTION_SETTINGS,
+	NodeExecutionEnv,
+	prepareCompaction,
+	SessionError,
+} from "@earendil-works/pi-agent-core/node";
 import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import type { DPiContextManager } from "../context/context-manager.ts";
+import {
+	buildDPiCurrentPageMessagesFromSessionEntries,
+	createDPiPersistedCompactDivider,
+	DPI_COMPACT_DIVIDER_ENTRY_TYPE,
+} from "./current-page.ts";
 import { createDPiRuntimeError, isDPiRuntimeError } from "./errors.ts";
 import type { DPiRuntimeEvent } from "./events.ts";
 import type { DPiModelManager } from "./model-manager.ts";
@@ -19,6 +32,7 @@ import type {
 	DPiAgentMessage,
 	DPiJsonValue,
 	DPiPromptOptions,
+	DPiRuntimeCompactResult,
 	DPiRuntimeContextInfo,
 	DPiRuntimeError,
 	DPiRuntimeErrorCode,
@@ -249,6 +263,9 @@ export class DPiAgentRuntime {
 	private readonly cwd: string;
 	private readonly contextManager: DPiContextManager;
 	private readonly modelManager: DPiModelManager;
+	private readonly session: Session<JsonlSessionMetadata>;
+	private readonly getApiKeyAndHeaders: AgentHarnessOptions["getApiKeyAndHeaders"] | undefined;
+	private readonly thinkingLevel: ThinkingLevel | undefined;
 	private readonly harness: DPiAgentHarness;
 	private readonly listeners = new Set<(event: DPiRuntimeEvent) => Promise<void> | void>();
 	private readonly unsubscribeHarness: () => void;
@@ -265,6 +282,9 @@ export class DPiAgentRuntime {
 		this.cwd = options.cwd;
 		this.contextManager = options.contextManager;
 		this.modelManager = options.modelManager;
+		this.session = options.session;
+		this.getApiKeyAndHeaders = options.getApiKeyAndHeaders;
+		this.thinkingLevel = options.thinkingLevel;
 		this.context = loadContextInfo(this.contextManager);
 		this.sessionInfo = options.sessionInfo ?? { id: "unknown" };
 		this.messages = options.initialMessages?.map((message) => ({ ...message })) ?? [];
@@ -335,6 +355,77 @@ export class DPiAgentRuntime {
 			state: { context: this.cloneContext() },
 		});
 		await this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
+	}
+
+	async compact(customInstructions?: string): Promise<DPiRuntimeCompactResult> {
+		const startedAt = Date.now();
+		const model = this.modelManager.getModel();
+		const auth = await this.getApiKeyAndHeaders?.(model);
+		if (!auth?.apiKey) {
+			throw createDPiRuntimeError("auth", `No API key found for ${model.provider}.`);
+		}
+
+		const branch = await this.session.getBranch();
+		const preparation = prepareCompaction(branch, DEFAULT_COMPACTION_SETTINGS);
+		if (!preparation.ok) {
+			throw preparation.error;
+		}
+		if (!preparation.value) {
+			const lastEntry = branch[branch.length - 1];
+			throw new Error(
+				lastEntry?.type === "compaction" ? "Already compacted" : "Nothing to compact (session too small)",
+			);
+		}
+
+		const result = await compactSession(
+			preparation.value,
+			model,
+			auth.apiKey,
+			auth.headers,
+			customInstructions,
+			undefined,
+			this.thinkingLevel,
+		);
+		if (!result.ok) {
+			throw result.error;
+		}
+
+		await this.session.appendCompaction(
+			result.value.summary,
+			result.value.firstKeptEntryId,
+			result.value.tokensBefore,
+			result.value.details,
+		);
+		const completedAt = Date.now();
+		const durationMs = completedAt - startedAt;
+		const label = `Compact completed ${Math.max(1, Math.ceil(durationMs / 1000))}s`;
+		const divider = createDPiPersistedCompactDivider(
+			label,
+			result.value.summary,
+			result.value.tokensBefore,
+			durationMs,
+			completedAt,
+		);
+		await this.session.appendCustomEntry(DPI_COMPACT_DIVIDER_ENTRY_TYPE, divider);
+		const currentPageMessages = buildDPiCurrentPageMessagesFromSessionEntries(await this.session.getBranch());
+		this.messages =
+			currentPageMessages.length > 0
+				? currentPageMessages
+				: ((await this.session.buildContext()).messages as DPiAgentMessage[]);
+		await this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
+		return {
+			...result.value,
+			divider: {
+				label,
+				details: {
+					summary: result.value.summary,
+					tokensBefore: result.value.tokensBefore,
+					durationMs,
+					completedAt,
+				},
+			},
+			messages: this.messages.map((message) => ({ ...message })),
+		};
 	}
 
 	getSnapshot(): DPiRuntimeSnapshot {
