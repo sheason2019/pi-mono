@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createCreateAgentTool } from "../src/extension/create-agent.ts";
-import { createDestroyAgentTool } from "../src/extension/destroy-agent.ts";
-import type { HubChannel } from "../src/extension/hub-channel.ts";
-import { createReloadTools } from "../src/extension/reload-tools.ts";
-import { createSendMessageTool } from "../src/extension/send-message.ts";
-import { createSetSourceTool } from "../src/extension/set-source.ts";
-import { createTeamTool } from "../src/extension/team.ts";
+import {
+	createCreateAgentTool,
+	createDestroyAgentTool,
+	createReloadTool,
+	createSendMessageTool,
+	createSetSourceTool,
+	createTeamTool,
+} from "../src/index.ts";
 
 /**
  * Architectural contract: tool-specific constraints and routing semantics
@@ -14,46 +15,33 @@ import { createTeamTool } from "../src/extension/team.ts";
  * regressions surface as test failures.
  */
 
-function makeChannel() {
-	return {
-		agentId: "test",
-		// Each test only calls the methods its tool exercises. Cast through
-		// unknown to keep this helper compact.
-	} as unknown as HubChannel;
-}
-
 function toolDescription(name: string): string {
-	const channel = makeChannel();
 	switch (name) {
 		case "create_agent":
-			return createCreateAgentTool(channel).description;
+			return createCreateAgentTool().description;
 		case "send_message":
-			return createSendMessageTool(channel).description;
+			return createSendMessageTool().description;
 		case "team":
-			return createTeamTool(channel).description;
+			return createTeamTool().description;
 		case "reload":
-			return createReloadTools({
-				getReloadFn: () => undefined,
-				getResourceLoader: () => undefined,
-			}).description;
+			return createReloadTool().description;
 		case "set_source":
-			return createSetSourceTool(channel).description;
+			return createSetSourceTool().description;
 		case "destroy_agent":
-			return createDestroyAgentTool(channel).description;
+			return createDestroyAgentTool().description;
 		default:
 			throw new Error(`unknown tool: ${name}`);
 	}
 }
 
 function toolParamDescriptions(name: string, fieldName: string): string[] {
-	const channel = makeChannel();
 	let tool: { description: string; parameters: unknown };
 	switch (name) {
 		case "create_agent":
-			tool = createCreateAgentTool(channel);
+			tool = createCreateAgentTool();
 			break;
 		case "send_message":
-			tool = createSendMessageTool(channel);
+			tool = createSendMessageTool();
 			break;
 		default:
 			throw new Error(`no param field check for tool: ${name}`);
@@ -70,26 +58,6 @@ function toolParamDescriptions(name: string, fieldName: string): string[] {
 	}
 	return [prop.description];
 }
-
-describe("create_agent tool — includeTools/excludeTools mutex", () => {
-	it("includeTools description mentions mutual exclusion with excludeTools", () => {
-		const [desc] = toolParamDescriptions("create_agent", "includeTools");
-		expect(desc).toMatch(/mutually exclusive/i);
-		expect(desc).toContain("excludeTools");
-	});
-
-	it("excludeTools description mentions mutual exclusion with includeTools", () => {
-		const [desc] = toolParamDescriptions("create_agent", "excludeTools");
-		expect(desc).toMatch(/mutually exclusive/i);
-		expect(desc).toContain("includeTools");
-	});
-
-	it("excludeTools description mentions the inherit-all default behavior", () => {
-		const [desc] = toolParamDescriptions("create_agent", "excludeTools");
-		// LLM must know that omitting both fields gives all tools.
-		expect(desc).toMatch(/both.*omitted|inherit/i);
-	});
-});
 
 describe("send_message tool — mode semantics", () => {
 	it("top-level description explains next/steer mode meaning", () => {

@@ -56,7 +56,7 @@ jobs:
         run: npm test
 
   publish:
-    name: Publish ${{ matrix.npm_name }}
+    name: Publish d-pi
     needs: test
     runs-on: ubuntu-latest
     environment: npm-publish
@@ -67,28 +67,9 @@ jobs:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     strategy:
       fail-fast: false
-      # Serial execution: downstream packages (d-pi) need
-      # upstream dist/ on the filesystem to compile (tsconfig paths).
       max-parallel: 1
       matrix:
-        # Only @sheason/* scoped packages are published by this fork. The
-        # upstream @earendil-works/* packages (pi-ai, pi-tui, pi-agent-core)
-        # are runtime dependencies that get pulled from the public npm
-        # registry at install time; they are not in this matrix because we
-        # have no npm publish permission to the @earendil-works scope, and
-        # because the d-pi workspace tsconfigs reference them as workspace
-        # peers (path imports to packages/ai, packages/tui, packages/agent)
-        # only for the build step, not for the published artifact.
-        #
-        # Order matters: pi-coding-agent must publish before d-pi so the
-        # npm-installed `@sheason/d-pi` can resolve its `pi-coding-agent`
-        # peer dep.
         include:
-          - package: coding-agent
-            npm_name: '@sheason/pi-coding-agent'
-            pkg_path: packages/coding-agent
-            dist_dir: dist
-            publish_npm: true
           - package: d-pi
             npm_name: '@sheason/d-pi'
             pkg_path: packages/d-pi
@@ -116,12 +97,7 @@ jobs:
       - name: Install monorepo dependencies
         run: npm ci --ignore-scripts
 
-      - name: Build monorepo (coding-agent -> d-pi)
-        # The root `npm run build` chain produces the dist/ trees that the
-        # downstream `d-pi` matrix row reads via tsconfig paths. Upstream
-        # packages/ai, packages/tui, packages/agent are still built because
-        # d-pi's tsconfig paths reference them, but their dist/ is not
-        # published or attached to the GitHub release.
+      - name: Build workspace
         run: npm run build
 
       - name: Compute npm dist-tag from release tag
@@ -202,16 +178,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download pi-coding-agent build
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-        # Artifact names must match the upload side; the publish job uploads
-        # them as `pkg-<short-slug>` (e.g. "pkg-coding-agent"), NOT
-        # `pkg-@sheason/...`, because GitHub Actions artifact names reject
-        # forward slashes.
-        with:
-          name: pkg-coding-agent
-          path: release-artifacts/pi-coding-agent
-
       - name: Download d-pi build
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
@@ -224,14 +190,10 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           generate_release_notes: true
-          # Idempotent re-run: allow overwriting existing assets (the
-          # cross-platform pi binaries from build-binaries.yml share the
-          # same release; without this flag softprops tries to delete
-          # then recreate, which 404s on the second re-run).
+          # Idempotent re-run: allow overwriting existing assets.
           overwrite_files: true
           fail_on_unmatched_files: false
           files: |
-            release-artifacts/pi-coding-agent/**
             release-artifacts/d-pi/**
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,12 +1,12 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionCommandContext } from "@sheason/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAllowedUser } from "../src/auth/allowed-users.ts";
 import { AuthSessionManager } from "../src/auth/auth-session.ts";
 import { createLocalUser } from "../src/auth/local-users.ts";
 import { signChallenge } from "../src/auth/signing.ts";
+import type { ExtensionAPI, ExtensionCommandContext } from "../src/extension/contracts.ts";
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
 import { SourceManager } from "../src/hub/source-manager.ts";
@@ -78,7 +78,6 @@ async function startHub(
 		status: "ready",
 		worker: mockWorker as never,
 		cwd: workspaceRoot,
-		model: undefined,
 	});
 	const gateway = new HubGateway(
 		registry,

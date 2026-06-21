@@ -4,6 +4,7 @@ import {
 	AGENT_SESSION_DIR,
 	AGENT_TS_FILE,
 	buildAgentTsSource as buildAgentTsSourceFromConfig,
+	resolveMigratedToolNames,
 } from "../agent-config.ts";
 import type { AgentConfig } from "../types.ts";
 
@@ -13,6 +14,8 @@ const LEGACY_SESSIONS_DIR = ".dpi-sessions";
 
 interface LegacyAgentConfig extends Omit<AgentConfig, "parentName"> {
 	parentName?: string | null;
+	includeTools?: string[];
+	excludeTools?: string[];
 }
 
 interface AgentTsMigrationPlan {
@@ -41,9 +44,6 @@ function readLegacyAgentConfig(agentJsonPath: string): LegacyAgentConfig {
 	if (parsed.description !== undefined && typeof parsed.description !== "string") {
 		throw new TypeError(`Invalid agent config at ${agentJsonPath}: description must be a string`);
 	}
-	if (parsed.model !== undefined && typeof parsed.model !== "string") {
-		throw new TypeError(`Invalid agent config at ${agentJsonPath}: model must be a string`);
-	}
 	if (
 		parsed.roles !== undefined &&
 		(!Array.isArray(parsed.roles) || parsed.roles.some((role) => typeof role !== "string"))
@@ -68,7 +68,6 @@ function readLegacyAgentConfig(agentJsonPath: string): LegacyAgentConfig {
 		parentName: parsed.parentName as string | null | undefined,
 		description: parsed.description as string | undefined,
 		roles: parsed.roles as string[] | undefined,
-		model: parsed.model as string | undefined,
 		includeTools: parsed.includeTools as string[] | undefined,
 		excludeTools: parsed.excludeTools as string[] | undefined,
 	};
@@ -80,9 +79,11 @@ function buildMigratedAgentTsSource(config: LegacyAgentConfig): string {
 		parentName: config.parentName ?? undefined,
 		description: config.description,
 		roles: config.roles,
-		model: config.model,
-		includeTools: config.includeTools,
-		excludeTools: config.excludeTools,
+		toolNames: resolveMigratedToolNames({
+			name: config.name,
+			includeTools: config.includeTools,
+			excludeTools: config.excludeTools,
+		}),
 	});
 }
 

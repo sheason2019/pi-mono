@@ -263,4 +263,5 @@ describe("d-pi connect auth failure handling", () => {
 // Silence unused-import warning when the file is the only consumer of
 // signChallenge in a no-server test path. Re-export to keep the helper
 // available for ad-hoc debugging.
+// biome-ignore lint/suspicious/noExportsInTest: intentional ad-hoc auth debugging helper
 export { signChallenge };

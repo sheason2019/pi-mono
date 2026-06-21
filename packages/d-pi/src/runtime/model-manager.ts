@@ -1,0 +1,31 @@
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type { DPiModelInfo } from "./types.ts";
+
+export interface DPiModelManagerOptions {
+	model: Model<Api>;
+}
+
+function modelInfo(model: Model<Api>): DPiModelInfo {
+	return {
+		id: model.id,
+		provider: model.provider,
+		displayName: model.name,
+		contextWindow: model.contextWindow,
+	};
+}
+
+export class DPiModelManager {
+	private readonly model: Model<Api>;
+
+	constructor(options: DPiModelManagerOptions) {
+		this.model = options.model;
+	}
+
+	getModel(): Model<Api> {
+		return this.model;
+	}
+
+	getModelInfo(): DPiModelInfo {
+		return modelInfo(this.model);
+	}
+}

@@ -12,6 +12,8 @@ import {
 } from "../src/hub/source-persistence.ts";
 import type { SourceConfig } from "../src/types.ts";
 
+type StderrWriteCall = [string | Uint8Array, BufferEncoding?, ((err?: Error) => void)?];
+
 /**
  * Tests for the `sources/<name>/source.json` persistence layer.
  *
@@ -147,7 +149,9 @@ describe("source-persistence pure helpers", () => {
 		try {
 			const files = discoverSourceConfigs(workspace);
 			expect(files.map((f) => f.name)).toEqual(["good"]);
-			const warned = stderr.mock.calls.some((call) => String(call[0]).includes("Failed to parse source.json"));
+			const warned = stderr.mock.calls.some((call: StderrWriteCall) =>
+				String(call[0]).includes("Failed to parse source.json"),
+			);
 			expect(warned).toBe(true);
 		} finally {
 			stderr.mockRestore();
@@ -357,7 +361,9 @@ describe("SourceManager.restoreFromConfigs", () => {
 		const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 		try {
 			sm.restoreFromConfigs([discoverSourceConfigs(workspace)[0]!], new Set(["a"]));
-			const skipped = stderr.mock.calls.some((call) => String(call[0]).includes('Skipping restore of source "x"'));
+			const skipped = stderr.mock.calls.some((call: StderrWriteCall) =>
+				String(call[0]).includes('Skipping restore of source "x"'),
+			);
 			expect(skipped).toBe(true);
 			// Runtime-created source wins; persisted subscribers NOT applied
 			// (the operator's runtime setSource is authoritative).

@@ -403,10 +403,8 @@ export class SourceManager {
 		// the inner data payload. We forward ONLY the inner data to
 		// subscribers — the JSONRPC envelope (`jsonrpc`, `method`,
 		// `params.type`, `params.id`, `params.mode`) is wire-protocol
-		// detail that the LLM doesn't need to see. The hub-layer
-		// `injectMeta` call will still wrap whatever we send here in a
-		// `[meta({sourceName, ...})]\n` header for traceability, but
-		// the body is the raw upstream event JSON, not a JSONRPC
+		// detail that the LLM doesn't need to see. The hub forwards this
+		// body directly so source payloads remain plain provider-facing text.
 		// notification. If the data is not an object, fall back to
 		// stringifying the parsed value so the agent still gets
 		// something parseable instead of a rejected notification.

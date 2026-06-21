@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 const DEFAULT_REPO = "earendil-works/pi";
-const DEFAULT_BASE_PATH = "packages/coding-agent";
-const DEFAULT_CHANGELOG = "packages/coding-agent/CHANGELOG.md";
+const DEFAULT_BASE_PATH = "packages/d-pi";
+const DEFAULT_CHANGELOG = "packages/d-pi/CHANGELOG.md";
 const DEFAULT_FIX_SINCE_TAG = "v0.74.0";
 const LEGACY_REPO_RE = /^https:\/\/github\.com\/(?:badlogic|earendil-works)\/pi-mono(?=\/|$)/;
 const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
@@ -17,7 +17,7 @@ function printUsage() {
 	console.log(`Usage: node scripts/release-notes.mjs <command> [options]
 
 Commands:
-  extract              Extract release notes from the coding-agent changelog
+  extract              Extract release notes from the d-pi changelog
   fix-github-releases  Rewrite existing GitHub release note links in place
 
 extract options:

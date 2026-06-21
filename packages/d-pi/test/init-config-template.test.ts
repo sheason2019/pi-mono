@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runDPiCli } from "../src/cli-runner.ts";
 import { initWorkspace, TARGET_WORKSPACE_VERSION, validateWorkspace } from "../src/workspace/workspace.ts";
@@ -46,11 +47,33 @@ describe("init template: strict-JSON output", () => {
 		expect(existsSync(join(workspace, "agents", "root", "agent.json"))).toBe(false);
 
 		const raw = readFileSync(agentConfigPath, "utf-8");
+		expect(raw).toContain("defineOpenAIProvider");
+		expect(raw).toContain("defineProvider");
 		expect(raw).toContain("export default defineAgent(");
 		expect(raw).toContain('defineSkill({ dir: "./skills" })');
 		expect(raw).toContain('defineContextFile({ type: "context", path: "./AGENTS.md" })');
 		expect(raw).toContain('defineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" })');
 		expect(raw).not.toContain("parent:");
+	});
+
+	it("initializes the workspace as a node package linked to the current d-pi package", () => {
+		const workspace = freshWorkspace();
+		initWorkspace(workspace);
+
+		const packageJsonPath = join(workspace, "package.json");
+		const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
+			private?: boolean;
+			type?: string;
+			dependencies?: Record<string, string>;
+		};
+		expect(packageJson.private).toBe(true);
+		expect(packageJson.type).toBe("module");
+		expect(packageJson.dependencies?.["@sheason/d-pi"]).toMatch(/^file:/);
+
+		const linkedPackagePath = join(workspace, "node_modules", "@sheason", "d-pi");
+		expect(lstatSync(linkedPackagePath).isSymbolicLink()).toBe(true);
+		const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+		expect(realpathSync(linkedPackagePath)).toBe(realpathSync(packageRoot));
 	});
 
 	it("validateWorkspace accepts the freshly-init config and reports the target version", () => {
@@ -94,17 +117,17 @@ describe("init template: strict-JSON output", () => {
 		// Workspace-level keys — only `version` is documented (reserved as a
 		// migration marker)
 		expect(agentsMd).toMatch(/version/);
-		// includeTools / excludeTools are agent-only — they should NOT appear
-		// under the Workspace Configuration section header
 		const workspaceSection = agentsMd.split("## Agent Configuration")[0];
 		expect(workspaceSection).not.toMatch(/includeTools/);
 		expect(workspaceSection).not.toMatch(/excludeTools/);
 		expect(workspaceSection).not.toMatch(/defaultModel/);
 		// Agent-level keys
 		expect(agentsMd).toMatch(/parent/);
-		expect(agentsMd).toMatch(/includeTools/);
-		expect(agentsMd).toMatch(/excludeTools/);
 		expect(agentsMd).toMatch(/description/);
+		expect(agentsMd).toMatch(/defineOpenAIProvider/);
+		expect(agentsMd).toMatch(/defineProvider/);
+		expect(agentsMd).toMatch(/contextWindow/);
+		expect(agentsMd).toMatch(/thinkingLevelMap/);
 		expect(agentsMd).not.toMatch(/agent\.json/);
 		expect(agentsMd).not.toMatch(/sessionId/);
 	});

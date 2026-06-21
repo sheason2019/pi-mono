@@ -60,7 +60,7 @@ Both must pass.
 
 Do not edit `CHANGELOG.md`. Changelog entries are added by maintainers.
 
-If you are adding a new provider to `packages/ai`, see `AGENTS.md` for required tests.
+If you are changing d-pi behavior, include focused tests under `packages/d-pi/test`.
 
 ## Philosophy
 

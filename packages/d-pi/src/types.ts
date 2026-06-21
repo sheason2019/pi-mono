@@ -1,3 +1,5 @@
+import type { Worker } from "node:worker_threads";
+
 // === Agent Status ===
 export type AgentStatus = "starting" | "ready" | "busy" | "error" | "destroyed";
 
@@ -18,9 +20,6 @@ export interface AgentConfig {
 	// when to delegate to it. Intended for the LLM to read.
 	description?: string;
 	roles?: string[];
-	model?: string;
-	includeTools?: string[];
-	excludeTools?: string[];
 }
 
 // === Workspace Configuration ===
@@ -50,11 +49,8 @@ export interface AgentWorkerConfig {
 	agentName: string;
 	parentName?: string;
 	cwd: string;
-	model?: string;
 	workspaceContext?: WorkspaceContext;
 	sessionDir?: string;
-	includeTools?: string[];
-	excludeTools?: string[];
 }
 
 // === Worker → Hub IPC Messages ===
@@ -92,7 +88,6 @@ export interface TeamAgentEntry {
 	name: string;
 	parentName: string | undefined;
 	status: AgentStatus;
-	model: string | undefined;
 	children: string[];
 }
 
@@ -123,16 +118,14 @@ export interface AgentRecord {
 	/** @deprecated Agents no longer bind HTTP ports in stdio/IPC mode. */
 	port?: number;
 	status: AgentStatus;
-	worker: import("node:worker_threads").Worker;
+	worker: Worker;
 	cwd: string;
-	model: string | undefined;
 }
 
 // === Hub Configuration ===
 export interface HubConfig {
 	port?: number;
 	cwd: string;
-	model?: string;
 	/** @deprecated Agents no longer bind HTTP ports in stdio/IPC mode. */
 	agentPortStart?: number;
 	workspaceRoot: string;
@@ -207,7 +200,12 @@ export interface DeleteSourceResult {
 export type {
 	AgentContextFileDefinition,
 	AgentDefinition,
+	AgentLocalModelDefinition,
 	AgentModelDefinition,
+	AgentModelReferenceDefinition,
+	AgentProviderDefinition,
+	AgentRoleDefinition,
 	AgentSkillDefinition,
 	AgentToolDefinition,
+	AgentToolDefinitionInput,
 } from "./agent-definition.ts";

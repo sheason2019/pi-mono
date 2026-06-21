@@ -13,8 +13,6 @@ import type { SourceConfig, TeamSnapshot, WorkerToHubMessage } from "../types.ts
  */
 type MessageMode = "next" | "steer";
 
-type IncomingMessageHandler = (content: string, sourceName?: string, mode?: MessageMode) => void;
-
 /**
  * Communication channel from extension tools to the Hub.
  *
@@ -34,7 +32,6 @@ export class HubChannel {
 		{ resolve: (result: unknown) => void; reject: (error: Error) => void }
 	>();
 	private _callIdCounter = 0;
-	private _onIncomingMessage?: IncomingMessageHandler;
 
 	constructor(agentName: string, postToHub: (message: WorkerToHubMessage) => void) {
 		this._agentName = agentName;
@@ -45,31 +42,14 @@ export class HubChannel {
 		return this._agentName;
 	}
 
-	/** Register handler for incoming messages from the Hub */
-	onIncomingMessage(handler: IncomingMessageHandler): void {
-		this._onIncomingMessage = handler;
-	}
-
-	/** Deliver an incoming message — called by agent-worker, handled by extension */
-	deliverMessage(content: string, sourceName?: string, mode?: MessageMode): void {
-		this._onIncomingMessage?.(content, sourceName, mode);
-	}
-
 	/** Send a message to another agent (by name). mode defaults to "next" (Enter-style). */
 	sendMessage(toAgentName: string, content: string, mode: MessageMode = "next"): Promise<unknown> {
 		return this._callTool("send_message", { agent_id: toAgentName, message: content, mode });
 	}
 
 	/** Create a new child agent */
-	createAgent(
-		name: string,
-		cwd?: string,
-		model?: string,
-		roles?: string[],
-		includeTools?: string[],
-		excludeTools?: string[],
-	): Promise<unknown> {
-		return this._callTool("create_agent", { name, cwd, model, roles, includeTools, excludeTools });
+	createAgent(name: string, cwd?: string): Promise<unknown> {
+		return this._callTool("create_agent", { name, cwd });
 	}
 
 	/** Destroy an agent (by name) */

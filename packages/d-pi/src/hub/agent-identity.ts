@@ -1,5 +1,16 @@
-import { readAgentConfigFromTs } from "../agent-config.ts";
+import { getAgentDefinitionMetadata } from "../agent-definition.ts";
+import { type LoadedAgentDefinition, readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
 import type { AgentConfig } from "../types.ts";
+
+export function agentDefinitionToConfig(agent: LoadedAgentDefinition): AgentConfig {
+	const parentName = agent.parent ? getAgentDefinitionMetadata(agent.parent)?.name : undefined;
+	return {
+		name: agent.name,
+		parentName,
+		description: agent.description,
+		roles: agent.roles,
+	};
+}
 
 /**
  * Read `agent.ts` from an agent's cwd and return the normalized
@@ -7,22 +18,16 @@ import type { AgentConfig } from "../types.ts";
  * parseable in the standard d-pi shape.
  *
  * Used by the worker at session-start to inject the agent's
- * identity (name, description, parent, model, roles, tool
- * allow/deny lists) into the system prompt as the
+ * identity (name, description, parent, roles) into the system prompt as the
  * "## Agent identity" section.
  */
 export async function loadAgentIdentity(agentDir: string): Promise<AgentConfig | undefined> {
 	try {
-		return readAgentConfigFromTs(agentDir);
-	} catch {
-		process.stderr.write(`[d-pi] Failed to load agent.ts at ${agentDir}; skipping identity injection\n`);
+		const agent = await readLoadedAgentDefinitionFromTs(agentDir);
+		if (agent) {
+			return agentDefinitionToConfig(agent);
+		}
 		return undefined;
-	}
-}
-
-export function readAgentIdentitySync(agentDir: string): AgentConfig | undefined {
-	try {
-		return readAgentConfigFromTs(agentDir);
 	} catch {
 		process.stderr.write(`[d-pi] Failed to load agent.ts at ${agentDir}; skipping identity injection\n`);
 		return undefined;
@@ -35,8 +40,8 @@ export function readAgentIdentitySync(agentDir: string): AgentConfig | undefined
  *
  * The format is intentionally flat and key-value, not nested,
  * because every key is meant to be a single fact the LLM can
- * scan: who am I, what's my parent, what model do I run, what
- * tools can I reach, etc. We do not embed the entire JSON object
+ * scan: who am I, what's my parent, what role am I serving, etc.
+ * We do not embed the entire JSON object
  * (which would be a maintenance liability if fields are renamed
  * or removed); we enumerate the known fields explicitly.
  *
@@ -59,12 +64,6 @@ export function formatAgentIdentitySection(config: AgentConfig): string {
 	if (config.parentName) meta.push(`parent: \`${config.parentName}\``);
 	if (config.roles && config.roles.length > 0) {
 		meta.push(`roles: ${config.roles.map((r) => `\`${r}\``).join(", ")}`);
-	}
-	if (config.model) meta.push(`model: \`${config.model}\``);
-	if (config.includeTools && config.includeTools.length > 0) {
-		meta.push(`includeTools: ${config.includeTools.map((t) => `\`${t}\``).join(", ")}`);
-	} else if (config.excludeTools && config.excludeTools.length > 0) {
-		meta.push(`excludeTools: ${config.excludeTools.map((t) => `\`${t}\``).join(", ")}`);
 	}
 
 	if (meta.length > 0) {

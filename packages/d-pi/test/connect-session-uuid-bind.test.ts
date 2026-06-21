@@ -1,6 +1,4 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -34,7 +32,6 @@ describe("connectId is per-session (not per-agent)", () => {
 	let executorRegistry: ExecutorRegistry;
 	let gateway: HubGateway;
 	let workspaceRoot: string;
-	let server: ReturnType<typeof createServer>;
 	let baseUrl: string;
 
 	beforeEach(async () => {
@@ -64,36 +61,12 @@ describe("connectId is per-session (not per-agent)", () => {
 			undefined,
 			executorRegistry,
 		);
-		// gateway.handle() doesn't exist as a public method on the
-		// class — the class wires its own HTTP server in start().
-		// For the test we manually route to the internal handler.
-		// The handler is exposed as `_handleHubApi`; we still need
-		// the URL parsing + auth (which start() does for free), so
-		// use a small inline shim that mimics it.
-		server = createServer(async (req, res) => {
-			const url = new URL(req.url ?? "/", "http://127.0.0.1");
-			const path = url.pathname;
-			// Mirror the small slice of start() we need.
-			(
-				gateway as unknown as {
-					_handleHubApi: (req: IncomingMessage, res: ServerResponse, path: string) => Promise<void>;
-				}
-			)
-				._handleHubApi(req, res, path)
-				.catch((err: unknown) => {
-					if (!res.headersSent) {
-						res.writeHead(500, { "Content-Type": "application/json" });
-						res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
-					}
-				});
-		});
-		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-		const addr = server.address() as AddressInfo;
-		baseUrl = `http://127.0.0.1:${addr.port}`;
+		await gateway.start(0);
+		baseUrl = gateway.url();
 	});
 
 	afterEach(async () => {
-		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await gateway.stop();
 		rmSync(workspaceRoot, { recursive: true, force: true });
 	});
 
@@ -118,6 +91,16 @@ describe("connectId is per-session (not per-agent)", () => {
 		expect(status).toBe(200);
 		expect(body).toContain('"ok":true');
 		expect(gateway.getBinding("root")).toBe("session-A");
+	});
+
+	it("decodes encoded agent names for bind and unbind keys", async () => {
+		const bindResult = await bind("root%20agent", "connect-1");
+		expect(bindResult.status).toBe(200);
+		expect(gateway.getBinding("root agent")).toBe("connect-1");
+
+		const unbindResult = await unbind("root%20agent");
+		expect(unbindResult.status).toBe(200);
+		expect(gateway.getBinding("root agent")).toBeUndefined();
 	});
 
 	it("second bind for the SAME agent with a DIFFERENT connectId overwrites the old binding (does not 409)", async () => {

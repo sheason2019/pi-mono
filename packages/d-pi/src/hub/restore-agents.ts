@@ -1,7 +1,9 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { AGENT_TS_FILE, readAgentConfigFromTs } from "../agent-config.ts";
+import { AGENT_TS_FILE } from "../agent-config.ts";
+import { readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
 import type { AgentConfig } from "../types.ts";
+import { agentDefinitionToConfig } from "./agent-identity.ts";
 
 /**
  * One discovered agent.ts on disk, paired with the directory entry
@@ -45,11 +47,11 @@ export async function discoverPersistedAgents(workspaceRoot: string): Promise<Di
 		if (!existsSync(configPath)) continue;
 
 		try {
-			const agentConfig = readAgentConfigFromTs(join(agentsDir, entry.name));
-			if (!agentConfig) {
+			const agentDefinition = await readLoadedAgentDefinitionFromTs(join(agentsDir, entry.name));
+			if (!agentDefinition) {
 				continue;
 			}
-			discovered.push({ entryName: entry.name, config: agentConfig });
+			discovered.push({ entryName: entry.name, config: agentDefinitionToConfig(agentDefinition) });
 		} catch (err) {
 			process.stderr.write(
 				`[d-pi hub] Failed to read agent.ts from ${entry.name}/: ${err instanceof Error ? err.message : String(err)}\n`,

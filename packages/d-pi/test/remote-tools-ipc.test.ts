@@ -2,12 +2,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createHubActionsClientFromHubChannel } from "../src/extension/hub-actions-adapter.ts";
 import { HubChannel } from "../src/extension/hub-channel.ts";
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { ExecutorRegistry } from "../src/hub/executor-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
 import { Hub } from "../src/hub/hub.ts";
 import { SourceManager } from "../src/hub/source-manager.ts";
+import { createDPiSendMessageTool } from "../src/surface/orchestration-tools.ts";
 import type { HubToWorkerMessage, WorkerToHubMessage } from "../src/types.ts";
 
 let tempDir: string | undefined;
@@ -52,13 +54,33 @@ function invokeRemoteViaIpc(
 			status: "ready",
 			worker: fakeWorker as never,
 			cwd: tempDir!,
-			model: undefined,
 		});
 		void (
 			hub as unknown as {
 				_handleToolCall(callId: string, tool: string, params: unknown, fromAgentName: string): Promise<void>;
 			}
 		)._handleToolCall(callId, "dispatch", params, agentName);
+	});
+}
+
+function registerFakeAgent(
+	hub: Hub,
+	agentName: string,
+	onPostMessage: (message: HubToWorkerMessage) => void,
+	parentName?: string,
+): void {
+	(hub as unknown as { _registry: AgentRegistry })._registry.register({
+		name: agentName,
+		parentName,
+		children: [],
+		port: 0,
+		status: "ready",
+		worker: {
+			postMessage: onPostMessage,
+			on() {},
+			off() {},
+		} as never,
+		cwd: tempDir!,
 	});
 }
 
@@ -200,6 +222,153 @@ describe('remote tool dispatch via IPC (case "dispatch" in _handleToolCall)', ()
 
 		expect(result.ok).toBe(false);
 		expect(result.error).toMatch(/tool is required/i);
+	});
+});
+
+describe('send_message via IPC (case "send_message" in _handleToolCall)', () => {
+	let hub: Hub;
+	let executorRegistry: ExecutorRegistry;
+	let gateway: HubGateway;
+
+	beforeEach(() => {
+		createTempDir("d-pi-send-message-ipc-");
+		executorRegistry = new ExecutorRegistry();
+		gateway = new HubGateway(
+			new AgentRegistry(),
+			new SourceManager(() => {}),
+			async () => ({ agentName: "created" }),
+			async () => {},
+			undefined,
+			executorRegistry,
+		);
+		hub = new Hub({
+			port: 0,
+			cwd: tempDir!,
+			workspaceRoot: tempDir!,
+			workspaceContext: { workspaceRoot: tempDir!, additionalSkillPaths: [], additionalExtensionPaths: [] },
+			workspaceConfig: { version: 1 } as never,
+		});
+		(hub as unknown as { _gateway: HubGateway })._gateway = gateway;
+		(hub as unknown as { _executorRegistry: ExecutorRegistry })._executorRegistry = executorRegistry;
+	});
+
+	afterEach(() => {
+		if (tempDir) {
+			rmSync(tempDir, { recursive: true, force: true });
+			tempDir = undefined;
+		}
+	});
+
+	it("routes the message to the named target agent worker and resolves the caller tool result", async () => {
+		const rootResults: unknown[] = [];
+		const childMessages: HubToWorkerMessage[] = [];
+		const callId = "send-message-call-1";
+		registerFakeAgent(hub, "root", (message) => {
+			if (message.type === "tool_result" && message.callId === callId) {
+				rootResults.push(message.result);
+			}
+		});
+		registerFakeAgent(
+			hub,
+			"child",
+			(message) => {
+				childMessages.push(message);
+			},
+			"root",
+		);
+
+		await (
+			hub as unknown as {
+				_handleToolCall(callId: string, tool: string, params: unknown, fromAgentName: string): Promise<void>;
+			}
+		)._handleToolCall(callId, "send_message", { agent_id: "child", message: "hello child", mode: "steer" }, "root");
+
+		expect(rootResults).toEqual([{ ok: true }]);
+		expect(childMessages).toHaveLength(1);
+		expect(childMessages[0]).toMatchObject({
+			type: "message",
+			fromAgentName: "root",
+			mode: "steer",
+		});
+		const delivered = childMessages[0] as Extract<HubToWorkerMessage, { type: "message" }>;
+		expect(delivered.content).toContain("hello child");
+		expect(delivered.content).toContain('"sourceType":"agent"');
+		expect(delivered.content).toContain('"agentName":"root"');
+	});
+
+	it("accepts legacy agentIds target params at the hub boundary", async () => {
+		const rootResults: unknown[] = [];
+		const childMessages: HubToWorkerMessage[] = [];
+		const callId = "send-message-call-legacy-agent-ids";
+		registerFakeAgent(hub, "root", (message) => {
+			if (message.type === "tool_result" && message.callId === callId) {
+				rootResults.push(message.result);
+			}
+		});
+		registerFakeAgent(
+			hub,
+			"child",
+			(message) => {
+				childMessages.push(message);
+			},
+			"root",
+		);
+
+		await (
+			hub as unknown as {
+				_handleToolCall(callId: string, tool: string, params: unknown, fromAgentName: string): Promise<void>;
+			}
+		)._handleToolCall(callId, "send_message", { agentIds: ["child"], message: "hello child" }, "root");
+
+		expect(rootResults).toEqual([{ ok: true }]);
+		expect(childMessages).toHaveLength(1);
+		expect(childMessages[0]).toMatchObject({
+			type: "message",
+			fromAgentName: "root",
+			mode: "next",
+		});
+	});
+
+	it("routes through the real send_message tool and HubChannel to the target worker", async () => {
+		let channel: HubChannel | undefined;
+		const childMessages: HubToWorkerMessage[] = [];
+		registerFakeAgent(hub, "root", (message) => {
+			if (message.type === "tool_result") {
+				channel?.resolveCall(message.callId, message.result);
+			}
+		});
+		registerFakeAgent(
+			hub,
+			"child",
+			(message) => {
+				childMessages.push(message);
+			},
+			"root",
+		);
+		channel = new HubChannel("root", (message) => {
+			(
+				hub as unknown as { _handleWorkerMessage(worker: unknown, message: WorkerToHubMessage): void }
+			)._handleWorkerMessage({}, message);
+		});
+		const client = createHubActionsClientFromHubChannel(channel);
+		const tool = createDPiSendMessageTool(client, { agentName: "root" });
+
+		const result = await tool.execute("call-1", {
+			agent_id: "child",
+			message: "hello through tool",
+			mode: "next",
+		});
+
+		expect((result as { isError?: boolean }).isError).toBeUndefined();
+		expect(childMessages).toHaveLength(1);
+		expect(childMessages[0]).toMatchObject({
+			type: "message",
+			fromAgentName: "root",
+			mode: "next",
+		});
+		expect((childMessages[0] as Extract<HubToWorkerMessage, { type: "message" }>).content).toContain(
+			"hello through tool",
+		);
 	});
 });
 

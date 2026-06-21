@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import type { AgentContextFileDefinition } from "./agent-definition.ts";
+import type { AgentContextFileDefinition, AgentSkillDefinition } from "./agent-definition.ts";
 import type { LoadedAgentDefinition } from "./agent-loader.ts";
 
 export interface AgentRuntimeResources {
@@ -8,13 +8,38 @@ export interface AgentRuntimeResources {
 	appendSystemPrompt: string[];
 }
 
-function resolveAgentContextFilePath(agent: LoadedAgentDefinition, entry: AgentContextFileDefinition): string {
+function resolveAgentResourcePath(agent: LoadedAgentDefinition, path: string, description: string): string {
 	const agentDir = resolve(agent.agentDir);
-	const resolvedPath = resolve(agentDir, entry.path);
+	const resolvedPath = resolve(agentDir, path);
 	if (resolvedPath !== agentDir && !resolvedPath.startsWith(`${agentDir}${sep}`)) {
-		throw new Error(`Agent context file path must stay inside agent directory: ${entry.path}`);
+		throw new Error(`${description} must stay inside agent directory: ${path}`);
 	}
 	return resolvedPath;
+}
+
+export function resolveAgentContextFilePath(agent: LoadedAgentDefinition, entry: AgentContextFileDefinition): string {
+	return resolveAgentResourcePath(agent, entry.path, "Agent context file path");
+}
+
+export function resolveAgentSkillDir(agent: LoadedAgentDefinition, entry: AgentSkillDefinition): string {
+	return resolveAgentResourcePath(agent, entry.dir, "Agent skills dir");
+}
+
+export function uniqueAgentContextFileDefinitions(
+	agent: LoadedAgentDefinition,
+	entries: AgentContextFileDefinition[],
+): AgentContextFileDefinition[] {
+	const seen = new Set<string>();
+	const unique: AgentContextFileDefinition[] = [];
+	for (const entry of entries) {
+		const key = `${entry.type}:${resolveAgentContextFilePath(agent, entry)}`;
+		if (seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		unique.push(entry);
+	}
+	return unique;
 }
 
 function readAgentContextFile(agent: LoadedAgentDefinition, entry: AgentContextFileDefinition): string | undefined {

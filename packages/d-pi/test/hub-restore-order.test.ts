@@ -1,9 +1,16 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type DiscoveredAgent, discoverPersistedAgents, orderAgentsForRestore } from "../src/hub/restore-agents.ts";
 import type { AgentConfig } from "../src/types.ts";
+
+type StderrWriteCall = [string | Uint8Array, BufferEncoding?, ((err?: Error) => void)?];
+
+interface TestAgentConfig extends AgentConfig {
+	toolNames?: string[];
+}
 
 /**
  * Regression tests for the parent-child topology invariant of the agent
@@ -39,13 +46,16 @@ function freshWorkspace(): string {
 function writeAgentTs(
 	workspace: string,
 	entryName: string,
-	config: AgentConfig,
+	config: TestAgentConfig,
 	parentImportName?: string,
 	overrideName?: string,
 ): void {
 	const dir = join(workspace, "agents", entryName);
 	mkdirSync(dir, { recursive: true });
-	const lines = ['import { defineAgent, defineContextFile, defineSkill, defineTool } from "@sheason/d-pi";'];
+	const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "index.ts")).href;
+	const lines = [
+		`import { createDispatchReadTool, createTeamTool, defineAgent, defineContextFile, defineSkill } from ${JSON.stringify(dPiDefinitionUrl)};`,
+	];
 	if (parentImportName) {
 		lines.push(`import parentAgent from "../${parentImportName}/agent.ts";`);
 	}
@@ -64,8 +74,8 @@ function writeAgentTs(
 	}
 	lines.push('\tskills: defineSkill({ dir: "./skills" }),');
 	lines.push("\ttools: [");
-	for (const toolName of config.includeTools ?? ["dispatch_read"]) {
-		lines.push(`\t\tdefineTool({ name: ${JSON.stringify(toolName)} }),`);
+	for (const toolName of config.toolNames ?? ["dispatch_read"]) {
+		lines.push(`\t\t${toolName === "team" ? "createTeamTool" : "createDispatchReadTool"}(),`);
 	}
 	lines.push("\t],");
 	lines.push("\tcontextFiles: [");
@@ -164,7 +174,7 @@ describe("discoverPersistedAgents + orderAgentsForRestore", () => {
 			const discovered = await discoverPersistedAgents(workspace);
 			const names = discovered.map((d) => d.config.name);
 			expect(names).toEqual(["root"]); // broken is silently dropped
-			const warned = stderr.mock.calls.some((call) =>
+			const warned = stderr.mock.calls.some((call: StderrWriteCall) =>
 				String(call[0]).includes("Failed to read agent.ts from broken/"),
 			);
 			expect(warned).toBe(true);
@@ -203,6 +213,7 @@ describe("discoverPersistedAgents + orderAgentsForRestore", () => {
 
 describe("Hub.createAgent — parent invariant defensive check", () => {
 	beforeEach(async () => {
+		vi.resetModules();
 		// Replace node:worker_threads with a fake that immediately emits
 		// a matching ready message so the worker's "wait for ready"
 		// promise resolves.
@@ -238,7 +249,6 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			port: 50000 + Math.floor(Math.random() * 1000),
 			workspaceRoot: workspace,
 			cwd: workspace,
-			model: "test/model",
 			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
 			workspaceConfig: { version: 1 },
 		});
@@ -255,7 +265,6 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			port: 50000 + Math.floor(Math.random() * 1000),
 			workspaceRoot: workspace,
 			cwd: workspace,
-			model: "test/model",
 			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
 			workspaceConfig: { version: 1 },
 		});
@@ -271,7 +280,6 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			children: [],
 			port: 39091,
 			status: "ready",
-			model: undefined,
 			worker: { postMessage: () => {}, on: () => {}, off: () => {} } as never,
 			cwd: workspace,
 		});
@@ -280,5 +288,36 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 		const child = registry.getByName("direct-child");
 		expect(child?.parentName).toBe("root");
 		expect(registry.get("root")?.children).toContain(child?.name);
+	});
+
+	it("does not rewrite an existing agent.ts when restoring persisted agents", async () => {
+		const { Hub: HubMocked } = await import("../src/hub/hub.ts");
+		const workspace = freshWorkspace();
+		const agentDir = join(workspace, "agents", "root");
+		mkdirSync(agentDir, { recursive: true });
+		const original = [
+			'import { defineAgent, defineModel, defineOpenAIProvider } from "@sheason/d-pi";',
+			"",
+			"export default defineAgent({",
+			"\tmodel: defineModel({",
+			'\t\tid: "gpt-local",',
+			"\t\tprovider: defineOpenAIProvider(),",
+			"\t\tcontextWindow: 200000,",
+			"\t}),",
+			"});",
+			"",
+		].join("\n");
+		writeFileSync(join(agentDir, "agent.ts"), original);
+		const hub = new HubMocked({
+			port: 50000 + Math.floor(Math.random() * 1000),
+			workspaceRoot: workspace,
+			cwd: workspace,
+			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
+			workspaceConfig: { version: 1 },
+		});
+
+		await hub.createAgent(undefined, { name: "root", persistDefinition: false });
+
+		expect(readFileSync(join(agentDir, "agent.ts"), "utf-8")).toBe(original);
 	});
 });

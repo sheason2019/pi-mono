@@ -4,19 +4,9 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// The d-pi release pipeline only publishes @sheason/* scoped packages. The
-// upstream @earendil-works/* packages (pi-ai, pi-tui, pi-agent-core) are
-// runtime dependencies of @sheason/d-pi and @sheason/pi-coding-agent, but
-// they are published by upstream pi-mono to the public npm registry, not
-// by this fork. We have no npm publish permission to the @earendil-works
-// scope, so including them here would always fail.
-const packages = [
-	{ directory: "packages/coding-agent", name: "@sheason/pi-coding-agent" },
-	{ directory: "packages/d-pi", name: "@sheason/d-pi" },
-];
+const packages = [{ directory: "packages/d-pi", name: "@sheason/d-pi" }];
 
 const dPiPackageName = "@sheason/d-pi";
-const codingAgentPackageName = "@sheason/pi-coding-agent";
 
 const dryRun = process.argv.includes("--dry-run");
 const unknownArgs = process.argv.slice(2).filter((arg) => arg !== "--dry-run");
@@ -92,29 +82,11 @@ function assertReleaseVersions(packageVersions) {
 		throw new Error(`${dPiPackageName} version is missing`);
 	}
 
-	const codingAgentVersion = packageVersions.get(codingAgentPackageName);
-	if (!codingAgentVersion) {
-		throw new Error(`${codingAgentPackageName} version is missing`);
-	}
-
-	// The two @sheason/* packages are versioned independently. The fork
-	// bumped them lockstep in the v0.78.x → v0.79.x sync (the coding-agent
-	// version ended with `-sheason.<d-pi-version>` to prove the pairing)
-	// but that suffix was only meaningful while we also published the
-	// upstream @earendil-works/* packages under the same release train.
-	// Now that the upstream packages are no longer in this pipeline, the
-	// lockstep requirement is gone; each package is released on its own
-	// cadence. We still sanity-check that both versions parse as semver
-	// so the caller gets a clear error if either is malformed.
-
 	if (!SEMVER_RE.test(dPiVersion)) {
 		throw new Error(`${dPiPackageName} version ${dPiVersion} is not semver`);
 	}
-	if (!SEMVER_RE.test(codingAgentVersion)) {
-		throw new Error(`${codingAgentPackageName} version ${codingAgentVersion} is not semver`);
-	}
 
-	return { dPiVersion, codingAgentVersion };
+	return { dPiVersion };
 }
 
 const packageVersions = new Map();
@@ -126,11 +98,9 @@ for (const pkg of packages) {
 	packageVersions.set(pkg.name, packageJson.version);
 }
 
-const { dPiVersion, codingAgentVersion } = assertReleaseVersions(packageVersions);
+const { dPiVersion } = assertReleaseVersions(packageVersions);
 
-console.log(
-	`Publishing ${codingAgentPackageName} at ${codingAgentVersion} and ${dPiPackageName} at ${dPiVersion}${dryRun ? " (dry run)" : ""}\n`,
-);
+console.log(`Publishing ${dPiPackageName} at ${dPiVersion}${dryRun ? " (dry run)" : ""}\n`);
 
 for (const pkg of packages) {
 	const version = packageVersions.get(pkg.name);

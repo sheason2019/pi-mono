@@ -5,7 +5,7 @@ import { Worker } from "node:worker_threads";
 import { AGENT_SESSION_DIR, AGENT_TS_FILE, writeAgentTsConfig } from "../agent-config.ts";
 import { AuthSessionManager } from "../auth/auth-session.ts";
 import { DEFAULT_HUB_PORT } from "../defaults.ts";
-import { injectMeta } from "../extension/message-meta.ts";
+import { formatDPiMetaMessage } from "../message-meta.ts";
 import type {
 	AgentConfig,
 	CreateAgentResult,
@@ -48,14 +48,13 @@ export class Hub {
 
 		this._sourceManager = new SourceManager(
 			(sourceName, content, subscriberNames, mode) => {
-				const metaContent = injectMeta(content, "source", undefined, { sourceName });
 				for (const agentName of subscriberNames) {
 					const record = this._registry.get(agentName);
 					if (record) {
 						record.worker.postMessage({
 							type: "message",
 							fromAgentName: `source:${sourceName}`,
-							content: metaContent,
+							content,
 							sourceName,
 							mode,
 						} satisfies HubToWorkerMessage);
@@ -95,7 +94,6 @@ export class Hub {
 		if (!this._registry.getByName("root")) {
 			await this.createAgent(undefined, {
 				name: "root",
-				model: this._config.model,
 			});
 		}
 
@@ -167,9 +165,7 @@ export class Hub {
 					name: d.config.name,
 					description: d.config.description,
 					roles: d.config.roles,
-					model: d.config.model,
-					includeTools: d.config.includeTools,
-					excludeTools: d.config.excludeTools,
+					persistDefinition: false,
 				});
 			} catch (err) {
 				process.stderr.write(
@@ -206,22 +202,10 @@ export class Hub {
 			name: string;
 			cwd?: string;
 			description?: string;
-			model?: string;
 			roles?: string[];
-			includeTools?: string[];
-			excludeTools?: string[];
+			persistDefinition?: boolean;
 		},
 	): Promise<CreateAgentResult> {
-		// Mutex validation: includeTools and excludeTools cannot both be set.
-		// This is a defensive second-layer check — the extension layer also
-		// rejects the combination, but in-process callers (e.g. agent
-		// restoration on hub restart) go through this code path directly.
-		if (options.includeTools && options.excludeTools) {
-			throw new Error(
-				"includeTools and excludeTools are mutually exclusive; provide at most one. Both omitted = inherit all tools.",
-			);
-		}
-
 		// Parent invariant: a non-undefined parentName MUST refer to a live
 		// agent in the registry. The runtime create_agent path (worker → hub)
 		// already guarantees this because the worker passes its own name
@@ -262,19 +246,13 @@ export class Hub {
 			parentName,
 			description: options.description,
 			roles: options.roles,
-			model: options.model,
-			includeTools: options.includeTools,
-			excludeTools: options.excludeTools,
 		};
-		writeAgentTsConfig(agentDir, agentConfig);
+		if (options.persistDefinition !== false) {
+			writeAgentTsConfig(agentDir, agentConfig);
+		}
 
 		// Compute isolated session directory
 		const sessionDir = join(agentDir, AGENT_SESSION_DIR);
-
-		// Tools config is agent-only — declared in agent.ts and passed via
-		// the create_agent tool call. There is no workspace-level fallback.
-		const includeTools = options.includeTools;
-		const excludeTools = options.excludeTools;
 
 		process.stderr.write(`[d-pi hub] Creating agent "${options.name}" (IPC mode), cwd=${agentDir}\n`);
 
@@ -284,11 +262,8 @@ export class Hub {
 				agentName: options.name,
 				parentName,
 				cwd: agentDir,
-				model: options.model,
 				workspaceContext,
 				sessionDir,
-				includeTools,
-				excludeTools,
 			},
 		});
 
@@ -317,7 +292,6 @@ export class Hub {
 			status: "starting",
 			worker,
 			cwd: agentDir,
-			model: options.model,
 		});
 
 		// Wait for ready signal
@@ -465,22 +439,30 @@ export class Hub {
 
 			switch (tool) {
 				case "send_message": {
-					const p = params as { agent_id: string; message: string; mode?: "next" | "steer" };
+					const p = params as {
+						agent_id?: string;
+						agent_name?: string;
+						toAgentName?: string;
+						agentIds?: string | string[];
+						message: string;
+						mode?: "next" | "steer";
+					};
+					const targetAgentName = resolveSendMessageTarget(p);
 					// Names are the unique key — the registry is name-keyed
 					// so a single get() lookup suffices. No more "name or id"
 					// disambiguation; the user always passes the agent's name.
-					const targetAgent = this._registry.get(p.agent_id);
+					const targetAgent = targetAgentName ? this._registry.get(targetAgentName) : undefined;
 					if (!targetAgent) {
-						result = { ok: false, error: `Agent not found: ${p.agent_id}` } satisfies SendMessageResult;
+						result = {
+							ok: false,
+							error: `Agent not found: ${targetAgentName ?? "(missing)"}`,
+						} satisfies SendMessageResult;
 					} else {
-						const metaContent = injectMeta(p.message, "agent", undefined, {
-							agentName: fromAgentName,
-						});
 						const mode = p.mode ?? "next";
 						targetAgent.worker.postMessage({
 							type: "message",
 							fromAgentName,
-							content: metaContent,
+							content: formatDPiMetaMessage({ sourceType: "agent", agentName: fromAgentName }, p.message),
 							mode,
 						} satisfies HubToWorkerMessage);
 						result = { ok: true } satisfies SendMessageResult;
@@ -492,18 +474,10 @@ export class Hub {
 					const p = params as {
 						name: string;
 						cwd?: string;
-						model?: string;
-						roles?: string[];
-						includeTools?: string[];
-						excludeTools?: string[];
 					};
 					const created = await this.createAgent(fromAgentName, {
 						name: p.name,
 						cwd: p.cwd,
-						model: p.model,
-						roles: p.roles,
-						includeTools: p.includeTools,
-						excludeTools: p.excludeTools,
 					});
 					result = { agentName: created.agentName } satisfies CreateAgentResult;
 					break;
@@ -671,4 +645,18 @@ export class Hub {
 			} satisfies HubToWorkerMessage);
 		}
 	}
+}
+
+function resolveSendMessageTarget(params: {
+	agent_id?: string;
+	agent_name?: string;
+	toAgentName?: string;
+	agentIds?: string | string[];
+}): string | undefined {
+	if (params.agent_id?.trim()) return params.agent_id.trim();
+	if (params.agent_name?.trim()) return params.agent_name.trim();
+	if (params.toAgentName?.trim()) return params.toAgentName.trim();
+	if (typeof params.agentIds === "string") return params.agentIds.trim() || undefined;
+	if (Array.isArray(params.agentIds) && params.agentIds.length === 1) return params.agentIds[0]?.trim() || undefined;
+	return undefined;
 }

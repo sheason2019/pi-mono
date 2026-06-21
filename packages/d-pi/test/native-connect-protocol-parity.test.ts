@@ -1,0 +1,170 @@
+import { describe, expect, it, vi } from "vitest";
+import type {
+	DPiInteractiveAgentSessionProxy,
+	DPiInteractiveSessionStateSnapshot,
+} from "../src/tui/interactive/agent-session-proxy.ts";
+import {
+	DPI_NATIVE_CONNECT_PROTOCOL_ACTIONS,
+	DPI_NATIVE_CONNECT_PROTOCOL_QUERIES,
+} from "../src/tui/interactive/native-parity-manifest.ts";
+import {
+	handleDPiInteractiveProtocolQuery,
+	handleDPiInteractiveProtocolRequest,
+} from "../src/tui/interactive/protocol-core.ts";
+
+function snapshot(): DPiInteractiveSessionStateSnapshot {
+	return {
+		model: "anthropic/claude-sonnet-4",
+		thinkingLevel: "medium",
+		isStreaming: false,
+		isCompacting: false,
+		isBashRunning: false,
+		steeringMessages: [],
+		followUpMessages: [],
+		sessionFile: "/tmp/session.jsonl",
+		sessionName: "session",
+		messages: [],
+		banner: undefined,
+		tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, usingSubscription: false },
+		contextUsage: { tokens: 0, contextWindow: 200000, percent: 0 },
+		modelInfo: { id: "claude-sonnet-4", provider: "anthropic", reasoning: true, contextWindow: 200000 },
+		autoCompactEnabled: true,
+		cwd: "/tmp/workspace",
+		availableProviderCount: 1,
+		remoteSettings: {
+			autoCompact: true,
+			thinkingLevel: "medium",
+			availableThinkingLevels: ["off", "low", "medium", "high"],
+			steeringMode: "all",
+			followUpMode: "all",
+			enableSkillCommands: true,
+			doubleEscapeAction: "tree",
+			showImages: true,
+			imageWidthCells: 60,
+			autoResizeImages: true,
+			blockImages: false,
+			transport: "auto",
+			httpIdleTimeoutMs: 600000,
+			currentTheme: "default",
+			availableThemes: ["default"],
+			hideThinkingBlock: false,
+			collapseChangelog: false,
+			enableInstallTelemetry: false,
+			treeFilterMode: "all",
+			showHardwareCursor: false,
+			editorPaddingX: 0,
+			autocompleteMaxVisible: 10,
+			quietStartup: false,
+			clearOnShrink: true,
+			showTerminalProgress: true,
+			warnings: {},
+		},
+		scopedModelIds: null,
+		enabledModelPatterns: undefined,
+		extensionPaths: [],
+	};
+}
+
+function createProxy(): DPiInteractiveAgentSessionProxy {
+	const state = snapshot();
+	return {
+		subscribe: () => () => {},
+		prompt: vi.fn(async () => {}),
+		steer: vi.fn(),
+		followUp: vi.fn(),
+		abort: vi.fn(),
+		abortBash: vi.fn(),
+		clearQueue: vi.fn(() => ({ steering: [], followUp: [] })),
+		compact: vi.fn(async () => {}),
+		setModel: vi.fn(),
+		cycleModel: vi.fn(),
+		setThinkingLevel: vi.fn(),
+		cycleThinkingLevel: vi.fn(),
+		setAutoCompactEnabled: vi.fn(),
+		setSteeringMode: vi.fn(),
+		setFollowUpMode: vi.fn(),
+		newSession: vi.fn(async () => {}),
+		switchSession: vi.fn(async () => {}),
+		fork: vi.fn(async () => {}),
+		renameSession: vi.fn(),
+		setLabel: vi.fn(),
+		reload: vi.fn(async () => {}),
+		setScopedModels: vi.fn(),
+		setEnabledModels: vi.fn(),
+		updateSettings: vi.fn(),
+		getTree: vi.fn(() => []),
+		getUserMessagesForForking: vi.fn(() => []),
+		getSessions: vi.fn(async () => []),
+		fetchTree: vi.fn(async () => []),
+		fetchUserMessagesForForking: vi.fn(async () => []),
+		fetchCommands: vi.fn(async () => []),
+		fetchModels: vi.fn(async () => []),
+		fetchClientExtensions: vi.fn(async () => []),
+		getCommands: vi.fn(() => []),
+		getModels: vi.fn(() => []),
+		getClientExtensions: vi.fn(() => []),
+		getSnapshot: vi.fn(() => state),
+		get model() {
+			return state.model;
+		},
+		get thinkingLevel() {
+			return state.thinkingLevel;
+		},
+		get isStreaming() {
+			return state.isStreaming;
+		},
+		get isCompacting() {
+			return state.isCompacting;
+		},
+		get isBashRunning() {
+			return state.isBashRunning;
+		},
+		get steeringMessages() {
+			return state.steeringMessages;
+		},
+		get followUpMessages() {
+			return state.followUpMessages;
+		},
+		get sessionFile() {
+			return state.sessionFile;
+		},
+		get sessionName() {
+			return state.sessionName;
+		},
+		get messages() {
+			return state.messages;
+		},
+	};
+}
+
+describe("native connect protocol parity", () => {
+	it("keeps query and action manifests covered by the protocol dispatcher", async () => {
+		const proxy = createProxy();
+		for (const query of DPI_NATIVE_CONNECT_PROTOCOL_QUERIES) {
+			await expect(handleDPiInteractiveProtocolQuery(proxy, query), query).resolves.toMatchObject({ status: 200 });
+		}
+
+		const bodies: Record<string, unknown> = {
+			prompt: { text: "hello" },
+			steer: { text: "interrupt" },
+			"follow-up": { text: "continue" },
+			"set-model": { modelId: "anthropic/claude-sonnet-4" },
+			"set-thinking-level": { level: "medium" },
+			"switch-session": { sessionFile: "/tmp/session.jsonl" },
+			fork: { entryId: "entry-1" },
+			name: { name: "session" },
+			label: { entryId: "entry-1", label: "important" },
+			"scoped-models": { enabledIds: null },
+			"enabled-models": { patterns: undefined },
+			settings: { autoCompact: true },
+		};
+		for (const action of DPI_NATIVE_CONNECT_PROTOCOL_ACTIONS) {
+			await expect(
+				handleDPiInteractiveProtocolRequest(proxy, action, bodies[action] ?? {}),
+				action,
+			).resolves.toMatchObject({
+				status: 200,
+			});
+		}
+	});
+});
