@@ -5,6 +5,7 @@ export class DPiNativeStatusContainer extends Container {
 	private readonly tui: TUI;
 	private readonly theme: DPiNativeTheme;
 	private loadingAnimation: Loader | undefined;
+	private loadingMessage: string | undefined;
 	private lastStatusSpacer: Spacer | undefined;
 	private lastStatusText: Text | undefined;
 
@@ -14,20 +15,25 @@ export class DPiNativeStatusContainer extends Container {
 		this.theme = theme;
 	}
 
-	setWorking(working: boolean): void {
+	setWorking(working: boolean, message = "Working..."): void {
 		if (!working) {
 			this.stopWorkingLoader();
 			return;
 		}
 		if (this.loadingAnimation) {
+			if (this.loadingMessage !== message) {
+				this.loadingAnimation.setMessage(message);
+				this.loadingMessage = message;
+			}
 			return;
 		}
 		this.clear();
+		this.loadingMessage = message;
 		this.loadingAnimation = new Loader(
 			this.tui,
 			(spinner) => this.theme.fg("accent", spinner),
 			(text) => this.theme.fg("muted", text),
-			"Working...",
+			message,
 		);
 		this.addChild(this.loadingAnimation);
 	}
@@ -62,5 +68,6 @@ export class DPiNativeStatusContainer extends Container {
 		this.removeChild(this.loadingAnimation);
 		this.loadingAnimation.stop();
 		this.loadingAnimation = undefined;
+		this.loadingMessage = undefined;
 	}
 }

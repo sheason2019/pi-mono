@@ -704,6 +704,159 @@ describe("worker runtime adapter", () => {
 		}
 	});
 
+	it("serves remote-first status and realtime view model slices over IPC", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		const harness = createIpcHarness(proxy);
+		try {
+			await requestIpc(harness, "prompt-view-model", "prompt", { text: "hello view model" });
+
+			const status = await queryIpc(harness, "status-1", "status");
+			const realtime = await queryIpc(harness, "realtime-1", "realtime");
+
+			expect(status.status).toBe(200);
+			expect(status.body).toMatchObject({
+				isStreaming: false,
+				remoteSettings: expect.objectContaining({ autoCompact: true }),
+			});
+			expect(JSON.stringify(status.body)).not.toContain("hello view model");
+			expect(realtime.status).toBe(200);
+			expect(realtime.body).toMatchObject({
+				cursor: expect.any(Number),
+				messages: [expect.objectContaining({ role: "user", content: "hello view model" })],
+			});
+		} finally {
+			harness.server.stop();
+		}
+	});
+
+	it("sends status and realtime snapshots when a connect client subscribes", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		const harness = createIpcHarness(proxy);
+		try {
+			await requestIpc(harness, "prompt-sse-view-model", "prompt", { text: "hello over realtime" });
+			harness.transport.emit({ type: "sse_subscribe", subscriberId: "sub-view-model" });
+
+			await waitFor(() =>
+				harness.events.some((event) => event.subscriberId === "sub-view-model" && event.event === "status"),
+			);
+			await waitFor(() =>
+				harness.events.some((event) => event.subscriberId === "sub-view-model" && event.event === "realtime"),
+			);
+
+			expect(harness.events).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						subscriberId: "sub-view-model",
+						event: "status",
+						data: expect.not.objectContaining({ messages: expect.any(Array) }),
+					}),
+					expect.objectContaining({
+						subscriberId: "sub-view-model",
+						event: "realtime",
+						data: expect.objectContaining({
+							type: "snapshot",
+							messages: [expect.objectContaining({ content: "hello over realtime" })],
+						}),
+					}),
+				]),
+			);
+		} finally {
+			harness.server.stop();
+		}
+	});
+
+	it("resets the server current page to a compact divider after compaction completes", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		const events: string[] = [];
+		proxy.subscribe((event) => {
+			if (event.type === "compaction_end") {
+				events.push("compaction_end");
+				return;
+			}
+			if (
+				event.type === "realtime" &&
+				event.data.type === "upsert" &&
+				"customType" in event.data.message &&
+				event.data.message.customType === "compact-divider"
+			) {
+				events.push("compact_divider");
+			}
+		});
+
+		await proxy.prompt("before compact");
+		expect(proxy.getRealtimeState().messages).toEqual([expect.objectContaining({ content: "before compact" })]);
+
+		await proxy.compact();
+
+		expect(proxy.getRealtimeState()).toMatchObject({
+			page: expect.objectContaining({ reason: "compact" }),
+			messages: [
+				expect.objectContaining({
+					role: "custom",
+					customType: "compact-divider",
+					content: expect.stringMatching(/^Compact completed /),
+				}),
+			],
+		});
+		expect(events).toEqual(["compaction_end", "compact_divider"]);
+		expect(JSON.stringify(proxy.getState())).not.toContain("before compact");
+		expect(JSON.stringify(proxy.getTree())).not.toContain("before compact");
+		expect(JSON.stringify(proxy.getUserMessagesForForking())).not.toContain("before compact");
+
+		await proxy.prompt("after compact");
+
+		expect(proxy.getRealtimeState().messages).toEqual([
+			expect.objectContaining({ customType: "compact-divider" }),
+			expect.objectContaining({ content: "after compact" }),
+		]);
+	});
+
+	it("publishes compacting status while manual compaction is in progress", async () => {
+		let finishCompaction: (() => void) | undefined;
+		const proxy = new DPiLocalAgentSessionProxy(
+			createTestRuntime(
+				createTestSession("compacting", {
+					agent: {
+						waitForIdle: vi.fn(
+							() =>
+								new Promise<void>((resolve) => {
+									finishCompaction = resolve;
+								}),
+						),
+					},
+				}),
+			),
+		);
+		const harness = createIpcHarness(proxy);
+		try {
+			const compactPromise = proxy.compact();
+
+			await waitFor(() => proxy.getStatusState().isCompacting);
+			expect(proxy.getState().isCompacting).toBe(true);
+
+			harness.transport.emit({ type: "sse_subscribe", subscriberId: "sub-compacting" });
+			await waitFor(() =>
+				harness.events.some(
+					(event) =>
+						event.subscriberId === "sub-compacting" &&
+						event.event === "status" &&
+						typeof event.data === "object" &&
+						event.data !== null &&
+						"isCompacting" in event.data &&
+						event.data.isCompacting === true,
+				),
+			);
+
+			finishCompaction?.();
+			await compactPromise;
+
+			expect(proxy.getStatusState().isCompacting).toBe(false);
+			expect(proxy.getState().isCompacting).toBe(false);
+		} finally {
+			harness.server.stop();
+		}
+	});
+
 	it("exposes the default thinking level from settings in interactive state", async () => {
 		const services = await createDPiAgentSessionServices({
 			cwd: "/tmp/d-pi-thinking-state",
@@ -765,7 +918,7 @@ describe("worker runtime adapter", () => {
 		try {
 			harness.transport.emit({ type: "sse_subscribe", subscriberId: "sub-extension" });
 			await waitFor(() =>
-				harness.events.some((event) => event.subscriberId === "sub-extension" && event.event === "state"),
+				harness.events.some((event) => event.subscriberId === "sub-extension" && event.event === "status"),
 			);
 
 			const prompt = await requestIpc(harness, "prompt-extension", "prompt", { text: "ping extension" });
@@ -800,14 +953,13 @@ describe("worker runtime adapter", () => {
 				expect.arrayContaining([
 					expect.objectContaining({
 						subscriberId: "sub-extension",
-						event: "state",
+						event: "realtime",
 						data: expect.objectContaining({
-							messages: expect.arrayContaining([
-								expect.objectContaining({
-									customType: "extension-input",
-									details: expect.objectContaining({ marker: "extension-details-visible" }),
-								}),
-							]),
+							type: "upsert",
+							message: expect.objectContaining({
+								customType: "extension-input",
+								details: expect.objectContaining({ marker: "extension-details-visible" }),
+							}),
 						}),
 					}),
 				]),
@@ -886,7 +1038,7 @@ describe("worker runtime adapter", () => {
 		try {
 			harness.transport.emit({ type: "sse_subscribe", subscriberId: "sub-runtime" });
 			await waitFor(() =>
-				harness.events.some((event) => event.subscriberId === "sub-runtime" && event.event === "state"),
+				harness.events.some((event) => event.subscriberId === "sub-runtime" && event.event === "status"),
 			);
 
 			proxy.applyRuntimeEvent({
@@ -1039,7 +1191,7 @@ describe("worker runtime adapter", () => {
 		try {
 			harness.transport.emit({ type: "sse_subscribe", subscriberId: "sub-tools" });
 			await waitFor(() =>
-				harness.events.some((event) => event.subscriberId === "sub-tools" && event.event === "state"),
+				harness.events.some((event) => event.subscriberId === "sub-tools" && event.event === "status"),
 			);
 
 			proxy.applyRuntimeEvent({
@@ -1147,7 +1299,7 @@ describe("worker runtime adapter", () => {
 		try {
 			harness.transport.emit({ type: "sse_subscribe", subscriberId: "sub-runtime" });
 			await waitFor(() =>
-				harness.events.some((event) => event.subscriberId === "sub-runtime" && event.event === "state"),
+				harness.events.some((event) => event.subscriberId === "sub-runtime" && event.event === "status"),
 			);
 
 			proxy.applyRuntimeEvent({ type: "agent_start", agentName: "root" });
@@ -1258,7 +1410,9 @@ describe("worker runtime adapter", () => {
 		const harness = createIpcHarness(new DPiLocalAgentSessionProxy(createTestRuntime()));
 		try {
 			harness.transport.emit({ type: "sse_subscribe", subscriberId: "sub-1" });
-			await waitFor(() => harness.events.some((event) => event.subscriberId === "sub-1" && event.event === "state"));
+			await waitFor(() =>
+				harness.events.some((event) => event.subscriberId === "sub-1" && event.event === "status"),
+			);
 
 			await requestIpc(harness, "prompt-1", "prompt", { text: "hello over sse" });
 			await waitFor(() =>

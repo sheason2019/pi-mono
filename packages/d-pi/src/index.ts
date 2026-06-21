@@ -179,10 +179,25 @@ export {
 	type DPiInteractiveRemoteAgentSessionProxyOptions,
 } from "./tui/interactive/remote-agent-session-proxy.ts";
 export {
+	createDPiConnectClientState,
+	type DPiConnectClientState,
 	type DPiConnectInteractiveModeHandle,
 	type RunDPiConnectInteractiveModeOptions,
 	runDPiConnectInteractiveMode,
 } from "./tui/interactive/run-connect-interactive-mode.ts";
+export {
+	applyDPiInteractiveRealtimeEvent,
+	composeDPiInteractiveSnapshot,
+	type DPiInteractiveRealtimeEvent,
+	type DPiInteractiveRealtimePage,
+	type DPiInteractiveRealtimePageReason,
+	type DPiInteractiveRealtimeState,
+	type DPiInteractiveStatusState,
+	isDPiInteractiveRealtimeEvent,
+	isDPiInteractiveRealtimeState,
+	isDPiInteractiveStatusState,
+	splitDPiInteractiveSnapshot,
+} from "./tui/interactive/view-model.ts";
 export type {
 	AgentStatus,
 	AgentWorkerConfig,

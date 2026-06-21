@@ -275,7 +275,7 @@ describe("d-pi service gateway API", () => {
 		}
 	});
 
-	it("GET encoded legacy events subscribes to the decoded registry agent", async () => {
+	it("GET encoded legacy events subscribes to the decoded registry agent view model stream", async () => {
 		const hub = await startHub("root agent");
 		const abort = new AbortController();
 		try {
@@ -288,11 +288,29 @@ describe("d-pi service gateway API", () => {
 			if (!response.body) {
 				throw new Error("Expected SSE response body");
 			}
-			const firstChunk = await readUntil(response.body, "event: state");
-			expect(firstChunk).toContain("event: state");
-			expect(firstChunk).toContain('"messages":[{"role":"assistant","content":"hello"}]');
 			const subscribe = hub.worker.posted.find((message) => message.type === "sse_subscribe");
 			expect(subscribe).toBeDefined();
+			if (subscribe?.type !== "sse_subscribe") {
+				throw new Error("Expected sse_subscribe");
+			}
+			hub.worker.emit({
+				type: "sse_event",
+				agentName: "root agent",
+				subscriberId: subscribe.subscriberId,
+				event: "status",
+				data: { status: "ready" },
+			});
+			hub.worker.emit({
+				type: "sse_event",
+				agentName: "root agent",
+				subscriberId: subscribe.subscriberId,
+				event: "realtime",
+				data: { type: "snapshot", cursor: 1, messages: [{ role: "assistant", content: "hello" }] },
+			});
+			const firstChunk = await readUntil(response.body, "event: realtime");
+			expect(firstChunk).toContain("event: status");
+			expect(firstChunk).toContain("event: realtime");
+			expect(firstChunk).toContain('"messages":[{"role":"assistant","content":"hello"}]');
 		} finally {
 			abort.abort();
 			await hub.gateway.stop();

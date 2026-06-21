@@ -1120,13 +1120,6 @@ export class HubGateway {
 
 		const subscriberId = gatewayRandomUUID();
 
-		// Send initial state as the first SSE event
-		agent.worker.postMessage({
-			type: "http_query",
-			requestId: `sse-init-${subscriberId}`,
-			query: "state",
-		} satisfies HubToWorkerMessage);
-
 		// Subscribe to the worker's events
 		agent.worker.postMessage({
 			type: "sse_subscribe",
@@ -1150,14 +1143,6 @@ export class HubGateway {
 					res.write(`event: ${message.event}\ndata: ${data}\n\n`);
 				} catch {
 					// connection closed
-				}
-			} else if (message.type === "http_response" && message.requestId === `sse-init-${subscriberId}`) {
-				// Initial state response — send as first SSE event
-				try {
-					const data = JSON.stringify(message.body);
-					res.write(`event: state\ndata: ${data}\n\n`);
-				} catch {
-					// ignore
 				}
 			}
 		};

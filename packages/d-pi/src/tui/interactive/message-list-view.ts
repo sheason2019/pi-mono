@@ -144,6 +144,9 @@ function messageComponents(
 	if (isDPiMessageMirror(message)) {
 		return [];
 	}
+	if (isCompactDividerMessage(message)) {
+		return [new Text(theme.fg("muted", compactDividerLabel(message)), 1, 0)];
+	}
 	if (message.role === "toolResult") {
 		return [];
 	}
@@ -206,6 +209,9 @@ function messageLines(message: AgentMessage, options: DPiInteractiveStyleOptions
 	if (isDPiMessageMirror(message)) {
 		return [];
 	}
+	if (isCompactDividerMessage(message)) {
+		return ["", style.dim(compactDividerLabel(message)), ""];
+	}
 	return [];
 }
 
@@ -246,4 +252,25 @@ function stripDPiMetaWrapper(text: string): string {
 
 function isDPiMessageMirror(message: AgentMessage): boolean {
 	return "customType" in message && message.customType === "d-pi-message";
+}
+
+function isCompactDividerMessage(message: AgentMessage): boolean {
+	return "customType" in message && message.customType === "compact-divider";
+}
+
+function compactDividerLabel(message: AgentMessage): string {
+	if (!("content" in message)) {
+		return "Compact completed";
+	}
+	const content = message.content;
+	if (typeof content === "string") {
+		return content;
+	}
+	if (typeof content === "object" && content !== null && !Array.isArray(content)) {
+		const record = content as Record<string, unknown>;
+		if (typeof record.label === "string") {
+			return record.label;
+		}
+	}
+	return "Compact completed";
 }

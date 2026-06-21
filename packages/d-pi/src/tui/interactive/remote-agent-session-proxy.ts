@@ -10,6 +10,16 @@ import type {
 	DPiInteractiveTreeNodeData,
 	DPiInteractiveUserMessageItem,
 } from "./agent-session-proxy.ts";
+import {
+	applyDPiInteractiveRealtimeEvent,
+	composeDPiInteractiveSnapshot,
+	type DPiInteractiveRealtimeState,
+	type DPiInteractiveStatusState,
+	isDPiInteractiveRealtimeEvent,
+	isDPiInteractiveRealtimeState,
+	isDPiInteractiveStatusState,
+	splitDPiInteractiveSnapshot,
+} from "./view-model.ts";
 
 type Listener = (event: DPiInteractiveAgentSessionEvent) => void;
 
@@ -24,14 +34,24 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	private readonly headers: Readonly<Record<string, string>>;
 	private readonly fetchFn: typeof fetch;
 	private readonly listeners = new Set<Listener>();
-	private state: DPiInteractiveSessionStateSnapshot;
+	private statusState: DPiInteractiveStatusState;
+	private realtimeState: DPiInteractiveRealtimeState;
 	private eventsAbortController: AbortController | undefined;
 
 	constructor(
-		initialState: DPiInteractiveSessionStateSnapshot,
-		options: DPiInteractiveRemoteAgentSessionProxyOptions,
+		initialStatus: DPiInteractiveSessionStateSnapshot | DPiInteractiveStatusState,
+		realtimeOrOptions: DPiInteractiveRealtimeState | DPiInteractiveRemoteAgentSessionProxyOptions,
+		maybeOptions?: DPiInteractiveRemoteAgentSessionProxyOptions,
 	) {
-		this.state = initialState;
+		if (maybeOptions) {
+			this.statusState = initialStatus as DPiInteractiveStatusState;
+			this.realtimeState = realtimeOrOptions as DPiInteractiveRealtimeState;
+		} else {
+			const split = splitDPiInteractiveSnapshot(initialStatus as DPiInteractiveSessionStateSnapshot);
+			this.statusState = split.status;
+			this.realtimeState = split.realtime;
+		}
+		const options = maybeOptions ?? (realtimeOrOptions as DPiInteractiveRemoteAgentSessionProxyOptions);
 		this.baseUrl = options.baseUrl.replace(/\/+$/, "");
 		this.headers = options.headers ?? {};
 		this.fetchFn = options.fetch ?? fetch;
@@ -84,41 +104,44 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	}
 
 	clearQueue(): { steering: string[]; followUp: string[] } {
-		const dropped = { steering: [...this.state.steeringMessages], followUp: [...this.state.followUpMessages] };
+		const dropped = {
+			steering: [...this.statusState.steeringMessages],
+			followUp: [...this.statusState.followUpMessages],
+		};
 		void this.post("clear-queue");
-		this.state = { ...this.state, steeringMessages: [], followUpMessages: [] };
+		this.statusState = { ...this.statusState, steeringMessages: [], followUpMessages: [] };
 		return dropped;
 	}
 
 	get model(): string {
-		return this.state.model;
+		return this.statusState.model;
 	}
 	get thinkingLevel(): DPiInteractiveSessionStateSnapshot["thinkingLevel"] {
-		return this.state.thinkingLevel;
+		return this.statusState.thinkingLevel;
 	}
 	get isStreaming(): boolean {
-		return this.state.isStreaming;
+		return this.statusState.isStreaming;
 	}
 	get isCompacting(): boolean {
-		return this.state.isCompacting;
+		return this.statusState.isCompacting;
 	}
 	get isBashRunning(): boolean {
-		return this.state.isBashRunning;
+		return this.statusState.isBashRunning;
 	}
 	get steeringMessages(): readonly string[] {
-		return this.state.steeringMessages;
+		return this.statusState.steeringMessages;
 	}
 	get followUpMessages(): readonly string[] {
-		return this.state.followUpMessages;
+		return this.statusState.followUpMessages;
 	}
 	get sessionFile(): string | undefined {
-		return this.state.sessionFile;
+		return this.statusState.sessionFile;
 	}
 	get sessionName(): string | undefined {
-		return this.state.sessionName;
+		return this.statusState.sessionName;
 	}
 	get messages(): DPiInteractiveSessionStateSnapshot["messages"] {
-		return this.state.messages;
+		return this.realtimeState.messages as DPiInteractiveSessionStateSnapshot["messages"];
 	}
 
 	async compact(customInstructions?: string): Promise<void> {
@@ -206,7 +229,7 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 		return [];
 	}
 	getSnapshot(): DPiInteractiveSessionStateSnapshot {
-		return this.state;
+		return composeDPiInteractiveSnapshot(this.statusState, this.realtimeState);
 	}
 
 	private async post(endpoint: string, body?: unknown): Promise<void> {
@@ -238,14 +261,43 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	}
 
 	private applyNamedEvent(event: NamedSseEvent): void {
-		const data = event.data ? (JSON.parse(event.data) as unknown) : undefined;
+		const data = parseSseEventData(event.data);
+		if (event.event === "status" && isDPiInteractiveStatusState(data)) {
+			this.statusState = data;
+			this.emit({ type: "state_update", snapshot: data });
+			return;
+		}
+		if (event.event === "realtime" && isDPiInteractiveRealtimeEvent(data)) {
+			this.realtimeState = applyDPiInteractiveRealtimeEvent(this.realtimeState, data);
+			if (data.type === "upsert") {
+				this.emit({
+					type: "message_update",
+					message: data.message as DPiInteractiveSessionStateSnapshot["messages"][number],
+				});
+			} else {
+				this.emit({
+					type: "state_update",
+					snapshot: {
+						messages: this.realtimeState.messages as DPiInteractiveSessionStateSnapshot["messages"],
+					},
+				});
+			}
+			return;
+		}
 		if (event.event === "state" && isInteractiveSnapshot(data)) {
-			this.state = data;
+			const split = splitDPiInteractiveSnapshot(data);
+			this.statusState = split.status;
+			this.realtimeState = split.realtime;
 			this.emit({ type: "state_update", snapshot: data });
 			return;
 		}
 		if (event.event === "turn_stats" && isTurnStats(data)) {
 			this.emit({ type: "turn_stats", ...data });
+			return;
+		}
+		if (data === undefined && isPayloadLessInteractiveEventType(event.event)) {
+			this.applyEvent({ type: event.event });
+			this.emit({ type: event.event });
 			return;
 		}
 		if (isInteractiveEvent(data)) {
@@ -256,13 +308,21 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 
 	private applyEvent(event: DPiInteractiveAgentSessionEvent): void {
 		if (event.type === "state_update" && event.snapshot) {
-			this.state = { ...this.state, ...event.snapshot };
+			const { messages, ...statusPatch } = event.snapshot;
+			this.statusState = { ...this.statusState, ...statusPatch };
+			if (messages) {
+				this.realtimeState = { ...this.realtimeState, messages: messages as typeof this.realtimeState.messages };
+			}
 		} else if (event.type === "agent_start") {
-			this.state = { ...this.state, isStreaming: true };
+			this.statusState = { ...this.statusState, isStreaming: true };
 		} else if (event.type === "agent_end") {
-			this.state = { ...this.state, isStreaming: false };
+			this.statusState = { ...this.statusState, isStreaming: false };
+		} else if (event.type === "compaction_start") {
+			this.statusState = { ...this.statusState, isCompacting: true };
+		} else if (event.type === "compaction_end") {
+			this.statusState = { ...this.statusState, isCompacting: false };
 		} else if (event.type === "queue_update") {
-			this.state = { ...this.state, steeringMessages: event.steering, followUpMessages: event.followUp };
+			this.statusState = { ...this.statusState, steeringMessages: event.steering, followUpMessages: event.followUp };
 		}
 	}
 
@@ -271,22 +331,38 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 			listener(event);
 		}
 	}
+
+	applyNamedEventForTest(event: NamedSseEvent): void {
+		this.applyNamedEvent(event);
+	}
 }
 
 export async function createDPiInteractiveRemoteAgentSessionProxy(
 	options: DPiInteractiveRemoteAgentSessionProxyOptions,
 ): Promise<DPiInteractiveRemoteAgentSessionProxy> {
-	const response = await (options.fetch ?? fetch)(`${options.baseUrl.replace(/\/+$/, "")}/state`, {
+	const baseUrl = options.baseUrl.replace(/\/+$/, "");
+	const fetchFn = options.fetch ?? fetch;
+	const statusResponse = await fetchFn(`${baseUrl}/status`, {
 		headers: options.headers,
 	});
-	if (!response.ok) {
-		throw new Error(`GET /state returned HTTP ${response.status}`);
+	if (!statusResponse.ok) {
+		throw new Error(`GET /status returned HTTP ${statusResponse.status}`);
 	}
-	const snapshot = (await response.json()) as unknown;
-	if (!isInteractiveSnapshot(snapshot)) {
-		throw new Error("GET /state returned an invalid interactive snapshot");
+	const status = (await statusResponse.json()) as unknown;
+	if (!isDPiInteractiveStatusState(status)) {
+		throw new Error("GET /status returned an invalid interactive status state");
 	}
-	return new DPiInteractiveRemoteAgentSessionProxy(snapshot, options);
+	const realtimeResponse = await fetchFn(`${baseUrl}/realtime`, {
+		headers: options.headers,
+	});
+	if (!realtimeResponse.ok) {
+		throw new Error(`GET /realtime returned HTTP ${realtimeResponse.status}`);
+	}
+	const realtime = (await realtimeResponse.json()) as unknown;
+	if (!isDPiInteractiveRealtimeState(realtime)) {
+		throw new Error("GET /realtime returned an invalid interactive realtime state");
+	}
+	return new DPiInteractiveRemoteAgentSessionProxy(status, realtime, options);
 }
 
 interface NamedSseEvent {
@@ -334,6 +410,14 @@ function parseNamedSseBlock(raw: string): NamedSseEvent | undefined {
 	return data.length === 0 ? undefined : { event, data: data.join("\n") };
 }
 
+function parseSseEventData(data: string): unknown {
+	const trimmed = data.trim();
+	if (!trimmed || trimmed === "undefined") {
+		return undefined;
+	}
+	return JSON.parse(data) as unknown;
+}
+
 function isInteractiveSnapshot(value: unknown): value is DPiInteractiveSessionStateSnapshot {
 	return (
 		typeof value === "object" &&
@@ -347,6 +431,12 @@ function isInteractiveSnapshot(value: unknown): value is DPiInteractiveSessionSt
 
 function isInteractiveEvent(value: unknown): value is DPiInteractiveAgentSessionEvent {
 	return typeof value === "object" && value !== null && "type" in value && typeof value.type === "string";
+}
+
+function isPayloadLessInteractiveEventType(
+	value: string,
+): value is Extract<DPiInteractiveAgentSessionEvent, { type: "compaction_end" | "compaction_start" }>["type"] {
+	return value === "compaction_start" || value === "compaction_end";
 }
 
 function isTurnStats(

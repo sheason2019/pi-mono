@@ -344,4 +344,27 @@ describe("d-pi interactive view parity components", () => {
 		expect(view.text).not.toContain("[meta(");
 		expect(view.text).not.toContain("connectId");
 	});
+
+	it("renders compact completion divider as a persistent transcript boundary", () => {
+		const state = {
+			...snapshot(),
+			messages: [
+				{ role: "user" as const, content: "before compact", timestamp: 1 },
+				{
+					role: "custom" as const,
+					customType: "compact-divider",
+					content: "Compact completed 15s",
+					display: true,
+					timestamp: 2,
+				},
+				{ role: "user" as const, content: "after compact", timestamp: 3 },
+			],
+		};
+
+		const view = buildDPiInteractiveMessageListView(state);
+
+		expect(view.text).toContain("before compact");
+		expect(view.text).toContain("Compact completed 15s");
+		expect(view.text).toContain("after compact");
+	});
 });

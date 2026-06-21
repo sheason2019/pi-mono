@@ -5,6 +5,7 @@ import {
 	type AutocompleteProvider,
 	CombinedAutocompleteProvider,
 	Container,
+	getKeybindings,
 	ProcessTerminal,
 	type SelectItem,
 	SelectList,
@@ -134,6 +135,42 @@ export interface DPiConnectAutocompleteEditor {
 
 export interface DPiConnectHistoryEditor {
 	addToHistory?(text: string): void;
+}
+
+export interface DPiConnectClientState {
+	errors: string[];
+	turnStatusEntries: DPiInteractiveStatusEntry[];
+	lastCtrlCTime: number;
+	toolsExpanded: boolean;
+	stopped: boolean;
+	shuttingDown: boolean;
+}
+
+export function createDPiConnectClientState(): DPiConnectClientState {
+	return {
+		errors: [],
+		turnStatusEntries: [],
+		lastCtrlCTime: 0,
+		toolsExpanded: false,
+		stopped: false,
+		shuttingDown: false,
+	};
+}
+
+function formatDPiConnectKeyText(key: string): string {
+	return key
+		.split("/")
+		.map((candidate) =>
+			candidate
+				.split("+")
+				.map((part) => (process.platform === "darwin" && part.toLowerCase() === "alt" ? "option" : part))
+				.join("+"),
+		)
+		.join("/");
+}
+
+function dPiConnectKeyText(keybinding: "app.interrupt"): string {
+	return formatDPiConnectKeyText(getKeybindings().getKeys(keybinding).join("/"));
 }
 
 const DPI_CONNECT_FALLBACK_SLASH_COMMANDS: readonly SlashCommand[] = [
@@ -881,18 +918,13 @@ export async function runDPiConnectInteractiveMode(
 			fetch: options.fetch,
 		}));
 	void setupDPiConnectAutocomplete(editor, proxy, process.cwd());
-	const errors: string[] = [];
-	const turnStatusEntries: DPiInteractiveStatusEntry[] = [];
+	const clientState = createDPiConnectClientState();
 	const gitBranch = options.gitBranch ?? readDPiConnectGitBranch(process.cwd());
-	let lastCtrlCTime = 0;
-	let toolsExpanded = false;
-	let stopped = false;
-	let shuttingDown = false;
 	const stop = async (): Promise<void> => {
-		if (stopped) {
+		if (clientState.stopped) {
 			return;
 		}
-		stopped = true;
+		clientState.stopped = true;
 		unsubscribe();
 		unsubscribeStatus();
 		status.dispose();
@@ -901,10 +933,10 @@ export async function runDPiConnectInteractiveMode(
 		tui.stop();
 	};
 	const shutdown = async (): Promise<void> => {
-		if (shuttingDown) {
+		if (clientState.shuttingDown) {
 			return;
 		}
-		shuttingDown = true;
+		clientState.shuttingDown = true;
 		await terminal.drainInput(1000);
 		await stop();
 		(options.exit ?? process.exit)(0);
@@ -917,17 +949,20 @@ export async function runDPiConnectInteractiveMode(
 		banner.setText(
 			buildDPiInteractiveBannerView(createDPiConnectStartupBanner(process.cwd(), snapshot.banner), {
 				color: true,
-				expanded: toolsExpanded,
+				expanded: clientState.toolsExpanded,
 			}).text,
 		);
-		const errorText = errors.length === 0 ? "" : `\n\nErrors:\n${errors.map((error) => `- ${error}`).join("\n")}`;
+		const errorText =
+			clientState.errors.length === 0
+				? ""
+				: `\n\nErrors:\n${clientState.errors.map((error) => `- ${error}`).join("\n")}`;
 		messages.clear();
 		messages.addChild(
 			buildDPiInteractiveMessageListComponent(messageSnapshot, {
 				color: true,
-				statusEntries: turnStatusEntries,
+				statusEntries: clientState.turnStatusEntries,
 				cwd: process.cwd(),
-				toolsExpanded,
+				toolsExpanded: clientState.toolsExpanded,
 			}),
 		);
 		if (errorText) {
@@ -935,7 +970,12 @@ export async function runDPiConnectInteractiveMode(
 		}
 		pendingMessagesContainer.clear();
 		pendingMessagesContainer.addChild(buildDPiInteractivePendingMessagesComponent(snapshot, { color: true }));
-		status.setWorking(snapshot.isStreaming || snapshot.isBashRunning || snapshot.isCompacting);
+		status.setWorking(
+			snapshot.isStreaming || snapshot.isBashRunning || snapshot.isCompacting,
+			snapshot.isCompacting
+				? `Compacting context... (${dPiConnectKeyText("app.interrupt")} to cancel)`
+				: "Working...",
+		);
 		footer.setText(
 			buildDPiInteractiveFooterView({
 				snapshot: footerSnapshot,
@@ -950,11 +990,11 @@ export async function runDPiConnectInteractiveMode(
 	};
 	const showChatStatus = (text: string): void => {
 		const afterMessageCount = proxy.getSnapshot().messages.length;
-		const last = turnStatusEntries[turnStatusEntries.length - 1];
+		const last = clientState.turnStatusEntries[clientState.turnStatusEntries.length - 1];
 		if (last?.afterMessageCount === afterMessageCount) {
 			last.text = text;
 		} else {
-			turnStatusEntries.push({ afterMessageCount, text });
+			clientState.turnStatusEntries.push({ afterMessageCount, text });
 		}
 		render();
 	};
@@ -1047,7 +1087,7 @@ export async function runDPiConnectInteractiveMode(
 	const unsubscribe = proxy.subscribe(render);
 	const unsubscribeStatus = proxy.subscribe((event) => {
 		if (event.type === "session_replaced") {
-			turnStatusEntries.splice(0, turnStatusEntries.length);
+			clientState.turnStatusEntries.splice(0, clientState.turnStatusEntries.length);
 			render();
 			return;
 		}
@@ -1082,7 +1122,7 @@ export async function runDPiConnectInteractiveMode(
 			}).then((handled) => {
 				if (!handled) {
 					void submitDPiInteractiveEditorText(proxy, trimmed, (error) => {
-						errors.push(error instanceof Error ? error.message : String(error));
+						clientState.errors.push(error instanceof Error ? error.message : String(error));
 						render();
 					});
 				}
@@ -1091,19 +1131,19 @@ export async function runDPiConnectInteractiveMode(
 		}
 		recordDPiConnectPromptHistory(editor, text);
 		void submitDPiInteractiveEditorText(proxy, text, (error) => {
-			errors.push(error instanceof Error ? error.message : String(error));
+			clientState.errors.push(error instanceof Error ? error.message : String(error));
 			render();
 		});
 	};
 	editor.onEscape = () => proxy.abort();
 	editor.onAction("app.clear", () => {
 		const now = Date.now();
-		if (now - lastCtrlCTime < 500) {
+		if (now - clientState.lastCtrlCTime < 500) {
 			void shutdown();
 			return;
 		}
 		editor.setText("");
-		lastCtrlCTime = now;
+		clientState.lastCtrlCTime = now;
 		status.showStatus("Press ctrl+c again to exit");
 		render();
 	});
@@ -1145,7 +1185,7 @@ export async function runDPiConnectInteractiveMode(
 		void showResumeSelector();
 	});
 	editor.onAction("app.tools.expand", () => {
-		toolsExpanded = !toolsExpanded;
+		clientState.toolsExpanded = !clientState.toolsExpanded;
 		render();
 	});
 	editor.onAction("app.editor.external", () => {

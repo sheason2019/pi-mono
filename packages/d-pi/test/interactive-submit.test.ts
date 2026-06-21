@@ -3,6 +3,7 @@ import { Container, setKeybindings, type Terminal, TUI } from "@earendil-works/p
 import { describe, expect, it, vi } from "vitest";
 import { AGENT_SWITCH_FILE } from "../src/extension/multi-agent-extension.ts";
 import type {
+	DPiInteractiveAgentSessionEvent,
 	DPiInteractiveAgentSessionProxy,
 	DPiInteractiveSessionStateSnapshot,
 } from "../src/tui/interactive/agent-session-proxy.ts";
@@ -10,6 +11,7 @@ import { DPI_NATIVE_CONNECT_BUILTIN_COMMANDS } from "../src/tui/interactive/nati
 import {
 	buildDPiConnectAgentSelectItems,
 	createDPiConnectAutocompleteProvider,
+	createDPiConnectClientState,
 	createDPiConnectRootLayout,
 	extractDPiConnectSelectedAgentName,
 	handleDPiConnectBashInput,
@@ -419,6 +421,44 @@ describe("d-pi interactive editor submit", () => {
 		await handle.stop();
 	});
 
+	it("shows the native compacting loader in the status area while compacting", async () => {
+		const terminal = new TestTerminal();
+		const snapshot = connectSnapshot();
+		const listeners: Array<(event: DPiInteractiveAgentSessionEvent) => void> = [];
+		const proxy = createProxy({
+			connect: vi.fn(async () => {}),
+			disconnect: vi.fn(),
+			getSnapshot: vi.fn(() => snapshot),
+			subscribe: vi.fn((listener: (event: DPiInteractiveAgentSessionEvent) => void) => {
+				listeners.push(listener);
+				return () => {};
+			}),
+			clearQueue: vi.fn(() => ({ steering: [], followUp: [] })),
+		} as Partial<DPiInteractiveAgentSessionProxy> & { connect(): Promise<void>; disconnect(): void });
+		const handle = await runDPiConnectInteractiveMode({
+			agentUrl: "https://dp.example/agents/root",
+			hubUrl: "https://dp.example",
+			terminal,
+			proxy,
+			exit: vi.fn(),
+		});
+
+		snapshot.isCompacting = true;
+		for (const listener of listeners) {
+			listener({ type: "compaction_start" });
+		}
+		await new Promise<void>((resolve) => setTimeout(resolve, 30));
+
+		expect(terminal.output()).toContain("Compacting context...");
+		expect(terminal.output()).toContain("to cancel");
+
+		snapshot.isCompacting = false;
+		for (const listener of listeners) {
+			listener({ type: "compaction_end" });
+		}
+		await handle.stop();
+	});
+
 	it("handles /agents locally instead of sending it as a prompt", async () => {
 		const proxy = createProxy();
 		const showAgentSelector = vi.fn(async () => {});
@@ -492,6 +532,25 @@ describe("d-pi interactive editor submit", () => {
 			layout.widgetContainerBelow,
 			layout.footerContainer,
 		]);
+	});
+
+	it("creates isolated client state for each connect TUI instance", () => {
+		const first = createDPiConnectClientState();
+		const second = createDPiConnectClientState();
+
+		first.errors.push("first error");
+		first.turnStatusEntries.push({ afterMessageCount: 1, text: "first status" });
+		first.toolsExpanded = true;
+		first.lastCtrlCTime = 123;
+
+		expect(second).toMatchObject({
+			errors: [],
+			turnStatusEntries: [],
+			toolsExpanded: false,
+			lastCtrlCTime: 0,
+			stopped: false,
+			shuttingDown: false,
+		});
 	});
 
 	it("routes keyboard input to the native agent selector in the editor slot", async () => {

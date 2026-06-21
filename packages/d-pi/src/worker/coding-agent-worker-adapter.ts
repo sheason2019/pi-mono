@@ -28,6 +28,14 @@ import type {
 	DPiInteractiveUserMessageItem,
 } from "../tui/interactive/agent-session-proxy.ts";
 import { DPI_NATIVE_CONNECT_BUILTIN_COMMANDS } from "../tui/interactive/native-parity-manifest.ts";
+import type {
+	DPiInteractiveRealtimeEvent,
+	DPiInteractiveRealtimePage,
+	DPiInteractiveRealtimePageReason,
+	DPiInteractiveRealtimeState,
+	DPiInteractiveStatusState,
+} from "../tui/interactive/view-model.ts";
+import { createDPiInteractiveRealtimePage } from "../tui/interactive/view-model.ts";
 
 export interface DPiWorkerAuthStorage {
 	readonly kind: "d-pi-auth-storage";
@@ -563,6 +571,8 @@ export interface DPiLocalAgentState {
 export type DPiLocalAgentEvent =
 	| { type: "message"; data: DPiLocalAgentMessage }
 	| { type: "queue"; data: { queued: DPiLocalQueueItem[] } }
+	| { type: "status"; data: DPiInteractiveStatusState }
+	| { type: "realtime"; data: DPiInteractiveRealtimeEvent }
 	| { type: "state"; data: DPiLocalAgentState }
 	| { type: "new" | "resume" | "fork"; data: DPiLocalAgentState }
 	| { type: "turn_stats"; data: Extract<DPiRuntimeEvent, { type: "turn_stats" }> }
@@ -713,6 +723,14 @@ export class DPiAgentIpcServer {
 	private handleHttpQuery(requestId: string, query: unknown): void {
 		if (query === "state") {
 			this.handlers.onHttpResponse(requestId, 200, this.proxy.getState());
+			return;
+		}
+		if (query === "status") {
+			this.handlers.onHttpResponse(requestId, 200, this.proxy.getStatusState());
+			return;
+		}
+		if (query === "realtime") {
+			this.handlers.onHttpResponse(requestId, 200, this.proxy.getRealtimeState());
 			return;
 		}
 		if (query === "messages") {
@@ -867,10 +885,17 @@ export class DPiAgentIpcServer {
 	private subscribeSse(subscriberId: string): void {
 		this.unsubscribeSse(subscriberId);
 		const unsubscribe = this.proxy.subscribe((event) => {
+			if (event.type === "state") {
+				return;
+			}
 			this.handlers.onSseEvent(subscriberId, event.type, event.data);
 		});
 		this.subscribers.set(subscriberId, unsubscribe);
-		this.handlers.onSseEvent(subscriberId, "state", this.proxy.getState());
+		this.handlers.onSseEvent(subscriberId, "status", this.proxy.getStatusState());
+		this.handlers.onSseEvent(subscriberId, "realtime", {
+			type: "snapshot",
+			...this.proxy.getRealtimeState(),
+		});
 	}
 
 	private unsubscribeSse(subscriberId: string): void {
@@ -890,9 +915,13 @@ export class DPiLocalAgentSessionProxy {
 	private readonly importedSessionMessageIds = new Set<string>();
 	private readonly queued: DPiLocalQueueItem[] = [];
 	private readonly optimisticPromptTexts: string[] = [];
+	private realtimeCursor = 0;
+	private realtimePageIndex = 0;
+	private realtimePage: DPiInteractiveRealtimePage = createDPiInteractiveRealtimePage("initial", 0);
 	private streamingAssistantMessageId: string | undefined;
 	private banner: DPiInteractiveBannerData | undefined;
 	private streaming = false;
+	private compacting = false;
 	private thinking: ThinkingLevel | undefined;
 	private sessionName: string | undefined;
 	private scopedModelIds: string[] | null = null;
@@ -953,7 +982,7 @@ export class DPiLocalAgentSessionProxy {
 			model: model?.id ?? "",
 			thinkingLevel,
 			isStreaming: this.streaming,
-			isCompacting: false,
+			isCompacting: this.compacting,
 			isBashRunning: false,
 			steeringMessages: this.queued.filter((item) => item.kind === "steer").map((item) => item.text),
 			followUpMessages: this.queued.filter((item) => item.kind === "follow-up").map((item) => item.text),
@@ -992,6 +1021,20 @@ export class DPiLocalAgentSessionProxy {
 			queued: [...this.queued],
 			...(this.thinking ? { thinking: this.thinking } : {}),
 			extensions: extensionState,
+		};
+	}
+
+	getStatusState(): DPiInteractiveStatusState {
+		const { messages, ...status } = this.getState();
+		void messages;
+		return status;
+	}
+
+	getRealtimeState(): DPiInteractiveRealtimeState {
+		return {
+			cursor: this.realtimeCursor,
+			page: this.realtimePage,
+			messages: [...this.messages],
 		};
 	}
 
@@ -1081,10 +1124,24 @@ export class DPiLocalAgentSessionProxy {
 
 	async compact(customInstructions?: string): Promise<void> {
 		void customInstructions;
+		const startedAt = Date.now();
+		this.compacting = true;
 		this.emit({ type: "compaction_start" });
-		await this.runtime.session.agent.waitForIdle();
-		this.emit({ type: "compaction_end" });
 		this.emitState();
+		try {
+			await this.runtime.session.agent.waitForIdle();
+			const completedAt = Date.now();
+			this.compacting = false;
+			this.emit({ type: "compaction_end" });
+			this.emitState();
+			this.startRealtimePageWithCompactDivider(startedAt, completedAt);
+			this.emitState();
+		} catch (error) {
+			this.compacting = false;
+			this.emit({ type: "compaction_end" });
+			this.emitState();
+			throw error;
+		}
 	}
 
 	setModel(modelId: string): void {
@@ -1164,6 +1221,7 @@ export class DPiLocalAgentSessionProxy {
 		const node = this.messages.find((message) => message.id === entryId);
 		if (node) {
 			node.details = { ...(isRecord(node.details) ? node.details : {}), label };
+			this.emitRealtimeUpsert(node);
 		}
 		this.emitState();
 	}
@@ -1308,7 +1366,7 @@ export class DPiLocalAgentSessionProxy {
 			return;
 		}
 		if (event.type === "session_replaced") {
-			this.messages.splice(0, this.messages.length);
+			this.startRealtimePage("resume", { emit: false });
 			this.importedSessionMessageIds.clear();
 			this.optimisticPromptTexts.splice(0, this.optimisticPromptTexts.length);
 			for (const message of event.messages) {
@@ -1337,6 +1395,7 @@ export class DPiLocalAgentSessionProxy {
 					false,
 				);
 			}
+			this.emitRealtimeSnapshot();
 			this.emit({ type: "resume", data: this.getState() });
 			this.emitState();
 			return;
@@ -1439,7 +1498,9 @@ export class DPiLocalAgentSessionProxy {
 		}
 		this.importedSessionMessageIds.add(message.id);
 		this.messages.push(message);
+		const cursor = this.bumpRealtimeCursor();
 		if (emitEvents) {
+			this.emit({ type: "realtime", data: { type: "upsert", cursor, message } });
 			this.emit({ type: "message", data: message });
 			this.emitState();
 		}
@@ -1471,6 +1532,7 @@ export class DPiLocalAgentSessionProxy {
 		} else {
 			this.messages.push(localMessage);
 		}
+		this.emitRealtimeUpsert(localMessage);
 		if (emitEvents) {
 			this.emit({ type: "message", data: localMessage });
 		}
@@ -1496,7 +1558,7 @@ export class DPiLocalAgentSessionProxy {
 		if (existingIndex >= 0) {
 			const existing = this.messages[existingIndex];
 			const content = Array.isArray(existing.content) ? existing.content : [];
-			this.messages[existingIndex] = {
+			const message = {
 				...existing,
 				content: content.map((part) =>
 					typeof part === "object" &&
@@ -1509,14 +1571,18 @@ export class DPiLocalAgentSessionProxy {
 						: part,
 				),
 			};
+			this.messages[existingIndex] = message;
+			this.emitRealtimeUpsert(message);
 			return;
 		}
-		this.messages.push({
+		const message: DPiLocalAgentMessage = {
 			id: nextGeneratedId("message"),
 			role: "assistant",
 			content: [toolCall],
 			timestamp: Date.now(),
-		});
+		};
+		this.messages.push(message);
+		this.emitRealtimeUpsert(message);
 	}
 
 	private upsertToolResultMessage(event: Extract<DPiRuntimeEvent, { type: "tool_end" }>): void {
@@ -1541,6 +1607,7 @@ export class DPiLocalAgentSessionProxy {
 		} else {
 			this.messages.push(resultMessage);
 		}
+		this.emitRealtimeUpsert(resultMessage);
 	}
 
 	private recordLocalInput(
@@ -1569,6 +1636,7 @@ export class DPiLocalAgentSessionProxy {
 			};
 			this.optimisticPromptTexts.push(normalizedUserMessageText(message));
 			this.messages.push(message);
+			this.emitRealtimeUpsert(message);
 			this.emit({ type: "message", data: message });
 			const queuedIndex = this.queued.findIndex((candidate) => candidate.id === queueItem.id);
 			if (queuedIndex >= 0) {
@@ -1592,7 +1660,53 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	private emitState(): void {
+		this.emit({ type: "status", data: this.getStatusState() });
 		this.emit({ type: "state", data: this.getState() });
+	}
+
+	private bumpRealtimeCursor(): number {
+		this.realtimeCursor += 1;
+		return this.realtimeCursor;
+	}
+
+	private startRealtimePage(reason: DPiInteractiveRealtimePageReason, options: { emit?: boolean } = {}): void {
+		this.realtimePageIndex += 1;
+		this.realtimePage = createDPiInteractiveRealtimePage(reason, this.realtimePageIndex);
+		this.realtimeCursor = 0;
+		this.messages.splice(0, this.messages.length);
+		this.streamingAssistantMessageId = undefined;
+		this.optimisticPromptTexts.splice(0, this.optimisticPromptTexts.length);
+		if (options.emit !== false) {
+			this.emitRealtimeSnapshot();
+		}
+	}
+
+	private startRealtimePageWithCompactDivider(startedAt: number, completedAt: number): void {
+		this.startRealtimePage("compact", { emit: false });
+		const durationSeconds = Math.max(0, Math.round((completedAt - startedAt) / 1000));
+		const label = `Compact completed ${durationSeconds}s`;
+		const message: DPiLocalAgentMessage = {
+			id: nextGeneratedId("message"),
+			role: "custom",
+			customType: "compact-divider",
+			display: true,
+			content: label,
+			details: {
+				durationMs: completedAt - startedAt,
+				completedAt,
+			},
+			timestamp: completedAt,
+		};
+		this.messages.push(message);
+		this.emitRealtimeUpsert(message);
+	}
+
+	private emitRealtimeUpsert(message: DPiLocalAgentMessage): void {
+		this.emit({ type: "realtime", data: { type: "upsert", cursor: this.bumpRealtimeCursor(), message } });
+	}
+
+	private emitRealtimeSnapshot(): void {
+		this.emit({ type: "realtime", data: { type: "snapshot", ...this.getRealtimeState() } });
 	}
 
 	private emit(event: DPiLocalAgentEvent): void {
