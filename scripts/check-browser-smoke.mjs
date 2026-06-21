@@ -13,6 +13,7 @@ try {
 		platform: "browser",
 		format: "esm",
 		logLevel: "silent",
+		nodePaths: ["packages/d-pi/node_modules"],
 		outfile: outputPath,
 	});
 	process.exit(0);
