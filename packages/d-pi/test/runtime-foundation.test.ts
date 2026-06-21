@@ -76,6 +76,7 @@ class FakeHarness implements DPiAgentHarness {
 	readonly calls: { method: "prompt" | "steer" | "followUp" | "nextTurn"; text: string }[] = [];
 	private readonly listeners = new Set<DPiAgentHarnessEventListener>();
 	private busy = false;
+	private failSteer = false;
 	private promptBarrier: Promise<void> | undefined;
 
 	setBusy(value: boolean): void {
@@ -84,6 +85,10 @@ class FakeHarness implements DPiAgentHarness {
 
 	holdPromptUntil(promise: Promise<void>): void {
 		this.promptBarrier = promise;
+	}
+
+	setFailSteer(value: boolean): void {
+		this.failSteer = value;
 	}
 
 	async prompt(text: string): Promise<AssistantMessage> {
@@ -118,7 +123,7 @@ class FakeHarness implements DPiAgentHarness {
 
 	async steer(text: string): Promise<void> {
 		this.calls.push({ method: "steer", text });
-		if (this.busy) {
+		if (this.failSteer) {
 			throw new AgentHarnessError("busy", "fake harness is busy");
 		}
 	}
@@ -143,7 +148,10 @@ class FakeHarness implements DPiAgentHarness {
 	}
 }
 
-async function createRuntime(workspaceRoot: string, fakeHarness: FakeHarness): Promise<DPiAgentRuntime> {
+async function createRuntimeHandle(
+	workspaceRoot: string,
+	fakeHarness: FakeHarness,
+): Promise<{ runtime: DPiAgentRuntime; session: Awaited<ReturnType<DPiSessionStore["create"]>> }> {
 	const agentDir = createAgent(workspaceRoot, "root", "Original identity.");
 	const agentDefinition = await readLoadedAgentDefinitionFromTs(agentDir);
 	const sessionStore = new DPiSessionStore({
@@ -151,20 +159,27 @@ async function createRuntime(workspaceRoot: string, fakeHarness: FakeHarness): P
 		sessionsRoot: join(workspaceRoot, ".pi", "sessions"),
 	});
 	const session = await sessionStore.create({ id: "runtime-session" });
-	return new DPiAgentRuntime({
-		agentName: "root",
-		cwd: workspaceRoot,
-		session: session.session,
-		modelManager: new DPiModelManager({ model: makeModel() }),
-		contextManager: new DPiContextManager({
-			workspaceRoot,
+	return {
+		session,
+		runtime: new DPiAgentRuntime({
 			agentName: "root",
-			agentDir,
-			cwd: agentDir,
-			agentDefinition,
+			cwd: workspaceRoot,
+			session: session.session,
+			modelManager: new DPiModelManager({ model: makeModel() }),
+			contextManager: new DPiContextManager({
+				workspaceRoot,
+				agentName: "root",
+				agentDir,
+				cwd: agentDir,
+				agentDefinition,
+			}),
+			harnessFactory: () => fakeHarness,
 		}),
-		harnessFactory: () => fakeHarness,
-	});
+	};
+}
+
+async function createRuntime(workspaceRoot: string, fakeHarness: FakeHarness): Promise<DPiAgentRuntime> {
+	return (await createRuntimeHandle(workspaceRoot, fakeHarness)).runtime;
 }
 
 afterEach(() => {
@@ -315,7 +330,7 @@ describe("d-pi runtime foundation", () => {
 		expect(fakeHarness.calls).toEqual([
 			{ method: "prompt", text: "next" },
 			{ method: "steer", text: "steer" },
-			{ method: "followUp", text: "follow" },
+			{ method: "steer", text: "follow" },
 		]);
 		expect(events).toContain("queue_update");
 	});
@@ -564,7 +579,25 @@ describe("d-pi runtime foundation", () => {
 		);
 	});
 
-	it("queues next prompts while active and when the harness reports busy", async () => {
+	it("persists steering queue updates as latest session transcript state", async () => {
+		const workspaceRoot = createTempWorkspace();
+		const fakeHarness = new FakeHarness();
+		const { session } = await createRuntimeHandle(workspaceRoot, fakeHarness);
+
+		await fakeHarness.emit({
+			type: "queue_update",
+			steer: [{ role: "user", content: "interrupt", timestamp: 123 }],
+			followUp: [{ role: "user", content: "legacy follow-up", timestamp: 124 }],
+			nextTurn: [{ role: "user", content: "legacy next", timestamp: 125 }],
+		});
+		const transcript = projectDPiTranscript(await session.session.getBranch());
+
+		expect(transcript.steeringQueue.items).toEqual([expect.objectContaining({ text: "interrupt", createdAt: 123 })]);
+		expect(JSON.stringify(transcript.steeringQueue)).not.toContain("legacy follow-up");
+		expect(JSON.stringify(transcript.steeringQueue)).not.toContain("legacy next");
+	});
+
+	it("steers next prompts while active and when the harness reports busy", async () => {
 		const workspaceRoot = createTempWorkspace();
 		const fakeHarness = new FakeHarness();
 		const runtime = await createRuntime(workspaceRoot, fakeHarness);
@@ -584,12 +617,12 @@ describe("d-pi runtime foundation", () => {
 
 		expect(fakeHarness.calls.slice(0, 2)).toEqual([
 			{ method: "prompt", text: "running" },
-			{ method: "nextTurn", text: "queued" },
+			{ method: "steer", text: "queued" },
 		]);
 
 		fakeHarness.setBusy(true);
 		await expect(runtime.prompt("busy queued", { mode: "next" })).resolves.toBeUndefined();
-		expect(fakeHarness.calls.at(-1)).toEqual({ method: "nextTurn", text: "busy queued" });
+		expect(fakeHarness.calls.at(-1)).toEqual({ method: "steer", text: "busy queued" });
 	});
 
 	it("forwards foundation options through the harness factory boundary", async () => {
@@ -659,7 +692,7 @@ describe("d-pi runtime foundation", () => {
 	it("maps fake harness busy failures from non-next modes to DPiRuntimeError", async () => {
 		const workspaceRoot = createTempWorkspace();
 		const fakeHarness = new FakeHarness();
-		fakeHarness.setBusy(true);
+		fakeHarness.setFailSteer(true);
 		const runtime = await createRuntime(workspaceRoot, fakeHarness);
 
 		await expect(runtime.prompt("steer", { mode: "steer" })).rejects.toMatchObject({

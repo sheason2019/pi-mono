@@ -6,6 +6,7 @@ import { DPiSessionStore } from "../src/runtime/session-store.ts";
 import {
 	createDPiTranscriptBoundaryEntry,
 	createDPiTranscriptNoticeEntry,
+	createDPiTranscriptSteeringQueueEntry,
 	createDPiTranscriptToolStateEntry,
 	createDPiTranscriptTurnStatsEntry,
 	DPiTranscriptCustomTypes,
@@ -138,5 +139,60 @@ describe("d-pi session transcript projector", () => {
 		expect(transcript.messages).toEqual([expect.objectContaining({ content: "run ls" })]);
 		expect(JSON.stringify(providerContext.messages)).not.toContain("Runtime failed");
 		expect(JSON.stringify(providerContext.messages)).not.toContain("agent.ts");
+	});
+
+	it("restores the latest persisted steering queue state without adding provider context", async () => {
+		const workspaceRoot = createTempWorkspace();
+		const store = new DPiSessionStore({
+			cwd: workspaceRoot,
+			sessionsRoot: join(workspaceRoot, ".pi", "sessions"),
+		});
+		const session = await store.create({ id: "steering-queue-session" });
+		await session.session.appendMessage({ role: "user", content: "running prompt", timestamp: 1 });
+		await session.session.appendCustomEntry(
+			DPiTranscriptCustomTypes.steeringQueue,
+			createDPiTranscriptSteeringQueueEntry({
+				revision: 1,
+				runId: "run-1",
+				items: [
+					{
+						id: "steer-1",
+						text: "first interrupt",
+						createdAt: 2,
+					},
+				],
+				timestamp: 2,
+			}),
+		);
+		await session.session.appendCustomEntry(
+			DPiTranscriptCustomTypes.steeringQueue,
+			createDPiTranscriptSteeringQueueEntry({
+				revision: 2,
+				runId: "run-1",
+				items: [
+					{
+						id: "steer-2",
+						text: "latest interrupt",
+						createdAt: 3,
+					},
+				],
+				timestamp: 3,
+			}),
+		);
+
+		const reopened = await store.open("steering-queue-session");
+		const transcript = projectDPiTranscript(await reopened.session.getBranch());
+		const providerContext = await reopened.session.buildContext();
+
+		expect(transcript.steeringQueue).toEqual({
+			version: 1,
+			revision: 2,
+			runId: "run-1",
+			items: [expect.objectContaining({ id: "steer-2", text: "latest interrupt", createdAt: 3 })],
+			timestamp: 3,
+		});
+		expect(transcript.messages).toEqual([expect.objectContaining({ content: "running prompt" })]);
+		expect(JSON.stringify(providerContext.messages)).not.toContain("latest interrupt");
+		expect(JSON.stringify(providerContext.messages)).not.toContain(DPiTranscriptCustomTypes.steeringQueue);
 	});
 });

@@ -555,6 +555,9 @@ async function runAgentWorker(): Promise<void> {
 				agentName,
 				session: sessionHandle.info,
 				...(initialTranscript.items.length > 0 ? { transcriptItems: initialTranscript.items } : {}),
+				...(initialTranscript.steeringQueue.items.length > 0
+					? { steeringQueue: initialTranscript.steeringQueue }
+					: {}),
 				messages: initialMessages,
 			});
 		}

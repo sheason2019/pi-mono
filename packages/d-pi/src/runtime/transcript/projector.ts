@@ -4,6 +4,7 @@ import type { DPiAgentMessage } from "../types.ts";
 export const DPiTranscriptCustomTypes = {
 	boundary: "d-pi/transcript.boundary@v1",
 	notice: "d-pi/transcript.notice@v1",
+	steeringQueue: "d-pi/transcript.steering_queue@v1",
 	toolState: "d-pi/transcript.tool_state@v1",
 	turnStats: "d-pi/transcript.turn_stats@v1",
 } as const;
@@ -100,6 +101,21 @@ export interface DPiTranscriptNoticeEntry {
 	timestamp: number;
 }
 
+export interface DPiTranscriptSteeringQueueItem {
+	id: string;
+	text: string;
+	createdAt: number;
+	images?: Array<{ url: string; mediaType?: string }>;
+}
+
+export interface DPiTranscriptSteeringQueueEntry {
+	version: 1;
+	revision: number;
+	items: DPiTranscriptSteeringQueueItem[];
+	timestamp: number;
+	runId?: string;
+}
+
 export interface DPiTranscriptPage {
 	id: string;
 	index: number;
@@ -112,6 +128,7 @@ export interface DPiTranscriptProjection {
 	cursor: number;
 	items: DPiTranscriptItem[];
 	messages: DPiAgentMessage[];
+	steeringQueue: DPiTranscriptSteeringQueueEntry;
 }
 
 export function createDPiTranscriptBoundaryEntry(
@@ -150,6 +167,15 @@ export function createDPiTranscriptNoticeEntry(
 	};
 }
 
+export function createDPiTranscriptSteeringQueueEntry(
+	options: Omit<DPiTranscriptSteeringQueueEntry, "version">,
+): DPiTranscriptSteeringQueueEntry {
+	return {
+		version: 1,
+		...options,
+	};
+}
+
 export function projectDPiTranscript(entries: readonly SessionTreeEntry[]): DPiTranscriptProjection {
 	const boundaryIndex = latestBoundaryIndex(entries);
 	const projectedEntries = boundaryIndex >= 0 ? entries.slice(boundaryIndex) : entries;
@@ -158,6 +184,8 @@ export function projectDPiTranscript(entries: readonly SessionTreeEntry[]): DPiT
 		const item = transcriptEntryToItem(entry);
 		return item ? [item] : [];
 	});
+	const steeringQueue =
+		latestSteeringQueue(entries) ?? createDPiTranscriptSteeringQueueEntry({ revision: 0, items: [], timestamp: 0 });
 	const page: DPiTranscriptPage = {
 		id: boundaryEntry ? `page-${boundaryEntry.reason}-${entryId(entries[boundaryIndex]!)}` : "page-initial",
 		index: boundaryIndex >= 0 ? boundaryIndex : 0,
@@ -172,6 +200,7 @@ export function projectDPiTranscript(entries: readonly SessionTreeEntry[]): DPiT
 			const message = transcriptItemToMessage(item);
 			return message ? [message] : [];
 		}),
+		steeringQueue,
 	};
 }
 
@@ -183,6 +212,17 @@ function latestBoundaryIndex(entries: readonly SessionTreeEntry[]): number {
 		}
 	}
 	return -1;
+}
+
+function latestSteeringQueue(entries: readonly SessionTreeEntry[]): DPiTranscriptSteeringQueueEntry | undefined {
+	for (let index = entries.length - 1; index >= 0; index -= 1) {
+		const entry = entries[index]!;
+		const queue = transcriptSteeringQueueFromEntry(entry);
+		if (queue) {
+			return queue;
+		}
+	}
+	return undefined;
 }
 
 function transcriptEntryToItem(entry: SessionTreeEntry): DPiTranscriptItem | undefined {
@@ -371,6 +411,62 @@ function transcriptNoticeFromEntry(entry: SessionTreeEntry): Omit<DPiTranscriptN
 		text: record.text,
 		timestamp: numberOr(record.timestamp, timestampFromEntry(entry)),
 	};
+}
+
+function transcriptSteeringQueueFromEntry(entry: SessionTreeEntry): DPiTranscriptSteeringQueueEntry | undefined {
+	if (entry.type !== "custom" || entry.customType !== DPiTranscriptCustomTypes.steeringQueue) {
+		return undefined;
+	}
+	const data = entry.data;
+	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+		return undefined;
+	}
+	const record = data as Record<string, unknown>;
+	if (record.version !== 1 || typeof record.revision !== "number" || !Array.isArray(record.items)) {
+		return undefined;
+	}
+	const items = record.items.flatMap((item) => {
+		if (typeof item !== "object" || item === null || Array.isArray(item)) {
+			return [];
+		}
+		const itemRecord = item as Record<string, unknown>;
+		if (typeof itemRecord.id !== "string" || typeof itemRecord.text !== "string") {
+			return [];
+		}
+		return [
+			{
+				id: itemRecord.id,
+				text: itemRecord.text,
+				createdAt: numberOr(itemRecord.createdAt, timestampFromEntry(entry)),
+				...(Array.isArray(itemRecord.images)
+					? { images: itemRecord.images.flatMap((image) => steeringQueueImage(image)) }
+					: {}),
+			},
+		];
+	});
+	return {
+		version: 1,
+		revision: record.revision,
+		items,
+		timestamp: numberOr(record.timestamp, timestampFromEntry(entry)),
+		...(typeof record.runId === "string" ? { runId: record.runId } : {}),
+	};
+}
+
+function steeringQueueImage(value: unknown): { url: string; mediaType?: string }[] {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return [];
+	}
+	const record = value as Record<string, unknown>;
+	if (typeof record.url !== "string") {
+		return [];
+	}
+	return [
+		{
+			url: record.url,
+			...(typeof record.mediaType === "string" ? { mediaType: record.mediaType } : {}),
+		},
+	];
 }
 
 function timestampFromEntry(entry: SessionTreeEntry | undefined): number {

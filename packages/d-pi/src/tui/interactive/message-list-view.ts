@@ -34,9 +34,6 @@ export function buildDPiInteractiveMessageListView(
 	const lines = [
 		...snapshotTranscriptItems(snapshot).flatMap((item) => itemLines(item, options)),
 		...snapshot.steeringMessages.map((message) => createDPiInteractiveStyle(options).dim(`steer queued: ${message}`)),
-		...snapshot.followUpMessages.map((message) =>
-			createDPiInteractiveStyle(options).dim(`follow-up queued: ${message}`),
-		),
 	];
 	return { text: lines.join("\n") };
 }
@@ -154,20 +151,17 @@ function itemComponents(
 }
 
 export function buildDPiInteractivePendingMessagesComponent(
-	snapshot: Pick<DPiInteractiveSessionStateSnapshot, "followUpMessages" | "steeringMessages">,
+	snapshot: Pick<DPiInteractiveSessionStateSnapshot, "steeringMessages">,
 	options: DPiInteractiveStyleOptions = {},
 ): Container {
 	const container = new Container();
 	const style = createDPiInteractiveStyle(options);
-	if (snapshot.steeringMessages.length === 0 && snapshot.followUpMessages.length === 0) {
+	if (snapshot.steeringMessages.length === 0) {
 		return container;
 	}
 	container.addChild(new Spacer(1));
 	for (const message of snapshot.steeringMessages) {
 		container.addChild(new TruncatedText(style.dim(`Steering: ${message}`), 1, 0));
-	}
-	for (const message of snapshot.followUpMessages) {
-		container.addChild(new TruncatedText(style.dim(`Follow-up: ${message}`), 1, 0));
 	}
 	container.addChild(new TruncatedText(style.dim("↳ alt+up to edit all queued messages"), 1, 0));
 	return container;

@@ -1078,10 +1078,10 @@ describe("worker runtime adapter", () => {
 				streaming: false,
 				queued: [
 					expect.objectContaining({ kind: "steer", text: "tighten scope" }),
-					expect.objectContaining({ kind: "follow-up", text: "continue" }),
+					expect.objectContaining({ kind: "steer", text: "continue" }),
 				],
-				steeringMessages: ["tighten scope"],
-				followUpMessages: ["continue"],
+				steeringMessages: ["tighten scope", "continue"],
+				followUpMessages: [],
 				messages: [expect.objectContaining({ role: "user", content: "write a plan" })],
 			});
 			expect(JSON.stringify(state.body)).not.toContain('"customType":"steer"');
@@ -1110,6 +1110,46 @@ describe("worker runtime adapter", () => {
 			expect(harness.responses.find((response) => response.requestId === "prompt-ack")).toMatchObject({
 				status: 200,
 				body: { ok: true },
+			});
+		} finally {
+			harness.server.stop();
+		}
+	});
+
+	it("routes a second prompt to steering before the runtime agent_start event arrives", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		const dispatcher = {
+			prompt: vi.fn(async () => {
+				await new Promise(() => {});
+			}),
+			steer: vi.fn(async () => {}),
+		};
+		proxy.setMessageDispatcher(dispatcher);
+		const harness = createIpcHarness(proxy);
+		try {
+			harness.transport.emit({
+				type: "http_request",
+				requestId: "prompt-first",
+				action: "prompt",
+				data: { text: "first" },
+			});
+			await waitFor(() => harness.responses.some((response) => response.requestId === "prompt-first"));
+
+			harness.transport.emit({
+				type: "http_request",
+				requestId: "prompt-second",
+				action: "prompt",
+				data: { text: "second" },
+			});
+			await waitFor(() => harness.responses.some((response) => response.requestId === "prompt-second"));
+
+			expect(dispatcher.prompt).toHaveBeenCalledTimes(1);
+			expect(dispatcher.prompt).toHaveBeenCalledWith("first", { images: undefined });
+			expect(dispatcher.steer).toHaveBeenCalledWith("second", undefined);
+			expect(proxy.getState()).toMatchObject({
+				messages: [expect.objectContaining({ role: "user", content: "first" })],
+				steeringMessages: ["second"],
+				followUpMessages: [],
 			});
 		} finally {
 			harness.server.stop();
@@ -1179,6 +1219,30 @@ describe("worker runtime adapter", () => {
 		expect(state.steeringMessages).toEqual(["interrupt one", "interrupt two"]);
 		expect(JSON.stringify(state.messages)).not.toContain("interrupt one");
 		expect(JSON.stringify(state.messages)).not.toContain("customType");
+	});
+
+	it("routes prompts and legacy follow-up inputs to steering while the runtime is streaming", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		const dispatcher = {
+			prompt: vi.fn(async () => {}),
+			steer: vi.fn(async () => {}),
+			followUp: vi.fn(async () => {}),
+		};
+		proxy.setMessageDispatcher(dispatcher);
+
+		proxy.applyRuntimeEvent({ type: "agent_start", agentName: "root" });
+		await proxy.prompt("interrupt prompt");
+		await proxy.followUp("legacy follow-up");
+
+		expect(dispatcher.prompt).not.toHaveBeenCalled();
+		expect(dispatcher.followUp).not.toHaveBeenCalled();
+		expect(dispatcher.steer).toHaveBeenCalledWith("interrupt prompt", undefined);
+		expect(dispatcher.steer).toHaveBeenCalledWith("legacy follow-up", undefined);
+		expect(proxy.getState()).toMatchObject({
+			messages: [],
+			steeringMessages: ["interrupt prompt", "legacy follow-up"],
+			followUpMessages: [],
+		});
 	});
 
 	it("records queued steering messages as user transcript messages when the runtime consumes them", async () => {
@@ -1375,6 +1439,29 @@ describe("worker runtime adapter", () => {
 				}),
 			]),
 		);
+	});
+
+	it("restores persisted steering queue state when a runtime session is replaced", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+
+		proxy.applyRuntimeEvent({
+			type: "session_replaced",
+			agentName: "root",
+			session: { id: "queued-session" },
+			messages: [],
+			steeringQueue: {
+				version: 1,
+				revision: 3,
+				items: [{ id: "steer-1", text: "persisted interrupt", createdAt: 123 }],
+				timestamp: 124,
+			},
+		} as never);
+
+		expect(proxy.getState()).toMatchObject({
+			steeringMessages: ["persisted interrupt"],
+			followUpMessages: [],
+			queued: [expect.objectContaining({ id: "steer-1", kind: "steer", text: "persisted interrupt" })],
+		});
 	});
 
 	it("rebuilds a resumed compacted session as the current realtime page", async () => {

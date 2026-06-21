@@ -137,14 +137,14 @@ describe("d-pi interactive view parity components", () => {
 		expect(lines.join("\n")).toContain("你好");
 	});
 
-	it("keeps queued steering and follow-up messages out of the message list", () => {
+	it("keeps queued steering messages out of the message list and ignores legacy follow-up state", () => {
 		const messageList = buildDPiInteractiveMessageListComponent(snapshot(), { color: false });
 		const pendingMessages = buildDPiInteractivePendingMessagesComponent(snapshot(), { color: false });
 
 		expect(messageList.render(80).join("\n")).not.toContain("Steering:");
 		expect(messageList.render(80).join("\n")).not.toContain("Follow-up:");
 		expect(pendingMessages.render(80).join("\n")).toContain("Steering: interrupt");
-		expect(pendingMessages.render(80).join("\n")).toContain("Follow-up: continue");
+		expect(pendingMessages.render(80).join("\n")).not.toContain("Follow-up: continue");
 		expect(pendingMessages.render(80).join("\n")).toContain("↳ alt+up to edit all queued messages");
 	});
 
@@ -321,7 +321,7 @@ describe("d-pi interactive view parity components", () => {
 		expect(view.text).toContain(" 分析中");
 		expect(view.text).toContain(" 你好，我在。");
 		expect(view.text).toContain("steer queued: interrupt");
-		expect(view.text).toContain("follow-up queued: continue");
+		expect(view.text).not.toContain("follow-up queued: continue");
 		expect(view.text).not.toContain("worker.state");
 		expect(view.text).not.toContain("extensions");
 	});

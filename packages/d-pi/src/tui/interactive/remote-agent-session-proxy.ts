@@ -92,7 +92,7 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	}
 
 	followUp(text: string, images?: Array<{ url: string; mediaType?: string }>): void {
-		void this.post("follow-up", { text, ...(images === undefined ? {} : { images }) });
+		void this.post("steer", { text, ...(images === undefined ? {} : { images }) });
 	}
 
 	abort(): void {
@@ -323,7 +323,7 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 		} else if (event.type === "compaction_end") {
 			this.statusState = { ...this.statusState, isCompacting: false };
 		} else if (event.type === "queue_update") {
-			this.statusState = { ...this.statusState, steeringMessages: event.steering, followUpMessages: event.followUp };
+			this.statusState = { ...this.statusState, steeringMessages: event.steering, followUpMessages: [] };
 		}
 	}
 

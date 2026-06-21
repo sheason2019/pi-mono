@@ -210,6 +210,51 @@ describe("remote-first interactive view model", () => {
 		]);
 	});
 
+	it("posts legacy follow-up calls to the steering endpoint", async () => {
+		const full = snapshot();
+		const { status, realtime } = splitDPiInteractiveSnapshot(full);
+		const requests: Array<{ url: string; body: unknown }> = [];
+		const proxy = new DPiInteractiveRemoteAgentSessionProxy(status, realtime, {
+			baseUrl: "https://dp.example/agents/root",
+			fetch: vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+				requests.push({
+					url: String(input),
+					body: init?.body ? JSON.parse(String(init.body)) : undefined,
+				});
+				return Response.json({ ok: true });
+			}) as unknown as typeof fetch,
+		});
+
+		proxy.followUp("continue", [{ url: "file:///tmp/follow-up.png" }]);
+		await new Promise<void>((resolve) => setImmediate(resolve));
+
+		expect(requests).toEqual([
+			{
+				url: "https://dp.example/agents/root/steer",
+				body: { text: "continue", images: [{ url: "file:///tmp/follow-up.png" }] },
+			},
+		]);
+	});
+
+	it("ignores legacy follow-up entries in queue update events", () => {
+		const full = snapshot();
+		const { status, realtime } = splitDPiInteractiveSnapshot(full);
+		const proxy = new DPiInteractiveRemoteAgentSessionProxy(status, realtime, {
+			baseUrl: "https://dp.example/agents/root",
+			fetch: vi.fn() as unknown as typeof fetch,
+		});
+
+		proxy.applyNamedEventForTest({
+			event: "queue_update",
+			data: JSON.stringify({ type: "queue_update", steering: ["interrupt"], followUp: ["legacy"] }),
+		});
+
+		expect(proxy.getSnapshot()).toMatchObject({
+			steeringMessages: ["interrupt"],
+			followUpMessages: [],
+		});
+	});
+
 	it("creates the remote proxy from status and realtime endpoints instead of a monolithic state endpoint", async () => {
 		const full = snapshot();
 		const { status, realtime } = splitDPiInteractiveSnapshot(full);

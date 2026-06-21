@@ -27,6 +27,7 @@ import type { DPiTranscriptItem } from "./transcript/projector.ts";
 import {
 	createDPiTranscriptBoundaryEntry,
 	createDPiTranscriptNoticeEntry,
+	createDPiTranscriptSteeringQueueEntry,
 	createDPiTranscriptToolStateEntry,
 	createDPiTranscriptTurnStatsEntry,
 	DPiTranscriptCustomTypes,
@@ -240,7 +241,7 @@ function queueItems(messages: DPiAgentMessage[], mode: "steer" | "followUp" | "n
 		text: textFromMessage(message),
 		mode: mode === "next" ? "next" : mode,
 		source: "runtime",
-		createdAt: Date.now(),
+		createdAt: "timestamp" in message && typeof message.timestamp === "number" ? message.timestamp : Date.now(),
 	}));
 }
 
@@ -288,6 +289,7 @@ export class DPiAgentRuntime {
 	private readonly sessionInfo: DPiRuntimeSessionInfo;
 	private activeTurn = false;
 	private turnStartedAt: number | undefined;
+	private steeringQueueRevision = 0;
 
 	constructor(options: DPiAgentRuntimeOptions) {
 		this.agentName = options.agentName;
@@ -348,10 +350,8 @@ export class DPiAgentRuntime {
 		try {
 			const mode = options.mode ?? "next";
 			const harnessOptions = toHarnessOptions(options);
-			if (mode === "steer") {
+			if (mode === "steer" || mode === "followUp") {
 				await this.harness.steer(text, harnessOptions);
-			} else if (mode === "followUp") {
-				await this.harness.followUp(text, harnessOptions);
 			} else {
 				await this.promptNextTurn(text, harnessOptions);
 			}
@@ -495,7 +495,7 @@ export class DPiAgentRuntime {
 
 	private async promptNextTurn(text: string, options?: AgentHarnessPromptOptions): Promise<void> {
 		if (this.activeTurn) {
-			await this.harness.nextTurn(text, options);
+			await this.harness.steer(text, options);
 			return;
 		}
 		this.activeTurn = true;
@@ -504,7 +504,7 @@ export class DPiAgentRuntime {
 			await this.harness.prompt(text, options);
 		} catch (error) {
 			if (isBusyHarnessError(error)) {
-				await this.harness.nextTurn(text, options);
+				await this.harness.steer(text, options);
 				return;
 			}
 			throw error;
@@ -532,6 +532,7 @@ export class DPiAgentRuntime {
 		}
 		if (runtimeEvent.type === "queue_update") {
 			this.queues = cloneQueues(runtimeEvent.queues);
+			await this.persistSteeringQueue(runtimeEvent.queues.prompts);
 		} else if (runtimeEvent.type === "message") {
 			this.messages = [...this.messages, runtimeEvent.message];
 			this.upsertTranscriptItem({
@@ -675,6 +676,31 @@ export class DPiAgentRuntime {
 		}
 	}
 
+	private async persistSteeringQueue(prompts: DPiRuntimeQueues["prompts"]): Promise<void> {
+		this.steeringQueueRevision += 1;
+		await this.session.appendCustomEntry(
+			DPiTranscriptCustomTypes.steeringQueue,
+			createDPiTranscriptSteeringQueueEntry({
+				revision: this.steeringQueueRevision,
+				items: prompts
+					.filter((item) => item.mode === "steer")
+					.map((item) => ({
+						id: item.id,
+						text: item.text,
+						createdAt: item.createdAt,
+						...(item.options?.images
+							? {
+									images: item.options.images.flatMap((image) =>
+										image.url ? [{ url: image.url, mediaType: image.mediaType }] : [],
+									),
+								}
+							: {}),
+					})),
+				timestamp: Date.now(),
+			}),
+		);
+	}
+
 	private async appendTranscriptNotice(level: "error" | "info" | "warning", text: string): Promise<void> {
 		const item: DPiTranscriptItem = {
 			id: `notice-${this.transcriptItems.length}`,
@@ -715,11 +741,7 @@ export class DPiAgentRuntime {
 				type: "queue_update",
 				agentName: this.agentName,
 				queues: {
-					prompts: [
-						...queueItems(event.steer as DPiAgentMessage[], "steer"),
-						...queueItems(event.followUp as DPiAgentMessage[], "followUp"),
-						...queueItems(event.nextTurn as DPiAgentMessage[], "next"),
-					],
+					prompts: queueItems(event.steer as DPiAgentMessage[], "steer"),
 					tools: [],
 				},
 			};

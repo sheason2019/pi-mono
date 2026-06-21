@@ -994,8 +994,8 @@ export class DPiLocalAgentSessionProxy {
 			isStreaming: this.streaming,
 			isCompacting: this.compacting,
 			isBashRunning: false,
-			steeringMessages: this.queued.filter((item) => item.kind === "steer").map((item) => item.text),
-			followUpMessages: this.queued.filter((item) => item.kind === "follow-up").map((item) => item.text),
+			steeringMessages: this.steeringQueueItems().map((item) => item.text),
+			followUpMessages: [],
 			sessionFile: metadata.path,
 			sessionName: this.sessionName,
 			tokenUsage: this.tokenUsage,
@@ -1029,7 +1029,7 @@ export class DPiLocalAgentSessionProxy {
 			messages: [...this.messages],
 			transcriptItems: [...this.transcriptItems],
 			streaming: this.streaming,
-			queued: [...this.queued],
+			queued: this.steeringQueueItems(),
 			...(this.thinking ? { thinking: this.thinking } : {}),
 			extensions: extensionState,
 		};
@@ -1126,8 +1126,8 @@ export class DPiLocalAgentSessionProxy {
 
 	clearQueue(): { steering: string[]; followUp: string[] } {
 		const dropped = {
-			steering: this.queued.filter((item) => item.kind === "steer").map((item) => item.text),
-			followUp: this.queued.filter((item) => item.kind === "follow-up").map((item) => item.text),
+			steering: this.steeringQueueItems().map((item) => item.text),
+			followUp: [],
 		};
 		this.queued.splice(0, this.queued.length);
 		this.emit({ type: "queue", data: { queued: [] } });
@@ -1376,15 +1376,16 @@ export class DPiLocalAgentSessionProxy {
 			this.queued.splice(
 				0,
 				this.queued.length,
-				...event.queues.prompts.map((item): DPiLocalQueueItem => {
-					const kind = item.mode === "followUp" ? "follow-up" : item.mode === "steer" ? "steer" : "prompt";
-					return {
-						id: item.id,
-						kind,
-						text: item.text,
-						timestamp: item.createdAt,
-					};
-				}),
+				...event.queues.prompts
+					.filter((item) => item.mode === "steer")
+					.map((item): DPiLocalQueueItem => {
+						return {
+							id: item.id,
+							kind: "steer",
+							text: item.text,
+							timestamp: item.createdAt,
+						};
+					}),
 			);
 			this.emit({ type: "queue", data: { queued: [...this.queued] } });
 			this.emitState();
@@ -1417,6 +1418,19 @@ export class DPiLocalAgentSessionProxy {
 			this.startRealtimePage("resume", { emit: false });
 			this.importedSessionMessageIds.clear();
 			this.optimisticPromptTexts.splice(0, this.optimisticPromptTexts.length);
+			this.queued.splice(
+				0,
+				this.queued.length,
+				...(event.steeringQueue?.items.map((item): DPiLocalQueueItem => {
+					return {
+						id: item.id,
+						kind: "steer",
+						text: item.text,
+						...(item.images ? { images: item.images } : {}),
+						timestamp: item.createdAt,
+					};
+				}) ?? []),
+			);
 			if (event.transcriptItems) {
 				this.transcriptItems.splice(0, this.transcriptItems.length, ...event.transcriptItems);
 			}
@@ -1466,9 +1480,30 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	async prompt(text: string, options?: { images?: Array<{ url: string; mediaType?: string }> }): Promise<void> {
+		if (this.streaming) {
+			await this.steer(text, options?.images);
+			return;
+		}
+		const prompt = this.messageDispatcher?.prompt;
+		if (prompt) {
+			this.streaming = true;
+		}
 		this.recordLocalInput("prompt", text, options?.images);
-		await dispatchSessionInputHandlers(this.runtime.session, text, "next");
-		await this.messageDispatcher?.prompt?.(text, options);
+		try {
+			await dispatchSessionInputHandlers(this.runtime.session, text, "next");
+			await prompt?.(text, options);
+		} catch (error) {
+			if (prompt) {
+				this.streaming = false;
+				this.emitState();
+			}
+			throw error;
+		} finally {
+			if (prompt && this.streaming) {
+				this.streaming = false;
+				this.emitState();
+			}
+		}
 	}
 
 	async steer(text: string, images?: Array<{ url: string; mediaType?: string }>): Promise<void> {
@@ -1478,9 +1513,7 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	async followUp(text: string, images?: Array<{ url: string; mediaType?: string }>): Promise<void> {
-		this.recordLocalInput("follow-up", text, images);
-		await dispatchSessionInputHandlers(this.runtime.session, text, "followUp");
-		await this.messageDispatcher?.followUp?.(text, images);
+		await this.steer(text, images);
 	}
 
 	abort(): void {
@@ -1758,6 +1791,10 @@ export class DPiLocalAgentSessionProxy {
 			return;
 		}
 		this.transcriptItems[index] = item;
+	}
+
+	private steeringQueueItems(): DPiLocalQueueItem[] {
+		return this.queued.filter((item) => item.kind === "steer").map((item) => ({ ...item }));
 	}
 
 	private emit(event: DPiLocalAgentEvent): void {
