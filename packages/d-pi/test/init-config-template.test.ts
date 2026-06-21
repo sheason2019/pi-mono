@@ -46,7 +46,9 @@ describe("init template: strict-JSON output", () => {
 		expect(existsSync(join(workspace, "agents", "root", "agent.json"))).toBe(false);
 
 		const raw = readFileSync(agentConfigPath, "utf-8");
+		expect(raw).toContain("dPiMessageTuiComponent");
 		expect(raw).toContain("export default defineAgent(");
+		expect(raw).toContain("defineTuiComponent(dPiMessageTuiComponent)");
 		expect(raw).toContain('defineSkill({ dir: "./skills" })');
 		expect(raw).toContain('defineContextFile({ type: "context", path: "./AGENTS.md" })');
 		expect(raw).toContain('defineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" })');
@@ -105,6 +107,7 @@ describe("init template: strict-JSON output", () => {
 		expect(agentsMd).toMatch(/includeTools/);
 		expect(agentsMd).toMatch(/excludeTools/);
 		expect(agentsMd).toMatch(/description/);
+		expect(agentsMd).toMatch(/tuiComponents/);
 		expect(agentsMd).not.toMatch(/agent\.json/);
 		expect(agentsMd).not.toMatch(/sessionId/);
 	});

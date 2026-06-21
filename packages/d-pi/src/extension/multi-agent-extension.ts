@@ -1,16 +1,13 @@
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Box, Container, Markdown, Text } from "@earendil-works/pi-tui";
-import type { ExtensionAPI, ExtensionFactory, MessageRenderer } from "@sheason/pi-coding-agent";
-import { getMarkdownTheme } from "@sheason/pi-coding-agent";
+import type { ExtensionFactory } from "@sheason/pi-coding-agent";
 import type { AgentStatus, SourceInfo, TeamAgentEntry, TeamSnapshot, WorkerToHubMessage } from "../types.ts";
 import { createCreateAgentTool } from "./create-agent.ts";
 import { createDeleteSourceTool } from "./delete-source.ts";
 import { createDestroyAgentTool } from "./destroy-agent.ts";
 import { createGetSourceTool } from "./get-source.ts";
 import { HubChannel } from "./hub-channel.ts";
-import type { MessageMeta } from "./message-meta.ts";
 import { extractMeta, injectMeta } from "./message-meta.ts";
 import { createSendMessageTool } from "./send-message.ts";
 import { createSetSourceTool } from "./set-source.ts";
@@ -66,55 +63,7 @@ export type DPiExtensionConfig = DPiWorkerConfig | DPiClientConfig;
 /** Temp file used by the client-side /agents handler to request an agent switch. */
 export const AGENT_SWITCH_FILE = join(tmpdir(), "d-pi-agent-switch.txt");
 
-// ── Shared helpers (renderer + agent selector formatting) ────────────────
-
-function registerDPiMessageRenderer(pi: ExtensionAPI): void {
-	pi.registerMessageRenderer<MessageMeta>("d-pi-message", (message, _options, theme) => {
-		const rawText = messageContentToText(message.content);
-		const extracted = extractMeta(rawText);
-		const meta = extracted?.meta ?? message.details;
-		if (!meta) {
-			return undefined;
-		}
-		const textContent = extracted?.text ?? rawText;
-
-		let source: string = meta.sourceType;
-		if (meta.sourceType === "connect" && meta.connectId) {
-			source = `${source} ${meta.connectId}`;
-		} else if (meta.sourceName) {
-			source = `${source}:${meta.sourceName}`;
-		} else if (meta.agentName) {
-			source = `${source}:${meta.agentName}`;
-		}
-		const headerParts = [source, meta.auth?.name, meta.createTime].filter((part) => part?.trim());
-
-		const container = new Container();
-		container.addChild(new Text(theme.fg("warning", headerParts.join(" · ")), 0, 0));
-		if (textContent) {
-			const box = new Box(1, 1, (t: string) => theme.bg("userMessageBg", t));
-			box.addChild(
-				new Markdown(textContent, 0, 0, getMarkdownTheme(), {
-					color: (t: string) => theme.fg("userMessageText", t),
-				}),
-			);
-			container.addChild(box);
-		}
-		return container;
-	});
-}
-
-function messageContentToText(content: Parameters<MessageRenderer<MessageMeta>>[0]["content"]): string {
-	if (typeof content === "string") {
-		return content;
-	}
-	const textParts: string[] = [];
-	for (const part of content) {
-		if (part.type === "text") {
-			textParts.push(part.text);
-		}
-	}
-	return textParts.join("\n");
-}
+// ── Shared helpers (agent selector formatting) ───────────────────────────
 
 /** Map agent status to a visual indicator (used by the /agents selector). */
 function statusIndicator(status: AgentStatus): string {
@@ -191,9 +140,6 @@ export function createMultiAgentExtension(config: DPiExtensionConfig): {
 
 function createMultiAgentWorkerFactory(channel: HubChannel): ExtensionFactory {
 	return (pi) => {
-		// Shared d-pi message rendering (connect / source / peer agent headers)
-		registerDPiMessageRenderer(pi);
-
 		// Core multi-agent tools (everything except remote execution)
 		pi.registerTool(createSendMessageTool(channel));
 		pi.registerTool(createCreateAgentTool(channel));
@@ -266,8 +212,6 @@ function createMultiAgentWorkerFactory(channel: HubChannel): ExtensionFactory {
 
 function createMultiAgentClientFactory(config: DPiClientConfig): ExtensionFactory {
 	return (pi) => {
-		registerDPiMessageRenderer(pi);
-
 		// Real /sources command handler (runs in the connected TUI process)
 		pi.registerCommand("sources", {
 			description: "List all registered sources",

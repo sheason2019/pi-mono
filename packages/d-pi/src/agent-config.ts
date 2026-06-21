@@ -106,7 +106,7 @@ export function buildAgentTsSource(
 		excludeTools: config.excludeTools,
 	});
 	const lines = [
-		'import { defineAgent, defineContextFile, defineModel, defineSkill, defineTool } from "@sheason/d-pi";',
+		'import { dPiMessageTuiComponent, defineAgent, defineContextFile, defineModel, defineSkill, defineTool, defineTuiComponent } from "@sheason/d-pi";',
 	];
 	if (config.parentName) {
 		lines.push(`import parentAgent from "../${config.parentName}/agent.ts";`);
@@ -133,6 +133,9 @@ export function buildAgentTsSource(
 	for (const toolName of toolNames) {
 		lines.push(`\t\tdefineTool({ name: ${JSON.stringify(toolName)} }),`);
 	}
+	lines.push("\t],");
+	lines.push("\ttuiComponents: [");
+	lines.push("\t\tdefineTuiComponent(dPiMessageTuiComponent),");
 	lines.push("\t],");
 	lines.push("\tcontextFiles: [");
 	lines.push('\t\tdefineContextFile({ type: "context", path: "./AGENTS.md" }),');

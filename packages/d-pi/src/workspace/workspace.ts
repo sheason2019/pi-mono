@@ -300,6 +300,7 @@ Each agent exports a standard definition:
 - \`tools\` (required): array of \`defineTool({ name })\` entries.
   This is the effective tool set for the agent. Unknown tool names are rejected during migration.
   Legacy \`includeTools\` / \`excludeTools\` configs are migrated into this effective \`tools\` array.
+- \`tuiComponents\` (optional): array of \`defineTuiComponent(...)\` entries. Declare custom message rendering here explicitly; d-pi does not scan a \`tui-components/\` directory by convention.
 - \`contextFiles\` (required): include \`./AGENTS.md\` as \`context\` and \`./.pi/APPEND_SYSTEM.md\` as \`append_system\`.
 `,
 		);

@@ -31,6 +31,7 @@ import {
 import { formatAgentIdentitySection, readAgentIdentitySync } from "../hub/agent-identity.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
+import { buildWorkerAdditionalExtensionPaths } from "./resource-paths.ts";
 
 const dPiClientExtensionPath = new URL(
 	`../extension/client-extension${import.meta.url.endsWith(".ts") ? ".ts" : ".js"}`,
@@ -148,10 +149,11 @@ async function runAgentWorker(): Promise<void> {
 		// sections from the live on-disk state.
 		const workspaceRoot = config.workspaceContext?.workspaceRoot;
 		const additionalSkillPaths = config.workspaceContext?.additionalSkillPaths ?? [];
-		const additionalExtensionPaths = [
+		const additionalExtensionPaths = buildWorkerAdditionalExtensionPaths({
+			agentCwd: opts.cwd,
 			dPiClientExtensionPath,
-			...(config.workspaceContext?.additionalExtensionPaths ?? []),
-		];
+			workspaceAdditionalExtensionPaths: config.workspaceContext?.additionalExtensionPaths ?? [],
+		});
 
 		// Re-read the workspace context and this agent's identity
 		// from disk. Called on every reload (and once at startup)

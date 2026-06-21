@@ -1,3 +1,5 @@
+import type { Component } from "@earendil-works/pi-tui";
+
 export interface AgentToolDefinition {
 	name: string;
 }
@@ -16,6 +18,33 @@ export interface AgentModelDefinition {
 	name: string;
 }
 
+export interface AgentTuiCustomMessage<T = unknown> {
+	customType: string;
+	content: unknown;
+	display?: boolean;
+	details?: T;
+}
+
+export interface AgentTuiRenderOptions {
+	expanded: boolean;
+}
+
+export interface AgentTuiTheme {
+	fg(name: string, text: string): string;
+	bg(name: string, text: string): string;
+}
+
+export type AgentTuiComponentRenderer<T = unknown> = (
+	message: AgentTuiCustomMessage<T>,
+	options: AgentTuiRenderOptions,
+	theme: AgentTuiTheme,
+) => Component | undefined;
+
+export interface AgentTuiComponentDefinition<T = unknown> {
+	customType: string;
+	render: AgentTuiComponentRenderer<T>;
+}
+
 export interface AgentDefinition {
 	/** Imported parent agent definition. This builds topology only; it does not imply inheritance. */
 	parent?: AgentDefinition;
@@ -23,6 +52,7 @@ export interface AgentDefinition {
 	roles?: string[];
 	model?: AgentModelDefinition;
 	tools: AgentToolDefinition[];
+	tuiComponents?: AgentTuiComponentDefinition[];
 	skills: AgentSkillDefinition;
 	contextFiles: AgentContextFileDefinition[];
 }
@@ -40,6 +70,10 @@ export function defineContextFile(input: AgentContextFileDefinition): AgentConte
 }
 
 export function defineModel(input: AgentModelDefinition): AgentModelDefinition {
+	return input;
+}
+
+export function defineTuiComponent<T = unknown>(input: AgentTuiComponentDefinition<T>): AgentTuiComponentDefinition<T> {
 	return input;
 }
 

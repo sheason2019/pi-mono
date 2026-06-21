@@ -210,4 +210,9 @@ export type {
 	AgentModelDefinition,
 	AgentSkillDefinition,
 	AgentToolDefinition,
+	AgentTuiComponentDefinition,
+	AgentTuiComponentRenderer,
+	AgentTuiCustomMessage,
+	AgentTuiRenderOptions,
+	AgentTuiTheme,
 } from "./agent-definition.ts";

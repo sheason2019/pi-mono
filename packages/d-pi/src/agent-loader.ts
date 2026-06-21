@@ -6,6 +6,7 @@ import type {
 	AgentModelDefinition,
 	AgentSkillDefinition,
 	AgentToolDefinition,
+	AgentTuiComponentDefinition,
 } from "./agent-definition.ts";
 
 export interface LoadedAgentDefinition extends AgentDefinition {
@@ -48,6 +49,18 @@ function assertModel(value: unknown): asserts value is AgentModelDefinition {
 	}
 }
 
+function assertTuiComponent(value: unknown, index: number): asserts value is AgentTuiComponentDefinition {
+	if (!isRecord(value)) {
+		throw new TypeError(`Agent definition tuiComponents[${index}] must be an object`);
+	}
+	if (typeof value.customType !== "string") {
+		throw new TypeError(`Agent definition tuiComponents[${index}].customType must be a string`);
+	}
+	if (typeof value.render !== "function") {
+		throw new TypeError(`Agent definition tuiComponents[${index}].render must be a function`);
+	}
+}
+
 function assertAgentDefinition(value: unknown): asserts value is AgentDefinition {
 	if (!isRecord(value)) {
 		throw new TypeError("Agent file must default export an object definition");
@@ -76,6 +89,14 @@ function assertAgentDefinition(value: unknown): asserts value is AgentDefinition
 	}
 	if (value.model !== undefined) {
 		assertModel(value.model);
+	}
+	if (value.tuiComponents !== undefined) {
+		if (!Array.isArray(value.tuiComponents)) {
+			throw new TypeError("Agent definition tuiComponents must be an array");
+		}
+		for (let index = 0; index < value.tuiComponents.length; index++) {
+			assertTuiComponent(value.tuiComponents[index], index);
+		}
 	}
 	if (value.parent !== undefined) {
 		assertAgentDefinition(value.parent);

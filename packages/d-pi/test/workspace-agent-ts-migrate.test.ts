@@ -83,7 +83,9 @@ describe("d-pi agent-ts migration", () => {
 		expect(readWorkspaceVersion(workspaceRoot)).toBe(result.toVersion);
 
 		const rootAgentTs = readFileSync(join(workspaceRoot, "agents", "root", "agent.ts"), "utf-8");
+		expect(rootAgentTs).toContain("dPiMessageTuiComponent");
 		expect(rootAgentTs).toContain("defineAgent(");
+		expect(rootAgentTs).toContain("defineTuiComponent(dPiMessageTuiComponent)");
 		expect(rootAgentTs).toContain('defineModel({ provider: "anthropic", name: "claude-sonnet-4" })');
 		expect(rootAgentTs).toContain('defineSkill({ dir: "./skills" })');
 		expect(rootAgentTs).toContain('defineContextFile({ type: "context", path: "./AGENTS.md" })');
@@ -95,6 +97,7 @@ describe("d-pi agent-ts migration", () => {
 
 		const reviewerAgentTs = readFileSync(join(workspaceRoot, "agents", "reviewer", "agent.ts"), "utf-8");
 		expect(reviewerAgentTs).toContain('import parentAgent from "../root/agent.ts"');
+		expect(reviewerAgentTs).toContain("defineTuiComponent(dPiMessageTuiComponent)");
 		expect(reviewerAgentTs).toContain("parent: parentAgent");
 		expect(reviewerAgentTs).toContain('roles: ["reviewer"]');
 		expect(reviewerAgentTs).toContain('defineTool({ name: "team" })');

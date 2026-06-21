@@ -11,31 +11,36 @@ import {
 import { describe, expect, it } from "vitest";
 import { createDPiExtension } from "../src/extension/index.ts";
 import { injectMeta } from "../src/extension/message-meta.ts";
+import { dPiMessageTuiComponent } from "../src/tui-components/d-pi-message.ts";
 
 const fakeTheme = {
 	bg: (_name: string, text: string) => text,
 	fg: (_name: string, text: string) => text,
 };
 
+function createRecordingTheme(): typeof fakeTheme & { fgCalls: string[]; bgCalls: string[] } {
+	const fgCalls: string[] = [];
+	const bgCalls: string[] = [];
+	return {
+		fgCalls,
+		bgCalls,
+		bg: (name: string, text: string) => {
+			bgCalls.push(name);
+			return text;
+		},
+		fg: (name: string, text: string) => {
+			fgCalls.push(name);
+			return text;
+		},
+	};
+}
+
 function stripAnsi(text: string): string {
 	return text.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
 function getDPiMessageRenderer(): MessageRenderer {
-	let renderer: MessageRenderer | undefined;
-	const { factory } = createDPiExtension({ mode: "client", hubUrl: "http://localhost:9090" });
-	const api = {
-		on: () => {},
-		registerMessageRenderer: (_customType: string, nextRenderer: MessageRenderer) => {
-			renderer = nextRenderer;
-		},
-		registerCommand: () => {},
-	} as unknown as ExtensionAPI;
-	factory(api);
-	if (!renderer) {
-		throw new Error("d-pi message renderer was not registered");
-	}
-	return renderer;
+	return dPiMessageTuiComponent.render as MessageRenderer;
 }
 
 type SendMessageCall = {
@@ -95,9 +100,28 @@ function messageContentText(content: SendMessageCall["message"]["content"]): str
 }
 
 describe("d-pi message renderer", () => {
+	it("exports d-pi-message rendering as a tui component definition", () => {
+		initTheme("dark");
+		const component = dPiMessageTuiComponent.render(
+			{
+				customType: "d-pi-message",
+				content: injectMeta("hello **world**", "agent", undefined, { agentName: "agent-1" }),
+				display: true,
+				details: undefined,
+			},
+			{ expanded: false },
+			fakeTheme,
+		) as Component | undefined;
+
+		expect(dPiMessageTuiComponent.customType).toBe("d-pi-message");
+		expect(component).toBeDefined();
+		expect(component!.render(80).map(stripAnsi).join("\n")).toContain("hello world");
+	});
+
 	it("renders meta as a header and message body as a user message bubble", () => {
 		initTheme("dark");
 		const renderer = getDPiMessageRenderer();
+		const recordingTheme = createRecordingTheme();
 		const component = renderer(
 			{
 				role: "custom",
@@ -108,17 +132,22 @@ describe("d-pi message renderer", () => {
 				timestamp: Date.now(),
 			},
 			{ expanded: false },
-			fakeTheme as never,
+			recordingTheme as never,
 		) as Component | undefined;
 
 		expect(component).toBeDefined();
-		const rendered = component!.render(80).map(stripAnsi);
+		const raw = component!.render(80).join("\n");
+		const rendered = raw.split("\n").map(stripAnsi);
 		const text = rendered.join("\n");
 
 		expect(text).toContain("agent:agent-1 · ");
 		expect(text).not.toContain("agent:agent-1 - ");
 		expect(text).toContain("hello world");
 		expect(text).not.toContain("[meta(");
+		expect(raw).not.toContain("\x1b]133;A\x07");
+		expect(recordingTheme.fgCalls).toContain("warning");
+		expect(recordingTheme.fgCalls).not.toContain("mdHeading");
+		expect(recordingTheme.bgCalls).toContain("userMessageBg");
 		expect(rendered.some((line) => visibleWidth(line) === 80)).toBe(true);
 	});
 
