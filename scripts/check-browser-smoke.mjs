@@ -30,7 +30,11 @@ try {
 	}
 
 	const baseError = error instanceof Error ? (error.stack ?? error.message) : String(error);
-	writeFileSync(errorLogPath, [detailedErrors, baseError].filter(Boolean).join("\n\n"), "utf-8");
+	const errorDetails = [detailedErrors, baseError].filter(Boolean).join("\n\n");
+	writeFileSync(errorLogPath, errorDetails, "utf-8");
 	console.error(`Browser smoke check failed. See ${errorLogPath}`);
+	if (errorDetails) {
+		console.error(errorDetails);
+	}
 	process.exit(1);
 }
