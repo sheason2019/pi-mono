@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type DiscoveredAgent, discoverPersistedAgents, orderAgentsForRestore } from "../src/hub/restore-agents.ts";
 import type { AgentConfig } from "../src/types.ts";
 
+type StderrWriteCall = [string | Uint8Array, BufferEncoding?, ((err?: Error) => void)?];
+
 interface TestAgentConfig extends AgentConfig {
 	toolNames?: string[];
 }
@@ -172,7 +174,7 @@ describe("discoverPersistedAgents + orderAgentsForRestore", () => {
 			const discovered = await discoverPersistedAgents(workspace);
 			const names = discovered.map((d) => d.config.name);
 			expect(names).toEqual(["root"]); // broken is silently dropped
-			const warned = stderr.mock.calls.some((call) =>
+			const warned = stderr.mock.calls.some((call: StderrWriteCall) =>
 				String(call[0]).includes("Failed to read agent.ts from broken/"),
 			);
 			expect(warned).toBe(true);

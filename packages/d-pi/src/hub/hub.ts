@@ -5,6 +5,7 @@ import { Worker } from "node:worker_threads";
 import { AGENT_SESSION_DIR, AGENT_TS_FILE, writeAgentTsConfig } from "../agent-config.ts";
 import { AuthSessionManager } from "../auth/auth-session.ts";
 import { DEFAULT_HUB_PORT } from "../defaults.ts";
+import { formatDPiMetaMessage } from "../message-meta.ts";
 import type {
 	AgentConfig,
 	CreateAgentResult,
@@ -461,7 +462,7 @@ export class Hub {
 						targetAgent.worker.postMessage({
 							type: "message",
 							fromAgentName,
-							content: p.message,
+							content: formatDPiMetaMessage({ sourceType: "agent", agentName: fromAgentName }, p.message),
 							mode,
 						} satisfies HubToWorkerMessage);
 						result = { ok: true } satisfies SendMessageResult;

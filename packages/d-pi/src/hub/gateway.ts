@@ -2,6 +2,7 @@ import { randomUUID as gatewayRandomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { AuthSessionInfo, AuthSessionManager } from "../auth/auth-session.ts";
+import { formatDPiMetaMessage } from "../message-meta.ts";
 import {
 	type DPiJsonValue,
 	type DPiServiceActionRequest,
@@ -1025,6 +1026,7 @@ export class HubGateway {
 
 		// Dispatch via IPC to the worker
 		const requestId = gatewayRandomUUID();
+		const payload = cleanPath === "prompt" ? this._withTrustedPromptAuth(body, auth) : body;
 
 		if (method === "GET") {
 			agent.worker.postMessage({
@@ -1037,7 +1039,7 @@ export class HubGateway {
 				type: "http_request",
 				requestId,
 				action: cleanPath,
-				data: body,
+				data: payload,
 			} satisfies HubToWorkerMessage);
 		}
 
@@ -1148,5 +1150,16 @@ export class HubGateway {
 			req.on("end", () => resolve(Buffer.concat(chunks).toString()));
 			req.on("error", reject);
 		});
+	}
+
+	private _withTrustedPromptAuth(body: unknown, session: AuthSessionInfo): unknown {
+		if (!this._isRecord(body) || typeof body.text !== "string") {
+			return body;
+		}
+		return {
+			...body,
+			text: formatDPiMetaMessage({ auth: session.auth }, body.text),
+			auth: session.auth,
+		};
 	}
 }

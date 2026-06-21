@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { formatAgentIdentitySection, loadAgentIdentity } from "../src/hub/agent-identity.ts";
 import type { AgentConfig } from "../src/types.ts";
 
+type StderrWriteCall = [string | Uint8Array, BufferEncoding?, ((err?: Error) => void)?];
+
 /**
  * Tests for the agent.ts → system-prompt bridge. The worker
  * reads its own cwd/agent.ts at session start and inlines the
@@ -96,7 +98,9 @@ describe("loadAgentIdentity", () => {
 		try {
 			const config = await loadAgentIdentity(dir);
 			expect(config).toBeUndefined();
-			const warned = stderrSpy.mock.calls.some((call) => String(call[0]).includes("Failed to load agent.ts"));
+			const warned = stderrSpy.mock.calls.some((call: StderrWriteCall) =>
+				String(call[0]).includes("Failed to load agent.ts"),
+			);
 			expect(warned).toBe(true);
 		} finally {
 			stderrSpy.mockRestore();

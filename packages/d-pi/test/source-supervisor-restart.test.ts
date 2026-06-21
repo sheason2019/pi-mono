@@ -182,8 +182,10 @@ describe("SourceManager supervisor (regression for sheason2019/pi-mono#2)", () =
 			CREATOR,
 		);
 
-		// 3 attempts × ~200ms backoff = ~600ms. Give it 3s of head-room.
-		await waitFor(() => manager.getSourceStats("doomed-source")?.status === "failed", 3_000, 20);
+		// 3 attempts complete quickly in isolation, but the full suite has
+		// many concurrent child-process tests. Give CI enough head-room for
+		// process scheduling without weakening the behavior assertion.
+		await waitFor(() => manager.getSourceStats("doomed-source")?.status === "failed", 8_000, 20);
 
 		const finalStats = manager.getSourceStats("doomed-source");
 		expect(finalStats?.status).toBe("failed");
