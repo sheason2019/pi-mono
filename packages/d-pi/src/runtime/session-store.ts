@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import type { JsonlSessionMetadata, Session } from "@earendil-works/pi-agent-core/node";
 import { JsonlSessionRepo, NodeExecutionEnv, SessionError } from "@earendil-works/pi-agent-core/node";
 import { createDPiRuntimeError } from "./errors.ts";
@@ -82,6 +83,7 @@ export class DPiSessionStore {
 				parentSessionPath: options.parentSessionPath,
 			});
 			const metadata = await session.getMetadata();
+			mkdirSync(dirname(metadata.path), { recursive: true });
 			return { session, metadata, info: toRuntimeInfo(metadata) };
 		} catch (error) {
 			mapSessionError(error);
@@ -95,6 +97,7 @@ export class DPiSessionStore {
 				throw new SessionError("not_found", `Session not found: ${sessionId}`);
 			}
 			const session = await this.repo.open(metadata);
+			mkdirSync(dirname(metadata.path), { recursive: true });
 			return { session, metadata, info: toRuntimeInfo(metadata) };
 		} catch (error) {
 			mapSessionError(error);
@@ -109,6 +112,7 @@ export class DPiSessionStore {
 				return undefined;
 			}
 			const session = await this.repo.open(metadata);
+			mkdirSync(dirname(metadata.path), { recursive: true });
 			return { session, metadata, info: toRuntimeInfo(metadata) };
 		} catch (error) {
 			mapSessionError(error);

@@ -279,6 +279,33 @@ describe("d-pi native interactive components", () => {
 		expect(component.render(80).join("\n")).toContain("TPS 10.0 tok/s");
 	});
 
+	it("keeps a blank line above transcript turn stats", () => {
+		const state = {
+			...snapshot(),
+			transcriptItems: [
+				{ id: "message-1", type: "message" as const, message: snapshot().messages[0]!, timestamp: 1 },
+				{ id: "message-2", type: "message" as const, message: snapshot().messages[1]!, timestamp: 2 },
+				{
+					id: "turn-stats-1",
+					type: "turn_stats" as const,
+					tps: 10,
+					output: 1,
+					input: 2,
+					cacheRead: 0,
+					cacheWrite: 0,
+					total: 3,
+					duration: 0.1,
+					timestamp: 3,
+				},
+			],
+		};
+		const component = buildDPiInteractiveMessageListComponent(state);
+
+		expect(component.children[2]).toBeInstanceOf(Spacer);
+		expect(component.children[3]).toBeInstanceOf(Text);
+		expect(component.render(80).join("\n")).toContain("TPS 10.0 tok/s");
+	});
+
 	it("keeps turn stats attached to the assistant turn they were produced for", () => {
 		const state = {
 			...snapshot(),

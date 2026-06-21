@@ -20,14 +20,18 @@ import {
 } from "@earendil-works/pi-agent-core/node";
 import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import type { DPiContextManager } from "../context/context-manager.ts";
-import {
-	buildDPiCurrentPageMessagesFromSessionEntries,
-	createDPiPersistedCompactDivider,
-	DPI_COMPACT_DIVIDER_ENTRY_TYPE,
-} from "./current-page.ts";
 import { createDPiRuntimeError, isDPiRuntimeError } from "./errors.ts";
 import type { DPiRuntimeEvent } from "./events.ts";
 import type { DPiModelManager } from "./model-manager.ts";
+import type { DPiTranscriptItem } from "./transcript/projector.ts";
+import {
+	createDPiTranscriptBoundaryEntry,
+	createDPiTranscriptNoticeEntry,
+	createDPiTranscriptToolStateEntry,
+	createDPiTranscriptTurnStatsEntry,
+	DPiTranscriptCustomTypes,
+	projectDPiTranscript,
+} from "./transcript/projector.ts";
 import type {
 	DPiAgentMessage,
 	DPiJsonValue,
@@ -257,6 +261,14 @@ function toolQueueItem(event: {
 	};
 }
 
+function toolNameFromResult(result: unknown): string | undefined {
+	if (typeof result !== "object" || result === null || !("toolName" in result)) {
+		return undefined;
+	}
+	const toolName = (result as { toolName?: unknown }).toolName;
+	return typeof toolName === "string" ? toolName : undefined;
+}
+
 export class DPiAgentRuntime {
 	private readonly agentName: string;
 	private readonly connectId: string | undefined;
@@ -272,6 +284,7 @@ export class DPiAgentRuntime {
 	private context: DPiRuntimeContextInfo;
 	private queues: DPiRuntimeQueues = { prompts: [], tools: [] };
 	private messages: DPiAgentMessage[] = [];
+	private transcriptItems: DPiTranscriptItem[] = [];
 	private readonly sessionInfo: DPiRuntimeSessionInfo;
 	private activeTurn = false;
 	private turnStartedAt: number | undefined;
@@ -288,6 +301,12 @@ export class DPiAgentRuntime {
 		this.context = loadContextInfo(this.contextManager);
 		this.sessionInfo = options.sessionInfo ?? { id: "unknown" };
 		this.messages = options.initialMessages?.map((message) => ({ ...message })) ?? [];
+		this.transcriptItems = this.messages.map((message, index) => ({
+			id: `initial-message-${index}`,
+			type: "message",
+			message,
+			timestamp: "timestamp" in message && typeof message.timestamp === "number" ? message.timestamp : Date.now(),
+		}));
 		const env = options.env ?? new NodeExecutionEnv({ cwd: this.cwd });
 		const factory =
 			options.harnessFactory ??
@@ -317,9 +336,7 @@ export class DPiAgentRuntime {
 			activeToolNames: options.activeToolNames,
 			thinkingLevel: options.thinkingLevel,
 		});
-		this.unsubscribeHarness = this.harness.subscribe((event) => {
-			void this.handleHarnessEvent(event);
-		});
+		this.unsubscribeHarness = this.harness.subscribe((event) => this.handleHarnessEvent(event));
 	}
 
 	subscribe(listener: (event: DPiRuntimeEvent) => Promise<void> | void): () => void {
@@ -399,15 +416,20 @@ export class DPiAgentRuntime {
 		const completedAt = Date.now();
 		const durationMs = completedAt - startedAt;
 		const label = `Compact completed ${Math.max(1, Math.ceil(durationMs / 1000))}s`;
-		const divider = createDPiPersistedCompactDivider(
-			label,
-			result.value.summary,
-			result.value.tokensBefore,
-			durationMs,
-			completedAt,
+		await this.session.appendCustomEntry(
+			DPiTranscriptCustomTypes.boundary,
+			createDPiTranscriptBoundaryEntry({
+				reason: "compact",
+				label,
+				summary: result.value.summary,
+				tokensBefore: result.value.tokensBefore,
+				durationMs,
+				completedAt,
+			}),
 		);
-		await this.session.appendCustomEntry(DPI_COMPACT_DIVIDER_ENTRY_TYPE, divider);
-		const currentPageMessages = buildDPiCurrentPageMessagesFromSessionEntries(await this.session.getBranch());
+		const transcript = projectDPiTranscript(await this.session.getBranch());
+		const currentPageMessages = transcript.messages;
+		this.transcriptItems = transcript.items;
 		this.messages =
 			currentPageMessages.length > 0
 				? currentPageMessages
@@ -424,6 +446,7 @@ export class DPiAgentRuntime {
 					completedAt,
 				},
 			},
+			transcriptItems: this.transcriptItems.map((item) => ({ ...item })),
 			messages: this.messages.map((message) => ({ ...message })),
 		};
 	}
@@ -437,6 +460,7 @@ export class DPiAgentRuntime {
 			cwd: this.cwd,
 			context: this.cloneContext(),
 			messages: this.messages.map((message) => ({ ...message })),
+			transcriptItems: this.transcriptItems.map((item) => ({ ...item })),
 			streaming: { active: this.activeTurn },
 			compaction: { status: "idle", queued: false },
 			bash: { active: false, cwd: this.cwd, commands: [] },
@@ -510,12 +534,32 @@ export class DPiAgentRuntime {
 			this.queues = cloneQueues(runtimeEvent.queues);
 		} else if (runtimeEvent.type === "message") {
 			this.messages = [...this.messages, runtimeEvent.message];
+			this.upsertTranscriptItem({
+				id: `message-${this.transcriptItems.length}`,
+				type: "message",
+				message: runtimeEvent.message,
+				timestamp:
+					"timestamp" in runtimeEvent.message && typeof runtimeEvent.message.timestamp === "number"
+						? runtimeEvent.message.timestamp
+						: Date.now(),
+			});
 		} else if (runtimeEvent.type === "assistant_stream" && runtimeEvent.message && runtimeEvent.done) {
 			this.messages = [...this.messages, runtimeEvent.message];
+			this.upsertTranscriptItem({
+				id: `message-${this.transcriptItems.length}`,
+				type: "message",
+				message: runtimeEvent.message,
+				timestamp:
+					"timestamp" in runtimeEvent.message && typeof runtimeEvent.message.timestamp === "number"
+						? runtimeEvent.message.timestamp
+						: Date.now(),
+			});
 		} else if (runtimeEvent.type === "error") {
+			await this.appendTranscriptNotice("error", runtimeEvent.error.message);
 			await this.emit(runtimeEvent);
 			return;
 		}
+		await this.appendTranscriptEvent(runtimeEvent);
 		await this.emit(runtimeEvent);
 	}
 
@@ -542,7 +586,7 @@ export class DPiAgentRuntime {
 		if (total === 0) {
 			return;
 		}
-		await this.emit({
+		const stats = {
 			type: "turn_stats",
 			agentName: this.agentName,
 			tps: duration > 0 ? output / duration : 0,
@@ -552,7 +596,111 @@ export class DPiAgentRuntime {
 			cacheWrite,
 			total,
 			duration,
+		} as const;
+		await this.session.appendCustomEntry(
+			DPiTranscriptCustomTypes.turnStats,
+			createDPiTranscriptTurnStatsEntry({
+				tps: stats.tps,
+				output,
+				input,
+				cacheRead,
+				cacheWrite,
+				total,
+				duration,
+				timestamp: Date.now(),
+			}),
+		);
+		this.upsertTranscriptItem({
+			id: `turn-stats-${this.transcriptItems.length}`,
+			type: "turn_stats",
+			tps: stats.tps,
+			output,
+			input,
+			cacheRead,
+			cacheWrite,
+			total,
+			duration,
+			timestamp: Date.now(),
 		});
+		await this.emit(stats);
+	}
+
+	private async appendTranscriptEvent(event: DPiRuntimeEvent): Promise<void> {
+		if (event.type === "tool_start") {
+			const item: DPiTranscriptItem = {
+				id: `tool-state-${event.tool.id}`,
+				type: "tool_state",
+				toolCallId: event.tool.id,
+				toolName: event.tool.name,
+				status: "running",
+				...(event.tool.args === undefined ? {} : { args: event.tool.args }),
+				timestamp: event.tool.startedAt,
+			};
+			await this.session.appendCustomEntry(
+				DPiTranscriptCustomTypes.toolState,
+				createDPiTranscriptToolStateEntry({
+					toolCallId: item.toolCallId,
+					toolName: item.toolName,
+					status: item.status,
+					...(item.args === undefined ? {} : { args: item.args }),
+					timestamp: item.timestamp,
+				}),
+			);
+			this.upsertTranscriptItem(item);
+			return;
+		}
+		if (event.type === "tool_end") {
+			const item: DPiTranscriptItem = {
+				id: `tool-state-${event.toolCallId}`,
+				type: "tool_state",
+				toolCallId: event.toolCallId,
+				toolName: event.toolName ?? toolNameFromResult(event.result) ?? event.toolCallId,
+				status: event.status,
+				...(event.result === undefined ? {} : { result: event.result }),
+				...(event.error === undefined ? {} : { error: event.error }),
+				timestamp: event.endedAt,
+			};
+			await this.session.appendCustomEntry(
+				DPiTranscriptCustomTypes.toolState,
+				createDPiTranscriptToolStateEntry({
+					toolCallId: item.toolCallId,
+					toolName: item.toolName,
+					status: item.status,
+					...(item.result === undefined ? {} : { result: item.result }),
+					...(item.error === undefined ? {} : { error: item.error }),
+					timestamp: item.timestamp,
+				}),
+			);
+			this.upsertTranscriptItem(item);
+		}
+	}
+
+	private async appendTranscriptNotice(level: "error" | "info" | "warning", text: string): Promise<void> {
+		const item: DPiTranscriptItem = {
+			id: `notice-${this.transcriptItems.length}`,
+			type: "notice",
+			level,
+			text,
+			timestamp: Date.now(),
+		};
+		await this.session.appendCustomEntry(
+			DPiTranscriptCustomTypes.notice,
+			createDPiTranscriptNoticeEntry({
+				level: item.level,
+				text: item.text,
+				timestamp: item.timestamp,
+			}),
+		);
+		this.upsertTranscriptItem(item);
+	}
+
+	private upsertTranscriptItem(item: DPiTranscriptItem): void {
+		const index = this.transcriptItems.findIndex((candidate) => candidate.id === item.id);
+		if (index < 0) {
+			this.transcriptItems.push(item);
+			return;
+		}
+		this.transcriptItems[index] = item;
 	}
 
 	private normalizeHarnessEvent(event: DPiAgentHarnessEvent): DPiRuntimeEvent | undefined {
@@ -626,6 +774,7 @@ export class DPiAgentRuntime {
 				type: "tool_end",
 				agentName: this.agentName,
 				toolCallId: tool.id,
+				toolName: event.toolName,
 				status: event.isError ? "failed" : "succeeded",
 				result: tool.result,
 				endedAt: Date.now(),

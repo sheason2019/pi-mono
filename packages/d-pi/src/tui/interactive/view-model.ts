@@ -1,6 +1,7 @@
+import type { DPiTranscriptItem } from "../../runtime/transcript/projector.ts";
 import type { DPiInteractiveSessionStateSnapshot } from "./agent-session-proxy.ts";
 
-export type DPiInteractiveStatusState = Omit<DPiInteractiveSessionStateSnapshot, "messages">;
+export type DPiInteractiveStatusState = Omit<DPiInteractiveSessionStateSnapshot, "messages" | "transcriptItems">;
 
 export interface DPiInteractiveRealtimeMessage {
 	id?: string;
@@ -21,6 +22,7 @@ export interface DPiInteractiveRealtimePage {
 export interface DPiInteractiveRealtimeState {
 	cursor: number;
 	page: DPiInteractiveRealtimePage;
+	items: readonly DPiTranscriptItem[];
 	messages: readonly DPiInteractiveRealtimeMessage[];
 }
 
@@ -33,13 +35,15 @@ export interface DPiInteractiveRealtimeSnapshotEvent {
 	type: "snapshot";
 	cursor: number;
 	page: DPiInteractiveRealtimePage;
+	items?: readonly DPiTranscriptItem[];
 	messages: readonly DPiInteractiveRealtimeMessage[];
 }
 
 export interface DPiInteractiveRealtimeUpsertEvent {
 	type: "upsert";
 	cursor: number;
-	message: DPiInteractiveRealtimeMessage;
+	item?: DPiTranscriptItem;
+	message?: DPiInteractiveRealtimeMessage;
 }
 
 export interface DPiInteractiveRealtimeDeleteEvent {
@@ -52,12 +56,13 @@ export function splitDPiInteractiveSnapshot(snapshot: DPiInteractiveSessionState
 	status: DPiInteractiveStatusState;
 	realtime: DPiInteractiveRealtimeState;
 } {
-	const { messages, ...status } = snapshot;
+	const { messages, transcriptItems, ...status } = snapshot;
 	return {
 		status,
 		realtime: {
 			cursor: messages.length,
 			page: createDPiInteractiveRealtimePage("initial", 0),
+			items: transcriptItems ?? [],
 			messages: messages as readonly DPiInteractiveRealtimeMessage[],
 		},
 	};
@@ -83,6 +88,7 @@ export function composeDPiInteractiveSnapshot(
 	return {
 		...status,
 		messages: realtime.messages as DPiInteractiveSessionStateSnapshot["messages"],
+		...(realtime.items.length > 0 ? { transcriptItems: realtime.items } : {}),
 	};
 }
 
@@ -91,22 +97,40 @@ export function applyDPiInteractiveRealtimeEvent(
 	event: DPiInteractiveRealtimeEvent,
 ): DPiInteractiveRealtimeState {
 	if (event.type === "snapshot") {
-		return { cursor: event.cursor, page: event.page, messages: [...event.messages] };
+		return {
+			cursor: event.cursor,
+			page: event.page,
+			items: event.items ? [...event.items] : [],
+			messages: [...event.messages],
+		};
 	}
 	if (event.type === "delete") {
 		return {
 			cursor: event.cursor,
 			page: state.page,
+			items: state.items.filter((item) => item.id !== event.id),
 			messages: state.messages.filter((message) => message.id !== event.id),
 		};
 	}
-	const index = event.message.id ? state.messages.findIndex((message) => message.id === event.message.id) : -1;
+	if (!event.item && !event.message) {
+		return { ...state, cursor: event.cursor };
+	}
+	const item = event.item ?? messageToTranscriptItem(event.message!);
+	const itemIndex = state.items.findIndex((candidate) => candidate.id === item.id);
+	const items =
+		itemIndex < 0
+			? [...state.items, item]
+			: state.items.map((candidate, candidateIndex) => (candidateIndex === itemIndex ? item : candidate));
+	if (!event.message) {
+		return { cursor: event.cursor, page: state.page, items, messages: state.messages };
+	}
+	const index = event.message.id ? state.messages.findIndex((message) => message.id === event.message!.id) : -1;
 	if (index < 0) {
-		return { cursor: event.cursor, page: state.page, messages: [...state.messages, event.message] };
+		return { cursor: event.cursor, page: state.page, items, messages: [...state.messages, event.message] };
 	}
 	const messages = [...state.messages];
 	messages[index] = event.message;
-	return { cursor: event.cursor, page: state.page, messages };
+	return { cursor: event.cursor, page: state.page, items, messages };
 }
 
 export function isDPiInteractiveStatusState(value: unknown): value is DPiInteractiveStatusState {
@@ -129,7 +153,8 @@ export function isDPiInteractiveRealtimeState(value: unknown): value is DPiInter
 		"page" in value &&
 		isDPiInteractiveRealtimePage(value.page) &&
 		"messages" in value &&
-		Array.isArray(value.messages)
+		Array.isArray(value.messages) &&
+		(!("items" in value) || Array.isArray(value.items))
 	);
 }
 
@@ -160,7 +185,16 @@ export function isDPiInteractiveRealtimeEvent(value: unknown): value is DPiInter
 		return isDPiInteractiveRealtimeState(value);
 	}
 	if (value.type === "upsert") {
-		return "cursor" in value && typeof value.cursor === "number" && "message" in value;
+		return "cursor" in value && typeof value.cursor === "number" && ("message" in value || "item" in value);
 	}
 	return value.type === "delete" && "cursor" in value && typeof value.cursor === "number" && "id" in value;
+}
+
+function messageToTranscriptItem(message: DPiInteractiveRealtimeMessage): DPiTranscriptItem {
+	return {
+		id: message.id ?? `message-${message.timestamp ?? 0}`,
+		type: "message",
+		message: message as DPiInteractiveSessionStateSnapshot["messages"][number],
+		timestamp: message.timestamp ?? Date.now(),
+	};
 }

@@ -270,7 +270,7 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 		}
 		if (event.event === "realtime" && isDPiInteractiveRealtimeEvent(data)) {
 			this.realtimeState = applyDPiInteractiveRealtimeEvent(this.realtimeState, data);
-			if (data.type === "upsert") {
+			if (data.type === "upsert" && data.message) {
 				this.emit({
 					type: "message_update",
 					message: data.message as DPiInteractiveSessionStateSnapshot["messages"][number],

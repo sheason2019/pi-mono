@@ -21,10 +21,14 @@ import {
 	type DPiAgentHarnessFactoryOptions,
 	DPiAgentRuntime,
 } from "../src/runtime/agent-runtime.ts";
-import { buildDPiCurrentPageMessagesFromSessionEntries } from "../src/runtime/current-page.ts";
 import { createDPiRuntimeError, isDPiRuntimeError } from "../src/runtime/errors.ts";
 import { DPiModelManager } from "../src/runtime/model-manager.ts";
 import { DPiSessionStore } from "../src/runtime/session-store.ts";
+import {
+	createDPiTranscriptBoundaryEntry,
+	DPiTranscriptCustomTypes,
+	projectDPiTranscript,
+} from "../src/runtime/transcript/projector.ts";
 import type { DPiPromptOptions } from "../src/runtime/types.ts";
 
 let tempDir: string | undefined;
@@ -132,9 +136,9 @@ class FakeHarness implements DPiAgentHarness {
 		return () => this.listeners.delete(listener);
 	}
 
-	emit(event: DPiAgentHarnessEvent): void {
+	async emit(event: DPiAgentHarnessEvent): Promise<void> {
 		for (const listener of this.listeners) {
-			listener(event);
+			await listener(event);
 		}
 	}
 }
@@ -262,17 +266,21 @@ describe("d-pi runtime foundation", () => {
 		const session = await store.create({ id: "compacted-session" });
 		const beforeId = await session.session.appendMessage({ role: "user", content: "before compact", timestamp: 1 });
 		await session.session.appendCompaction("Persistent compact summary", beforeId, 12345);
-		await session.session.appendCustomEntry("d-pi-compact-divider", {
-			label: "Compact completed 9s",
-			summary: "Persistent compact summary",
-			tokensBefore: 12345,
-			durationMs: 9000,
-			completedAt: 10,
-		});
+		await session.session.appendCustomEntry(
+			DPiTranscriptCustomTypes.boundary,
+			createDPiTranscriptBoundaryEntry({
+				reason: "compact",
+				label: "Compact completed 9s",
+				summary: "Persistent compact summary",
+				tokensBefore: 12345,
+				durationMs: 9000,
+				completedAt: 10,
+			}),
+		);
 		await session.session.appendMessage({ role: "user", content: "after compact", timestamp: 11 });
 
 		const reopened = await store.open("compacted-session");
-		const currentPage = buildDPiCurrentPageMessagesFromSessionEntries(await reopened.session.getBranch());
+		const currentPage = projectDPiTranscript(await reopened.session.getBranch()).messages;
 
 		expect(currentPage).toEqual([
 			expect.objectContaining({
@@ -302,7 +310,7 @@ describe("d-pi runtime foundation", () => {
 		await runtime.prompt("next", { mode: "next" } satisfies DPiPromptOptions);
 		await runtime.prompt("steer", { mode: "steer" } satisfies DPiPromptOptions);
 		await runtime.prompt("follow", { mode: "followUp" } satisfies DPiPromptOptions);
-		fakeHarness.emit({ type: "queue_update", steer: [], followUp: [], nextTurn: [] });
+		await fakeHarness.emit({ type: "queue_update", steer: [], followUp: [], nextTurn: [] });
 
 		expect(fakeHarness.calls).toEqual([
 			{ method: "prompt", text: "next" },
@@ -321,7 +329,7 @@ describe("d-pi runtime foundation", () => {
 			events.push(event);
 		});
 
-		fakeHarness.emit({
+		await fakeHarness.emit({
 			type: "message_end",
 			message: {
 				role: "user",
@@ -360,7 +368,7 @@ describe("d-pi runtime foundation", () => {
 			events.push(event);
 		});
 
-		fakeHarness.emit({ type: "error", error });
+		await fakeHarness.emit({ type: "error", error });
 
 		expect(events).toEqual([{ type: "error", agentName: "root", error }]);
 	});
@@ -374,9 +382,9 @@ describe("d-pi runtime foundation", () => {
 			events.push(event);
 		});
 
-		fakeHarness.emit({ type: "agent_start" });
+		await fakeHarness.emit({ type: "agent_start" });
 		expect(events.at(-1)).toMatchObject({ type: "agent_start", agentName: "root" });
-		fakeHarness.emit({
+		await fakeHarness.emit({
 			type: "message_end",
 			message: {
 				role: "assistant",
@@ -397,7 +405,7 @@ describe("d-pi runtime foundation", () => {
 			},
 		});
 		expect(events.some((event) => event.type === "turn_stats")).toBe(false);
-		fakeHarness.emit({
+		await fakeHarness.emit({
 			type: "agent_end",
 			messages: [
 				{
@@ -458,8 +466,8 @@ describe("d-pi runtime foundation", () => {
 			events.push(event);
 		});
 
-		fakeHarness.emit({ type: "agent_start" });
-		fakeHarness.emit({
+		await fakeHarness.emit({ type: "agent_start" });
+		await fakeHarness.emit({
 			type: "agent_end",
 			messages: [
 				{
@@ -476,6 +484,84 @@ describe("d-pi runtime foundation", () => {
 
 		expect(events.some((event) => event.type === "agent_end")).toBe(true);
 		expect(events.some((event) => event.type === "turn_stats")).toBe(false);
+	});
+
+	it("persists tool, turn stats, and error notices as session transcript entries", async () => {
+		const workspaceRoot = createTempWorkspace();
+		const agentDir = createAgent(workspaceRoot, "root", "Original identity.");
+		const agentDefinition = await readLoadedAgentDefinitionFromTs(agentDir);
+		mkdirSync(join(workspaceRoot, ".pi", "sessions"), { recursive: true });
+		const sessionStore = new DPiSessionStore({
+			cwd: workspaceRoot,
+			sessionsRoot: join(workspaceRoot, ".pi", "sessions"),
+		});
+		const session = await sessionStore.create({ id: "runtime-transcript-session" });
+		await session.session.appendMessage({ role: "user", content: "run ls", timestamp: 1 });
+		const fakeHarness = new FakeHarness();
+		const runtime = new DPiAgentRuntime({
+			agentName: "root",
+			cwd: workspaceRoot,
+			session: session.session,
+			modelManager: new DPiModelManager({ model: makeModel() }),
+			contextManager: new DPiContextManager({
+				workspaceRoot,
+				agentName: "root",
+				agentDir,
+				cwd: agentDir,
+				agentDefinition,
+			}),
+			harnessFactory: () => fakeHarness,
+		});
+
+		await fakeHarness.emit({ type: "agent_start" });
+		await fakeHarness.emit({
+			type: "tool_execution_start",
+			toolCallId: "tool-1",
+			toolName: "ls",
+			args: { path: "." },
+		});
+		await fakeHarness.emit({
+			type: "tool_execution_end",
+			toolCallId: "tool-1",
+			toolName: "ls",
+			result: { content: [{ type: "text", text: "agent.ts" }] },
+			isError: false,
+		});
+		await fakeHarness.emit({
+			type: "agent_end",
+			messages: [
+				{
+					role: "assistant",
+					content: [{ type: "text", text: "done" }],
+					api: "anthropic-messages",
+					provider: "anthropic",
+					model: "claude-sonnet-4-5",
+					usage: {
+						input: 10,
+						output: 4,
+						cacheRead: 5,
+						cacheWrite: 0,
+						totalTokens: 19,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+					},
+					stopReason: "stop",
+					timestamp: Date.now(),
+				},
+			],
+		});
+		await fakeHarness.emit({ type: "error", error: createDPiRuntimeError("unknown", "Runtime failed") });
+
+		const transcript = projectDPiTranscript(await session.session.getBranch());
+		runtime.dispose();
+
+		expect(transcript.items).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ type: "tool_state", toolCallId: "tool-1", toolName: "ls", status: "running" }),
+				expect.objectContaining({ type: "tool_state", toolCallId: "tool-1", toolName: "ls", status: "succeeded" }),
+				expect.objectContaining({ type: "turn_stats", output: 4, input: 10, cacheRead: 5, total: 19 }),
+				expect.objectContaining({ type: "notice", level: "error", text: "Runtime failed" }),
+			]),
+		);
 	});
 
 	it("queues next prompts while active and when the harness reports busy", async () => {

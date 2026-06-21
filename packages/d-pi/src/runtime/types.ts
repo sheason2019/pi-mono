@@ -2,6 +2,7 @@ import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core"
 import type { Provider } from "@earendil-works/pi-ai";
 import type { DPiContextFile } from "../context/resource-loader.ts";
 import type { TeamSnapshot } from "../types.ts";
+import type { DPiTranscriptItem } from "./transcript/projector.ts";
 
 export type DPiJsonValue = null | boolean | number | string | DPiJsonValue[] | { [key: string]: DPiJsonValue };
 
@@ -141,6 +142,7 @@ export interface DPiRuntimeCompactResult<TDetails = unknown> {
 		label: string;
 		details: DPiJsonValue;
 	};
+	transcriptItems?: DPiTranscriptItem[];
 	messages: DPiAgentMessage[];
 }
 
@@ -170,6 +172,7 @@ export interface DPiRuntimeSnapshot {
 	cwd: string;
 	context: DPiRuntimeContextInfo;
 	messages: DPiAgentMessage[];
+	transcriptItems?: DPiTranscriptItem[];
 	streaming: DPiStreamingState;
 	compaction: DPiCompactionState;
 	bash: DPiBashState;

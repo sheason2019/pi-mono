@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
 import { type Component, Container, Markdown, Spacer, Text, TruncatedText } from "@earendil-works/pi-tui";
+import type { DPiTranscriptItem } from "../../runtime/transcript/projector.ts";
 import { DPiNativeAssistantMessageComponent } from "../native/components/assistant-message.ts";
 import { DPiNativeDynamicBorder } from "../native/components/dynamic-border.ts";
 import { DPiNativeToolExecutionComponent } from "../native/components/tool-execution.ts";
@@ -31,7 +32,7 @@ export function buildDPiInteractiveMessageListView(
 	options: DPiInteractiveStyleOptions = {},
 ): DPiInteractiveMessageListView {
 	const lines = [
-		...snapshot.messages.flatMap((message) => messageLines(message, options)),
+		...snapshotTranscriptItems(snapshot).flatMap((item) => itemLines(item, options)),
 		...snapshot.steeringMessages.map((message) => createDPiInteractiveStyle(options).dim(`steer queued: ${message}`)),
 		...snapshot.followUpMessages.map((message) =>
 			createDPiInteractiveStyle(options).dim(`follow-up queued: ${message}`),
@@ -48,33 +49,108 @@ export function buildDPiInteractiveMessageListComponent(
 	const theme = createDPiNativeTheme(options);
 	const markdownTheme = getDPiNativeMarkdownTheme(theme);
 	const style = createDPiInteractiveStyle(options);
+	const items = snapshotTranscriptItems(snapshot);
+	const statusEntries = items.some((item) => item.type === "turn_stats") ? [] : (options.statusEntries ?? []);
 	const addStatusEntry = (entry: DPiInteractiveStatusEntry): void => {
 		container.addChild(new Spacer(1));
 		container.addChild(new Text(style.dim(entry.text), 1, 0));
 	};
-	for (const [index, message] of snapshot.messages.entries()) {
-		const components = messageComponents(message, snapshot.messages, theme, markdownTheme, options);
-		if (message.role === "user" && components.length > 0 && container.children.length > 0) {
+	for (const [index, item] of items.entries()) {
+		const components = itemComponents(item, snapshot.messages, theme, markdownTheme, options);
+		if (
+			item.type === "message" &&
+			item.message.role === "user" &&
+			components.length > 0 &&
+			container.children.length > 0
+		) {
 			container.addChild(new Spacer(1));
 		}
 		for (const component of components) {
 			container.addChild(component);
 		}
-		for (const entry of options.statusEntries ?? []) {
+		for (const entry of statusEntries) {
 			if (entry.afterMessageCount === index + 1) {
 				addStatusEntry(entry);
 			}
 		}
 	}
-	for (const entry of options.statusEntries ?? []) {
-		if (
-			entry.afterMessageCount > snapshot.messages.length ||
-			(snapshot.messages.length === 0 && entry.afterMessageCount === 0)
-		) {
+	for (const entry of statusEntries) {
+		if (entry.afterMessageCount > items.length || (items.length === 0 && entry.afterMessageCount === 0)) {
 			addStatusEntry(entry);
 		}
 	}
 	return container;
+}
+
+function snapshotTranscriptItems(snapshot: DPiInteractiveSessionStateSnapshot): DPiTranscriptItem[] {
+	return (
+		snapshot.transcriptItems?.map((item) => ({ ...item })) ??
+		snapshot.messages.map((message, index) => ({
+			id: `message-${index}`,
+			type: "message" as const,
+			message,
+			timestamp: "timestamp" in message && typeof message.timestamp === "number" ? message.timestamp : Date.now(),
+		}))
+	);
+}
+
+function itemComponents(
+	item: DPiTranscriptItem,
+	messages: readonly AgentMessage[],
+	theme: ReturnType<typeof createDPiNativeTheme>,
+	markdownTheme: ReturnType<typeof getDPiNativeMarkdownTheme>,
+	options: DPiInteractiveMessageListComponentOptions,
+): Component[] {
+	if (item.type === "message") {
+		return messageComponents(item.message, messages, theme, markdownTheme, options);
+	}
+	if (item.type === "boundary") {
+		return messageComponents(
+			{
+				role: "custom",
+				customType: "compact-divider",
+				content: item.label,
+				display: true,
+				details: {
+					...(item.summary === undefined ? {} : { summary: item.summary }),
+					...(item.tokensBefore === undefined ? {} : { tokensBefore: item.tokensBefore }),
+					...(item.durationMs === undefined ? {} : { durationMs: item.durationMs }),
+					...(item.completedAt === undefined ? {} : { completedAt: item.completedAt }),
+				},
+				timestamp: item.timestamp,
+			},
+			messages,
+			theme,
+			markdownTheme,
+			options,
+		);
+	}
+	if (item.type === "tool_state") {
+		return [
+			new DPiNativeToolExecutionComponent(
+				{ type: "toolCall", id: item.toolCallId, name: item.toolName, arguments: recordArgs(item.args) },
+				transcriptToolResult(item),
+				{
+					theme,
+					cwd: options.cwd,
+					expanded: options.toolsExpanded,
+					showImages: options.showImages,
+					imageWidthCells: options.imageWidthCells,
+				},
+			),
+		];
+	}
+	if (item.type === "turn_stats") {
+		return [
+			new Spacer(1),
+			new Text(
+				theme.fg("muted", buildDPiInteractiveStatusView({ isStreaming: false }, item, { color: false }).text),
+				1,
+				0,
+			),
+		];
+	}
+	return [new Text(theme.fg(item.level === "error" ? "error" : "muted", item.text), 1, 0)];
 }
 
 export function buildDPiInteractivePendingMessagesComponent(
@@ -95,6 +171,36 @@ export function buildDPiInteractivePendingMessagesComponent(
 	}
 	container.addChild(new TruncatedText(style.dim("↳ alt+up to edit all queued messages"), 1, 0));
 	return container;
+}
+
+function itemLines(item: DPiTranscriptItem, options: DPiInteractiveStyleOptions): string[] {
+	const style = createDPiInteractiveStyle(options);
+	if (item.type === "message") {
+		return messageLines(item.message, options);
+	}
+	if (item.type === "boundary") {
+		return messageLines(
+			{
+				role: "custom",
+				customType: "compact-divider",
+				content: item.label,
+				display: true,
+				details: {
+					...(item.summary === undefined ? {} : { summary: item.summary }),
+					...(item.tokensBefore === undefined ? {} : { tokensBefore: item.tokensBefore }),
+				},
+				timestamp: item.timestamp,
+			},
+			options,
+		);
+	}
+	if (item.type === "tool_state") {
+		return blockLines(`[tool] ${item.toolName}\n${transcriptToolText(item)}`.trim(), style.accent);
+	}
+	if (item.type === "turn_stats") {
+		return ["", style.dim(buildDPiInteractiveStatusView({ isStreaming: false }, item, { color: false }).text)];
+	}
+	return blockLines(item.text, item.level === "error" ? style.error : style.muted);
 }
 
 export function buildDPiInteractiveStatusView(
@@ -196,6 +302,56 @@ function findToolResult(messages: readonly AgentMessage[], toolCallId: string): 
 	return messages.find(
 		(message): message is ToolResultMessage => message.role === "toolResult" && message.toolCallId === toolCallId,
 	);
+}
+
+function transcriptToolResult(item: Extract<DPiTranscriptItem, { type: "tool_state" }>): ToolResultMessage | undefined {
+	if (item.status === "running") {
+		return undefined;
+	}
+	return {
+		role: "toolResult",
+		toolCallId: item.toolCallId,
+		toolName: item.toolName,
+		content: transcriptToolResultContent(item),
+		isError: item.status === "failed" || item.status === "cancelled",
+		timestamp: item.timestamp,
+	};
+}
+
+function recordArgs(value: unknown): Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: {};
+}
+
+function transcriptToolResultContent(
+	item: Extract<DPiTranscriptItem, { type: "tool_state" }>,
+): ToolResultMessage["content"] {
+	const result = item.result;
+	if (typeof result === "object" && result !== null && "content" in result && Array.isArray(result.content)) {
+		return result.content as ToolResultMessage["content"];
+	}
+	return [{ type: "text", text: transcriptToolText(item) }];
+}
+
+function transcriptToolText(item: Extract<DPiTranscriptItem, { type: "tool_state" }>): string {
+	if (item.error) {
+		return item.error;
+	}
+	const result = item.result;
+	if (typeof result === "string") {
+		return result;
+	}
+	if (typeof result === "object" && result !== null && "content" in result && Array.isArray(result.content)) {
+		return result.content
+			.map((part) =>
+				typeof part === "object" && part !== null && "text" in part && typeof part.text === "string"
+					? part.text
+					: "",
+			)
+			.join("");
+	}
+	return item.status;
 }
 
 function messageLines(message: AgentMessage, options: DPiInteractiveStyleOptions): string[] {

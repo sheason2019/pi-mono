@@ -1,3 +1,4 @@
+import type { DPiTranscriptItem } from "./transcript/projector.ts";
 import type {
 	DPiAgentMessage,
 	DPiJsonValue,
@@ -57,6 +58,7 @@ export interface DPiToolEndEvent {
 	type: "tool_end";
 	agentName: string;
 	toolCallId: string;
+	toolName?: string;
 	status: Extract<DPiToolStatus, "succeeded" | "failed" | "cancelled">;
 	result?: DPiJsonValue;
 	error?: string;
@@ -74,6 +76,7 @@ export interface DPiSessionReplacementEvent {
 	agentName: string;
 	previousSessionId?: string;
 	session: DPiRuntimeSessionInfo;
+	transcriptItems?: DPiTranscriptItem[];
 	messages: DPiAgentMessage[];
 }
 

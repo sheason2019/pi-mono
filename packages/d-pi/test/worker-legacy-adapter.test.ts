@@ -783,6 +783,7 @@ describe("worker runtime adapter", () => {
 			if (
 				event.type === "realtime" &&
 				event.data.type === "upsert" &&
+				event.data.message &&
 				"customType" in event.data.message &&
 				event.data.message.customType === "compact-divider"
 			) {
@@ -905,6 +906,7 @@ describe("worker runtime adapter", () => {
 			if (
 				event.type === "realtime" &&
 				event.data.type === "upsert" &&
+				event.data.message &&
 				"customType" in event.data.message &&
 				event.data.message.customType === "compact-divider"
 			) {
@@ -1525,7 +1527,11 @@ describe("worker runtime adapter", () => {
 			state = await queryIpc(harness, "state-streaming-updated", "state");
 			const body = JSON.stringify(state.body);
 			expect(body).toContain("partial updated");
-			expect(body.match(/"role":"assistant"/g)).toHaveLength(1);
+			expect(
+				(state.body as { messages: Array<{ role: string }> }).messages.filter(
+					(message) => message.role === "assistant",
+				),
+			).toHaveLength(1);
 		} finally {
 			harness.server.stop();
 		}

@@ -21,9 +21,9 @@ import { createHubActionsClientFromHubChannel } from "../extension/hub-actions-a
 import { createMultiAgentExtension, type HubChannel } from "../extension/index.ts";
 import { agentDefinitionToConfig, formatAgentIdentitySection } from "../hub/agent-identity.ts";
 import { DPiAgentRuntime } from "../runtime/agent-runtime.ts";
-import { buildDPiCurrentPageMessagesFromSessionEntries } from "../runtime/current-page.ts";
 import { DPiModelManager } from "../runtime/model-manager.ts";
 import { DPiSessionStore } from "../runtime/session-store.ts";
+import { projectDPiTranscript } from "../runtime/transcript/projector.ts";
 import type { DPiPromptImage } from "../runtime/types.ts";
 import {
 	createDPiCreateAgentTool,
@@ -516,9 +516,8 @@ async function runAgentWorker(): Promise<void> {
 		});
 		const sessionHandle = (await sessionStore.openRecent({ cwd })) ?? (await sessionStore.create({ cwd }));
 		const initialSessionContext = await sessionHandle.session.buildContext();
-		const initialCurrentPageMessages = buildDPiCurrentPageMessagesFromSessionEntries(
-			await sessionHandle.session.getBranch(),
-		);
+		const initialTranscript = projectDPiTranscript(await sessionHandle.session.getBranch());
+		const initialCurrentPageMessages = initialTranscript.messages;
 		const initialMessages =
 			initialCurrentPageMessages.length > 0 ? initialCurrentPageMessages : initialSessionContext.messages;
 		agentRuntime = new DPiAgentRuntime({
@@ -555,6 +554,7 @@ async function runAgentWorker(): Promise<void> {
 				type: "session_replaced",
 				agentName,
 				session: sessionHandle.info,
+				...(initialTranscript.items.length > 0 ? { transcriptItems: initialTranscript.items } : {}),
 				messages: initialMessages,
 			});
 		}

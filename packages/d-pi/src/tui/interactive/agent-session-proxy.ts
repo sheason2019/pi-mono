@@ -1,5 +1,6 @@
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api } from "@earendil-works/pi-ai";
+import type { DPiTranscriptItem } from "../../runtime/transcript/projector.ts";
 
 export interface DPiInteractiveProxyPromptOptions {
 	images?: Array<{ url: string; mediaType?: string }>;
@@ -188,6 +189,7 @@ export interface DPiInteractiveSessionStateSnapshot {
 	sessionFile: string | undefined;
 	sessionName: string | undefined;
 	messages: readonly AgentMessage[];
+	transcriptItems?: readonly DPiTranscriptItem[];
 	banner: DPiInteractiveBannerData | undefined;
 	tokenUsage: DPiInteractiveTokenUsage;
 	contextUsage: DPiInteractiveContextUsageInfo;

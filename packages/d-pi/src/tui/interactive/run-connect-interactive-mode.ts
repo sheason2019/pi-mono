@@ -43,7 +43,6 @@ import { buildDPiInteractiveFooterView } from "./footer-view.ts";
 import {
 	buildDPiInteractiveMessageListComponent,
 	buildDPiInteractivePendingMessagesComponent,
-	buildDPiInteractiveStatusView,
 	type DPiInteractiveStatusEntry,
 } from "./message-list-view.ts";
 import { createDPiInteractiveRemoteAgentSessionProxy } from "./remote-agent-session-proxy.ts";
@@ -1089,11 +1088,6 @@ export async function runDPiConnectInteractiveMode(
 		if (event.type === "session_replaced") {
 			clientState.turnStatusEntries.splice(0, clientState.turnStatusEntries.length);
 			render();
-			return;
-		}
-		if (event.type === "turn_stats") {
-			const text = buildDPiInteractiveStatusView({ isStreaming: false }, event, { color: false }).text;
-			showChatStatus(text);
 		}
 	});
 	editor.onSubmit = (text) => {

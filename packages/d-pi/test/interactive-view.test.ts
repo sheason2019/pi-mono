@@ -398,4 +398,78 @@ describe("d-pi interactive view parity components", () => {
 		expect(rendered.join("\n")).toContain("Compact completed 15s");
 		expect(rendered.join("\n")).toContain("Persisted compact summary");
 	});
+
+	it("renders persisted transcript items without requiring message compatibility entries", () => {
+		const state = {
+			...snapshot(),
+			messages: [],
+			transcriptItems: [
+				{
+					id: "notice-1",
+					type: "notice" as const,
+					level: "error" as const,
+					text: "Runtime failed",
+					timestamp: 1,
+				},
+				{
+					id: "tool-state-1",
+					type: "tool_state" as const,
+					toolCallId: "tool-1",
+					toolName: "ls",
+					status: "succeeded" as const,
+					result: { content: [{ type: "text", text: "agent.ts" }] },
+					timestamp: 2,
+				},
+				{
+					id: "turn-stats-1",
+					type: "turn_stats" as const,
+					tps: 12.3,
+					output: 4,
+					input: 10,
+					cacheRead: 5,
+					cacheWrite: 0,
+					total: 19,
+					duration: 0.4,
+					timestamp: 3,
+				},
+			],
+		};
+
+		const rendered = buildDPiInteractiveMessageListComponent(state, { color: false }).render(80).join("\n");
+
+		expect(rendered).toContain("Runtime failed");
+		expect(rendered).toContain("ls");
+		expect(rendered).toContain("agent.ts");
+		expect(rendered).toContain("TPS 12.3 tok/s");
+	});
+
+	it("does not duplicate turn stats when transcript items and legacy status entries overlap", () => {
+		const state = {
+			...snapshot(),
+			messages: [],
+			transcriptItems: [
+				{
+					id: "turn-stats-1",
+					type: "turn_stats" as const,
+					tps: 12.3,
+					output: 4,
+					input: 10,
+					cacheRead: 5,
+					cacheWrite: 0,
+					total: 19,
+					duration: 0.4,
+					timestamp: 3,
+				},
+			],
+		};
+
+		const rendered = buildDPiInteractiveMessageListComponent(state, {
+			color: false,
+			statusEntries: [{ afterMessageCount: 1, text: "TPS 12.3 tok/s, out 4, in 10, cache r/w 5/0, total 19, 0.4s" }],
+		})
+			.render(80)
+			.join("\n");
+
+		expect(rendered.match(/TPS 12\.3 tok\/s/g)).toHaveLength(1);
+	});
 });

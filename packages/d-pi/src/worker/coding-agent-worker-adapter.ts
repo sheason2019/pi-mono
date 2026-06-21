@@ -16,6 +16,7 @@ import type {
 	ToolDefinition,
 } from "../extension/contracts.ts";
 import type { DPiRuntimeEvent } from "../runtime/events.ts";
+import type { DPiTranscriptItem } from "../runtime/transcript/projector.ts";
 import type { DPiAgentMessage } from "../runtime/types.ts";
 import type {
 	DPiInteractiveBannerData,
@@ -562,6 +563,7 @@ export interface DPiLocalAgentState {
 	};
 	banner: DPiInteractiveBannerData | undefined;
 	messages: DPiLocalAgentMessage[];
+	transcriptItems?: DPiTranscriptItem[];
 	streaming: boolean;
 	queued: DPiLocalQueueItem[];
 	thinking?: ThinkingLevel;
@@ -917,6 +919,7 @@ export class DPiLocalAgentSessionProxy {
 	private readonly runtime: DPiAgentSessionRuntime;
 	private readonly listeners = new Set<(event: DPiLocalAgentEvent) => void>();
 	private readonly messages: DPiLocalAgentMessage[] = [];
+	private readonly transcriptItems: DPiTranscriptItem[] = [];
 	private readonly importedSessionMessageIds = new Set<string>();
 	private readonly queued: DPiLocalQueueItem[] = [];
 	private readonly optimisticPromptTexts: string[] = [];
@@ -1024,6 +1027,7 @@ export class DPiLocalAgentSessionProxy {
 			},
 			banner: this.banner,
 			messages: [...this.messages],
+			transcriptItems: [...this.transcriptItems],
 			streaming: this.streaming,
 			queued: [...this.queued],
 			...(this.thinking ? { thinking: this.thinking } : {}),
@@ -1032,8 +1036,9 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	getStatusState(): DPiInteractiveStatusState {
-		const { messages, ...status } = this.getState();
+		const { messages, transcriptItems, ...status } = this.getState();
 		void messages;
+		void transcriptItems;
 		return status;
 	}
 
@@ -1041,6 +1046,7 @@ export class DPiLocalAgentSessionProxy {
 		return {
 			cursor: this.realtimeCursor,
 			page: this.realtimePage,
+			items: [...this.transcriptItems],
 			messages: [...this.messages],
 		};
 	}
@@ -1309,6 +1315,15 @@ export class DPiLocalAgentSessionProxy {
 		}
 		if (event.type === "tool_start") {
 			this.upsertToolCallMessage(event.tool.id, event.tool.name, event.tool.args);
+			this.emitRealtimeItemUpsert({
+				id: `tool-state-${event.tool.id}`,
+				type: "tool_state",
+				toolCallId: event.tool.id,
+				toolName: event.tool.name,
+				status: "running",
+				args: event.tool.args,
+				timestamp: event.tool.startedAt,
+			});
 			this.emit({
 				type: "tool_execution_start",
 				data: {
@@ -1335,6 +1350,16 @@ export class DPiLocalAgentSessionProxy {
 		}
 		if (event.type === "tool_end") {
 			this.upsertToolResultMessage(event);
+			this.emitRealtimeItemUpsert({
+				id: `tool-state-${event.toolCallId}`,
+				type: "tool_state",
+				toolCallId: event.toolCallId,
+				toolName: event.toolName ?? event.toolCallId,
+				status: event.status,
+				...(event.result === undefined ? {} : { result: event.result }),
+				...(event.error === undefined ? {} : { error: event.error }),
+				timestamp: event.endedAt,
+			});
 			this.emit({
 				type: "tool_execution_end",
 				data: {
@@ -1366,6 +1391,18 @@ export class DPiLocalAgentSessionProxy {
 			return;
 		}
 		if (event.type === "turn_stats") {
+			this.emitRealtimeItemUpsert({
+				id: nextGeneratedId("turn-stats"),
+				type: "turn_stats",
+				tps: event.tps,
+				output: event.output,
+				input: event.input,
+				cacheRead: event.cacheRead,
+				cacheWrite: event.cacheWrite,
+				total: event.total,
+				duration: event.duration,
+				timestamp: Date.now(),
+			});
 			this.emit({ type: "turn_stats", data: event });
 			return;
 		}
@@ -1380,8 +1417,11 @@ export class DPiLocalAgentSessionProxy {
 			this.startRealtimePage("resume", { emit: false });
 			this.importedSessionMessageIds.clear();
 			this.optimisticPromptTexts.splice(0, this.optimisticPromptTexts.length);
+			if (event.transcriptItems) {
+				this.transcriptItems.splice(0, this.transcriptItems.length, ...event.transcriptItems);
+			}
 			for (const message of runtimeMessagesToLocalCurrentPageMessages(event.messages)) {
-				this.recordSessionMessage(message, false);
+				this.recordSessionMessage(message, false, { recordTranscript: !event.transcriptItems });
 			}
 			this.emitRealtimeSnapshot();
 			this.emit({ type: "resume", data: this.getState() });
@@ -1476,7 +1516,11 @@ export class DPiLocalAgentSessionProxy {
 		});
 	}
 
-	private recordSessionMessage(message: DPiLocalAgentMessage, emitEvents: boolean): void {
+	private recordSessionMessage(
+		message: DPiLocalAgentMessage,
+		emitEvents: boolean,
+		options: { recordTranscript?: boolean } = {},
+	): void {
 		if (this.importedSessionMessageIds.has(message.id)) {
 			return;
 		}
@@ -1486,9 +1530,15 @@ export class DPiLocalAgentSessionProxy {
 		}
 		this.importedSessionMessageIds.add(message.id);
 		this.messages.push(message);
+		if (options.recordTranscript !== false) {
+			this.upsertTranscriptItem(localMessageToTranscriptItem(message));
+		}
 		const cursor = this.bumpRealtimeCursor();
 		if (emitEvents) {
-			this.emit({ type: "realtime", data: { type: "upsert", cursor, message } });
+			this.emit({
+				type: "realtime",
+				data: { type: "upsert", cursor, item: localMessageToTranscriptItem(message), message },
+			});
 			this.emit({ type: "message", data: message });
 			this.emitState();
 		}
@@ -1662,6 +1712,7 @@ export class DPiLocalAgentSessionProxy {
 		this.realtimePage = createDPiInteractiveRealtimePage(reason, this.realtimePageIndex);
 		this.realtimeCursor = 0;
 		this.messages.splice(0, this.messages.length);
+		this.transcriptItems.splice(0, this.transcriptItems.length);
 		this.streamingAssistantMessageId = undefined;
 		this.optimisticPromptTexts.splice(0, this.optimisticPromptTexts.length);
 		if (options.emit !== false) {
@@ -1686,11 +1737,27 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	private emitRealtimeUpsert(message: DPiLocalAgentMessage): void {
-		this.emit({ type: "realtime", data: { type: "upsert", cursor: this.bumpRealtimeCursor(), message } });
+		const item = localMessageToTranscriptItem(message);
+		this.upsertTranscriptItem(item);
+		this.emit({ type: "realtime", data: { type: "upsert", cursor: this.bumpRealtimeCursor(), item, message } });
+	}
+
+	private emitRealtimeItemUpsert(item: DPiTranscriptItem): void {
+		this.upsertTranscriptItem(item);
+		this.emit({ type: "realtime", data: { type: "upsert", cursor: this.bumpRealtimeCursor(), item } });
 	}
 
 	private emitRealtimeSnapshot(): void {
 		this.emit({ type: "realtime", data: { type: "snapshot", ...this.getRealtimeState() } });
+	}
+
+	private upsertTranscriptItem(item: DPiTranscriptItem): void {
+		const index = this.transcriptItems.findIndex((candidate) => candidate.id === item.id);
+		if (index < 0) {
+			this.transcriptItems.push(item);
+			return;
+		}
+		this.transcriptItems[index] = item;
 	}
 
 	private emit(event: DPiLocalAgentEvent): void {
@@ -2113,6 +2180,53 @@ function runtimeMessageToLocalMessage(message: DPiAgentMessage): DPiLocalAgentMe
 
 function runtimeMessagesToLocalCurrentPageMessages(messages: readonly DPiAgentMessage[]): DPiLocalAgentMessage[] {
 	return messages.map((message) => runtimeMessageToLocalMessage(message));
+}
+
+function localMessageToTranscriptItem(message: DPiLocalAgentMessage): DPiTranscriptItem {
+	if (message.role === "custom" && message.customType === "compact-divider") {
+		const details = isRecord(message.details) ? message.details : {};
+		return {
+			id: message.id,
+			type: "boundary",
+			version: 1,
+			reason: "compact",
+			label: typeof message.content === "string" ? message.content : "Compact completed",
+			...(typeof details.summary === "string" ? { summary: details.summary } : {}),
+			...(typeof details.tokensBefore === "number" ? { tokensBefore: details.tokensBefore } : {}),
+			...(typeof details.durationMs === "number" ? { durationMs: details.durationMs } : {}),
+			...(typeof details.completedAt === "number" ? { completedAt: details.completedAt } : {}),
+			timestamp: message.timestamp,
+		};
+	}
+	if (message.role === "custom" && message.customType === "runtime-error") {
+		return {
+			id: message.id,
+			type: "notice",
+			level: "error",
+			text: typeof message.content === "string" ? message.content : messageContentText(message.content),
+			timestamp: message.timestamp,
+		};
+	}
+	return {
+		id: message.id,
+		type: "message",
+		message: localMessageToAgentMessage(message),
+		timestamp: message.timestamp,
+	};
+}
+
+function localMessageToAgentMessage(message: DPiLocalAgentMessage): DPiAgentMessage {
+	return {
+		role: message.role,
+		content: message.content,
+		...(message.customType === undefined ? {} : { customType: message.customType }),
+		...(message.display === undefined ? {} : { display: message.display }),
+		...(message.details === undefined ? {} : { details: message.details }),
+		...(message.toolCallId === undefined ? {} : { toolCallId: message.toolCallId }),
+		...(message.toolName === undefined ? {} : { toolName: message.toolName }),
+		...(message.isError === undefined ? {} : { isError: message.isError }),
+		timestamp: message.timestamp,
+	} as DPiAgentMessage;
 }
 
 function compactDividerFromResult(

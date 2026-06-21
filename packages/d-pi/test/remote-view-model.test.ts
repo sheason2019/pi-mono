@@ -176,6 +176,40 @@ describe("remote-first interactive view model", () => {
 		]);
 	});
 
+	it("applies item-only realtime updates without adding compatibility messages", () => {
+		const full = snapshot();
+		const { status, realtime } = splitDPiInteractiveSnapshot(full);
+		const proxy = new DPiInteractiveRemoteAgentSessionProxy(status, realtime, {
+			baseUrl: "https://dp.example/agents/root",
+			fetch: vi.fn() as unknown as typeof fetch,
+		});
+
+		proxy.applyNamedEventForTest({
+			event: "realtime",
+			data: JSON.stringify({
+				type: "upsert",
+				cursor: 2,
+				item: {
+					id: "turn-stats-1",
+					type: "turn_stats",
+					tps: 12.3,
+					output: 4,
+					input: 10,
+					cacheRead: 5,
+					cacheWrite: 0,
+					total: 19,
+					duration: 0.4,
+					timestamp: 2,
+				},
+			}),
+		});
+
+		expect(proxy.getSnapshot().messages).toEqual(full.messages);
+		expect(proxy.getSnapshot().transcriptItems).toEqual([
+			expect.objectContaining({ type: "turn_stats", output: 4, total: 19 }),
+		]);
+	});
+
 	it("creates the remote proxy from status and realtime endpoints instead of a monolithic state endpoint", async () => {
 		const full = snapshot();
 		const { status, realtime } = splitDPiInteractiveSnapshot(full);
