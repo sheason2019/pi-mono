@@ -1,9 +1,11 @@
+import { join } from "node:path";
 import type {
 	AgentHarnessEvent,
 	AgentHarnessOptions,
 	AgentHarnessPromptOptions,
 	AgentHarnessResources,
 	AgentHarnessStreamOptions,
+	AgentMessage,
 	AgentTool,
 	JsonlSessionMetadata,
 	Session,
@@ -23,11 +25,16 @@ import type { DPiContextManager } from "../context/context-manager.ts";
 import { createDPiRuntimeError, isDPiRuntimeError } from "./errors.ts";
 import type { DPiRuntimeEvent } from "./events.ts";
 import type { DPiModelManager } from "./model-manager.ts";
+import {
+	appendSteeringMessage,
+	consumeSteeringMessages,
+	readSteeringMessages,
+	type SteeringQueueSource,
+} from "./steering-jsonl-queue.ts";
 import type { DPiTranscriptItem } from "./transcript/projector.ts";
 import {
 	createDPiTranscriptBoundaryEntry,
 	createDPiTranscriptNoticeEntry,
-	createDPiTranscriptSteeringQueueEntry,
 	createDPiTranscriptToolStateEntry,
 	createDPiTranscriptTurnStatsEntry,
 	DPiTranscriptCustomTypes,
@@ -91,7 +98,39 @@ export interface DPiAgentRuntimeOptions {
 	activeToolNames?: string[];
 	thinkingLevel?: ThinkingLevel;
 	initialMessages?: DPiAgentMessage[];
+	steeringQueuePath?: string;
 	harnessFactory?: DPiAgentHarnessFactory;
+}
+
+type AgentLoopConfigPatch = {
+	getSteeringMessages?: () => Promise<AgentMessage[]>;
+	[key: string]: unknown;
+};
+
+type AgentHarnessWithLoopConfig = DPiAgentHarness & {
+	createLoopConfig?: (...args: unknown[]) => AgentLoopConfigPatch;
+};
+
+export function installSteeringFileConsumer(harness: DPiAgentHarness, queuePath: string): void {
+	const target = harness as AgentHarnessWithLoopConfig;
+	if (typeof target.createLoopConfig !== "function") {
+		return;
+	}
+	const originalCreateLoopConfig = target.createLoopConfig.bind(harness);
+	target.createLoopConfig = (...args: unknown[]) => {
+		const config = originalCreateLoopConfig(...args);
+		return {
+			...config,
+			getSteeringMessages: async () =>
+				(await consumeSteeringMessages(queuePath)).map((record): AgentMessage => {
+					return {
+						role: "user",
+						content: [{ type: "text", text: record.text }],
+						timestamp: record.createdAt,
+					};
+				}),
+		};
+	};
 }
 
 function cloneQueues(queues: DPiRuntimeQueues): DPiRuntimeQueues {
@@ -121,6 +160,10 @@ function toHarnessOptions(options: DPiPromptOptions): AgentHarnessPromptOptions 
 			}),
 		);
 	return images && images.length > 0 ? { images } : undefined;
+}
+
+function promptImagesFromHarnessOptions(options: AgentHarnessPromptOptions | undefined): DPiPromptOptions["images"] {
+	return options?.images?.map((image) => ({ mediaType: image.mimeType, data: image.data }));
 }
 
 function errorCodeFromHarness(error: AgentHarnessError): DPiRuntimeErrorCode {
@@ -279,6 +322,7 @@ export class DPiAgentRuntime {
 	private readonly session: Session<JsonlSessionMetadata>;
 	private readonly getApiKeyAndHeaders: AgentHarnessOptions["getApiKeyAndHeaders"] | undefined;
 	private readonly thinkingLevel: ThinkingLevel | undefined;
+	private readonly steeringQueuePath: string;
 	private readonly harness: DPiAgentHarness;
 	private readonly listeners = new Set<(event: DPiRuntimeEvent) => Promise<void> | void>();
 	private readonly unsubscribeHarness: () => void;
@@ -289,7 +333,6 @@ export class DPiAgentRuntime {
 	private readonly sessionInfo: DPiRuntimeSessionInfo;
 	private activeTurn = false;
 	private turnStartedAt: number | undefined;
-	private steeringQueueRevision = 0;
 
 	constructor(options: DPiAgentRuntimeOptions) {
 		this.agentName = options.agentName;
@@ -300,6 +343,7 @@ export class DPiAgentRuntime {
 		this.session = options.session;
 		this.getApiKeyAndHeaders = options.getApiKeyAndHeaders;
 		this.thinkingLevel = options.thinkingLevel;
+		this.steeringQueuePath = options.steeringQueuePath ?? join(this.contextManager.getAgentDir(), "steering.jsonl");
 		this.context = loadContextInfo(this.contextManager);
 		this.sessionInfo = options.sessionInfo ?? { id: "unknown" };
 		this.messages = options.initialMessages?.map((message) => ({ ...message })) ?? [];
@@ -338,6 +382,7 @@ export class DPiAgentRuntime {
 			activeToolNames: options.activeToolNames,
 			thinkingLevel: options.thinkingLevel,
 		});
+		installSteeringFileConsumer(this.harness, this.steeringQueuePath);
 		this.unsubscribeHarness = this.harness.subscribe((event) => this.handleHarnessEvent(event));
 	}
 
@@ -351,7 +396,7 @@ export class DPiAgentRuntime {
 			const mode = options.mode ?? "next";
 			const harnessOptions = toHarnessOptions(options);
 			if (mode === "steer" || mode === "followUp") {
-				await this.harness.steer(text, harnessOptions);
+				await this.enqueueSteeringMessage(text, options, "runtime");
 			} else {
 				await this.promptNextTurn(text, harnessOptions);
 			}
@@ -495,7 +540,11 @@ export class DPiAgentRuntime {
 
 	private async promptNextTurn(text: string, options?: AgentHarnessPromptOptions): Promise<void> {
 		if (this.activeTurn) {
-			await this.harness.steer(text, options);
+			await this.enqueueSteeringMessage(
+				text,
+				{ mode: "steer", images: promptImagesFromHarnessOptions(options) },
+				"runtime",
+			);
 			return;
 		}
 		this.activeTurn = true;
@@ -504,7 +553,11 @@ export class DPiAgentRuntime {
 			await this.harness.prompt(text, options);
 		} catch (error) {
 			if (isBusyHarnessError(error)) {
-				await this.harness.steer(text, options);
+				await this.enqueueSteeringMessage(
+					text,
+					{ mode: "steer", images: promptImagesFromHarnessOptions(options) },
+					"runtime",
+				);
 				return;
 			}
 			throw error;
@@ -532,7 +585,6 @@ export class DPiAgentRuntime {
 		}
 		if (runtimeEvent.type === "queue_update") {
 			this.queues = cloneQueues(runtimeEvent.queues);
-			await this.persistSteeringQueue(runtimeEvent.queues.prompts);
 		} else if (runtimeEvent.type === "message") {
 			this.messages = [...this.messages, runtimeEvent.message];
 			this.upsertTranscriptItem({
@@ -676,29 +728,36 @@ export class DPiAgentRuntime {
 		}
 	}
 
-	private async persistSteeringQueue(prompts: DPiRuntimeQueues["prompts"]): Promise<void> {
-		this.steeringQueueRevision += 1;
-		await this.session.appendCustomEntry(
-			DPiTranscriptCustomTypes.steeringQueue,
-			createDPiTranscriptSteeringQueueEntry({
-				revision: this.steeringQueueRevision,
-				items: prompts
-					.filter((item) => item.mode === "steer")
-					.map((item) => ({
-						id: item.id,
-						text: item.text,
-						createdAt: item.createdAt,
-						...(item.options?.images
-							? {
-									images: item.options.images.flatMap((image) =>
-										image.url ? [{ url: image.url, mediaType: image.mediaType }] : [],
-									),
-								}
-							: {}),
-					})),
-				timestamp: Date.now(),
-			}),
-		);
+	private async enqueueSteeringMessage(
+		text: string,
+		options: DPiPromptOptions,
+		source: SteeringQueueSource,
+	): Promise<void> {
+		await appendSteeringMessage(this.steeringQueuePath, {
+			text,
+			source,
+			...(options.images
+				? {
+						images: options.images.flatMap((image) =>
+							image.url ? [{ url: image.url, mediaType: image.mediaType }] : [],
+						),
+					}
+				: {}),
+		});
+		await this.emit({
+			type: "queue_update",
+			agentName: this.agentName,
+			queues: {
+				prompts: (await readSteeringMessages(this.steeringQueuePath)).map((record) => ({
+					id: record.id,
+					text: record.text,
+					mode: "steer",
+					source: record.source,
+					createdAt: record.createdAt,
+				})),
+				tools: [],
+			},
+		});
 	}
 
 	private async appendTranscriptNotice(level: "error" | "info" | "warning", text: string): Promise<void> {

@@ -87,6 +87,10 @@ export class DPiContextManager {
 		return [...this._getSnapshot().extensions];
 	}
 
+	getAgentDir(): string {
+		return this._agentDir;
+	}
+
 	reload(): void {
 		this._snapshot = this._loadSnapshot();
 	}

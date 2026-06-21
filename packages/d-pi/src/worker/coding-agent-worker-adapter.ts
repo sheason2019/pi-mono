@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
@@ -16,6 +18,11 @@ import type {
 	ToolDefinition,
 } from "../extension/contracts.ts";
 import type { DPiRuntimeEvent } from "../runtime/events.ts";
+import {
+	appendSteeringMessage,
+	clearSteeringMessagesSync,
+	readSteeringMessagesSync,
+} from "../runtime/steering-jsonl-queue.ts";
 import type { DPiTranscriptItem } from "../runtime/transcript/projector.ts";
 import type { DPiAgentMessage } from "../runtime/types.ts";
 import type {
@@ -570,6 +577,10 @@ export interface DPiLocalAgentState {
 	extensions: DPiSessionExtensionSnapshot;
 }
 
+export interface DPiLocalAgentSessionProxyOptions {
+	steeringQueuePath?: string;
+}
+
 export type DPiLocalAgentEvent =
 	| { type: "message"; data: DPiLocalAgentMessage }
 	| { type: "queue"; data: { queued: DPiLocalQueueItem[] } }
@@ -917,6 +928,7 @@ export class DPiAgentIpcServer {
 
 export class DPiLocalAgentSessionProxy {
 	private readonly runtime: DPiAgentSessionRuntime;
+	private readonly steeringQueuePath: string;
 	private readonly listeners = new Set<(event: DPiLocalAgentEvent) => void>();
 	private readonly messages: DPiLocalAgentMessage[] = [];
 	private readonly transcriptItems: DPiTranscriptItem[] = [];
@@ -956,8 +968,11 @@ export class DPiLocalAgentSessionProxy {
 		  }
 		| undefined;
 
-	constructor(runtime: DPiAgentSessionRuntime) {
+	constructor(runtime: DPiAgentSessionRuntime, options: DPiLocalAgentSessionProxyOptions = {}) {
 		this.runtime = runtime;
+		this.steeringQueuePath =
+			options.steeringQueuePath ??
+			join(getSessionMetadata(runtime.session).cwd ?? tmpdir(), `.d-pi-${randomUUID()}`, "steering.jsonl");
 		this.subscribeToSessionMessages();
 	}
 
@@ -1129,7 +1144,7 @@ export class DPiLocalAgentSessionProxy {
 			steering: this.steeringQueueItems().map((item) => item.text),
 			followUp: [],
 		};
-		this.queued.splice(0, this.queued.length);
+		clearSteeringMessagesSync(this.steeringQueuePath);
 		this.emit({ type: "queue", data: { queued: [] } });
 		this.emitState();
 		return dropped;
@@ -1373,21 +1388,7 @@ export class DPiLocalAgentSessionProxy {
 			return;
 		}
 		if (event.type === "queue_update") {
-			this.queued.splice(
-				0,
-				this.queued.length,
-				...event.queues.prompts
-					.filter((item) => item.mode === "steer")
-					.map((item): DPiLocalQueueItem => {
-						return {
-							id: item.id,
-							kind: "steer",
-							text: item.text,
-							timestamp: item.createdAt,
-						};
-					}),
-			);
-			this.emit({ type: "queue", data: { queued: [...this.queued] } });
+			this.emit({ type: "queue", data: { queued: this.steeringQueueItems() } });
 			this.emitState();
 			return;
 		}
@@ -1418,19 +1419,6 @@ export class DPiLocalAgentSessionProxy {
 			this.startRealtimePage("resume", { emit: false });
 			this.importedSessionMessageIds.clear();
 			this.optimisticPromptTexts.splice(0, this.optimisticPromptTexts.length);
-			this.queued.splice(
-				0,
-				this.queued.length,
-				...(event.steeringQueue?.items.map((item): DPiLocalQueueItem => {
-					return {
-						id: item.id,
-						kind: "steer",
-						text: item.text,
-						...(item.images ? { images: item.images } : {}),
-						timestamp: item.createdAt,
-					};
-				}) ?? []),
-			);
 			if (event.transcriptItems) {
 				this.transcriptItems.splice(0, this.transcriptItems.length, ...event.transcriptItems);
 			}
@@ -1507,9 +1495,14 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	async steer(text: string, images?: Array<{ url: string; mediaType?: string }>): Promise<void> {
-		this.recordLocalInput("steer", text, images);
 		await dispatchSessionInputHandlers(this.runtime.session, text, "steer");
-		await this.messageDispatcher?.steer?.(text, images);
+		await appendSteeringMessage(this.steeringQueuePath, {
+			text,
+			source: "connect",
+			...(images ? { images } : {}),
+		});
+		this.emit({ type: "queue", data: { queued: this.steeringQueueItems() } });
+		this.emitState();
 	}
 
 	async followUp(text: string, images?: Array<{ url: string; mediaType?: string }>): Promise<void> {
@@ -1794,7 +1787,15 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	private steeringQueueItems(): DPiLocalQueueItem[] {
-		return this.queued.filter((item) => item.kind === "steer").map((item) => ({ ...item }));
+		return readSteeringMessagesSync(this.steeringQueuePath).map((message): DPiLocalQueueItem => {
+			return {
+				id: message.id,
+				kind: "steer",
+				text: message.text,
+				...(message.images ? { images: message.images } : {}),
+				timestamp: message.createdAt,
+			};
+		});
 	}
 
 	private emit(event: DPiLocalAgentEvent): void {

@@ -141,7 +141,7 @@ describe("d-pi session transcript projector", () => {
 		expect(JSON.stringify(providerContext.messages)).not.toContain("agent.ts");
 	});
 
-	it("restores the latest persisted steering queue state without adding provider context", async () => {
+	it("ignores legacy persisted steering queue state without adding provider context", async () => {
 		const workspaceRoot = createTempWorkspace();
 		const store = new DPiSessionStore({
 			cwd: workspaceRoot,
@@ -184,13 +184,7 @@ describe("d-pi session transcript projector", () => {
 		const transcript = projectDPiTranscript(await reopened.session.getBranch());
 		const providerContext = await reopened.session.buildContext();
 
-		expect(transcript.steeringQueue).toEqual({
-			version: 1,
-			revision: 2,
-			runId: "run-1",
-			items: [expect.objectContaining({ id: "steer-2", text: "latest interrupt", createdAt: 3 })],
-			timestamp: 3,
-		});
+		expect(transcript.steeringQueue).toEqual({ version: 1, revision: 0, items: [], timestamp: 0 });
 		expect(transcript.messages).toEqual([expect.objectContaining({ content: "running prompt" })]);
 		expect(JSON.stringify(providerContext.messages)).not.toContain("latest interrupt");
 		expect(JSON.stringify(providerContext.messages)).not.toContain(DPiTranscriptCustomTypes.steeringQueue);

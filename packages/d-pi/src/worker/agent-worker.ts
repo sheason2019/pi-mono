@@ -463,7 +463,7 @@ async function runAgentWorker(): Promise<void> {
 	});
 
 	// 6. Create proxy and HTTP server (same pattern as serve-mode.ts)
-	proxy = new DPiLocalAgentSessionProxy(runtime!);
+	proxy = new DPiLocalAgentSessionProxy(runtime!, { steeringQueuePath: join(agentDir, "steering.jsonl") });
 	proxy.setBanner(generateDPiBanner(runtime!.session));
 
 	const rebindSession = async (): Promise<void> => {
@@ -555,9 +555,6 @@ async function runAgentWorker(): Promise<void> {
 				agentName,
 				session: sessionHandle.info,
 				...(initialTranscript.items.length > 0 ? { transcriptItems: initialTranscript.items } : {}),
-				...(initialTranscript.steeringQueue.items.length > 0
-					? { steeringQueue: initialTranscript.steeringQueue }
-					: {}),
 				messages: initialMessages,
 			});
 		}

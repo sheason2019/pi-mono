@@ -20,10 +20,12 @@ import {
 	type DPiAgentHarnessEventListener,
 	type DPiAgentHarnessFactoryOptions,
 	DPiAgentRuntime,
+	installSteeringFileConsumer,
 } from "../src/runtime/agent-runtime.ts";
 import { createDPiRuntimeError, isDPiRuntimeError } from "../src/runtime/errors.ts";
 import { DPiModelManager } from "../src/runtime/model-manager.ts";
 import { DPiSessionStore } from "../src/runtime/session-store.ts";
+import { appendSteeringMessage, readSteeringMessages } from "../src/runtime/steering-jsonl-queue.ts";
 import {
 	createDPiTranscriptBoundaryEntry,
 	DPiTranscriptCustomTypes,
@@ -145,6 +147,22 @@ class FakeHarness implements DPiAgentHarness {
 		for (const listener of this.listeners) {
 			await listener(event);
 		}
+	}
+}
+
+interface FakeLoopConfigHarness extends DPiAgentHarness {
+	loopConfigCalls: number;
+	createLoopConfig(): { getSteeringMessages?: () => Promise<unknown[]> };
+}
+
+class FakeHarnessWithLoopConfig extends FakeHarness implements FakeLoopConfigHarness {
+	loopConfigCalls = 0;
+
+	createLoopConfig(): { getSteeringMessages?: () => Promise<unknown[]> } {
+		this.loopConfigCalls += 1;
+		return {
+			getSteeringMessages: async () => [{ role: "user", content: "memory queue" }],
+		};
 	}
 }
 
@@ -327,12 +345,32 @@ describe("d-pi runtime foundation", () => {
 		await runtime.prompt("follow", { mode: "followUp" } satisfies DPiPromptOptions);
 		await fakeHarness.emit({ type: "queue_update", steer: [], followUp: [], nextTurn: [] });
 
-		expect(fakeHarness.calls).toEqual([
-			{ method: "prompt", text: "next" },
-			{ method: "steer", text: "steer" },
-			{ method: "steer", text: "follow" },
+		expect(fakeHarness.calls).toEqual([{ method: "prompt", text: "next" }]);
+		expect(await readSteeringMessages(join(workspaceRoot, "agents", "root", "steering.jsonl"))).toEqual([
+			expect.objectContaining({ text: "steer", source: "runtime" }),
+			expect.objectContaining({ text: "follow", source: "runtime" }),
 		]);
 		expect(events).toContain("queue_update");
+	});
+
+	it("installs a file-backed steering consumer at the agent loop consumption point", async () => {
+		const workspaceRoot = createTempWorkspace();
+		const queuePath = join(workspaceRoot, "agents", "root", "steering.jsonl");
+		const fakeHarness = new FakeHarnessWithLoopConfig();
+		await appendSteeringMessage(queuePath, { text: "first", source: "connect" });
+		await appendSteeringMessage(queuePath, { text: "second", source: "connect" });
+
+		installSteeringFileConsumer(fakeHarness, queuePath);
+		const config = fakeHarness.createLoopConfig();
+		const messages = (await config.getSteeringMessages?.()) ?? [];
+
+		expect(messages).toEqual([
+			expect.objectContaining({ role: "user", content: [{ type: "text", text: "first" }] }),
+			expect.objectContaining({ role: "user", content: [{ type: "text", text: "second" }] }),
+		]);
+		expect(await readSteeringMessages(queuePath)).toEqual([]);
+		expect(fakeHarness.calls).toEqual([]);
+		expect(fakeHarness.loopConfigCalls).toBe(1);
 	});
 
 	it("normalizes consumed queued user messages into runtime message events", async () => {
@@ -579,7 +617,7 @@ describe("d-pi runtime foundation", () => {
 		);
 	});
 
-	it("persists steering queue updates as latest session transcript state", async () => {
+	it("does not persist harness queue updates as session transcript queue state", async () => {
 		const workspaceRoot = createTempWorkspace();
 		const fakeHarness = new FakeHarness();
 		const { session } = await createRuntimeHandle(workspaceRoot, fakeHarness);
@@ -592,12 +630,11 @@ describe("d-pi runtime foundation", () => {
 		});
 		const transcript = projectDPiTranscript(await session.session.getBranch());
 
-		expect(transcript.steeringQueue.items).toEqual([expect.objectContaining({ text: "interrupt", createdAt: 123 })]);
-		expect(JSON.stringify(transcript.steeringQueue)).not.toContain("legacy follow-up");
-		expect(JSON.stringify(transcript.steeringQueue)).not.toContain("legacy next");
+		expect(transcript.steeringQueue.items).toEqual([]);
+		expect(JSON.stringify(await session.session.getBranch())).not.toContain(DPiTranscriptCustomTypes.steeringQueue);
 	});
 
-	it("steers next prompts while active and when the harness reports busy", async () => {
+	it("queues next prompts in the steering file while active and when the harness reports busy", async () => {
 		const workspaceRoot = createTempWorkspace();
 		const fakeHarness = new FakeHarness();
 		const runtime = await createRuntime(workspaceRoot, fakeHarness);
@@ -615,14 +652,18 @@ describe("d-pi runtime foundation", () => {
 			await activePrompt.catch(() => undefined);
 		}
 
-		expect(fakeHarness.calls.slice(0, 2)).toEqual([
-			{ method: "prompt", text: "running" },
-			{ method: "steer", text: "queued" },
+		expect(fakeHarness.calls).toEqual([{ method: "prompt", text: "running" }]);
+		expect(await readSteeringMessages(join(workspaceRoot, "agents", "root", "steering.jsonl"))).toEqual([
+			expect.objectContaining({ text: "queued", source: "runtime" }),
 		]);
 
 		fakeHarness.setBusy(true);
 		await expect(runtime.prompt("busy queued", { mode: "next" })).resolves.toBeUndefined();
-		expect(fakeHarness.calls.at(-1)).toEqual({ method: "steer", text: "busy queued" });
+		expect(fakeHarness.calls.at(-1)).toEqual({ method: "prompt", text: "busy queued" });
+		expect(await readSteeringMessages(join(workspaceRoot, "agents", "root", "steering.jsonl"))).toEqual([
+			expect.objectContaining({ text: "queued", source: "runtime" }),
+			expect.objectContaining({ text: "busy queued", source: "runtime" }),
+		]);
 	});
 
 	it("forwards foundation options through the harness factory boundary", async () => {
@@ -689,17 +730,17 @@ describe("d-pi runtime foundation", () => {
 		expect(capturedOptions?.thinkingLevel).toBe(thinkingLevel);
 	});
 
-	it("maps fake harness busy failures from non-next modes to DPiRuntimeError", async () => {
+	it("does not call the harness steer API for non-next modes", async () => {
 		const workspaceRoot = createTempWorkspace();
 		const fakeHarness = new FakeHarness();
 		fakeHarness.setFailSteer(true);
 		const runtime = await createRuntime(workspaceRoot, fakeHarness);
 
-		await expect(runtime.prompt("steer", { mode: "steer" })).rejects.toMatchObject({
-			name: "DPiRuntimeError",
-			code: "busy",
-			retryable: true,
-		});
+		await expect(runtime.prompt("steer", { mode: "steer" })).resolves.toBeUndefined();
+		expect(fakeHarness.calls).toEqual([]);
+		expect(await readSteeringMessages(join(workspaceRoot, "agents", "root", "steering.jsonl"))).toEqual([
+			expect.objectContaining({ text: "steer", source: "runtime" }),
+		]);
 	});
 
 	it("reloads context into the snapshot and keeps snapshots JSON round-trippable", async () => {

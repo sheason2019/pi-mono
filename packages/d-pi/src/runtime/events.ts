@@ -1,4 +1,4 @@
-import type { DPiTranscriptItem, DPiTranscriptSteeringQueueEntry } from "./transcript/projector.ts";
+import type { DPiTranscriptItem } from "./transcript/projector.ts";
 import type {
 	DPiAgentMessage,
 	DPiJsonValue,
@@ -77,7 +77,6 @@ export interface DPiSessionReplacementEvent {
 	previousSessionId?: string;
 	session: DPiRuntimeSessionInfo;
 	transcriptItems?: DPiTranscriptItem[];
-	steeringQueue?: DPiTranscriptSteeringQueueEntry;
 	messages: DPiAgentMessage[];
 }
 

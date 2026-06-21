@@ -8,6 +8,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { LoadedAgentDefinition } from "../src/agent-loader.ts";
 import type { ExtensionAPI } from "../src/extension/contracts.ts";
 import {
+	appendSteeringMessage,
+	clearSteeringMessagesSync,
+	readSteeringMessages,
+	readSteeringMessagesSync,
+} from "../src/runtime/steering-jsonl-queue.ts";
+import {
 	createDPiAgentSessionFromServices,
 	createDPiAgentSessionRuntime,
 	createDPiAgentSessionServices,
@@ -1054,7 +1060,10 @@ describe("worker runtime adapter", () => {
 	});
 
 	it("handles prompt, steer, and follow-up IPC requests by mutating state and emitting events", async () => {
-		const harness = createIpcHarness(new DPiLocalAgentSessionProxy(createTestRuntime()));
+		const queuePath = join(mkdtempSync(join(tmpdir(), "d-pi-worker-queue-")), "agent", "steering.jsonl");
+		const harness = createIpcHarness(
+			new DPiLocalAgentSessionProxy(createTestRuntime(), { steeringQueuePath: queuePath }),
+		);
 		try {
 			const prompt = await requestIpc(harness, "prompt-1", "prompt", {
 				text: "write a plan",
@@ -1072,6 +1081,7 @@ describe("worker runtime adapter", () => {
 			expect(prompt).toMatchObject({ status: 200, body: { ok: true } });
 			expect(steer).toMatchObject({ status: 200, body: { ok: true } });
 			expect(followUp).toMatchObject({ status: 200, body: { ok: true } });
+			await waitFor(() => readSteeringMessagesSync(queuePath).length === 2);
 
 			const state = await queryIpc(harness, "state-after-actions", "state");
 			expect(state.body).toMatchObject({
@@ -1087,9 +1097,66 @@ describe("worker runtime adapter", () => {
 			expect(JSON.stringify(state.body)).not.toContain('"customType":"steer"');
 			expect(JSON.stringify(state.body)).not.toContain('"customType":"follow-up"');
 			expect(JSON.stringify(state.body)).not.toContain("d-pi local runtime accepted");
+			expect((await readSteeringMessages(queuePath)).map((message) => message.text)).toEqual([
+				"tighten scope",
+				"continue",
+			]);
 		} finally {
 			harness.server.stop();
 		}
+	});
+
+	it("writes steering inputs to steering.jsonl instead of dispatcher memory queues", async () => {
+		const queuePath = join(mkdtempSync(join(tmpdir(), "d-pi-worker-queue-")), "agent", "steering.jsonl");
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime(), { steeringQueuePath: queuePath });
+		const dispatcher = {
+			steer: vi.fn(async () => {}),
+		};
+		proxy.setMessageDispatcher(dispatcher);
+
+		await proxy.steer("file-backed steer", [{ url: "file:///tmp/steer.png", mediaType: "image/png" }]);
+
+		expect(dispatcher.steer).not.toHaveBeenCalled();
+		expect(await readSteeringMessages(queuePath)).toEqual([
+			expect.objectContaining({
+				text: "file-backed steer",
+				source: "connect",
+				images: [{ url: "file:///tmp/steer.png", mediaType: "image/png" }],
+			}),
+		]);
+		expect(proxy.getState()).toMatchObject({
+			queued: [expect.objectContaining({ kind: "steer", text: "file-backed steer" })],
+			steeringMessages: ["file-backed steer"],
+			followUpMessages: [],
+		});
+	});
+
+	it("clears steering.jsonl when clearing the local queue", async () => {
+		const queuePath = join(mkdtempSync(join(tmpdir(), "d-pi-worker-queue-")), "agent", "steering.jsonl");
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime(), { steeringQueuePath: queuePath });
+		await appendSteeringMessage(queuePath, { text: "drop me", source: "connect" });
+
+		expect(proxy.clearQueue()).toEqual({ steering: ["drop me"], followUp: [] });
+
+		expect(await readSteeringMessages(queuePath)).toEqual([]);
+		expect(proxy.getState().steeringMessages).toEqual([]);
+	});
+
+	it("models alt-up editing by removing queued messages before re-enqueuing edited text", async () => {
+		const queuePath = join(mkdtempSync(join(tmpdir(), "d-pi-worker-queue-")), "agent", "steering.jsonl");
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime(), { steeringQueuePath: queuePath });
+		await appendSteeringMessage(queuePath, { text: "original one", source: "connect" });
+		await appendSteeringMessage(queuePath, { text: "original two", source: "connect" });
+
+		const editingSource = proxy.clearQueue();
+		expect(editingSource).toEqual({ steering: ["original one", "original two"], followUp: [] });
+		expect(await readSteeringMessages(queuePath)).toEqual([]);
+
+		await proxy.steer("edited message");
+
+		expect(await readSteeringMessages(queuePath)).toEqual([expect.objectContaining({ text: "edited message" })]);
+		expect(JSON.stringify(await readSteeringMessages(queuePath))).not.toContain("original one");
+		expect(JSON.stringify(await readSteeringMessages(queuePath))).not.toContain("original two");
 	});
 
 	it("acks long-running prompt actions immediately and leaves progress to SSE", async () => {
@@ -1145,7 +1212,8 @@ describe("worker runtime adapter", () => {
 
 			expect(dispatcher.prompt).toHaveBeenCalledTimes(1);
 			expect(dispatcher.prompt).toHaveBeenCalledWith("first", { images: undefined });
-			expect(dispatcher.steer).toHaveBeenCalledWith("second", undefined);
+			expect(dispatcher.steer).not.toHaveBeenCalled();
+			await waitFor(() => proxy.getState().steeringMessages.includes("second"));
 			expect(proxy.getState()).toMatchObject({
 				messages: [expect.objectContaining({ role: "user", content: "first" })],
 				steeringMessages: ["second"],
@@ -1236,8 +1304,7 @@ describe("worker runtime adapter", () => {
 
 		expect(dispatcher.prompt).not.toHaveBeenCalled();
 		expect(dispatcher.followUp).not.toHaveBeenCalled();
-		expect(dispatcher.steer).toHaveBeenCalledWith("interrupt prompt", undefined);
-		expect(dispatcher.steer).toHaveBeenCalledWith("legacy follow-up", undefined);
+		expect(dispatcher.steer).not.toHaveBeenCalled();
 		expect(proxy.getState()).toMatchObject({
 			messages: [],
 			steeringMessages: ["interrupt prompt", "legacy follow-up"],
@@ -1246,10 +1313,12 @@ describe("worker runtime adapter", () => {
 	});
 
 	it("records queued steering messages as user transcript messages when the runtime consumes them", async () => {
-		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		const queuePath = join(mkdtempSync(join(tmpdir(), "d-pi-worker-queue-")), "agent", "steering.jsonl");
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime(), { steeringQueuePath: queuePath });
 
 		proxy.applyRuntimeEvent({ type: "agent_start", agentName: "root" });
 		await proxy.steer("interrupt one");
+		clearSteeringMessagesSync(queuePath);
 		proxy.applyRuntimeEvent({
 			type: "message",
 			agentName: "root",
@@ -1441,7 +1510,7 @@ describe("worker runtime adapter", () => {
 		);
 	});
 
-	it("restores persisted steering queue state when a runtime session is replaced", async () => {
+	it("does not restore session custom steering queue state after switching to file-backed queue authority", async () => {
 		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
 
 		proxy.applyRuntimeEvent({
@@ -1458,9 +1527,9 @@ describe("worker runtime adapter", () => {
 		} as never);
 
 		expect(proxy.getState()).toMatchObject({
-			steeringMessages: ["persisted interrupt"],
+			steeringMessages: [],
 			followUpMessages: [],
-			queued: [expect.objectContaining({ id: "steer-1", kind: "steer", text: "persisted interrupt" })],
+			queued: [],
 		});
 	});
 
