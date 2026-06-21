@@ -372,6 +372,9 @@ describe("d-pi interactive view parity components", () => {
 		expect(view.text).toContain("The compacted session focused on remote-first view model pagination.");
 		expect(view.text).toContain("────────────────");
 		expect(view.text).toContain("after compact");
+		expect(view.text).toContain(
+			"──────────────── Compact completed 15s ────────────────\n\n The compacted session focused on remote-first view model pagination.",
+		);
 	});
 
 	it("renders compact completion label with only the top divider in the component view", () => {

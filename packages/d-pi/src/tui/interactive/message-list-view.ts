@@ -248,6 +248,7 @@ function messageComponents(
 		divider.addChild(new Spacer(1));
 		divider.addChild(new DPiNativeDynamicBorder((text) => theme.fg("borderMuted", text)));
 		divider.addChild(new Text(theme.fg("muted", compactDividerLabel(message)), 1, 0));
+		divider.addChild(new Spacer(1));
 		if (summary) {
 			divider.addChild(
 				new Markdown(summary, 1, 0, markdownTheme, {
@@ -372,6 +373,7 @@ function messageLines(message: AgentMessage, options: DPiInteractiveStyleOptions
 		return [
 			"",
 			style.dim(`──────────────── ${compactDividerLabel(message)} ────────────────`),
+			"",
 			...(summary ? summary.split("\n").map((line) => style.dim(` ${line}`)) : []),
 			"",
 		];
