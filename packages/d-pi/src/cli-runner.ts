@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { runConnectMode } from "@sheason/pi-coding-agent/d-pi-worker";
 import { createAllowedUser, listAllowedUsers, removeAllowedUser, updateAllowedUser } from "./auth/allowed-users.ts";
 import { createLocalUser, listLocalUsers, removeLocalUser, updateLocalUser } from "./auth/local-users.ts";
@@ -17,6 +17,11 @@ import {
 	TARGET_WORKSPACE_VERSION,
 	validateWorkspace,
 } from "./workspace/workspace.ts";
+
+const dPiClientExtensionPath = new URL(
+	`./extension/client-extension${import.meta.url.endsWith(".ts") ? ".ts" : ".js"}`,
+	import.meta.url,
+).pathname;
 
 export interface DPiCliRuntime {
 	cwd: string;
@@ -252,7 +257,12 @@ export async function runDPiCli(args: string[], runtime: DPiCliRuntime = default
 	}
 	if (command === "_connect-child") {
 		const agentUrl = args[1];
-		await runConnectMode({ url: agentUrl, authToken: process.env.DPI_AUTH_TOKEN });
+		await runConnectMode({
+			url: agentUrl,
+			authToken: process.env.DPI_AUTH_TOKEN,
+			clientExtensionPaths: [dPiClientExtensionPath],
+			clientExtensionCwd: dirname(dPiClientExtensionPath),
+		});
 		return;
 	}
 	if (command === "_executor-child") {

@@ -81,6 +81,7 @@ import type {
 	ExtensionWidgetOptions,
 	ProjectTrustContext,
 } from "../../core/extensions/index.ts";
+import { loadExtensions } from "../../core/extensions/index.ts";
 import { ExtensionRunner as ExtensionRunnerImpl } from "../../core/extensions/runner.ts";
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
@@ -281,6 +282,10 @@ export interface InteractiveModeOptions {
 	remoteClientExtensionsUrl?: string;
 	/** Headers to use for remote connect-mode extension requests */
 	remoteClientExtensionHeaders?: ConnectAuthHeaders;
+	/** Local client runtime extension paths owned by the current CLI install */
+	localClientExtensionPaths?: string[];
+	/** Cwd for local client runtime extensions */
+	localClientExtensionCwd?: string;
 }
 
 export class InteractiveMode {
@@ -1883,6 +1888,16 @@ export class InteractiveMode {
 				cwd,
 				this.options.remoteClientExtensionHeaders,
 			);
+			if (this.options.localClientExtensionPaths?.length) {
+				const localResult = await loadExtensions(
+					this.options.localClientExtensionPaths,
+					this.options.localClientExtensionCwd ?? process.cwd(),
+					undefined,
+					result.runtime,
+				);
+				result.extensions.unshift(...localResult.extensions);
+				result.errors.push(...localResult.errors);
+			}
 
 			if (result.extensions.length === 0) return;
 

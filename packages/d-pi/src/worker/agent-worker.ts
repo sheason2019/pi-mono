@@ -34,10 +34,6 @@ import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
 import { buildWorkerAdditionalExtensionPaths } from "./resource-paths.ts";
 
-const dPiClientExtensionPath = new URL(
-	`../extension/client-extension${import.meta.url.endsWith(".ts") ? ".ts" : ".js"}`,
-	import.meta.url,
-).pathname;
 const config = workerData as AgentWorkerConfig;
 const port = parentPort!;
 
@@ -153,7 +149,7 @@ async function runAgentWorker(): Promise<void> {
 		const additionalSkillPaths = config.workspaceContext?.additionalSkillPaths ?? [];
 		const additionalExtensionPaths = buildWorkerAdditionalExtensionPaths({
 			agentCwd: opts.cwd,
-			dPiClientExtensionPath,
+			workspaceRoot,
 			workspaceAdditionalExtensionPaths: config.workspaceContext?.additionalExtensionPaths ?? [],
 		});
 

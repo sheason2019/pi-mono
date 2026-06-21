@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { dirname, relative, resolve, sep } from "node:path";
 import type { AgentSessionProxy } from "../../core/agent-session-proxy.ts";
 
 /**
@@ -220,7 +220,7 @@ const protocolHandlers: Record<string, ProtocolHandler> = {
 	},
 };
 
-// === Client extension bundling (migrated from api-handlers.ts) ===
+// === Runtime-loadable client extensions ===
 
 function hasClientExport(source: string): boolean {
 	return /export\s+(async\s+)?function\s+client\b/.test(source) || /export\s+const\s+client\b/.test(source);
@@ -232,7 +232,25 @@ interface ClientExtensionBundle {
 	files: Array<{ path: string; content: string }>;
 }
 
-const RELATIVE_IMPORT_RE = /(?:import|export)\s+(?:[^"']*\s+from\s+)?["'](\.{1,2}\/[^"']+)["']/g;
+const CLIENT_LOADABLE_FILES_RE = /@pi-client-loadable-files:\s*(\[[^\r\n]*\])/;
+
+function assertSafeLoadableFile(path: string): void {
+	if (!path || path.startsWith("/")) {
+		throw new Error(`Unsafe client loadable file path: ${path}`);
+	}
+}
+
+function parseDeclaredLoadableFiles(source: string): string[] {
+	const match = source.match(CLIENT_LOADABLE_FILES_RE);
+	if (!match) {
+		return [];
+	}
+	const parsed = JSON.parse(match[1]) as unknown;
+	if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
+		throw new Error("Invalid @pi-client-loadable-files declaration");
+	}
+	return parsed;
+}
 
 function toRelativeBundlePath(baseDir: string, filePath: string): string {
 	const relativePath = relative(baseDir, filePath);
@@ -240,14 +258,6 @@ function toRelativeBundlePath(baseDir: string, filePath: string): string {
 		throw new Error(`Extension dependency escapes its base directory: ${filePath}`);
 	}
 	return relativePath.split(sep).join("/");
-}
-
-function resolveRelativeModule(fromFile: string, specifier: string): string | undefined {
-	const base = resolve(dirname(fromFile), specifier);
-	const candidates = extname(base)
-		? [base]
-		: [base, `${base}.ts`, `${base}.js`, join(base, "index.ts"), join(base, "index.js")];
-	return candidates.find((candidate) => existsSync(candidate));
 }
 
 function commonDirectory(paths: string[]): string {
@@ -266,26 +276,18 @@ function collectExtensionFiles(entryPath: string): {
 	baseDir: string;
 	files: Array<{ path: string; content: string }>;
 } {
-	const visited = new Set<string>();
-	const contents = new Map<string, string>();
-	const visit = (filePath: string) => {
-		const resolvedPath = resolve(filePath);
-		if (visited.has(resolvedPath)) return;
-		visited.add(resolvedPath);
-		const content = readFileSync(resolvedPath, "utf-8");
-		contents.set(resolvedPath, content);
-		for (const match of content.matchAll(RELATIVE_IMPORT_RE)) {
-			const dependency = resolveRelativeModule(resolvedPath, match[1]);
-			if (dependency) {
-				visit(dependency);
-			}
-		}
-	};
-	visit(entryPath);
-	const baseDir = commonDirectory(Array.from(contents.keys()));
-	const files = Array.from(contents.entries()).map(([filePath, content]) => ({
+	const resolvedEntryPath = resolve(entryPath);
+	const entrySource = readFileSync(resolvedEntryPath, "utf-8");
+	const entryDir = dirname(resolvedEntryPath);
+	const declaredFiles = parseDeclaredLoadableFiles(entrySource).map((filePath) => {
+		assertSafeLoadableFile(filePath);
+		return resolve(entryDir, filePath);
+	});
+	const filePaths = Array.from(new Set([resolvedEntryPath, ...declaredFiles]));
+	const baseDir = commonDirectory(filePaths);
+	const files = filePaths.map((filePath) => ({
 		path: toRelativeBundlePath(baseDir, filePath),
-		content,
+		content: filePath === resolvedEntryPath ? entrySource : readFileSync(filePath, "utf-8"),
 	}));
 	return { baseDir, files };
 }

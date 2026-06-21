@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { getAgentDir } from "../../config.ts";
 import { createEventBus } from "../../core/event-bus.ts";
 import type { LoadExtensionsResult } from "../../core/extensions/index.ts";
 import { loadExtensions } from "../../core/extensions/loader.ts";
@@ -48,9 +49,16 @@ function writeBundle(bundle: RemoteClientExtensionBundle, baseDir: string): stri
 	return shimPath;
 }
 
+function getRuntimeLoadablesDir(url: string, bundles: RemoteClientExtensionBundle[]): string {
+	const hash = createHash("sha256").update(JSON.stringify({ url, bundles })).digest("hex").slice(0, 16);
+	const syncDir = join(getAgentDir(), "tmp", "runtime-loadables", hash);
+	mkdirSync(syncDir, { recursive: true, mode: 0o700 });
+	return syncDir;
+}
+
 export async function loadRemoteClientExtensions(
 	url: string,
-	cwd: string,
+	_cwd: string,
 	headers?: ConnectAuthHeaders,
 ): Promise<LoadExtensionsResult> {
 	const response = await fetch(`${url}/client-extensions`, { headers });
@@ -58,9 +66,9 @@ export async function loadRemoteClientExtensions(
 		throw new Error(`Failed to load client extensions: ${response.status} ${response.statusText}`);
 	}
 	const bundles = (await response.json()) as RemoteClientExtensionBundle[];
-	const syncDir = mkdtempSync(join(tmpdir(), "pi-remote-client-extensions-"));
+	const syncDir = getRuntimeLoadablesDir(url, bundles);
 	const entryPaths = bundles.map((bundle) => writeBundle(bundle, syncDir));
-	const result = await loadExtensions(entryPaths, resolve(cwd), createEventBus());
+	const result = await loadExtensions(entryPaths, syncDir, createEventBus());
 	for (const extension of result.extensions) {
 		const matchingBundle = bundles.find((bundle) =>
 			extension.resolvedPath.startsWith(join(syncDir, encodeURIComponent(bundle.path))),

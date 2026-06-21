@@ -5,6 +5,8 @@ import { RemoteAgentSessionProxy } from "./remote-agent-session-proxy.ts";
 export interface ConnectModeOptions {
 	url: string;
 	authToken?: string;
+	clientExtensionPaths?: string[];
+	clientExtensionCwd?: string;
 }
 
 export async function runConnectMode(options: ConnectModeOptions): Promise<void> {
@@ -23,6 +25,12 @@ export async function runConnectMode(options: ConnectModeOptions): Promise<void>
 		banner: snapshot.banner,
 		remoteClientExtensionsUrl: url,
 		remoteClientExtensionHeaders: headers,
+		...(options.clientExtensionPaths
+			? {
+					localClientExtensionPaths: options.clientExtensionPaths,
+					localClientExtensionCwd: options.clientExtensionCwd,
+				}
+			: {}),
 	});
 
 	// Create remote proxy with disconnect callback for graceful shutdown

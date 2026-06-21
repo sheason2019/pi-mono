@@ -165,7 +165,7 @@ describe("connect client extensions", () => {
 		expect(interactiveModeOptions).toEqual([{ banner: undefined, remoteClientExtensionsUrl: "http://remote" }]);
 	});
 
-	it("serve mode exposes only extension bundles with a client export", async () => {
+	it("serve mode exposes explicitly declared runtime loadable files for client exports", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-client-ext-"));
 		const clientPath = join(tempDir, "remote-client.ts");
 		const helperPath = join(tempDir, "helper.ts");
@@ -173,7 +173,8 @@ describe("connect client extensions", () => {
 		writeFileSync(helperPath, `export const marker = "remote-client";\n`);
 		writeFileSync(
 			clientPath,
-			`import { marker } from "./helper.ts";
+			`/* @pi-client-loadable-files: ["helper.ts"] */
+import { marker } from "./helper.ts";
 export default function server() {}
 export function client(pi) { pi.registerCommand(marker, { handler: async () => {} }); }
 `,
@@ -198,6 +199,41 @@ export function client(pi) { pi.registerCommand(marker, { handler: async () => {
 						{ path: "remote-client.ts", content: expect.stringContaining("export function client") },
 						{ path: "helper.ts", content: expect.stringContaining("remote-client") },
 					]),
+				},
+			]);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("serve mode does not implicitly follow relative imports", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-client-ext-"));
+		const clientPath = join(tempDir, "remote-client.ts");
+		const helperPath = join(tempDir, "helper.ts");
+		writeFileSync(helperPath, `export const marker = "remote-client";\n`);
+		writeFileSync(
+			clientPath,
+			`import { marker } from "./helper.ts";
+export default function server() {}
+export function client(pi) { pi.registerCommand(marker, { handler: async () => {} }); }
+`,
+		);
+		const server = await serveOnce(makeProxy({ ...baseSnapshot, extensionPaths: [clientPath] }));
+
+		try {
+			const response = await fetch(`${server.url}/client-extensions`);
+			const payload = (await response.json()) as Array<{
+				path: string;
+				entry: string;
+				files: Array<{ path: string; content: string }>;
+			}>;
+
+			expect(response.status).toBe(200);
+			expect(payload).toEqual([
+				{
+					path: clientPath,
+					entry: "remote-client.ts",
+					files: [{ path: "remote-client.ts", content: expect.stringContaining("export function client") }],
 				},
 			]);
 		} finally {
@@ -258,7 +294,7 @@ export function client() { globalThis.__remoteClientExtensionLoaded(marker); }
 			}),
 		);
 
-		const result = await loadRemoteClientExtensions("http://remote", "/tmp/client-cwd");
+		const result = await loadRemoteClientExtensions("http://remote", "/remote/cwd/that/does/not/exist");
 
 		expect(result.errors).toEqual([]);
 		expect(result.extensions.map((extension) => extension.path)).toEqual([

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -16,17 +16,17 @@ describe("worker resource paths", () => {
 
 	it("adds the generated tui-components capability module to connect-synced paths", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "d-pi-worker-paths-"));
-		const dPiClientPath = "/pkg/d-pi/client-extension.ts";
 		const workspaceExtensionPath = "/workspace/extensions/team.ts";
+		writeFileSync(join(tempDir, "agent.ts"), `export default {};`);
 
 		const paths = buildWorkerAdditionalExtensionPaths({
 			agentCwd: tempDir,
-			dPiClientExtensionPath: dPiClientPath,
+			workspaceRoot: undefined,
 			workspaceAdditionalExtensionPaths: [workspaceExtensionPath],
 		});
 
 		const capabilityPath = join(tempDir, ".d-pi-tui-components-capability.ts");
-		expect(paths).toEqual([dPiClientPath, capabilityPath, workspaceExtensionPath]);
+		expect(paths).toEqual([capabilityPath, workspaceExtensionPath]);
 		expect(existsSync(capabilityPath)).toBe(true);
 	});
 });

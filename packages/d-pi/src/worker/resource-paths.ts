@@ -2,11 +2,13 @@ import { ensureAgentTuiComponentsClientCapability } from "../tui-components/clie
 
 export interface WorkerAdditionalExtensionPathsOptions {
 	agentCwd: string;
-	dPiClientExtensionPath: string;
+	workspaceRoot: string | undefined;
 	workspaceAdditionalExtensionPaths: string[];
 }
 
 export function buildWorkerAdditionalExtensionPaths(options: WorkerAdditionalExtensionPathsOptions): string[] {
-	const tuiComponentsCapabilityPath = ensureAgentTuiComponentsClientCapability(options.agentCwd);
-	return [options.dPiClientExtensionPath, tuiComponentsCapabilityPath, ...options.workspaceAdditionalExtensionPaths];
+	const tuiComponentsCapabilityPath = ensureAgentTuiComponentsClientCapability(options.agentCwd, {
+		workspaceRoot: options.workspaceRoot,
+	});
+	return [tuiComponentsCapabilityPath, ...options.workspaceAdditionalExtensionPaths];
 }
