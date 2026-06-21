@@ -1,9 +1,10 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadExtensions } from "../../coding-agent/src/core/extensions/loader.ts";
 import type { AgentTuiComponentRenderer } from "../src/agent-definition.ts";
+import { getDPiPackageEntryPath } from "../src/extension-module-alias.ts";
 import { defineAgent, defineSkill, defineTuiComponent } from "../src/index.ts";
 import { ensureAgentTuiComponentsClientCapability } from "../src/tui-components/client-capability.ts";
 import { installAgentTuiComponents } from "../src/tui-components/registry.ts";
@@ -50,22 +51,12 @@ describe("tui-components registry", () => {
 		try {
 			const capabilityPath = ensureAgentTuiComponentsClientCapability(agentDir);
 			const source = readFileSync(capabilityPath, "utf-8");
-			const shimPackagePath = join(agentDir, "node_modules", "@sheason", "d-pi", "package.json");
-			const shimIndexPath = join(agentDir, "node_modules", "@sheason", "d-pi", "index.js");
 
 			expect(capabilityPath).toBe(join(agentDir, ".d-pi-tui-components-capability.ts"));
 			expect(source).toContain('import agentDefinition from "./agent.ts";');
 			expect(source).toContain('import { installAgentTuiComponents } from "@sheason/d-pi";');
-			expect(source).toContain('import "./node_modules/@sheason/d-pi/package.json";');
-			expect(source).toContain('import "./node_modules/@sheason/d-pi/index.js";');
 			expect(source).toContain("installAgentTuiComponents(agentDefinition");
 			expect(source).toContain("pi.registerMessageRenderer(customType, render);");
-			expect(existsSync(shimPackagePath)).toBe(true);
-			expect(readFileSync(shimPackagePath, "utf-8")).toContain('"name": "@sheason/d-pi"');
-			const shimSource = readFileSync(shimIndexPath, "utf-8");
-			expect(shimSource).toContain("export function defineTool");
-			expect(shimSource).toContain("export function installAgentTuiComponents");
-			expect(shimSource).toContain("export const dPiMessageTuiComponent");
 		} finally {
 			rmSync(agentDir, { recursive: true, force: true });
 		}
@@ -96,12 +87,24 @@ export default defineAgent({
 export default client;
 `,
 			);
+			const previousAliases = process.env.PI_EXTENSION_MODULE_ALIASES;
+			process.env.PI_EXTENSION_MODULE_ALIASES = JSON.stringify({
+				"@sheason/d-pi": getDPiPackageEntryPath(),
+			});
 
-			const result = await loadExtensions([clientEntryPath], agentDir);
+			try {
+				const result = await loadExtensions([clientEntryPath], agentDir);
 
-			expect(result.errors).toEqual([]);
-			expect(result.extensions).toHaveLength(1);
-			expect(result.extensions[0]?.messageRenderers.has("d-pi-message")).toBe(true);
+				expect(result.errors).toEqual([]);
+				expect(result.extensions).toHaveLength(1);
+				expect(result.extensions[0]?.messageRenderers.has("d-pi-message")).toBe(true);
+			} finally {
+				if (previousAliases === undefined) {
+					delete process.env.PI_EXTENSION_MODULE_ALIASES;
+				} else {
+					process.env.PI_EXTENSION_MODULE_ALIASES = previousAliases;
+				}
+			}
 		} finally {
 			rmSync(agentDir, { recursive: true, force: true });
 		}

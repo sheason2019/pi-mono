@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { AGENT_SWITCH_FILE } from "../extension/index.ts";
+import { applyDPiExtensionModuleAlias } from "../extension-module-alias.ts";
 import type { TeamSnapshot } from "../types.ts";
 import { createConnectSession } from "./connect-auth.ts";
 
@@ -181,7 +182,11 @@ export async function runConnectSession(opts: ConnectSessionSpawnOptions & { fet
 	});
 	const tuiChild = spawn(process.execPath, buildConnectChildArgs(cliPath, agentUrl, hubUrl), {
 		stdio: "inherit",
-		env: { ...process.env, DPI_AUTH_TOKEN: authToken, DPI_CURRENT_AGENT_ID: connectId, DPI_HUB_URL: hubUrl },
+		env: createConnectChildEnv({
+			authToken,
+			connectId,
+			hubUrl,
+		}),
 	});
 
 	await new Promise<void>((resolve) => {
@@ -256,6 +261,21 @@ export async function runConnectSession(opts: ConnectSessionSpawnOptions & { fet
 	} catch {
 		// Unbind is best-effort; the hub will GC stale bindings on executor disconnect.
 	}
+}
+
+function createConnectChildEnv(options: {
+	authToken: string | undefined;
+	connectId: string;
+	hubUrl: string;
+}): NodeJS.ProcessEnv {
+	const env: Record<string, string | undefined> = {
+		...process.env,
+		DPI_AUTH_TOKEN: options.authToken,
+		DPI_CURRENT_AGENT_ID: options.connectId,
+		DPI_HUB_URL: options.hubUrl,
+	};
+	applyDPiExtensionModuleAlias(env);
+	return env as NodeJS.ProcessEnv;
 }
 
 /** Resolve agent name from spec (the only valid identifier now). */

@@ -28,6 +28,7 @@ import {
 	// dispatch imported directly from dispatch-extension
 	type HubChannel,
 } from "../extension/index.ts";
+import { applyDPiExtensionModuleAlias } from "../extension-module-alias.ts";
 import { formatAgentIdentitySection, readAgentIdentitySync } from "../hub/agent-identity.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
@@ -91,6 +92,7 @@ async function runAgentWorker(): Promise<void> {
 	// See "name is identity" in the changelog for the rationale.
 	const { agentName, cwd, model: modelSpec } = config;
 	const agentDir = getAgentDir();
+	applyDPiExtensionModuleAlias(process.env);
 
 	process.stderr.write(`[d-pi worker ${agentName}] Starting agent "${agentName}"...\n`);
 

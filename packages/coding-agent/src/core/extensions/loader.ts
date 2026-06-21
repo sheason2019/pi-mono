@@ -66,10 +66,34 @@ const require = createRequire(import.meta.url);
  * Get aliases for jiti (used in Node.js/development mode).
  * In Bun binary mode, virtualModules is used instead.
  */
-let _aliases: Record<string, string> | null = null;
+const EXTENSION_MODULE_ALIASES_ENV = "PI_EXTENSION_MODULE_ALIASES";
+
+let _baseAliases: Record<string, string> | null = null;
+
+function parseExtensionModuleAliases(): Record<string, string> {
+	const raw = process.env[EXTENSION_MODULE_ALIASES_ENV];
+	if (!raw) {
+		return {};
+	}
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			return {};
+		}
+		const aliases: Record<string, string> = {};
+		for (const [specifier, target] of Object.entries(parsed)) {
+			if (typeof target === "string" && target.length > 0) {
+				aliases[specifier] = target;
+			}
+		}
+		return aliases;
+	} catch {
+		return {};
+	}
+}
 
 function getAliases(): Record<string, string> {
-	if (_aliases) return _aliases;
+	if (_baseAliases) return { ..._baseAliases, ...parseExtensionModuleAliases() };
 
 	const __dirname = path.dirname(fileURLToPath(import.meta.url));
 	const packageIndex = path.resolve(__dirname, "../..", "index.js");
@@ -93,7 +117,7 @@ function getAliases(): Record<string, string> {
 	const piAiEntry = resolveWorkspaceOrImport("ai/dist/index.js", "@earendil-works/pi-ai");
 	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "@earendil-works/pi-ai/oauth");
 
-	_aliases = {
+	_baseAliases = {
 		"@sheason/pi-coding-agent": piCodingAgentEntry,
 		"@earendil-works/pi-agent-core": piAgentCoreEntry,
 		"@earendil-works/pi-tui": piTuiEntry,
@@ -112,7 +136,7 @@ function getAliases(): Record<string, string> {
 		"@sinclair/typebox/value": typeboxValueEntry,
 	};
 
-	return _aliases;
+	return { ..._baseAliases, ...parseExtensionModuleAliases() };
 }
 
 type HandlerFn = (...args: unknown[]) => Promise<unknown>;
