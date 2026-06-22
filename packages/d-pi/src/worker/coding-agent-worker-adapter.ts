@@ -935,7 +935,6 @@ export class DPiLocalAgentSessionProxy {
 	private readonly transcriptItems: DPiTranscriptItem[] = [];
 	private readonly importedSessionMessageIds = new Set<string>();
 	private readonly queued: DPiLocalQueueItem[] = [];
-	private readonly optimisticPromptTexts: string[] = [];
 	private realtimeCursor = 0;
 	private realtimePageIndex = 0;
 	private realtimePage: DPiInteractiveRealtimePage = createDPiInteractiveRealtimePage("initial", 0);
@@ -1419,7 +1418,6 @@ export class DPiLocalAgentSessionProxy {
 		if (event.type === "session_replaced") {
 			this.startRealtimePage("resume", { emit: false });
 			this.importedSessionMessageIds.clear();
-			this.optimisticPromptTexts.splice(0, this.optimisticPromptTexts.length);
 			if (event.transcriptItems) {
 				this.transcriptItems.splice(0, this.transcriptItems.length, ...event.transcriptItems);
 			}
@@ -1549,10 +1547,6 @@ export class DPiLocalAgentSessionProxy {
 		options: { recordTranscript?: boolean } = {},
 	): void {
 		if (this.importedSessionMessageIds.has(message.id)) {
-			return;
-		}
-		if (emitEvents && this.acknowledgeOptimisticPrompt(message)) {
-			this.importedSessionMessageIds.add(message.id);
 			return;
 		}
 		this.importedSessionMessageIds.add(message.id);
@@ -1692,36 +1686,12 @@ export class DPiLocalAgentSessionProxy {
 		this.emitState();
 
 		if (kind === "prompt") {
-			const message: DPiLocalAgentMessage = {
-				id: nextGeneratedId("message"),
-				role: "user",
-				content: text,
-				...(images ? { images } : {}),
-				timestamp: Date.now(),
-			};
-			this.optimisticPromptTexts.push(normalizedUserMessageText(message));
-			this.messages.push(message);
-			this.emitRealtimeUpsert(message);
-			this.emit({ type: "message", data: message });
 			const queuedIndex = this.queued.findIndex((candidate) => candidate.id === queueItem.id);
 			if (queuedIndex >= 0) {
 				this.queued.splice(queuedIndex, 1);
 			}
 		}
 		this.emitState();
-	}
-
-	private acknowledgeOptimisticPrompt(message: DPiLocalAgentMessage): boolean {
-		if (message.role !== "user") {
-			return false;
-		}
-		const text = normalizedUserMessageText(message);
-		const index = this.optimisticPromptTexts.indexOf(text);
-		if (index < 0) {
-			return false;
-		}
-		this.optimisticPromptTexts.splice(index, 1);
-		return true;
 	}
 
 	private emitState(): void {
@@ -1741,7 +1711,6 @@ export class DPiLocalAgentSessionProxy {
 		this.messages.splice(0, this.messages.length);
 		this.transcriptItems.splice(0, this.transcriptItems.length);
 		this.streamingAssistantMessageId = undefined;
-		this.optimisticPromptTexts.splice(0, this.optimisticPromptTexts.length);
 		if (options.emit !== false) {
 			this.emitRealtimeSnapshot();
 		}
@@ -2378,10 +2347,6 @@ function errorMessage(error: unknown): string {
 	return String(error);
 }
 
-function normalizedUserMessageText(message: Pick<DPiLocalAgentMessage, "content">): string {
-	return stripDPiMetaWrapper(messageContentText(message.content));
-}
-
 function objectField(value: unknown, key: string): Record<string, unknown> | undefined {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) {
 		return undefined;
@@ -2421,11 +2386,6 @@ function messageContentText(content: unknown): string {
 		return "";
 	}
 	return JSON.stringify(content);
-}
-
-function stripDPiMetaWrapper(text: string): string {
-	const match = text.match(/^\[meta\((?:.|\n)*?\)\]\s*\n?((?:.|\n)*)$/);
-	return match?.[1] ?? text;
 }
 
 function modelToInteractiveModel(model: Model<Api>): DPiInteractiveModelItemData {
