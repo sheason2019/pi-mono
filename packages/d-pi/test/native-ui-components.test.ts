@@ -135,6 +135,31 @@ describe("d-pi native interactive components", () => {
 		expect(component.render(80).join("\n")).toContain("custom-rendered");
 	});
 
+	it("uses the d-pi message renderer for user messages that carry d-pi metadata", () => {
+		const state = {
+			...snapshot(),
+			messages: [
+				{
+					role: "user" as const,
+					content: '[meta({"sourceType":"connect","connectId":"local"})]\nhello through connect',
+					timestamp: 1,
+				},
+			],
+		};
+		const custom = new Container();
+		custom.addChild(new Text("d-pi-rendered"));
+
+		const component = buildDPiInteractiveMessageListComponent(state, {
+			messageRenderers: {
+				"d-pi-message": () => custom,
+			},
+		});
+
+		expect(component.children[0]).toBe(custom);
+		expect(component.children[0]).not.toBeInstanceOf(DPiNativeUserMessageComponent);
+		expect(component.render(80).join("\n")).toContain("d-pi-rendered");
+	});
+
 	it("renders tool calls and tool results as native tool execution components", () => {
 		const output = Array.from({ length: 24 }, (_, index) => `entry-${index + 1}`).join("\n");
 		const state = {
