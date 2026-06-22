@@ -232,6 +232,41 @@ describe("d-pi native interactive components", () => {
 		expect(rendered).toContain("\x1b[48;2;40;50;40m");
 	});
 
+	it("does not duplicate tool calls that already have transcript tool state", () => {
+		const state = {
+			...snapshot(),
+			messages: [
+				{
+					...assistantMessage,
+					content: [
+						{ type: "text" as const, text: "我来查看目录。" },
+						{ type: "toolCall" as const, id: "tool-1", name: "dispatch_ls", arguments: { path: "." } },
+					],
+					stopReason: "toolUse" as const,
+				},
+			],
+			transcriptItems: [
+				{ id: "assistant", type: "message" as const, message: assistantMessage, timestamp: 1 },
+				{
+					id: "tool-state",
+					type: "tool_state" as const,
+					toolCallId: "tool-1",
+					toolName: "dispatch_ls",
+					status: "succeeded" as const,
+					args: { path: "." },
+					result: "done",
+					timestamp: 2,
+				},
+			],
+		};
+
+		const component = buildDPiInteractiveMessageListComponent(state);
+		const toolComponents = component.children.filter((child) => child instanceof DPiNativeToolExecutionComponent);
+
+		expect(toolComponents).toHaveLength(1);
+		expect(component.render(80).join("\n")).toContain("done");
+	});
+
 	it("uses native tool expansion state for dispatch tool output", () => {
 		const output = Array.from({ length: 24 }, (_, index) => `entry-${index + 1}`).join("\n");
 		const state = {
