@@ -2234,7 +2234,7 @@ function dPiMetaMessageToLocalMessage(message: DPiAgentMessage): DPiLocalAgentMe
 		role: "custom",
 		customType: "d-pi-message",
 		display: true,
-		content: buildDPiMetaContent(extracted.meta),
+		content: typeof message.content === "string" ? message.content : buildDPiMetaContent(extracted.meta),
 		details: extracted.meta,
 		timestamp: message.timestamp ?? Date.now(),
 	};

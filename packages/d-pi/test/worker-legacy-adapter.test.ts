@@ -1340,6 +1340,31 @@ describe("worker runtime adapter", () => {
 		expect(JSON.stringify(state.messages)).not.toContain('"customType":"steer"');
 	});
 
+	it("records meta-wrapped runtime user messages as d-pi custom messages with original content", () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		const content = '[meta({"sourceType":"agent","agentName":"tester","createTime":"2026/06/22 15:00:00"})]\nhello';
+
+		proxy.applyRuntimeEvent({
+			type: "message",
+			agentName: "root",
+			message: {
+				role: "user",
+				content,
+				timestamp: 123,
+			},
+		} as never);
+
+		expect(proxy.getState().messages).toEqual([
+			expect.objectContaining({
+				role: "custom",
+				customType: "d-pi-message",
+				display: true,
+				content,
+				details: expect.objectContaining({ sourceType: "agent", agentName: "tester" }),
+			}),
+		]);
+	});
+
 	it("does not duplicate direct prompt transcript messages when runtime user confirmation arrives later", async () => {
 		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
 
