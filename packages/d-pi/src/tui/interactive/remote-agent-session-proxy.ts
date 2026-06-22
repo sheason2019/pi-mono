@@ -280,6 +280,7 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 					type: "state_update",
 					snapshot: {
 						messages: this.realtimeState.messages as DPiInteractiveSessionStateSnapshot["messages"],
+						...(this.realtimeState.items.length > 0 ? { transcriptItems: [...this.realtimeState.items] } : {}),
 					},
 				});
 			}

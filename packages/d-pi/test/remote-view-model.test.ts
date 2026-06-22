@@ -183,6 +183,8 @@ describe("remote-first interactive view model", () => {
 			baseUrl: "https://dp.example/agents/root",
 			fetch: vi.fn() as unknown as typeof fetch,
 		});
+		const events: Array<{ type: string; snapshot?: unknown }> = [];
+		proxy.subscribe((event) => events.push(event));
 
 		proxy.applyNamedEventForTest({
 			event: "realtime",
@@ -207,6 +209,15 @@ describe("remote-first interactive view model", () => {
 		expect(proxy.getSnapshot().messages).toEqual(full.messages);
 		expect(proxy.getSnapshot().transcriptItems).toEqual([
 			expect.objectContaining({ type: "turn_stats", output: 4, total: 19 }),
+		]);
+		expect(events).toEqual([
+			expect.objectContaining({
+				type: "state_update",
+				snapshot: expect.objectContaining({
+					messages: full.messages,
+					transcriptItems: [expect.objectContaining({ type: "turn_stats", output: 4, total: 19 })],
+				}),
+			}),
 		]);
 	});
 
