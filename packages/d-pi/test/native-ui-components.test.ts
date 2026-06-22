@@ -162,6 +162,7 @@ describe("d-pi native interactive components", () => {
 	});
 
 	it("renders d-pi message headers with channel metadata instead of prose descriptions", () => {
+		const colors: string[] = [];
 		const rendered = dPiMessageRenderer.render(
 			{
 				role: "custom",
@@ -170,13 +171,21 @@ describe("d-pi native interactive components", () => {
 				display: true,
 			},
 			{ expanded: false },
-			{ bg: (_name, text) => text, fg: (_name, text) => text },
+			{
+				bg: (_name, text) => text,
+				fg: (name, text) => {
+					colors.push(name);
+					return text;
+				},
+			},
 		);
 
 		const plain = rendered?.render(80).join("\n") ?? "";
 		expect(plain).toContain("agent:tester · 2026/06/22 15:00:00");
+		expect(plain.split("\n")[0]?.startsWith("agent:tester")).toBe(true);
 		expect(plain).toContain("hello");
 		expect(plain).not.toContain("Message from agent");
+		expect(colors[0]).toBe("warning");
 	});
 
 	it("renders tool calls and tool results as native tool execution components", () => {

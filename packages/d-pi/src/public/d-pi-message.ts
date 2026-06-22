@@ -28,7 +28,7 @@ export default defineTuiComponent({
 		const source = sourceName ? `${sourceType}:${sourceName}` : sourceType;
 		const header = [source, authName, createTime].filter((part) => part.trim()).join(" · ");
 		const container = new Container();
-		container.addChild(new Text(theme.fg("customMessageLabel", header), 1, 0));
+		container.addChild(new Text(theme.fg("warning", header), 0, 0));
 		const text = extracted?.text ?? "";
 		if (text) {
 			const box = new Box(1, 1, (text: string) => theme.bg("userMessageBg", text));
