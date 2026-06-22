@@ -142,7 +142,12 @@ describe("d-pi native interactive components", () => {
 			messages: [
 				{
 					role: "user" as const,
-					content: '[meta({"sourceType":"connect","connectId":"local"})]\nhello through connect',
+					content: [
+						{
+							type: "text" as const,
+							text: '[meta({"sourceType":"connect","connectId":"local"})]\nhello through connect',
+						},
+					],
 					timestamp: 1,
 				},
 			],

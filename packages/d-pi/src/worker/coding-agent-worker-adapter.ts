@@ -17,7 +17,7 @@ import type {
 	ResourceLoader,
 	ToolDefinition,
 } from "../extension/contracts.ts";
-import { buildDPiMetaContent, extractDPiMeta } from "../message-meta.ts";
+import { extractDPiMeta } from "../message-meta.ts";
 import type { DPiRuntimeEvent } from "../runtime/events.ts";
 import {
 	appendSteeringMessage,
@@ -2234,7 +2234,7 @@ function dPiMetaMessageToLocalMessage(message: DPiAgentMessage): DPiLocalAgentMe
 		role: "custom",
 		customType: "d-pi-message",
 		display: true,
-		content: typeof message.content === "string" ? message.content : buildDPiMetaContent(extracted.meta),
+		content: message.content,
 		details: extracted.meta,
 		timestamp: message.timestamp ?? Date.now(),
 	};

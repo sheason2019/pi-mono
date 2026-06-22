@@ -1343,13 +1343,14 @@ describe("worker runtime adapter", () => {
 	it("records meta-wrapped runtime user messages as d-pi custom messages with original content", () => {
 		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
 		const content = '[meta({"sourceType":"agent","agentName":"tester","createTime":"2026/06/22 15:00:00"})]\nhello';
+		const richContent = [{ type: "text" as const, text: content }];
 
 		proxy.applyRuntimeEvent({
 			type: "message",
 			agentName: "root",
 			message: {
 				role: "user",
-				content,
+				content: richContent,
 				timestamp: 123,
 			},
 		} as never);
@@ -1359,7 +1360,7 @@ describe("worker runtime adapter", () => {
 				role: "custom",
 				customType: "d-pi-message",
 				display: true,
-				content,
+				content: richContent,
 				details: expect.objectContaining({ sourceType: "agent", agentName: "tester" }),
 			}),
 		]);

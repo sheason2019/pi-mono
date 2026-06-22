@@ -31,10 +31,11 @@ export function formatDPiMetaMessage(
 }
 
 export function extractDPiMeta(content: unknown): { meta: DPiMessageMeta; text: string } | undefined {
-	if (typeof content !== "string") {
+	const textContent = dPiMetaTextContent(content);
+	if (textContent === undefined) {
 		return undefined;
 	}
-	const match = content.match(/^\[meta\(((?:.|\n)*?)\)\]\s*\n?((?:.|\n)*)$/);
+	const match = textContent.match(/^\[meta\(((?:.|\n)*?)\)\]\s*\n?((?:.|\n)*)$/);
 	if (!match) {
 		return undefined;
 	}
@@ -50,6 +51,27 @@ export function extractDPiMeta(content: unknown): { meta: DPiMessageMeta; text: 
 	} catch {
 		return undefined;
 	}
+}
+
+function dPiMetaTextContent(content: unknown): string | undefined {
+	if (typeof content === "string") {
+		return content;
+	}
+	if (!Array.isArray(content)) {
+		return undefined;
+	}
+	const parts = content.map((part) =>
+		typeof part === "object" &&
+		part !== null &&
+		"type" in part &&
+		part.type === "text" &&
+		"text" in part &&
+		typeof part.text === "string"
+			? part.text
+			: "",
+	);
+	const text = parts.join("");
+	return text.startsWith("[meta(") ? text : undefined;
 }
 
 export function buildDPiMetaContent(meta: DPiMessageMeta): string {
