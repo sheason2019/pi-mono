@@ -186,8 +186,9 @@ describe("d-pi native interactive components", () => {
 		);
 
 		const plain = rendered?.render(80).join("\n") ?? "";
+		expect(plain.split("\n")[0]).toBe("");
 		expect(plain).toContain("agent:tester · 2026/06/22 15:00:00");
-		expect(plain.split("\n")[0]?.startsWith("agent:tester")).toBe(true);
+		expect(plain.split("\n")[1]?.startsWith("agent:tester")).toBe(true);
 		expect(plain).toContain("hello");
 		expect(plain).not.toContain("Message from agent");
 		expect(colors[0]).toBe("warning");

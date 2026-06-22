@@ -1,4 +1,4 @@
-import { Box, Container, Markdown, Text } from "@earendil-works/pi-tui";
+import { Box, Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { type DPiMessageMeta, extractDPiMeta } from "../message-meta.ts";
 import { defineTuiComponent } from "../tui-components/tui-component-definition.ts";
 
@@ -28,6 +28,7 @@ export default defineTuiComponent({
 		const source = sourceName ? `${sourceType}:${sourceName}` : sourceType;
 		const header = [source, authName, createTime].filter((part) => part.trim()).join(" · ");
 		const container = new Container();
+		container.addChild(new Spacer(1));
 		container.addChild(new Text(theme.fg("warning", header), 0, 0));
 		const text = extracted?.text ?? "";
 		if (text) {
