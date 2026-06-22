@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
 import { type Component, Container, Markdown, Spacer, Text, TruncatedText } from "@earendil-works/pi-tui";
+import type { MessageRenderer } from "../../extension/contracts.ts";
 import type { DPiTranscriptItem } from "../../runtime/transcript/projector.ts";
 import { DPiNativeAssistantMessageComponent } from "../native/components/assistant-message.ts";
 import { DPiNativeDynamicBorder } from "../native/components/dynamic-border.ts";
@@ -25,6 +26,7 @@ export interface DPiInteractiveMessageListComponentOptions extends DPiInteractiv
 	toolsExpanded?: boolean;
 	showImages?: boolean;
 	imageWidthCells?: number;
+	messageRenderers?: Readonly<Record<string, MessageRenderer<unknown>>>;
 }
 
 export function buildDPiInteractiveMessageListView(
@@ -230,6 +232,10 @@ function messageComponents(
 	markdownTheme: ReturnType<typeof getDPiNativeMarkdownTheme>,
 	options: DPiInteractiveMessageListComponentOptions,
 ): Component[] {
+	const custom = customMessageComponent(message, theme, options);
+	if (custom) {
+		return [custom];
+	}
 	if (message.role === "user") {
 		const text = stripDPiMetaWrapper(contentText(message.content));
 		if (!text) {
@@ -285,6 +291,28 @@ function messageComponents(
 					}),
 			),
 	];
+}
+
+function customMessageComponent(
+	message: AgentMessage,
+	theme: ReturnType<typeof createDPiNativeTheme>,
+	options: DPiInteractiveMessageListComponentOptions,
+): Component | undefined {
+	if (!("customType" in message) || typeof message.customType !== "string") {
+		return undefined;
+	}
+	const renderer = options.messageRenderers?.[message.customType];
+	if (!renderer) {
+		return undefined;
+	}
+	return renderer(
+		message,
+		{ expanded: options.toolsExpanded === true },
+		{
+			bg: (name, text) => theme.bg(name as Parameters<typeof theme.bg>[0], text),
+			fg: (name, text) => theme.fg(name as Parameters<typeof theme.fg>[0], text),
+		},
+	);
 }
 
 function normalizeAssistantMessage(message: AgentMessage): AssistantMessage {

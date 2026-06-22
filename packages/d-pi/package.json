@@ -13,6 +13,16 @@
 	},
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./.public/d-pi-message": {
+			"types": "./dist/public/d-pi-message.d.ts",
+			"import": "./dist/public/d-pi-message.js"
+		}
+	},
 	"scripts": {
 		"clean": "shx rm -rf dist",
 		"prebuild": "node scripts/inject-build-meta.mjs",

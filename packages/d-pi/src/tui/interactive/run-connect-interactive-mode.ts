@@ -47,6 +47,9 @@ import {
 } from "./message-list-view.ts";
 import { createDPiInteractiveRemoteAgentSessionProxy } from "./remote-agent-session-proxy.ts";
 import { submitDPiInteractiveEditorText } from "./submit.ts";
+import { type DPiMessageRendererRegistry, loadDPiConnectTuiComponents } from "./tui-component-loader.ts";
+
+export { loadDPiConnectTuiComponents };
 
 export interface RunDPiConnectInteractiveModeOptions {
 	agentUrl: string;
@@ -143,6 +146,7 @@ export interface DPiConnectClientState {
 	toolsExpanded: boolean;
 	stopped: boolean;
 	shuttingDown: boolean;
+	messageRenderers: DPiMessageRendererRegistry;
 }
 
 export function createDPiConnectClientState(): DPiConnectClientState {
@@ -153,6 +157,7 @@ export function createDPiConnectClientState(): DPiConnectClientState {
 		toolsExpanded: false,
 		stopped: false,
 		shuttingDown: false,
+		messageRenderers: {},
 	};
 }
 
@@ -918,6 +923,16 @@ export async function runDPiConnectInteractiveMode(
 		}));
 	void setupDPiConnectAutocomplete(editor, proxy, process.cwd());
 	const clientState = createDPiConnectClientState();
+	void loadDPiConnectTuiComponents({
+		hubUrl: options.hubUrl,
+		authHeaders: options.authHeaders,
+		fetch: options.fetch,
+	})
+		.then((renderers) => {
+			clientState.messageRenderers = renderers;
+			render();
+		})
+		.catch(() => {});
 	const gitBranch = options.gitBranch ?? readDPiConnectGitBranch(process.cwd());
 	const stop = async (): Promise<void> => {
 		if (clientState.stopped) {
@@ -962,6 +977,7 @@ export async function runDPiConnectInteractiveMode(
 				statusEntries: clientState.turnStatusEntries,
 				cwd: process.cwd(),
 				toolsExpanded: clientState.toolsExpanded,
+				messageRenderers: clientState.messageRenderers,
 			}),
 		);
 		if (errorText) {

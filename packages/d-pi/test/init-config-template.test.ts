@@ -56,6 +56,16 @@ describe("init template: strict-JSON output", () => {
 		expect(raw).not.toContain("parent:");
 	});
 
+	it("creates a workspace-level d-pi-message TUI component template", () => {
+		const workspace = freshWorkspace();
+		initWorkspace(workspace);
+
+		const componentPath = join(workspace, "tui-components", "d-pi-message.ts");
+		expect(existsSync(componentPath)).toBe(true);
+		const raw = readFileSync(componentPath, "utf-8");
+		expect(raw).toContain("@sheason/d-pi/.public/d-pi-message");
+	});
+
 	it("initializes the workspace as a node package linked to the current d-pi package", () => {
 		const workspace = freshWorkspace();
 		initWorkspace(workspace);

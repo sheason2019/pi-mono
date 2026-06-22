@@ -70,6 +70,7 @@ export {
 } from "./extension/index.ts";
 export { Hub } from "./hub/hub.ts";
 export { SourceManager } from "./hub/source-manager.ts";
+export { extractDPiMeta, formatDPiMetaMessage } from "./message-meta.ts";
 export {
 	type DPiAgentHarness,
 	type DPiAgentHarnessEvent,
@@ -195,6 +196,11 @@ export {
 	isDPiInteractiveStatusState,
 	splitDPiInteractiveSnapshot,
 } from "./tui/interactive/view-model.ts";
+export {
+	type AgentTuiComponentDefinition,
+	type AgentTuiComponentDefinitionInput,
+	defineTuiComponent,
+} from "./tui-components/tui-component-definition.ts";
 export type {
 	AgentStatus,
 	AgentWorkerConfig,

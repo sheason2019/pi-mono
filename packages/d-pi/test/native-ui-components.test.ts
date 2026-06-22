@@ -1,5 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { Spacer, Text } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import type { DPiInteractiveSessionStateSnapshot } from "../src/tui/interactive/agent-session-proxy.ts";
 import { buildDPiInteractiveMessageListComponent } from "../src/tui/interactive/message-list-view.ts";
@@ -106,6 +106,33 @@ describe("d-pi native interactive components", () => {
 
 		expect(component.children[0]).toBeInstanceOf(DPiNativeUserMessageComponent);
 		expect(component.children[1]).toBeInstanceOf(DPiNativeAssistantMessageComponent);
+	});
+
+	it("uses registered workspace TUI renderers for matching custom messages", () => {
+		const state = {
+			...snapshot(),
+			messages: [
+				{
+					role: "custom" as const,
+					customType: "d-pi-message",
+					content: "metadata",
+					display: true,
+					details: { sourceType: "agent" },
+					timestamp: 1,
+				},
+			],
+		};
+		const custom = new Container();
+		custom.addChild(new Text("custom-rendered"));
+
+		const component = buildDPiInteractiveMessageListComponent(state, {
+			messageRenderers: {
+				"d-pi-message": () => custom,
+			},
+		});
+
+		expect(component.children[0]).toBe(custom);
+		expect(component.render(80).join("\n")).toContain("custom-rendered");
 	});
 
 	it("renders tool calls and tool results as native tool execution components", () => {

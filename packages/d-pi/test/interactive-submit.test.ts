@@ -1,4 +1,6 @@
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Container, setKeybindings, type Terminal, TUI } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { AGENT_SWITCH_FILE } from "../src/extension/multi-agent-extension.ts";
@@ -16,6 +18,7 @@ import {
 	extractDPiConnectSelectedAgentName,
 	handleDPiConnectBashInput,
 	handleDPiConnectSlashCommand,
+	loadDPiConnectTuiComponents,
 	recordDPiConnectPromptHistory,
 	runDPiConnectInteractiveMode,
 	showDPiConnectAgentSelector,
@@ -124,6 +127,45 @@ function connectSnapshot(): DPiInteractiveSessionStateSnapshot {
 }
 
 describe("d-pi interactive editor submit", () => {
+	it("loads workspace TUI component modules from the hub and registers their renderers", async () => {
+		const calls: Array<{ url: string; init?: RequestInit }> = [];
+		const fetchFn = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+			const textUrl = typeof url === "string" ? url : url.toString();
+			calls.push({ url: textUrl, init });
+			if (textUrl === "https://dp.example/_hub/.public/tui-components") {
+				return new Response(
+					JSON.stringify({
+						components: [{ name: "meta.ts", url: "https://dp.example/_hub/.public/tui-components/meta.ts" }],
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				);
+			}
+			if (textUrl === "https://dp.example/_hub/.public/tui-components/meta.ts") {
+				return new Response(
+					[
+						`export { default } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src", "public", "d-pi-message.ts")).href)};`,
+					].join("\n"),
+					{ status: 200, headers: { "Content-Type": "text/typescript" } },
+				);
+			}
+			return new Response("missing", { status: 404 });
+		});
+
+		const renderers = await loadDPiConnectTuiComponents({
+			hubUrl: "https://dp.example",
+			authHeaders: { Authorization: "Bearer token" },
+			fetch: fetchFn as typeof fetch,
+		});
+
+		expect(Object.keys(renderers)).toEqual(["d-pi-message"]);
+		expect(calls.map((call) => call.url)).toEqual([
+			"https://dp.example/_hub/.public/tui-components",
+			"https://dp.example/_hub/.public/tui-components/meta.ts",
+		]);
+		expect(calls[0]?.init?.headers).toEqual({ Authorization: "Bearer token" });
+		expect(calls[1]?.init?.headers).toEqual({ Authorization: "Bearer token" });
+	});
+
 	it("reports prompt errors instead of leaving an unhandled rejection that crashes the TUI child", async () => {
 		const error = new Error("prompt returned HTTP 500");
 		const onError = vi.fn();
