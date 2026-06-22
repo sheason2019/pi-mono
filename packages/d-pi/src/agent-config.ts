@@ -17,9 +17,6 @@ export const DEFAULT_AGENT_TOOL_NAMES = [
 	"create_agent",
 	"destroy_agent",
 	"team",
-	"set_source",
-	"get_source",
-	"delete_source",
 	"reload",
 ] as const;
 
@@ -45,9 +42,6 @@ const TOOL_HELPER_NAMES: Record<(typeof DEFAULT_AGENT_TOOL_NAMES)[number], strin
 	create_agent: "createCreateAgentTool",
 	destroy_agent: "createDestroyAgentTool",
 	team: "createTeamTool",
-	set_source: "createSetSourceTool",
-	get_source: "createGetSourceTool",
-	delete_source: "createDeleteSourceTool",
 	reload: "createReloadTool",
 };
 
@@ -220,7 +214,7 @@ export function buildAgentTsSource(config: AgentTsSourceConfig): string {
 	const toolNames = config.toolNames ?? [...DEFAULT_AGENT_TOOL_NAMES];
 	assertKnownToolNames(config.name, "toolNames", toolNames);
 	const lines = [
-		'import { createCreateAgentTool, createDeleteSourceTool, createDestroyAgentTool, createDispatchBashTool, createDispatchEditTool, createDispatchFindTool, createDispatchGrepTool, createDispatchLsTool, createDispatchReadTool, createDispatchTools, createDispatchWriteTool, createGetSourceTool, createReloadTool, createSendMessageTool, createSetSourceTool, createTeamTool, defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill } from "@sheason/d-pi";',
+		'import { createCreateAgentTool, createDestroyAgentTool, createDispatchBashTool, createDispatchEditTool, createDispatchFindTool, createDispatchGrepTool, createDispatchLsTool, createDispatchReadTool, createDispatchTools, createDispatchWriteTool, createReloadTool, createSendMessageTool, createTeamTool, defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill } from "@sheason/d-pi";',
 	];
 	if (config.parentName) {
 		lines.push(`import parentAgent from "../${config.parentName}/agent.ts";`);

@@ -42,12 +42,9 @@ describe("connectId is per-session (not per-agent)", () => {
 		// is a 0-arg helper that picks the next free port; the
 		// returned value is for the registry's internal tracking.
 		registry.updateStatus("root", "ready");
-		sourceManager = new SourceManager(
-			(_sourceName, _line, _subscriberIds, _mode) => {
-				/* no-op */
-			},
-			{ workspaceRoot },
-		);
+		sourceManager = new SourceManager((_sourceName: string, _line: string, _subscriberIds: string[]) => {
+			/* no-op */
+		});
 		executorRegistry = new ExecutorRegistry();
 		gateway = new HubGateway(
 			registry,

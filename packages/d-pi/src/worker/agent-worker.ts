@@ -27,13 +27,10 @@ import { projectDPiTranscript } from "../runtime/transcript/projector.ts";
 import type { DPiPromptImage } from "../runtime/types.ts";
 import {
 	createDPiCreateAgentTool,
-	createDPiDeleteSourceTool,
 	createDPiDestroyAgentTool,
 	createDPiDispatchTools,
-	createDPiGetSourceTool,
 	createDPiReloadTool,
 	createDPiSendMessageTool,
-	createDPiSetSourceTool,
 	createDPiTeamTool,
 	type DPiDispatchLocalExecutors,
 	type DPiDispatchParameterSchemas,
@@ -73,9 +70,30 @@ let remoteFirstRuntimeModel: Model<Api> | undefined;
 let remoteFirstRuntimeThinkingLevel: ThinkingLevel | undefined;
 let ipcServer: DPiAgentIpcServer | undefined;
 let proxy: DPiLocalAgentSessionProxy | undefined;
+let reloadCallCounter = 0;
 
 function postToHub(message: WorkerToHubMessage): void {
 	port.postMessage(message);
+}
+
+function requestWorkspaceReload(): Promise<void> {
+	const callId = `${config.agentName}-reload-${++reloadCallCounter}`;
+	return new Promise((resolve, reject) => {
+		const handler = (message: HubToWorkerMessage) => {
+			if (message.type !== "tool_result" || message.callId !== callId) {
+				return;
+			}
+			port.off("message", handler);
+			const result = message.result as { ok?: boolean; error?: string };
+			if (result.error || result.ok === false) {
+				reject(new Error(result.error ?? "Workspace reload failed"));
+				return;
+			}
+			resolve();
+		};
+		port.on("message", handler);
+		postToHub({ type: "reload_workspace", agentName: config.agentName, callId });
+	});
 }
 
 function toPromptImages(images: Array<{ url: string; mediaType?: string }> | undefined): DPiPromptImage[] | undefined {
@@ -120,9 +138,6 @@ function createWorkerBuiltinToolMap(
 		["create_agent", createDPiCreateAgentTool(hubClient)],
 		["destroy_agent", createDPiDestroyAgentTool(hubClient)],
 		["team", createDPiTeamTool(hubClient)],
-		["set_source", createDPiSetSourceTool(hubClient)],
-		["get_source", createDPiGetSourceTool(hubClient)],
-		["delete_source", createDPiDeleteSourceTool(hubClient)],
 		...createWorkerDispatchTools(options.channel, options.cwd).map(
 			(tool) => [tool.name as AgentBuiltinToolKind, tool as ToolDefinition] as const,
 		),
@@ -383,10 +398,7 @@ async function runAgentWorker(): Promise<void> {
 							agentTools: agentDefinition?.tools ?? [],
 							channel,
 							cwd,
-							getReloadFn: () => {
-								const session = runtime?.session;
-								return session ? () => session.reload() : undefined;
-							},
+							getReloadFn: () => (runtime?.session ? requestWorkspaceReload : undefined),
 							getResourceLoader: () => runtime?.session?.resourceLoader,
 							getModelRegistry: () => runtime?.session?.modelRegistry,
 						}),

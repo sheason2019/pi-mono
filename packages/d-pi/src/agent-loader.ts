@@ -10,6 +10,7 @@ import type {
 	AgentToolDefinition,
 } from "./agent-definition.ts";
 import { setAgentDefinitionMetadata } from "./agent-definition.ts";
+import { defineSource, type SourceDefinition } from "./workspace-definition.ts";
 
 const AGENT_TS_FILE = "agent.ts";
 
@@ -161,6 +162,26 @@ function assertModels(value: unknown): asserts value is AgentModelDefinition[] {
 	}
 }
 
+function assertSources(value: unknown): asserts value is Record<string, SourceDefinition> {
+	if (!isRecord(value) || Array.isArray(value)) {
+		throw new TypeError("Agent definition sources must be an object");
+	}
+	for (const [key, source] of Object.entries(value)) {
+		if (!key.trim()) {
+			throw new TypeError("Agent definition sources keys must be non-empty");
+		}
+		try {
+			defineSource(source as SourceDefinition);
+		} catch (err) {
+			throw new TypeError(
+				`Agent definition sources.${key} must be a source definition: ${
+					err instanceof Error ? err.message : String(err)
+				}`,
+			);
+		}
+	}
+}
+
 function assertAgentDefinition(value: unknown): asserts value is AgentDefinition {
 	if (!isRecord(value)) {
 		throw new TypeError("Agent file must default export an object definition");
@@ -194,6 +215,9 @@ function assertAgentDefinition(value: unknown): asserts value is AgentDefinition
 	}
 	if (value.models !== undefined) {
 		assertModels(value.models);
+	}
+	if (value.sources !== undefined) {
+		assertSources(value.sources);
 	}
 	if (value.parent !== undefined) {
 		assertAgentDefinition(value.parent);

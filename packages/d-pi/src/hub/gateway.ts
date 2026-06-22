@@ -16,7 +16,7 @@ import {
 import { parseServiceActionName, toWorkerAction, toWorkerSnapshotQuery } from "../service/session-service.ts";
 import { writeServiceSseEvent, writeSseComment } from "../service/sse.ts";
 import { discoverTuiComponentFiles, tuiComponentsDir } from "../tui-components/tui-component-discovery.ts";
-import type { AgentRecord, HubToWorkerMessage, SourceConfig, WorkerToHubMessage } from "../types.ts";
+import type { AgentRecord, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 import type { AgentRegistry } from "./agent-registry.ts";
 import type { ExecutorRegistry } from "./executor-registry.ts";
 import type { SourceManager } from "./source-manager.ts";
@@ -495,36 +495,6 @@ export class HubGateway {
 			const sources = this._sourceManager.listSources();
 			res.writeHead(200, { "Content-Type": "application/json" });
 			res.end(JSON.stringify(sources));
-			return;
-		}
-
-		// PUT/POST /_hub/sources — create or update source
-		if (path === "/_hub/sources" && (req.method === "PUT" || req.method === "POST")) {
-			const body = await this._readBody(req);
-			const params = JSON.parse(body) as SourceConfig;
-			try {
-				this._sourceManager.setSource(params);
-				res.writeHead(200, { "Content-Type": "application/json" });
-				res.end(JSON.stringify({ ok: true }));
-			} catch (err) {
-				res.writeHead(500, { "Content-Type": "application/json" });
-				res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
-			}
-			return;
-		}
-
-		// DELETE /_hub/sources/{name} — delete source
-		const sourceDeleteMatch = path.match(/^\/_hub\/sources\/([^/]+)$/);
-		if (sourceDeleteMatch && req.method === "DELETE") {
-			const sourceName = decodeURIComponent(sourceDeleteMatch[1]);
-			try {
-				this._sourceManager.deleteSource(sourceName);
-				res.writeHead(200, { "Content-Type": "application/json" });
-				res.end(JSON.stringify({ ok: true }));
-			} catch (err) {
-				res.writeHead(500, { "Content-Type": "application/json" });
-				res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
-			}
 			return;
 		}
 

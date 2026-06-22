@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import type { Api, Model, Provider, ThinkingLevelMap } from "@earendil-works/pi-ai";
 import type { Static, TSchema } from "typebox";
 import type { ToolDefinition } from "./extension/contracts.ts";
+import type { SourceDefinition } from "./workspace-definition.ts";
 
 export interface AgentToolExecutionContext {
 	cwd: string;
@@ -78,6 +79,7 @@ export interface AgentDefinitionInput {
 	roles?: AgentRoleDefinition[];
 	model?: AgentModelDefinition;
 	models?: AgentModelDefinition[];
+	sources?: Record<string, SourceDefinition>;
 	tools?: AgentToolDefinition[];
 	skills?: AgentSkillDefinition;
 	contextFiles?: AgentContextFileDefinition[];
@@ -90,6 +92,7 @@ export interface AgentDefinition {
 	roles?: AgentRoleDefinition[];
 	model?: AgentModelDefinition;
 	models?: AgentModelDefinition[];
+	sources?: Record<string, SourceDefinition>;
 	tools: AgentToolDefinition[];
 	skills?: AgentSkillDefinition;
 	contextFiles: AgentContextFileDefinition[];
@@ -280,6 +283,7 @@ export function defineAgent(input: AgentDefinitionInput): AgentDefinition {
 		...(input.roles === undefined ? {} : { roles: defineRoles(...input.roles) }),
 		...(input.model === undefined ? {} : { model: defineModel(input.model) }),
 		...(input.models === undefined ? {} : { models: defineModels(...input.models) }),
+		...(input.sources === undefined ? {} : { sources: { ...input.sources } }),
 		tools: defineTools(...(input.tools ?? [])),
 		...(input.skills === undefined ? {} : { skills: defineSkill(input.skills) }),
 		contextFiles: defineContextFiles(...(input.contextFiles ?? [])),

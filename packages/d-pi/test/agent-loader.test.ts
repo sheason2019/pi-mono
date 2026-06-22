@@ -181,6 +181,38 @@ describe("normalizeLoadedAgentDefinition", () => {
 			}),
 		).toThrow(/model.provider must be openai or anthropic when passed as a string/i);
 	});
+
+	it("accepts source definitions referenced from workspace d-pi.ts", () => {
+		const source = {
+			execute(output: (data: string) => void) {
+				output("hello");
+			},
+		};
+		const loaded = normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
+			tools: [executableTool("dispatch_read")],
+			skills: { dir: "./skills" },
+			contextFiles: [],
+			sources: { "lark-bot": source },
+		});
+
+		expect(loaded.sources).toEqual({ "lark-bot": source });
+		expect(() =>
+			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
+				tools: [executableTool("dispatch_read")],
+				skills: { dir: "./skills" },
+				contextFiles: [],
+				sources: [{ execute: "not-a-function" }],
+			}),
+		).toThrow(/sources must be an object/);
+		expect(() =>
+			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
+				tools: [executableTool("dispatch_read")],
+				skills: { dir: "./skills" },
+				contextFiles: [],
+				sources: { "lark-bot": { execute: "not-a-function" } },
+			}),
+		).toThrow(/sources\.lark-bot/);
+	});
 });
 
 describe("loadAgentDefinitionFromFile", () => {

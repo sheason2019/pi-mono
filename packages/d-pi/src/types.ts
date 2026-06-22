@@ -64,6 +64,7 @@ export type WorkerToHubMessage =
 	| { type: "tool_call"; agentName: string; tool: string; params: unknown; callId: string }
 	| { type: "tool_call_timeout"; agentName: string; callId: string }
 	| { type: "status_update"; agentName: string; status: AgentStatus }
+	| { type: "reload_workspace"; agentName: string; callId: string }
 	| { type: "http_response"; agentName: string; requestId: string; status: number; body: unknown }
 	| { type: "sse_event"; agentName: string; subscriberId: string; event: string; data: unknown };
 
@@ -152,47 +153,6 @@ export interface CreateAgentResult {
 }
 
 export interface DestroyAgentResult {
-	ok: boolean;
-	error?: string;
-}
-
-// === Source Status ===
-export type SourceStatus = "running" | "stopped" | "error" | "failed";
-
-// === Source Configuration ===
-export interface SourceConfig {
-	name: string;
-	command: string;
-	args?: string[];
-	cwd?: string;
-	env?: Record<string, string>;
-	subscribers?: string[];
-}
-
-// === Source Info (API responses) ===
-export interface SourceInfo {
-	name: string;
-	command: string;
-	args: string[];
-	cwd?: string;
-	env?: Record<string, string>;
-	status: SourceStatus;
-	subscribers: string[];
-}
-
-// === Source Tool Call Results ===
-export interface SetSourceResult {
-	ok: boolean;
-	error?: string;
-}
-
-export interface GetSourceResult {
-	source?: SourceInfo;
-	sources?: SourceInfo[];
-	error?: string;
-}
-
-export interface DeleteSourceResult {
 	ok: boolean;
 	error?: string;
 }

@@ -43,6 +43,29 @@ function freshWorkspace(): string {
 	return tempDir;
 }
 
+async function waitFor(predicate: () => boolean): Promise<void> {
+	const deadline = Date.now() + 1000;
+	while (Date.now() < deadline) {
+		if (predicate()) return;
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
+	throw new Error("Timed out waiting for condition");
+}
+
+function discoveredAgent(entryName: string, config: AgentConfig): DiscoveredAgent {
+	return {
+		entryName,
+		config,
+		definition: {
+			...config,
+			tools: [],
+			contextFiles: [],
+			agentDir: `/tmp/${entryName}`,
+			agentFilePath: `/tmp/${entryName}/agent.ts`,
+		},
+	};
+}
+
 function writeAgentTs(
 	workspace: string,
 	entryName: string,
@@ -128,9 +151,9 @@ describe("discoverPersistedAgents + orderAgentsForRestore", () => {
 	it("breaks alphabetical ties deterministically", () => {
 		// All at depth 1; order should be alphabetical by name
 		const discovered: DiscoveredAgent[] = [
-			{ entryName: "zeta", config: { name: "zeta", parentName: "root" } },
-			{ entryName: "alpha", config: { name: "alpha", parentName: "root" } },
-			{ entryName: "mike", config: { name: "mike", parentName: "root" } },
+			discoveredAgent("zeta", { name: "zeta", parentName: "root" }),
+			discoveredAgent("alpha", { name: "alpha", parentName: "root" }),
+			discoveredAgent("mike", { name: "mike", parentName: "root" }),
 		];
 		const ordered = orderAgentsForRestore(discovered);
 		expect(ordered.map((e) => e.config.name)).toEqual(["alpha", "mike", "zeta"]);
@@ -138,8 +161,8 @@ describe("discoverPersistedAgents + orderAgentsForRestore", () => {
 
 	it("detects a 2-cycle (A's parent is B, B's parent is A) and marks both as cycle", () => {
 		const discovered: DiscoveredAgent[] = [
-			{ entryName: "a", config: { name: "a", parentName: "b" } },
-			{ entryName: "b", config: { name: "b", parentName: "a" } },
+			discoveredAgent("a", { name: "a", parentName: "b" }),
+			discoveredAgent("b", { name: "b", parentName: "a" }),
 		];
 		const ordered = orderAgentsForRestore(discovered);
 		// Both are marked as cycles (the one we identify as cycle-starter
@@ -153,9 +176,7 @@ describe("discoverPersistedAgents + orderAgentsForRestore", () => {
 	it("skips entries that point to a parent not in the discovered set (no false cycle)", () => {
 		// child claims parent "missing-parent" which is not in the set;
 		// the parent chain just terminates — depth 1, no cycle.
-		const discovered: DiscoveredAgent[] = [
-			{ entryName: "child", config: { name: "child", parentName: "missing-parent" } },
-		];
+		const discovered: DiscoveredAgent[] = [discoveredAgent("child", { name: "child", parentName: "missing-parent" })];
 		const ordered = orderAgentsForRestore(discovered);
 		expect(ordered[0]).toMatchObject({ depth: 1, cycle: false });
 	});
@@ -319,5 +340,67 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 		await hub.createAgent(undefined, { name: "root", persistDefinition: false });
 
 		expect(readFileSync(join(agentDir, "agent.ts"), "utf-8")).toBe(original);
+	});
+
+	it("defers workspace source reload until busy agents become ready", async () => {
+		const { Hub: HubMocked } = await import("../src/hub/hub.ts");
+		const { AgentRegistry } = await import("../src/hub/agent-registry.ts");
+		const workspace = freshWorkspace();
+		mkdirSync(join(workspace, "node_modules", "@sheason", "d-pi"), { recursive: true });
+		writeFileSync(
+			join(workspace, "node_modules", "@sheason", "d-pi", "package.json"),
+			JSON.stringify({ name: "@sheason/d-pi", type: "module", exports: "./index.js" }),
+		);
+		writeFileSync(
+			join(workspace, "node_modules", "@sheason", "d-pi", "index.js"),
+			`export * from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src", "index.ts")).href)};\n`,
+		);
+		writeFileSync(
+			join(workspace, "d-pi.ts"),
+			[
+				'import { defineSource, defineWorkspace } from "@sheason/d-pi";',
+				"export default defineWorkspace({",
+				'\tsources: { "events": defineSource({ execute: (output) => output("hello") }) },',
+				"});",
+				"",
+			].join("\n"),
+		);
+		const hub = new HubMocked({
+			port: 50000 + Math.floor(Math.random() * 1000),
+			workspaceRoot: workspace,
+			cwd: workspace,
+			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
+			workspaceConfig: { version: 1 },
+		});
+		const registry = (hub as unknown as { _registry: InstanceType<typeof AgentRegistry> })._registry;
+		const workerMessages: unknown[] = [];
+		registry.register({
+			name: "root",
+			parentName: undefined,
+			children: [],
+			status: "busy",
+			worker: {
+				postMessage: (message: unknown) => workerMessages.push(message),
+				on: () => {},
+				off: () => {},
+			} as never,
+			cwd: workspace,
+		});
+
+		(
+			hub as unknown as {
+				_handleWorkerMessage(worker: unknown, message: unknown): void;
+			}
+		)._handleWorkerMessage({}, { type: "reload_workspace", agentName: "root", callId: "reload-1" });
+		expect(workerMessages).toEqual([]);
+
+		(
+			hub as unknown as {
+				_handleWorkerMessage(worker: unknown, message: unknown): void;
+			}
+		)._handleWorkerMessage({}, { type: "status_update", agentName: "root", status: "ready" });
+		await waitFor(() => workerMessages.length > 0);
+
+		expect(workerMessages).toContainEqual({ type: "tool_result", callId: "reload-1", result: { ok: true } });
 	});
 });

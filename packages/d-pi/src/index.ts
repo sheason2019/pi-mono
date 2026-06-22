@@ -40,7 +40,6 @@ export {
 export {
 	type AgentBuiltinToolKind,
 	createCreateAgentTool,
-	createDeleteSourceTool,
 	createDestroyAgentTool,
 	createDispatchBashTool,
 	createDispatchEditTool,
@@ -50,10 +49,8 @@ export {
 	createDispatchReadTool,
 	createDispatchTools,
 	createDispatchWriteTool,
-	createGetSourceTool,
 	createReloadTool,
 	createSendMessageTool,
-	createSetSourceTool,
 	createTeamTool,
 	getAgentBuiltinToolKind,
 } from "./agent-tool-helpers.ts";
@@ -145,11 +142,17 @@ export type {
 	AgentWorkerConfig,
 	HubConfig,
 	HubToWorkerMessage,
-	SourceConfig,
-	SourceInfo,
-	SourceStatus,
 	TeamAgentEntry,
 	TeamExecutorEntry,
 	TeamSnapshot,
 	WorkerToHubMessage,
 } from "./types.ts";
+export {
+	defineSource,
+	defineWorkspace,
+	type SourceContext,
+	type SourceDefinition,
+	type SourceOutput,
+	type WorkspaceDefinition,
+	type WorkspaceDefinitionInput,
+} from "./workspace-definition.ts";

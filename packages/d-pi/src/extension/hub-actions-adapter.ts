@@ -2,9 +2,7 @@ import type {
 	DPiCreateAgentActionResult,
 	DPiDispatchRemoteToolActionPayload,
 	DPiDispatchRemoteToolActionResult,
-	DPiGetSourceActionResult,
 	DPiHubActionsClient,
-	DPiSourceConfig,
 	DPiTeamSnapshot,
 } from "../surface/index.ts";
 import type { HubChannel } from "./hub-channel.ts";
@@ -40,15 +38,6 @@ export function createHubActionsClientFromHubChannel(channel: HubChannel): DPiHu
 		},
 		async sendMessage(payload): Promise<{ ok: boolean; error?: string }> {
 			return normalizeOkResult(await channel.sendMessage(payload.toAgentName, payload.content, payload.mode));
-		},
-		async setSource(payload: DPiSourceConfig): Promise<{ ok: boolean; error?: string }> {
-			return normalizeOkResult(await channel.setSource(payload));
-		},
-		async getSource(payload = {}): Promise<DPiGetSourceActionResult> {
-			return (await channel.getSource(payload.name)) as DPiGetSourceActionResult;
-		},
-		async deleteSource(payload): Promise<{ ok: boolean; error?: string }> {
-			return normalizeOkResult(await channel.deleteSource(payload.name));
 		},
 		async dispatchRemoteTool(
 			_payload: DPiDispatchRemoteToolActionPayload,

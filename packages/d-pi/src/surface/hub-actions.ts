@@ -44,39 +44,11 @@ export interface DPiSendMessageActionPayload {
 	sourceName?: string;
 }
 
-export type DPiSourceStatus = "running" | "stopped" | "error" | "failed";
-
-export interface DPiSourceConfig {
-	name: string;
-	command: string;
-	args?: string[];
-	cwd?: string;
-	env?: Record<string, string>;
-	subscribers?: string[];
-}
-
 export interface DPiSourceInfo {
 	name: string;
-	command: string;
-	args: string[];
-	cwd?: string;
-	env?: Record<string, string>;
-	status: DPiSourceStatus;
+	status: "running" | "stopped" | "error";
 	subscribers: string[];
-}
-
-export interface DPiGetSourceActionPayload {
-	name?: string;
-}
-
-export interface DPiGetSourceActionResult {
-	source?: DPiSourceInfo;
-	sources?: DPiSourceInfo[];
-	error?: string;
-}
-
-export interface DPiDeleteSourceActionPayload {
-	name: string;
+	restartCount: number;
 }
 
 export interface DPiDispatchRemoteToolActionPayload {
@@ -99,9 +71,6 @@ export type DPiHubActionRequest =
 	| { action: "destroyAgent"; payload: DPiDestroyAgentActionPayload }
 	| { action: "getTeam"; payload: Record<string, never> }
 	| { action: "sendMessage"; payload: DPiSendMessageActionPayload }
-	| { action: "setSource"; payload: DPiSourceConfig }
-	| { action: "getSource"; payload: DPiGetSourceActionPayload }
-	| { action: "deleteSource"; payload: DPiDeleteSourceActionPayload }
 	| { action: "dispatchRemoteTool"; payload: DPiDispatchRemoteToolActionPayload };
 
 export type DPiHubActionsTransport = (request: DPiHubActionRequest) => Promise<unknown>;
@@ -111,9 +80,6 @@ export interface DPiHubActionsClient {
 	destroyAgent(payload: DPiDestroyAgentActionPayload): Promise<{ ok: boolean; error?: string }>;
 	getTeam(): Promise<DPiTeamSnapshot>;
 	sendMessage(payload: DPiSendMessageActionPayload): Promise<{ ok: boolean; error?: string }>;
-	setSource(payload: DPiSourceConfig): Promise<{ ok: boolean; error?: string }>;
-	getSource(payload?: DPiGetSourceActionPayload): Promise<DPiGetSourceActionResult>;
-	deleteSource(payload: DPiDeleteSourceActionPayload): Promise<{ ok: boolean; error?: string }>;
 	dispatchRemoteTool(payload: DPiDispatchRemoteToolActionPayload): Promise<DPiDispatchRemoteToolActionResult>;
 }
 
@@ -137,15 +103,6 @@ export function createDPiHubActionsClient(transport: DPiHubActionsTransport): DP
 		},
 		sendMessage(payload) {
 			return dispatchHubAction(transport, { action: "sendMessage", payload });
-		},
-		setSource(payload) {
-			return dispatchHubAction(transport, { action: "setSource", payload });
-		},
-		getSource(payload = {}) {
-			return dispatchHubAction(transport, { action: "getSource", payload });
-		},
-		deleteSource(payload) {
-			return dispatchHubAction(transport, { action: "deleteSource", payload });
 		},
 		dispatchRemoteTool(payload) {
 			return dispatchHubAction(transport, { action: "dispatchRemoteTool", payload });

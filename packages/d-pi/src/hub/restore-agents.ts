@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { AGENT_TS_FILE } from "../agent-config.ts";
+import type { LoadedAgentDefinition } from "../agent-loader.ts";
 import { readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
 import type { AgentConfig } from "../types.ts";
 import { agentDefinitionToConfig } from "./agent-identity.ts";
@@ -12,6 +13,7 @@ import { agentDefinitionToConfig } from "./agent-identity.ts";
 export interface DiscoveredAgent {
 	entryName: string;
 	config: AgentConfig;
+	definition: LoadedAgentDefinition;
 }
 
 /**
@@ -51,7 +53,11 @@ export async function discoverPersistedAgents(workspaceRoot: string): Promise<Di
 			if (!agentDefinition) {
 				continue;
 			}
-			discovered.push({ entryName: entry.name, config: agentDefinitionToConfig(agentDefinition) });
+			discovered.push({
+				entryName: entry.name,
+				config: agentDefinitionToConfig(agentDefinition),
+				definition: agentDefinition,
+			});
 		} catch (err) {
 			process.stderr.write(
 				`[d-pi hub] Failed to read agent.ts from ${entry.name}/: ${err instanceof Error ? err.message : String(err)}\n`,
