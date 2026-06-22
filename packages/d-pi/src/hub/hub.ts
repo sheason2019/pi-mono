@@ -31,10 +31,6 @@ export class Hub {
 	private readonly _executorRegistry: ExecutorRegistry;
 	private readonly _config: HubConfig;
 	private _workspaceDefinition: WorkspaceDefinition | undefined;
-	private readonly _workspaceReloadRequests = new Map<
-		string,
-		{ requesterAgentName: string; pendingAgentNames: Set<string>; errors: string[] }
-	>();
 	/**
 	 * Max time to wait for an executor result before failing the
 	 * dispatch. Mirrors HubGateway's `remoteCallTimeoutMs` so the IPC
@@ -207,40 +203,13 @@ export class Hub {
 			return;
 		}
 		const agents = Array.from(this._registry.getAll()).filter((record) => record.status !== "destroyed");
-		if (agents.length === 0) {
-			requester.worker.postMessage({
-				type: "tool_result",
-				callId,
-				result: { ok: true },
-			} satisfies HubToWorkerMessage);
-			return;
-		}
-		const pendingAgentNames = new Set(agents.map((record) => record.name));
-		this._workspaceReloadRequests.set(callId, { requesterAgentName, pendingAgentNames, errors: [] });
 		for (const record of agents) {
-			record.worker.postMessage({ type: "reload_agent", callId } satisfies HubToWorkerMessage);
+			record.worker.postMessage({
+				type: "reload_agent",
+				callId: `${callId}:${record.name}`,
+			} satisfies HubToWorkerMessage);
 		}
-	}
-
-	private _handleAgentReloadResult(message: Extract<WorkerToHubMessage, { type: "reload_agent_result" }>): void {
-		const request = this._workspaceReloadRequests.get(message.callId);
-		if (!request) return;
-		request.pendingAgentNames.delete(message.agentName);
-		if (!message.ok) {
-			request.errors.push(`${message.agentName}: ${message.error ?? "reload failed"}`);
-		}
-		if (request.pendingAgentNames.size > 0) return;
-		this._workspaceReloadRequests.delete(message.callId);
-		const requester = this._registry.get(request.requesterAgentName);
-		if (!requester) return;
-		requester.worker.postMessage({
-			type: "tool_result",
-			callId: message.callId,
-			result:
-				request.errors.length === 0
-					? { ok: true }
-					: { ok: false, error: `Workspace reload failed for ${request.errors.join("; ")}` },
-		} satisfies HubToWorkerMessage);
+		requester.worker.postMessage({ type: "tool_result", callId, result: { ok: true } } satisfies HubToWorkerMessage);
 	}
 
 	async createAgent(
@@ -458,7 +427,6 @@ export class Hub {
 				break;
 
 			case "reload_agent_result":
-				this._handleAgentReloadResult(message);
 				break;
 
 			case "tool_call":

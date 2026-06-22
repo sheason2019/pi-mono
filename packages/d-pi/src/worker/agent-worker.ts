@@ -71,6 +71,7 @@ let ipcServer: DPiAgentIpcServer | undefined;
 let proxy: DPiLocalAgentSessionProxy | undefined;
 let reloadCallCounter = 0;
 let pendingAgentReload = false;
+let pendingAgentReloadPromise: Promise<void> | undefined;
 let agentIsBusy = false;
 
 function postToHub(message: WorkerToHubMessage): void {
@@ -107,9 +108,16 @@ async function reloadAgentResources(callId?: string): Promise<void> {
 		throw new Error(error);
 	}
 	await runtime.session.reload();
+	proxy?.setBanner(generateDPiBanner(runtime.session));
 	if (callId) {
 		postToHub({ type: "reload_agent_result", agentName: config.agentName, callId, ok: true });
 	}
+}
+
+function startAgentReload(callId?: string): void {
+	pendingAgentReloadPromise = reloadAgentResources(callId).finally(() => {
+		pendingAgentReloadPromise = undefined;
+	});
 }
 
 function handleReloadAgent(callId: string): void {
@@ -117,13 +125,20 @@ function handleReloadAgent(callId: string): void {
 		pendingAgentReload = true;
 		return;
 	}
-	void reloadAgentResources(callId);
+	startAgentReload(callId);
 }
 
 function flushPendingAgentReload(): void {
 	if (!pendingAgentReload || agentIsBusy) return;
 	pendingAgentReload = false;
-	void reloadAgentResources();
+	startAgentReload();
+}
+
+async function waitForPendingAgentReload(): Promise<void> {
+	flushPendingAgentReload();
+	if (pendingAgentReloadPromise) {
+		await pendingAgentReloadPromise;
+	}
 }
 
 function toPromptImages(images: Array<{ url: string; mediaType?: string }> | undefined): DPiPromptImage[] | undefined {
@@ -600,7 +615,6 @@ async function runAgentWorker(): Promise<void> {
 			} else if (event.type === "agent_end") {
 				agentIsBusy = false;
 				postToHub({ type: "status_update", agentName, status: "ready" });
-				flushPendingAgentReload();
 			}
 		});
 		if (initialMessages.length > 0) {
@@ -619,24 +633,28 @@ async function runAgentWorker(): Promise<void> {
 			if (!agentRuntime) {
 				throw new Error(`Agent "${agentName}" has no model configured`);
 			}
+			await waitForPendingAgentReload();
 			await agentRuntime.prompt(_text, { mode: "next", images: toPromptImages(_options?.images) });
 		},
 		steer: async (_text: string, images?: Array<{ url: string; mediaType?: string }>) => {
 			if (!agentRuntime) {
 				throw new Error(`Agent "${agentName}" has no model configured`);
 			}
+			await waitForPendingAgentReload();
 			await agentRuntime.prompt(_text, { mode: "steer", images: toPromptImages(images) });
 		},
 		followUp: async (_text: string, images?: Array<{ url: string; mediaType?: string }>) => {
 			if (!agentRuntime) {
 				throw new Error(`Agent "${agentName}" has no model configured`);
 			}
+			await waitForPendingAgentReload();
 			await agentRuntime.prompt(_text, { mode: "followUp", images: toPromptImages(images) });
 		},
 		compact: async (customInstructions?: string) => {
 			if (!agentRuntime) {
 				throw new Error(`Agent "${agentName}" has no model configured`);
 			}
+			await waitForPendingAgentReload();
 			return await agentRuntime.compact(customInstructions);
 		},
 	});
