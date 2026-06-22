@@ -657,6 +657,9 @@ async function runAgentWorker(): Promise<void> {
 			await waitForPendingAgentReload();
 			return await agentRuntime.compact(customInstructions);
 		},
+		abort: async () => {
+			await agentRuntime?.abort();
+		},
 	});
 
 	// (AgentHttpServer removed — IPC server is created later)

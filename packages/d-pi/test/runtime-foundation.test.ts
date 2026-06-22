@@ -76,6 +76,7 @@ function createAgent(workspaceRoot: string, agentName: string, description: stri
 
 class FakeHarness implements DPiAgentHarness {
 	readonly calls: { method: "prompt" | "steer" | "followUp" | "nextTurn"; text: string }[] = [];
+	abortCount = 0;
 	private readonly listeners = new Set<DPiAgentHarnessEventListener>();
 	private busy = false;
 	private failSteer = false;
@@ -136,6 +137,10 @@ class FakeHarness implements DPiAgentHarness {
 
 	async nextTurn(text: string): Promise<void> {
 		this.calls.push({ method: "nextTurn", text });
+	}
+
+	async abort(): Promise<void> {
+		this.abortCount += 1;
 	}
 
 	subscribe(listener: DPiAgentHarnessEventListener): () => void {
@@ -537,6 +542,21 @@ describe("d-pi runtime foundation", () => {
 
 		expect(events.some((event) => event.type === "agent_end")).toBe(true);
 		expect(events.some((event) => event.type === "turn_stats")).toBe(false);
+	});
+
+	it("forwards abort to the active harness and emits agent end", async () => {
+		const workspaceRoot = createTempWorkspace();
+		const fakeHarness = new FakeHarness();
+		const runtime = await createRuntime(workspaceRoot, fakeHarness);
+		const events: DPiAgentHarnessEvent[] = [];
+		runtime.subscribe((event) => {
+			events.push(event);
+		});
+
+		await runtime.abort();
+
+		expect(fakeHarness.abortCount).toBe(1);
+		expect(events).toContainEqual({ type: "agent_end", agentName: "root" });
 	});
 
 	it("persists tool, turn stats, and error notices as session transcript entries", async () => {

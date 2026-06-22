@@ -82,6 +82,7 @@ export interface DPiWorkerInfrastructureOptions {
 export interface DPiWorkerSession {
 	agent: {
 		waitForIdle(): Promise<void>;
+		abort?(): Promise<unknown> | unknown;
 	};
 	resourceLoader: ResourceLoader;
 	modelRegistry: DPiWorkerModelRegistry;
@@ -965,6 +966,7 @@ export class DPiLocalAgentSessionProxy {
 				steer?: (text: string, images?: Array<{ url: string; mediaType?: string }>) => Promise<void> | void;
 				followUp?: (text: string, images?: Array<{ url: string; mediaType?: string }>) => Promise<void> | void;
 				compact?: (customInstructions?: string) => Promise<unknown> | unknown;
+				abort?: () => Promise<void> | void;
 		  }
 		| undefined;
 
@@ -989,6 +991,7 @@ export class DPiLocalAgentSessionProxy {
 		steer?: (text: string, images?: Array<{ url: string; mediaType?: string }>) => Promise<void> | void;
 		followUp?: (text: string, images?: Array<{ url: string; mediaType?: string }>) => Promise<void> | void;
 		compact?: (customInstructions?: string) => Promise<unknown> | unknown;
+		abort?: () => Promise<void> | void;
 	}): void {
 		this.messageDispatcher = dispatcher;
 	}
@@ -1364,6 +1367,9 @@ export class DPiLocalAgentSessionProxy {
 			return;
 		}
 		if (event.type === "tool_end") {
+			const existing = this.transcriptItems.find(
+				(item) => item.type === "tool_state" && item.toolCallId === event.toolCallId,
+			);
 			this.upsertToolResultMessage(event);
 			this.emitRealtimeItemUpsert({
 				id: `tool-state-${event.toolCallId}`,
@@ -1371,6 +1377,7 @@ export class DPiLocalAgentSessionProxy {
 				toolCallId: event.toolCallId,
 				toolName: event.toolName ?? event.toolCallId,
 				status: event.status,
+				...(existing?.type === "tool_state" && existing.args !== undefined ? { args: existing.args } : {}),
 				...(event.result === undefined ? {} : { result: event.result }),
 				...(event.error === undefined ? {} : { error: event.error }),
 				timestamp: event.endedAt,
@@ -1509,6 +1516,11 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	abort(): void {
+		if (this.messageDispatcher?.abort) {
+			void this.messageDispatcher.abort();
+		} else {
+			void this.runtime.session.agent.abort?.();
+		}
 		this.streaming = false;
 		this.emit({ type: "agent_end", data: { type: "agent_end" } });
 		this.emitState();
@@ -1787,6 +1799,7 @@ function createPlaceholderSession(
 	const session: DPiWorkerSession = {
 		agent: {
 			waitForIdle: async () => {},
+			abort: async () => {},
 		},
 		resourceLoader,
 		modelRegistry,
