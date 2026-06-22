@@ -1,7 +1,7 @@
 import { opendir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 const packageRootUrl = new URL("..", import.meta.url);
 const packageRoot = fileURLToPath(packageRootUrl);
@@ -67,5 +67,12 @@ describe("d-pi runtime dependency inventory", () => {
 				].join("\n"),
 			);
 		}
+	});
+
+	it("keeps the package root free of eager TUI imports for agent.ts loading", async () => {
+		const index = await readFile(join(packageRoot, "src", "index.ts"), "utf8");
+
+		expect(index).not.toContain("./tui/");
+		expect(index).not.toContain("./connect/connect-mode");
 	});
 });
