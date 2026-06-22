@@ -1,6 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
+import dPiMessageRenderer from "../src/public/d-pi-message.ts";
 import type { DPiInteractiveSessionStateSnapshot } from "../src/tui/interactive/agent-session-proxy.ts";
 import { buildDPiInteractiveMessageListComponent } from "../src/tui/interactive/message-list-view.ts";
 import { DPiNativeAssistantMessageComponent } from "../src/tui/native/components/assistant-message.ts";
@@ -158,6 +159,24 @@ describe("d-pi native interactive components", () => {
 		expect(component.children[0]).toBe(custom);
 		expect(component.children[0]).not.toBeInstanceOf(DPiNativeUserMessageComponent);
 		expect(component.render(80).join("\n")).toContain("d-pi-rendered");
+	});
+
+	it("renders d-pi message headers with channel metadata instead of prose descriptions", () => {
+		const rendered = dPiMessageRenderer.render(
+			{
+				role: "custom",
+				customType: "d-pi-message",
+				content: '[meta({"sourceType":"agent","agentName":"tester","createTime":"2026/06/22 15:00:00"})]\nhello',
+				display: true,
+			},
+			{ expanded: false },
+			{ bg: (_name, text) => text, fg: (_name, text) => text },
+		);
+
+		const plain = rendered?.render(80).join("\n") ?? "";
+		expect(plain).toContain("agent:tester · 2026/06/22 15:00:00");
+		expect(plain).toContain("hello");
+		expect(plain).not.toContain("Message from agent");
 	});
 
 	it("renders tool calls and tool results as native tool execution components", () => {

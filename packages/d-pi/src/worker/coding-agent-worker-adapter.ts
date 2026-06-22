@@ -17,6 +17,7 @@ import type {
 	ResourceLoader,
 	ToolDefinition,
 } from "../extension/contracts.ts";
+import { buildDPiMetaContent, extractDPiMeta } from "../message-meta.ts";
 import type { DPiRuntimeEvent } from "../runtime/events.ts";
 import {
 	appendSteeringMessage,
@@ -2191,6 +2192,10 @@ function runtimeMessageToLocalMessage(message: DPiAgentMessage): DPiLocalAgentMe
 			timestamp: message.timestamp ?? Date.now(),
 		};
 	}
+	const metaMessage = dPiMetaMessageToLocalMessage(message);
+	if (metaMessage) {
+		return metaMessage;
+	}
 	return {
 		id: nextGeneratedId("message"),
 		role:
@@ -2212,6 +2217,25 @@ function runtimeMessageToLocalMessage(message: DPiAgentMessage): DPiLocalAgentMe
 		...("toolCallId" in message && typeof message.toolCallId === "string" ? { toolCallId: message.toolCallId } : {}),
 		...("toolName" in message && typeof message.toolName === "string" ? { toolName: message.toolName } : {}),
 		...("isError" in message && message.isError ? { isError: true } : {}),
+		timestamp: message.timestamp ?? Date.now(),
+	};
+}
+
+function dPiMetaMessageToLocalMessage(message: DPiAgentMessage): DPiLocalAgentMessage | undefined {
+	if (!("content" in message)) {
+		return undefined;
+	}
+	const extracted = extractDPiMeta(message.content);
+	if (!extracted) {
+		return undefined;
+	}
+	return {
+		id: nextGeneratedId("message"),
+		role: "custom",
+		customType: "d-pi-message",
+		display: true,
+		content: buildDPiMetaContent(extracted.meta),
+		details: extracted.meta,
 		timestamp: message.timestamp ?? Date.now(),
 	};
 }

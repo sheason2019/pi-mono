@@ -1219,7 +1219,7 @@ export class HubGateway {
 		}
 		return {
 			...body,
-			text: formatDPiMetaMessage({ auth: session.auth }, body.text),
+			text: formatDPiMetaMessage({ sourceType: "connect", auth: session.auth }, body.text),
 			auth: session.auth,
 		};
 	}
