@@ -23,6 +23,7 @@ const LEGACY_GROUP_ARCHITECTURE_DIR = "group-architecture";
 const TEAM_TEMPLATE_DIR = "team-template";
 const SKILLS_DIR = "skills";
 const EXTENSIONS_DIR = "extensions";
+const TUI_COMPONENTS_DIR = "tui-components";
 const APPEND_SYSTEM_MD = "APPEND_SYSTEM.md";
 const AGENTS_MD = "AGENTS.md";
 const D_PI_PACKAGE_NAME = "@sheason/d-pi";
@@ -339,6 +340,8 @@ export function initWorkspace(dir: string): void {
 	const agentsDir = join(resolved, AGENTS_DIR);
 	const rootAgentDir = join(agentsDir, "root");
 	mkdirSync(rootAgentDir, { recursive: true });
+	const tuiComponentsDir = join(resolved, TUI_COMPONENTS_DIR);
+	mkdirSync(tuiComponentsDir, { recursive: true });
 
 	writeFileSync(
 		join(rootAgentDir, "agent.ts"),
@@ -389,6 +392,15 @@ Each agent exports a standard definition:
   This is the effective tool set for the agent.
 - \`contextFiles\` (optional): explicitly include \`./AGENTS.md\` as \`context\` and
   \`./.pi/APPEND_SYSTEM.md\` as \`append_system\` when this agent needs local context.
+`,
+		);
+	}
+
+	const dPiMessageTuiComponentPath = join(tuiComponentsDir, "d-pi-message.ts");
+	if (!existsSync(dPiMessageTuiComponentPath)) {
+		writeFileSync(
+			dPiMessageTuiComponentPath,
+			`export { default } from "@sheason/d-pi/.public/d-pi-message";
 `,
 		);
 	}

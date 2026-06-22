@@ -728,7 +728,7 @@ describe("worker runtime adapter", () => {
 			expect(realtime.status).toBe(200);
 			expect(realtime.body).toMatchObject({
 				cursor: expect.any(Number),
-				messages: [expect.objectContaining({ role: "user", content: "hello view model" })],
+				messages: [],
 			});
 		} finally {
 			harness.server.stop();
@@ -761,7 +761,7 @@ describe("worker runtime adapter", () => {
 						event: "realtime",
 						data: expect.objectContaining({
 							type: "snapshot",
-							messages: [expect.objectContaining({ content: "hello over realtime" })],
+							messages: [],
 						}),
 					}),
 				]),
@@ -798,7 +798,7 @@ describe("worker runtime adapter", () => {
 		});
 
 		await proxy.prompt("before compact");
-		expect(proxy.getRealtimeState().messages).toEqual([expect.objectContaining({ content: "before compact" })]);
+		expect(proxy.getRealtimeState().messages).toEqual([]);
 
 		await proxy.compact();
 
@@ -823,10 +823,7 @@ describe("worker runtime adapter", () => {
 
 		await proxy.prompt("after compact");
 
-		expect(proxy.getRealtimeState().messages).toEqual([
-			expect.objectContaining({ customType: "compact-divider" }),
-			expect.objectContaining({ content: "after compact" }),
-		]);
+		expect(proxy.getRealtimeState().messages).toEqual([expect.objectContaining({ customType: "compact-divider" })]);
 	});
 
 	it("publishes compacting status while manual compaction is in progress", async () => {
@@ -1027,7 +1024,6 @@ describe("worker runtime adapter", () => {
 			expect(state.status).toBe(200);
 			expect(state.body).toMatchObject({
 				messages: expect.arrayContaining([
-					expect.objectContaining({ role: "user", content: "ping extension" }),
 					expect.objectContaining({
 						role: "custom",
 						customType: "extension-input",
@@ -1092,7 +1088,7 @@ describe("worker runtime adapter", () => {
 				],
 				steeringMessages: ["tighten scope", "continue"],
 				followUpMessages: [],
-				messages: [expect.objectContaining({ role: "user", content: "write a plan" })],
+				messages: [],
 			});
 			expect(JSON.stringify(state.body)).not.toContain('"customType":"steer"');
 			expect(JSON.stringify(state.body)).not.toContain('"customType":"follow-up"');
@@ -1215,7 +1211,7 @@ describe("worker runtime adapter", () => {
 			expect(dispatcher.steer).not.toHaveBeenCalled();
 			await waitFor(() => proxy.getState().steeringMessages.includes("second"));
 			expect(proxy.getState()).toMatchObject({
-				messages: [expect.objectContaining({ role: "user", content: "first" })],
+				messages: [],
 				steeringMessages: ["second"],
 				followUpMessages: [],
 			});
@@ -1340,10 +1336,38 @@ describe("worker runtime adapter", () => {
 		expect(JSON.stringify(state.messages)).not.toContain('"customType":"steer"');
 	});
 
-	it("does not duplicate direct prompt transcript messages when runtime user confirmation arrives later", async () => {
+	it("records meta-wrapped runtime user messages as d-pi custom messages with original content", () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		const content = '[meta({"sourceType":"agent","agentName":"tester","createTime":"2026/06/22 15:00:00"})]\nhello';
+		const richContent = [{ type: "text" as const, text: content }];
+
+		proxy.applyRuntimeEvent({
+			type: "message",
+			agentName: "root",
+			message: {
+				role: "user",
+				content: richContent,
+				timestamp: 123,
+			},
+		} as never);
+
+		expect(proxy.getState().messages).toEqual([
+			expect.objectContaining({
+				role: "custom",
+				customType: "d-pi-message",
+				display: true,
+				content: richContent,
+				details: expect.objectContaining({ sourceType: "agent", agentName: "tester" }),
+			}),
+		]);
+	});
+
+	it("records direct prompt transcript messages only after the runtime confirmation arrives", async () => {
 		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
 
 		await proxy.prompt("direct prompt");
+		expect(proxy.getState().messages).toEqual([]);
+
 		proxy.applyRuntimeEvent({
 			type: "assistant_stream",
 			agentName: "root",
@@ -1378,12 +1402,44 @@ describe("worker runtime adapter", () => {
 
 		const state = proxy.getState();
 		expect(state.messages.filter((message) => message.role === "user")).toEqual([
-			expect.objectContaining({ content: "direct prompt" }),
+			expect.objectContaining({ content: [{ type: "text", text: "direct prompt" }] }),
 		]);
 		expect(state.messages.filter((message) => message.role === "assistant")).toHaveLength(1);
 	});
 
-	it("keeps repeated direct prompts distinct while deduplicating their runtime confirmations", async () => {
+	it("records meta-wrapped runtime confirmations without an optimistic duplicate", async () => {
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
+		const content = [
+			{
+				type: "text" as const,
+				text: '[meta({"sourceType":"connect","createTime":"2026/06/22 16:45:00"})]\ndirect prompt',
+			},
+		];
+
+		await proxy.prompt("direct prompt");
+		expect(proxy.getState().messages).toEqual([]);
+
+		proxy.applyRuntimeEvent({
+			type: "message",
+			agentName: "root",
+			message: {
+				role: "user",
+				content,
+				timestamp: 1,
+			},
+		} as never);
+
+		expect(proxy.getState().messages).toEqual([
+			expect.objectContaining({
+				role: "custom",
+				customType: "d-pi-message",
+				content,
+				details: expect.objectContaining({ sourceType: "connect" }),
+			}),
+		]);
+	});
+
+	it("keeps repeated direct prompt runtime confirmations distinct", async () => {
 		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime());
 
 		await proxy.prompt("same");
@@ -1702,16 +1758,9 @@ describe("worker runtime adapter", () => {
 			);
 
 			await requestIpc(harness, "prompt-1", "prompt", { text: "hello over sse" });
-			await waitFor(() =>
-				harness.events.some(
-					(event) =>
-						event.subscriberId === "sub-1" &&
-						event.event === "message" &&
-						typeof event.data === "object" &&
-						event.data !== null &&
-						"content" in event.data &&
-						event.data.content === "hello over sse",
-				),
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(harness.events.some((event) => event.subscriberId === "sub-1" && event.event === "message")).toBe(
+				false,
 			);
 
 			harness.transport.emit({ type: "sse_unsubscribe", subscriberId: "sub-1" });

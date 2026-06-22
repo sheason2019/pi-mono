@@ -1,6 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { Spacer, Text } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
+import dPiMessageRenderer from "../src/public/d-pi-message.ts";
 import type { DPiInteractiveSessionStateSnapshot } from "../src/tui/interactive/agent-session-proxy.ts";
 import { buildDPiInteractiveMessageListComponent } from "../src/tui/interactive/message-list-view.ts";
 import { DPiNativeAssistantMessageComponent } from "../src/tui/native/components/assistant-message.ts";
@@ -108,6 +109,91 @@ describe("d-pi native interactive components", () => {
 		expect(component.children[1]).toBeInstanceOf(DPiNativeAssistantMessageComponent);
 	});
 
+	it("uses registered workspace TUI renderers for matching custom messages", () => {
+		const state = {
+			...snapshot(),
+			messages: [
+				{
+					role: "custom" as const,
+					customType: "d-pi-message",
+					content: "metadata",
+					display: true,
+					details: { sourceType: "agent" },
+					timestamp: 1,
+				},
+			],
+		};
+		const custom = new Container();
+		custom.addChild(new Text("custom-rendered"));
+
+		const component = buildDPiInteractiveMessageListComponent(state, {
+			messageRenderers: {
+				"d-pi-message": () => custom,
+			},
+		});
+
+		expect(component.children[0]).toBe(custom);
+		expect(component.render(80).join("\n")).toContain("custom-rendered");
+	});
+
+	it("uses the d-pi message renderer for user messages that carry d-pi metadata", () => {
+		const state = {
+			...snapshot(),
+			messages: [
+				{
+					role: "user" as const,
+					content: [
+						{
+							type: "text" as const,
+							text: '[meta({"sourceType":"connect","connectId":"local"})]\nhello through connect',
+						},
+					],
+					timestamp: 1,
+				},
+			],
+		};
+		const custom = new Container();
+		custom.addChild(new Text("d-pi-rendered"));
+
+		const component = buildDPiInteractiveMessageListComponent(state, {
+			messageRenderers: {
+				"d-pi-message": () => custom,
+			},
+		});
+
+		expect(component.children[0]).toBe(custom);
+		expect(component.children[0]).not.toBeInstanceOf(DPiNativeUserMessageComponent);
+		expect(component.render(80).join("\n")).toContain("d-pi-rendered");
+	});
+
+	it("renders d-pi message headers with channel metadata instead of prose descriptions", () => {
+		const colors: string[] = [];
+		const rendered = dPiMessageRenderer.render(
+			{
+				role: "custom",
+				customType: "d-pi-message",
+				content: '[meta({"sourceType":"agent","agentName":"tester","createTime":"2026/06/22 15:00:00"})]\nhello',
+				display: true,
+			},
+			{ expanded: false },
+			{
+				bg: (_name, text) => text,
+				fg: (name, text) => {
+					colors.push(name);
+					return text;
+				},
+			},
+		);
+
+		const plain = rendered?.render(80).join("\n") ?? "";
+		expect(plain.split("\n")[0]).toBe("");
+		expect(plain).toContain("agent:tester · 2026/06/22 15:00:00");
+		expect(plain.split("\n")[1]?.startsWith("agent:tester")).toBe(true);
+		expect(plain).toContain("hello");
+		expect(plain).not.toContain("Message from agent");
+		expect(colors[0]).toBe("warning");
+	});
+
 	it("renders tool calls and tool results as native tool execution components", () => {
 		const output = Array.from({ length: 24 }, (_, index) => `entry-${index + 1}`).join("\n");
 		const state = {
@@ -145,6 +231,41 @@ describe("d-pi native interactive components", () => {
 		expect(plain).toContain("4 more lines");
 		expect(rendered).not.toContain("────");
 		expect(rendered).toContain("\x1b[48;2;40;50;40m");
+	});
+
+	it("does not duplicate tool calls that already have transcript tool state", () => {
+		const state = {
+			...snapshot(),
+			messages: [
+				{
+					...assistantMessage,
+					content: [
+						{ type: "text" as const, text: "我来查看目录。" },
+						{ type: "toolCall" as const, id: "tool-1", name: "dispatch_ls", arguments: { path: "." } },
+					],
+					stopReason: "toolUse" as const,
+				},
+			],
+			transcriptItems: [
+				{ id: "assistant", type: "message" as const, message: assistantMessage, timestamp: 1 },
+				{
+					id: "tool-state",
+					type: "tool_state" as const,
+					toolCallId: "tool-1",
+					toolName: "dispatch_ls",
+					status: "succeeded" as const,
+					args: { path: "." },
+					result: "done",
+					timestamp: 2,
+				},
+			],
+		};
+
+		const component = buildDPiInteractiveMessageListComponent(state);
+		const toolComponents = component.children.filter((child) => child instanceof DPiNativeToolExecutionComponent);
+
+		expect(toolComponents).toHaveLength(1);
+		expect(component.render(80).join("\n")).toContain("done");
 	});
 
 	it("uses native tool expansion state for dispatch tool output", () => {

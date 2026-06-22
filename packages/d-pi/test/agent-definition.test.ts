@@ -16,6 +16,7 @@ import {
 	defineSkill,
 	defineTool,
 	defineTools,
+	defineTuiComponent,
 	getAgentBuiltinToolKind,
 } from "../src/index.ts";
 
@@ -173,6 +174,25 @@ describe("agent definition helpers", () => {
 			tools: [],
 			contextFiles: [],
 		});
+	});
+
+	it("defines workspace-level TUI components without adding them to agent definitions", () => {
+		const renderer = () => undefined;
+		const component = defineTuiComponent({
+			customType: "d-pi-message",
+			render: renderer,
+		});
+		const agent = defineAgent({
+			description: "minimal",
+		});
+
+		expect(component).toEqual({
+			customType: "d-pi-message",
+			render: renderer,
+		});
+		expect("tuiComponents" in agent).toBe(false);
+		expect(() => defineTuiComponent({ customType: "", render: renderer })).toThrow(/customType/i);
+		expect(() => defineTuiComponent({ customType: "broken", render: undefined as never })).toThrow(/render/i);
 	});
 
 	it("copies arrays and nested definitions so caller mutation cannot change the definition", () => {

@@ -48,13 +48,14 @@ export class Hub {
 
 		this._sourceManager = new SourceManager(
 			(sourceName, content, subscriberNames, mode) => {
+				const metaContent = formatDPiMetaMessage({ sourceType: "source", sourceName }, content);
 				for (const agentName of subscriberNames) {
 					const record = this._registry.get(agentName);
 					if (record) {
 						record.worker.postMessage({
 							type: "message",
 							fromAgentName: `source:${sourceName}`,
-							content,
+							content: metaContent,
 							sourceName,
 							mode,
 						} satisfies HubToWorkerMessage);
@@ -77,7 +78,7 @@ export class Hub {
 			(agentName) => this.destroyAgent(agentName),
 			new AuthSessionManager(config.workspaceRoot),
 			this._executorRegistry,
-			{ remoteCallTimeoutMs: this._remoteCallTimeoutMs },
+			{ remoteCallTimeoutMs: this._remoteCallTimeoutMs, workspaceRoot: config.workspaceRoot },
 		);
 	}
 

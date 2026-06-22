@@ -1,6 +1,8 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
 import { type Component, Container, Markdown, Spacer, Text, TruncatedText } from "@earendil-works/pi-tui";
+import type { ExtensionMessage, MessageRenderer } from "../../extension/contracts.ts";
+import { extractDPiMeta } from "../../message-meta.ts";
 import type { DPiTranscriptItem } from "../../runtime/transcript/projector.ts";
 import { DPiNativeAssistantMessageComponent } from "../native/components/assistant-message.ts";
 import { DPiNativeDynamicBorder } from "../native/components/dynamic-border.ts";
@@ -25,6 +27,7 @@ export interface DPiInteractiveMessageListComponentOptions extends DPiInteractiv
 	toolsExpanded?: boolean;
 	showImages?: boolean;
 	imageWidthCells?: number;
+	messageRenderers?: Readonly<Record<string, MessageRenderer<unknown>>>;
 }
 
 export function buildDPiInteractiveMessageListView(
@@ -47,13 +50,16 @@ export function buildDPiInteractiveMessageListComponent(
 	const markdownTheme = getDPiNativeMarkdownTheme(theme);
 	const style = createDPiInteractiveStyle(options);
 	const items = snapshotTranscriptItems(snapshot);
+	const transcriptToolCallIds = new Set(
+		items.flatMap((item) => (item.type === "tool_state" ? [item.toolCallId] : [])),
+	);
 	const statusEntries = items.some((item) => item.type === "turn_stats") ? [] : (options.statusEntries ?? []);
 	const addStatusEntry = (entry: DPiInteractiveStatusEntry): void => {
 		container.addChild(new Spacer(1));
 		container.addChild(new Text(style.dim(entry.text), 1, 0));
 	};
 	for (const [index, item] of items.entries()) {
-		const components = itemComponents(item, snapshot.messages, theme, markdownTheme, options);
+		const components = itemComponents(item, snapshot.messages, transcriptToolCallIds, theme, markdownTheme, options);
 		if (
 			item.type === "message" &&
 			item.message.role === "user" &&
@@ -94,12 +100,13 @@ function snapshotTranscriptItems(snapshot: DPiInteractiveSessionStateSnapshot): 
 function itemComponents(
 	item: DPiTranscriptItem,
 	messages: readonly AgentMessage[],
+	transcriptToolCallIds: ReadonlySet<string>,
 	theme: ReturnType<typeof createDPiNativeTheme>,
 	markdownTheme: ReturnType<typeof getDPiNativeMarkdownTheme>,
 	options: DPiInteractiveMessageListComponentOptions,
 ): Component[] {
 	if (item.type === "message") {
-		return messageComponents(item.message, messages, theme, markdownTheme, options);
+		return messageComponents(item.message, messages, transcriptToolCallIds, theme, markdownTheme, options);
 	}
 	if (item.type === "boundary") {
 		return messageComponents(
@@ -117,6 +124,7 @@ function itemComponents(
 				timestamp: item.timestamp,
 			},
 			messages,
+			transcriptToolCallIds,
 			theme,
 			markdownTheme,
 			options,
@@ -226,10 +234,15 @@ export function buildDPiInteractiveStatusView(
 function messageComponents(
 	message: AgentMessage,
 	messages: readonly AgentMessage[],
+	transcriptToolCallIds: ReadonlySet<string>,
 	theme: ReturnType<typeof createDPiNativeTheme>,
 	markdownTheme: ReturnType<typeof getDPiNativeMarkdownTheme>,
 	options: DPiInteractiveMessageListComponentOptions,
 ): Component[] {
+	const custom = customMessageComponent(message, theme, options);
+	if (custom) {
+		return [custom];
+	}
 	if (message.role === "user") {
 		const text = stripDPiMetaWrapper(contentText(message.content));
 		if (!text) {
@@ -274,6 +287,7 @@ function messageComponents(
 		}),
 		...assistant.content
 			.filter((part): part is ToolCall => part.type === "toolCall")
+			.filter((toolCall) => !transcriptToolCallIds.has(toolCall.id))
 			.map(
 				(toolCall) =>
 					new DPiNativeToolExecutionComponent(toolCall, findToolResult(messages, toolCall.id), {
@@ -285,6 +299,61 @@ function messageComponents(
 					}),
 			),
 	];
+}
+
+function customMessageComponent(
+	message: AgentMessage,
+	theme: ReturnType<typeof createDPiNativeTheme>,
+	options: DPiInteractiveMessageListComponentOptions,
+): Component | undefined {
+	const customType = messageCustomType(message);
+	if (!customType) {
+		return undefined;
+	}
+	const renderer = options.messageRenderers?.[customType];
+	if (!renderer) {
+		return undefined;
+	}
+	return renderer(
+		toExtensionMessage(message),
+		{ expanded: options.toolsExpanded === true },
+		{
+			bg: (name, text) => theme.bg(name as Parameters<typeof theme.bg>[0], text),
+			fg: (name, text) => theme.fg(name as Parameters<typeof theme.fg>[0], text),
+		},
+	);
+}
+
+function toExtensionMessage(message: AgentMessage): ExtensionMessage {
+	const content = "content" in message && isExtensionMessageContent(message.content) ? message.content : "";
+	return {
+		...("role" in message && typeof message.role === "string" ? { role: message.role } : {}),
+		...("customType" in message && typeof message.customType === "string" ? { customType: message.customType } : {}),
+		content,
+		...("display" in message && typeof message.display === "boolean" ? { display: message.display } : {}),
+		...("details" in message ? { details: message.details } : {}),
+		...("timestamp" in message && typeof message.timestamp === "number" ? { timestamp: message.timestamp } : {}),
+	};
+}
+
+function isExtensionMessageContent(value: unknown): value is ExtensionMessage["content"] {
+	if (typeof value === "string") {
+		return true;
+	}
+	if (!Array.isArray(value)) {
+		return false;
+	}
+	return value.every(
+		(part) =>
+			typeof part === "object" && part !== null && "type" in part && (part.type === "text" || part.type === "image"),
+	);
+}
+
+function messageCustomType(message: AgentMessage): string | undefined {
+	if ("customType" in message && typeof message.customType === "string") {
+		return message.customType;
+	}
+	return "content" in message && extractDPiMeta(message.content) ? "d-pi-message" : undefined;
 }
 
 function normalizeAssistantMessage(message: AgentMessage): AssistantMessage {

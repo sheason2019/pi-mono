@@ -1,6 +1,8 @@
 import { randomUUID as gatewayRandomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { basename, join, relative, resolve, sep } from "node:path";
 import type { AuthSessionInfo, AuthSessionManager } from "../auth/auth-session.ts";
 import { formatDPiMetaMessage } from "../message-meta.ts";
 import {
@@ -13,6 +15,7 @@ import {
 } from "../service/protocol.ts";
 import { parseServiceActionName, toWorkerAction, toWorkerSnapshotQuery } from "../service/session-service.ts";
 import { writeServiceSseEvent, writeSseComment } from "../service/sse.ts";
+import { discoverTuiComponentFiles, tuiComponentsDir } from "../tui-components/tui-component-discovery.ts";
 import type { AgentRecord, HubToWorkerMessage, SourceConfig, WorkerToHubMessage } from "../types.ts";
 import type { AgentRegistry } from "./agent-registry.ts";
 import type { ExecutorRegistry } from "./executor-registry.ts";
@@ -44,6 +47,7 @@ export interface HubGatewayOptions {
 	 *  /_hub/executor/results before failing the pending
 	 *  /agents/{id}/remote-call. Default 60_000. */
 	remoteCallTimeoutMs?: number;
+	workspaceRoot?: string;
 }
 
 export class HubGateway {
@@ -59,6 +63,7 @@ export class HubGateway {
 	private readonly _executorRegistry: ExecutorRegistry | undefined;
 	private readonly _agentBindings: Map<string, string> = new Map();
 	private readonly _remoteCallTimeoutMs: number;
+	private readonly _workspaceRoot: string | undefined;
 
 	constructor(
 		registry: AgentRegistry,
@@ -76,6 +81,7 @@ export class HubGateway {
 		this._auth = auth;
 		this._executorRegistry = executorRegistry;
 		this._remoteCallTimeoutMs = options?.remoteCallTimeoutMs ?? 60_000;
+		this._workspaceRoot = options?.workspaceRoot;
 	}
 
 	async start(port: number): Promise<void> {
@@ -366,6 +372,17 @@ export class HubGateway {
 		if (!auth) {
 			res.writeHead(401, { "Content-Type": "application/json" });
 			res.end(JSON.stringify({ error: "Unauthorized" }));
+			return;
+		}
+
+		if (path === "/_hub/.public/tui-components" && req.method === "GET") {
+			this._handleTuiComponentsManifest(req, res);
+			return;
+		}
+
+		const tuiComponentMatch = path.match(/^\/_hub\/\.public\/tui-components\/(.+)$/);
+		if (tuiComponentMatch && req.method === "GET") {
+			this._handleTuiComponentFile(res, tuiComponentMatch[1]!);
 			return;
 		}
 
@@ -977,6 +994,50 @@ export class HubGateway {
 		return typeof value === "object" && value !== null && !Array.isArray(value);
 	}
 
+	private _handleTuiComponentsManifest(req: IncomingMessage, res: ServerResponse): void {
+		const workspaceRoot = this._workspaceRoot;
+		if (!workspaceRoot) {
+			res.writeHead(200, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ components: [] }));
+			return;
+		}
+		const origin = `http://${req.headers.host ?? "localhost"}`;
+		const components = discoverTuiComponentFiles(workspaceRoot).map((component) => ({
+			name: component.name,
+			url: `${origin}/_hub/.public/tui-components/${encodeURIComponent(component.name)}`,
+		}));
+		res.writeHead(200, { "Content-Type": "application/json" });
+		res.end(JSON.stringify({ components }));
+	}
+
+	private _handleTuiComponentFile(res: ServerResponse, encodedName: string): void {
+		const filePath = this._resolveTuiComponentFile(encodedName);
+		if (!filePath) {
+			res.writeHead(404, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ error: "TUI component not found" }));
+			return;
+		}
+		res.writeHead(200, { "Content-Type": "text/typescript; charset=utf-8" });
+		res.end(readFileSync(filePath, "utf-8"));
+	}
+
+	private _resolveTuiComponentFile(encodedName: string): string | undefined {
+		if (!this._workspaceRoot) {
+			return undefined;
+		}
+		const name = decodeURIComponent(encodedName);
+		if (name !== basename(name) || name.includes("/") || name.includes("\\") || !name.endsWith(".ts")) {
+			return undefined;
+		}
+		const dir = tuiComponentsDir(this._workspaceRoot);
+		const filePath = resolve(join(dir, name));
+		const rel = relative(resolve(dir), filePath);
+		if (rel.startsWith("..") || rel === "" || rel.includes(`..${sep}`) || !existsSync(filePath)) {
+			return undefined;
+		}
+		return filePath;
+	}
+
 	private async _proxyToAgent(
 		req: IncomingMessage,
 		res: ServerResponse,
@@ -1158,7 +1219,7 @@ export class HubGateway {
 		}
 		return {
 			...body,
-			text: formatDPiMetaMessage({ auth: session.auth }, body.text),
+			text: formatDPiMetaMessage({ sourceType: "connect", auth: session.auth }, body.text),
 			auth: session.auth,
 		};
 	}
