@@ -186,7 +186,6 @@ export interface AgentTsSourceConfig {
 	description?: string;
 	roles?: string[];
 	modelDefinition?: AgentModelDefinition;
-	models?: AgentModelDefinition[];
 	toolNames?: string[];
 }
 
@@ -232,13 +231,6 @@ export function buildAgentTsSource(config: AgentTsSourceConfig): string {
 	}
 	if (config.modelDefinition) {
 		lines.push(`\tmodel: ${formatModelExpression(config.modelDefinition, "\t")},`);
-	}
-	if (config.models && config.models.length > 0) {
-		lines.push("\tmodels: [");
-		for (const model of config.models) {
-			lines.push(`${formatModelExpression(model, "\t\t")},`.replace(/^/gm, "\t\t"));
-		}
-		lines.push("\t],");
 	}
 	lines.push('\tskills: defineSkill({ dir: "./skills" }),');
 	lines.push("\ttools: [");

@@ -5,7 +5,6 @@ import {
 	createDPiCreateAgentTool,
 	createDPiDestroyAgentTool,
 	createDPiDispatchTools,
-	createDPiReloadTool,
 	createDPiSendMessageTool,
 	createDPiTeamTool,
 	type DPiDispatchLocalExecutors,
@@ -87,16 +86,16 @@ export function createDispatchTools(): AgentToolDefinition[] {
 
 export function createReloadTool(): AgentToolDefinition {
 	return markBuiltinTool(
-		createDPiReloadTool({
-			runtimeHooks: {
-				reloadContext: async () => {
-					throw new Error("reload is not bound to a d-pi worker runtime");
-				},
-			},
-			getSnapshot: () => {
+		{
+			name: "reload",
+			label: "Reload Workspace",
+			description:
+				"Reload the d-pi workspace configuration and notify every agent to reload its own resources. Ready agents reload immediately; busy agents reload when they become ready.",
+			parameters: { type: "object", properties: {} },
+			async execute() {
 				throw new Error("reload is not bound to a d-pi worker runtime");
 			},
-		}),
+		},
 		"reload",
 	);
 }

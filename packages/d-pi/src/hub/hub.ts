@@ -31,7 +31,10 @@ export class Hub {
 	private readonly _executorRegistry: ExecutorRegistry;
 	private readonly _config: HubConfig;
 	private _workspaceDefinition: WorkspaceDefinition | undefined;
-	private _pendingWorkspaceReload: { requesterAgentName: string; callId: string } | undefined;
+	private readonly _workspaceReloadRequests = new Map<
+		string,
+		{ requesterAgentName: string; pendingAgentNames: Set<string>; errors: string[] }
+	>();
 	/**
 	 * Max time to wait for an executor result before failing the
 	 * dispatch. Mirrors HubGateway's `remoteCallTimeoutMs` so the IPC
@@ -188,6 +191,56 @@ export class Hub {
 	private async _reloadWorkspaceSources(): Promise<void> {
 		this._workspaceDefinition = await readWorkspaceDefinitionFromTs(this._config.workspaceRoot);
 		this._syncWorkspaceSources(orderAgentsForRestore(await discoverPersistedAgents(this._config.workspaceRoot)));
+	}
+
+	private async _requestWorkspaceReload(requesterAgentName: string, callId: string): Promise<void> {
+		const requester = this._registry.get(requesterAgentName);
+		if (!requester) return;
+		try {
+			await this._reloadWorkspaceSources();
+		} catch (err) {
+			requester.worker.postMessage({
+				type: "tool_result",
+				callId,
+				result: { ok: false, error: err instanceof Error ? err.message : String(err) },
+			} satisfies HubToWorkerMessage);
+			return;
+		}
+		const agents = Array.from(this._registry.getAll()).filter((record) => record.status !== "destroyed");
+		if (agents.length === 0) {
+			requester.worker.postMessage({
+				type: "tool_result",
+				callId,
+				result: { ok: true },
+			} satisfies HubToWorkerMessage);
+			return;
+		}
+		const pendingAgentNames = new Set(agents.map((record) => record.name));
+		this._workspaceReloadRequests.set(callId, { requesterAgentName, pendingAgentNames, errors: [] });
+		for (const record of agents) {
+			record.worker.postMessage({ type: "reload_agent", callId } satisfies HubToWorkerMessage);
+		}
+	}
+
+	private _handleAgentReloadResult(message: Extract<WorkerToHubMessage, { type: "reload_agent_result" }>): void {
+		const request = this._workspaceReloadRequests.get(message.callId);
+		if (!request) return;
+		request.pendingAgentNames.delete(message.agentName);
+		if (!message.ok) {
+			request.errors.push(`${message.agentName}: ${message.error ?? "reload failed"}`);
+		}
+		if (request.pendingAgentNames.size > 0) return;
+		this._workspaceReloadRequests.delete(message.callId);
+		const requester = this._registry.get(request.requesterAgentName);
+		if (!requester) return;
+		requester.worker.postMessage({
+			type: "tool_result",
+			callId: message.callId,
+			result:
+				request.errors.length === 0
+					? { ok: true }
+					: { ok: false, error: `Workspace reload failed for ${request.errors.join("; ")}` },
+		} satisfies HubToWorkerMessage);
 	}
 
 	async createAgent(
@@ -398,19 +451,14 @@ export class Hub {
 
 			case "status_update":
 				this._registry.updateStatus(message.agentName, message.status);
-				if (message.status === "ready" && this._pendingWorkspaceReload && !this._hasBusyAgents()) {
-					const pending = this._pendingWorkspaceReload;
-					this._pendingWorkspaceReload = undefined;
-					void this._completeWorkspaceReload(pending.requesterAgentName, pending.callId);
-				}
 				break;
 
 			case "reload_workspace":
-				if (this._hasBusyAgents()) {
-					this._pendingWorkspaceReload = { requesterAgentName: message.agentName, callId: message.callId };
-				} else {
-					void this._completeWorkspaceReload(message.agentName, message.callId);
-				}
+				void this._requestWorkspaceReload(message.agentName, message.callId);
+				break;
+
+			case "reload_agent_result":
+				this._handleAgentReloadResult(message);
 				break;
 
 			case "tool_call":
@@ -420,25 +468,6 @@ export class Hub {
 			case "tool_call_timeout":
 				process.stderr.write(`[d-pi hub] Tool call ${message.callId} from agent ${message.agentName} timed out\n`);
 				break;
-		}
-	}
-
-	private _hasBusyAgents(): boolean {
-		return Array.from(this._registry.getAll()).some((record) => record.status === "busy");
-	}
-
-	private async _completeWorkspaceReload(agentName: string, callId: string): Promise<void> {
-		const agent = this._registry.get(agentName);
-		if (!agent) return;
-		try {
-			await this._reloadWorkspaceSources();
-			agent.worker.postMessage({ type: "tool_result", callId, result: { ok: true } } satisfies HubToWorkerMessage);
-		} catch (err) {
-			agent.worker.postMessage({
-				type: "tool_result",
-				callId,
-				result: { ok: false, error: err instanceof Error ? err.message : String(err) },
-			} satisfies HubToWorkerMessage);
 		}
 	}
 

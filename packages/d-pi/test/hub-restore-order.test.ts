@@ -342,7 +342,7 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 		expect(readFileSync(join(agentDir, "agent.ts"), "utf-8")).toBe(original);
 	});
 
-	it("defers workspace source reload until busy agents become ready", async () => {
+	it("broadcasts workspace reload to each agent without waiting for busy agents", async () => {
 		const { Hub: HubMocked } = await import("../src/hub/hub.ts");
 		const { AgentRegistry } = await import("../src/hub/agent-registry.ts");
 		const workspace = freshWorkspace();
@@ -373,14 +373,27 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			workspaceConfig: { version: 1 },
 		});
 		const registry = (hub as unknown as { _registry: InstanceType<typeof AgentRegistry> })._registry;
-		const workerMessages: unknown[] = [];
+		const readyMessages: unknown[] = [];
+		const busyMessages: unknown[] = [];
 		registry.register({
 			name: "root",
 			parentName: undefined,
 			children: [],
+			status: "ready",
+			worker: {
+				postMessage: (message: unknown) => readyMessages.push(message),
+				on: () => {},
+				off: () => {},
+			} as never,
+			cwd: workspace,
+		});
+		registry.register({
+			name: "busy-child",
+			parentName: "root",
+			children: [],
 			status: "busy",
 			worker: {
-				postMessage: (message: unknown) => workerMessages.push(message),
+				postMessage: (message: unknown) => busyMessages.push(message),
 				on: () => {},
 				off: () => {},
 			} as never,
@@ -392,15 +405,26 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 				_handleWorkerMessage(worker: unknown, message: unknown): void;
 			}
 		)._handleWorkerMessage({}, { type: "reload_workspace", agentName: "root", callId: "reload-1" });
-		expect(workerMessages).toEqual([]);
+		await waitFor(() => readyMessages.length > 0 && busyMessages.length > 0);
+		expect(readyMessages).toEqual([{ type: "reload_agent", callId: "reload-1" }]);
+		expect(busyMessages).toEqual([{ type: "reload_agent", callId: "reload-1" }]);
 
 		(
 			hub as unknown as {
 				_handleWorkerMessage(worker: unknown, message: unknown): void;
 			}
-		)._handleWorkerMessage({}, { type: "status_update", agentName: "root", status: "ready" });
-		await waitFor(() => workerMessages.length > 0);
+		)._handleWorkerMessage({}, { type: "reload_agent_result", agentName: "root", callId: "reload-1", ok: true });
+		expect(readyMessages).not.toContainEqual({ type: "tool_result", callId: "reload-1", result: { ok: true } });
 
-		expect(workerMessages).toContainEqual({ type: "tool_result", callId: "reload-1", result: { ok: true } });
+		(
+			hub as unknown as {
+				_handleWorkerMessage(worker: unknown, message: unknown): void;
+			}
+		)._handleWorkerMessage(
+			{},
+			{ type: "reload_agent_result", agentName: "busy-child", callId: "reload-1", ok: true },
+		);
+		await waitFor(() => readyMessages.length > 1);
+		expect(readyMessages).toContainEqual({ type: "tool_result", callId: "reload-1", result: { ok: true } });
 	});
 });

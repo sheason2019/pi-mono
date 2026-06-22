@@ -153,15 +153,6 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 	return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
 }
 
-function assertModels(value: unknown): asserts value is AgentModelDefinition[] {
-	if (!Array.isArray(value)) {
-		throw new TypeError("Agent definition models must be an array");
-	}
-	for (let index = 0; index < value.length; index++) {
-		assertModel(value[index]);
-	}
-}
-
 function assertSources(value: unknown): asserts value is Record<string, SourceDefinition> {
 	if (!isRecord(value) || Array.isArray(value)) {
 		throw new TypeError("Agent definition sources must be an object");
@@ -214,7 +205,7 @@ function assertAgentDefinition(value: unknown): asserts value is AgentDefinition
 		assertModel(value.model);
 	}
 	if (value.models !== undefined) {
-		assertModels(value.models);
+		throw new TypeError("Agent definition models is not supported; define shared models in workspace d-pi.ts");
 	}
 	if (value.sources !== undefined) {
 		assertSources(value.sources);

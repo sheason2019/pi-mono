@@ -29,7 +29,6 @@ import {
 	createDPiCreateAgentTool,
 	createDPiDestroyAgentTool,
 	createDPiDispatchTools,
-	createDPiReloadTool,
 	createDPiSendMessageTool,
 	createDPiTeamTool,
 	type DPiDispatchLocalExecutors,
@@ -71,6 +70,8 @@ let remoteFirstRuntimeThinkingLevel: ThinkingLevel | undefined;
 let ipcServer: DPiAgentIpcServer | undefined;
 let proxy: DPiLocalAgentSessionProxy | undefined;
 let reloadCallCounter = 0;
+let pendingAgentReload = false;
+let agentIsBusy = false;
 
 function postToHub(message: WorkerToHubMessage): void {
 	port.postMessage(message);
@@ -94,6 +95,35 @@ function requestWorkspaceReload(): Promise<void> {
 		port.on("message", handler);
 		postToHub({ type: "reload_workspace", agentName: config.agentName, callId });
 	});
+}
+
+async function reloadAgentResources(callId?: string): Promise<void> {
+	if (!runtime?.session) {
+		const error = "Reload not available: d-pi session is not initialized yet.";
+		if (callId) {
+			postToHub({ type: "reload_agent_result", agentName: config.agentName, callId, ok: false, error });
+			return;
+		}
+		throw new Error(error);
+	}
+	await runtime.session.reload();
+	if (callId) {
+		postToHub({ type: "reload_agent_result", agentName: config.agentName, callId, ok: true });
+	}
+}
+
+function handleReloadAgent(callId: string): void {
+	if (agentIsBusy) {
+		pendingAgentReload = true;
+		return;
+	}
+	void reloadAgentResources(callId);
+}
+
+function flushPendingAgentReload(): void {
+	if (!pendingAgentReload || agentIsBusy) return;
+	pendingAgentReload = false;
+	void reloadAgentResources();
 }
 
 function toPromptImages(images: Array<{ url: string; mediaType?: string }> | undefined): DPiPromptImage[] | undefined {
@@ -143,18 +173,24 @@ function createWorkerBuiltinToolMap(
 		),
 		[
 			"reload",
-			createDPiReloadTool({
-				runtimeHooks: {
-					reloadContext: async () => {
-						const reloadFn = options.getReloadFn();
-						if (!reloadFn) {
-							throw new Error("Reload not available: d-pi session is not initialized yet.");
-						}
-						await reloadFn();
-					},
+			{
+				name: "reload",
+				label: "Reload Workspace",
+				description:
+					"Reload the d-pi workspace configuration and notify every agent to reload its own resources. Ready agents reload immediately; busy agents reload when they become ready.",
+				parameters: { type: "object", properties: {} },
+				async execute() {
+					const reloadFn = options.getReloadFn();
+					if (!reloadFn) {
+						throw new Error("Reload not available: d-pi session is not initialized yet.");
+					}
+					await reloadFn();
+					return {
+						content: [{ type: "text" as const, text: "Workspace reload requested." }],
+						details: createReloadSnapshot(options).details,
+					};
 				},
-				getSnapshot: () => createReloadSnapshot(options),
-			}),
+			},
 		],
 	]);
 }
@@ -263,6 +299,9 @@ port.on("message", (message: HubToWorkerMessage) => {
 			break;
 		case "message":
 			void routeIncomingHubMessage(message);
+			break;
+		case "reload_agent":
+			handleReloadAgent(message.callId);
 			break;
 		case "destroy":
 			gracefulShutdown();
@@ -556,9 +595,12 @@ async function runAgentWorker(): Promise<void> {
 		agentRuntime.subscribe((event) => {
 			proxy?.applyRuntimeEvent(event);
 			if (event.type === "agent_start") {
+				agentIsBusy = true;
 				postToHub({ type: "status_update", agentName, status: "busy" });
 			} else if (event.type === "agent_end") {
+				agentIsBusy = false;
 				postToHub({ type: "status_update", agentName, status: "ready" });
+				flushPendingAgentReload();
 			}
 		});
 		if (initialMessages.length > 0) {

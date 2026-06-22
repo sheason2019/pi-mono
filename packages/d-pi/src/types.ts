@@ -65,12 +65,14 @@ export type WorkerToHubMessage =
 	| { type: "tool_call_timeout"; agentName: string; callId: string }
 	| { type: "status_update"; agentName: string; status: AgentStatus }
 	| { type: "reload_workspace"; agentName: string; callId: string }
+	| { type: "reload_agent_result"; agentName: string; callId: string; ok: boolean; error?: string }
 	| { type: "http_response"; agentName: string; requestId: string; status: number; body: unknown }
 	| { type: "sse_event"; agentName: string; subscriberId: string; event: string; data: unknown };
 
 // === Hub → Worker IPC Messages ===
 export type HubToWorkerMessage =
 	| { type: "tool_result"; callId: string; result: unknown }
+	| { type: "reload_agent"; callId: string }
 	| {
 			type: "message";
 			fromAgentName: string;

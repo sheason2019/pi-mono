@@ -22,7 +22,6 @@ export {
 	defineContextFile,
 	defineContextFiles,
 	defineModel,
-	defineModels,
 	defineOpenAIProvider,
 	defineProvider,
 	defineRole,

@@ -78,7 +78,6 @@ export interface AgentDefinitionInput {
 	description?: string;
 	roles?: AgentRoleDefinition[];
 	model?: AgentModelDefinition;
-	models?: AgentModelDefinition[];
 	sources?: Record<string, SourceDefinition>;
 	tools?: AgentToolDefinition[];
 	skills?: AgentSkillDefinition;
@@ -91,7 +90,6 @@ export interface AgentDefinition {
 	description?: string;
 	roles?: AgentRoleDefinition[];
 	model?: AgentModelDefinition;
-	models?: AgentModelDefinition[];
 	sources?: Record<string, SourceDefinition>;
 	tools: AgentToolDefinition[];
 	skills?: AgentSkillDefinition;
@@ -264,10 +262,6 @@ export function defineModel(input: AgentModelDefinition): AgentModelDefinition {
 	return { provider: input.provider, name: input.name };
 }
 
-export function defineModels(...input: AgentModelDefinition[]): AgentModelDefinition[] {
-	return input.map(defineModel);
-}
-
 export function defineRole(input: AgentRoleDefinition): AgentRoleDefinition {
 	return input;
 }
@@ -282,7 +276,6 @@ export function defineAgent(input: AgentDefinitionInput): AgentDefinition {
 		...(input.description === undefined ? {} : { description: input.description }),
 		...(input.roles === undefined ? {} : { roles: defineRoles(...input.roles) }),
 		...(input.model === undefined ? {} : { model: defineModel(input.model) }),
-		...(input.models === undefined ? {} : { models: defineModels(...input.models) }),
 		...(input.sources === undefined ? {} : { sources: { ...input.sources } }),
 		tools: defineTools(...(input.tools ?? [])),
 		...(input.skills === undefined ? {} : { skills: defineSkill(input.skills) }),

@@ -1905,7 +1905,7 @@ function loadAgentLocalModels(agentDefinition: LoadedAgentDefinition | undefined
 
 function agentLocalModelDefinitions(agentDefinition: LoadedAgentDefinition): AgentLocalModelDefinition[] {
 	const definitions: AgentLocalModelDefinition[] = [];
-	for (const candidate of [agentDefinition.model, ...(agentDefinition.models ?? [])]) {
+	for (const candidate of [agentDefinition.model]) {
 		if (candidate && isAgentLocalModelDefinition(candidate)) {
 			definitions.push(candidate);
 		}
