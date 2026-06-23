@@ -128,9 +128,6 @@ describe("d-pi surface contracts", () => {
 	it("exposes runtime control hooks without mixing them into extensions", async () => {
 		const events: DPiRuntimeHookEvent[] = [];
 		const hooks = createDPiRuntimeHooks({
-			reloadContext: async (event) => {
-				events.push(event);
-			},
 			setModel: async (event) => {
 				events.push(event);
 			},
@@ -139,12 +136,10 @@ describe("d-pi surface contracts", () => {
 			},
 		});
 
-		await hooks.reloadContext({ reason: "manual" });
 		await hooks.setModel({ modelId: "anthropic/claude-sonnet-4-5" });
 		await hooks.setThinkingLevel({ level: "medium" });
 
 		expect(events).toEqual([
-			{ type: "reloadContext", reason: "manual" },
 			{ type: "setModel", modelId: "anthropic/claude-sonnet-4-5" },
 			{ type: "setThinkingLevel", level: "medium" },
 		]);

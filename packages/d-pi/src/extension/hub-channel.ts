@@ -1,4 +1,4 @@
-import type { SourceConfig, TeamSnapshot, WorkerToHubMessage } from "../types.ts";
+import type { TeamSnapshot, WorkerToHubMessage } from "../types.ts";
 
 /**
  * Message routing mode — mirrors the user-facing TUI Enter / Ctrl+Enter
@@ -60,21 +60,6 @@ export class HubChannel {
 	/** Get the team snapshot */
 	getTeam(): Promise<TeamSnapshot> {
 		return this._callTool("team", {}) as Promise<TeamSnapshot>;
-	}
-
-	/** Create or update a source by name. */
-	setSource(config: SourceConfig): Promise<unknown> {
-		return this._callTool("set_source", config);
-	}
-
-	/** Get one source by name, or all sources when name is omitted. */
-	getSource(name?: string): Promise<unknown> {
-		return this._callTool("get_source", { name });
-	}
-
-	/** Delete a source by name. */
-	deleteSource(name: string): Promise<unknown> {
-		return this._callTool("delete_source", { name });
 	}
 
 	/**

@@ -6,21 +6,14 @@ import type { HubChannel } from "../src/extension/hub-channel.ts";
 import type {
 	DPiCreateAgentActionPayload,
 	DPiCreateAgentActionResult,
-	DPiDeleteSourceActionPayload,
 	DPiDestroyAgentActionPayload,
-	DPiGetSourceActionPayload,
-	DPiGetSourceActionResult,
 	DPiHubActionsClient,
 	DPiSendMessageActionPayload,
-	DPiSourceConfig,
 	DPiTeamSnapshot,
 } from "../src/surface/index.ts";
 import {
-	createDPiDeleteSourceTool,
 	createDPiDestroyAgentTool,
-	createDPiGetSourceTool,
 	createDPiSendMessageTool,
-	createDPiSetSourceTool,
 	createDPiTeamTool,
 } from "../src/surface/orchestration-tools.ts";
 
@@ -34,13 +27,9 @@ class RecordingHubActionsClient implements DPiHubActionsClient {
 	readonly createAgentCalls: DPiCreateAgentActionPayload[] = [];
 	readonly destroyAgentCalls: DPiDestroyAgentActionPayload[] = [];
 	readonly sendMessageCalls: DPiSendMessageActionPayload[] = [];
-	readonly setSourceCalls: DPiSourceConfig[] = [];
-	readonly getSourceCalls: DPiGetSourceActionPayload[] = [];
-	readonly deleteSourceCalls: DPiDeleteSourceActionPayload[] = [];
 
 	createAgentResult: DPiCreateAgentActionResult = { agentName: "child" };
 	teamSnapshot: DPiTeamSnapshot = { rootName: "root", agents: [], executors: [] };
-	getSourceResult: DPiGetSourceActionResult = { sources: [] };
 
 	async createAgent(payload: DPiCreateAgentActionPayload): Promise<DPiCreateAgentActionResult> {
 		this.createAgentCalls.push(payload);
@@ -58,21 +47,6 @@ class RecordingHubActionsClient implements DPiHubActionsClient {
 
 	async sendMessage(payload: DPiSendMessageActionPayload): Promise<{ ok: boolean; error?: string }> {
 		this.sendMessageCalls.push(payload);
-		return { ok: true };
-	}
-
-	async setSource(payload: DPiSourceConfig): Promise<{ ok: boolean; error?: string }> {
-		this.setSourceCalls.push(payload);
-		return { ok: true };
-	}
-
-	async getSource(payload: DPiGetSourceActionPayload = {}): Promise<DPiGetSourceActionResult> {
-		this.getSourceCalls.push(payload);
-		return this.getSourceResult;
-	}
-
-	async deleteSource(payload: DPiDeleteSourceActionPayload): Promise<{ ok: boolean; error?: string }> {
-		this.deleteSourceCalls.push(payload);
 		return { ok: true };
 	}
 
@@ -179,61 +153,6 @@ describe("d-pi surface orchestration tools", () => {
 				{ connectId: "exec-1", cwd: "/repo", attached: true, boundAgentName: "child" },
 				{ connectId: "exec-2", cwd: "/tmp", attached: false },
 			],
-		});
-	});
-
-	it("routes source tools through setSource, getSource, and deleteSource actions", async () => {
-		const client = new RecordingHubActionsClient();
-		client.getSourceResult = {
-			source: {
-				name: "events",
-				command: "node",
-				args: ["server.js"],
-				status: "running",
-				subscribers: ["root"],
-				cwd: undefined,
-				env: undefined,
-			},
-		};
-
-		const setTool = createDPiSetSourceTool(client);
-		const getTool = createDPiGetSourceTool(client);
-		const deleteTool = createDPiDeleteSourceTool(client);
-
-		await setTool.execute("call-4", {
-			name: "events",
-			command: "node",
-			args: ["server.js"],
-			cwd: "/repo",
-			env: { NODE_ENV: "test" },
-			subscribers: ["root"],
-		});
-		const getResult = asTextToolResult(await getTool.execute("call-5", { name: "events" }));
-		await deleteTool.execute("call-6", { name: "events" });
-
-		expect(client.setSourceCalls).toEqual([
-			{
-				name: "events",
-				command: "node",
-				args: ["server.js"],
-				cwd: "/repo",
-				env: { NODE_ENV: "test" },
-				subscribers: ["root"],
-			},
-		]);
-		expect(client.getSourceCalls).toEqual([{ name: "events" }]);
-		expect(client.deleteSourceCalls).toEqual([{ name: "events" }]);
-		expect(textOf(getResult)).toContain('"name": "events"');
-		expectNoUndefined(getResult.details);
-		expect(JSON.parse(JSON.stringify(getResult.details))).toEqual(getResult.details);
-		expect(getResult.details).toEqual({
-			source: {
-				name: "events",
-				command: "node",
-				args: ["server.js"],
-				status: "running",
-				subscribers: ["root"],
-			},
 		});
 	});
 

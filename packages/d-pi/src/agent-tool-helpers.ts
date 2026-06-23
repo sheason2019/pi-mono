@@ -1,15 +1,12 @@
+import { Type } from "typebox";
 import type { AgentToolDefinition } from "./agent-definition.ts";
 import { buildNativeToolSet } from "./executor/native-tools.ts";
 import type { ToolDefinition } from "./extension/contracts.ts";
 import {
 	createDPiCreateAgentTool,
-	createDPiDeleteSourceTool,
 	createDPiDestroyAgentTool,
 	createDPiDispatchTools,
-	createDPiGetSourceTool,
-	createDPiReloadTool,
 	createDPiSendMessageTool,
-	createDPiSetSourceTool,
 	createDPiTeamTool,
 	type DPiDispatchLocalExecutors,
 	type DPiDispatchNativeToolName,
@@ -22,9 +19,6 @@ export type AgentBuiltinToolKind =
 	| "create_agent"
 	| "destroy_agent"
 	| "team"
-	| "set_source"
-	| "get_source"
-	| "delete_source"
 	| "dispatch_bash"
 	| "dispatch_read"
 	| "dispatch_ls"
@@ -57,18 +51,6 @@ export function createDestroyAgentTool(): AgentToolDefinition {
 
 export function createTeamTool(): AgentToolDefinition {
 	return markBuiltinTool(createDPiTeamTool(fakeHubClient), "team");
-}
-
-export function createSetSourceTool(): AgentToolDefinition {
-	return markBuiltinTool(createDPiSetSourceTool(fakeHubClient), "set_source");
-}
-
-export function createGetSourceTool(): AgentToolDefinition {
-	return markBuiltinTool(createDPiGetSourceTool(fakeHubClient), "get_source");
-}
-
-export function createDeleteSourceTool(): AgentToolDefinition {
-	return markBuiltinTool(createDPiDeleteSourceTool(fakeHubClient), "delete_source");
 }
 
 export function createDispatchBashTool(): AgentToolDefinition {
@@ -105,16 +87,23 @@ export function createDispatchTools(): AgentToolDefinition[] {
 
 export function createReloadTool(): AgentToolDefinition {
 	return markBuiltinTool(
-		createDPiReloadTool({
-			runtimeHooks: {
-				reloadContext: async () => {
-					throw new Error("reload is not bound to a d-pi worker runtime");
-				},
-			},
-			getSnapshot: () => {
+		{
+			name: "reload",
+			label: "Reload Workspace",
+			description:
+				"Reload the d-pi workspace configuration and notify every agent to reload its own resources. Ready agents reload immediately; busy agents reload when they become ready.",
+			parameters: Type.Object({
+				reason: Type.Optional(
+					Type.String({
+						description:
+							"Optional reason for the workspace reload. Explain what changed or why reload is needed.",
+					}),
+				),
+			}),
+			async execute() {
 				throw new Error("reload is not bound to a d-pi worker runtime");
 			},
-		}),
+		},
 		"reload",
 	);
 }
@@ -179,15 +168,6 @@ const fakeHubClient: DPiHubActionsClient = {
 	},
 	async sendMessage() {
 		throw new Error("send_message is not bound to a d-pi worker runtime");
-	},
-	async setSource() {
-		throw new Error("set_source is not bound to a d-pi worker runtime");
-	},
-	async getSource() {
-		throw new Error("get_source is not bound to a d-pi worker runtime");
-	},
-	async deleteSource() {
-		throw new Error("delete_source is not bound to a d-pi worker runtime");
 	},
 	async dispatchRemoteTool() {
 		throw new Error("dispatch tools are not bound to a d-pi worker runtime");

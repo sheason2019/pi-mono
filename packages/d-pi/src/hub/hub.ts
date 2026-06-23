@@ -9,23 +9,20 @@ import { formatDPiMetaMessage } from "../message-meta.ts";
 import type {
 	AgentConfig,
 	CreateAgentResult,
-	DeleteSourceResult,
 	DestroyAgentResult,
-	GetSourceResult,
 	HubConfig,
 	HubToWorkerMessage,
 	SendMessageResult,
-	SetSourceResult,
 	TeamSnapshot,
 	WorkerToHubMessage,
 } from "../types.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
+import { readWorkspaceDefinitionFromTs, type WorkspaceDefinition } from "../workspace-definition.ts";
 import { AgentRegistry } from "./agent-registry.ts";
 import { ExecutorRegistry } from "./executor-registry.ts";
 import { HubGateway } from "./gateway.ts";
 import { discoverPersistedAgents, orderAgentsForRestore } from "./restore-agents.ts";
 import { SourceManager } from "./source-manager.ts";
-import { discoverSourceConfigs } from "./source-persistence.ts";
 
 export class Hub {
 	private readonly _registry: AgentRegistry;
@@ -33,6 +30,7 @@ export class Hub {
 	private readonly _sourceManager: SourceManager;
 	private readonly _executorRegistry: ExecutorRegistry;
 	private readonly _config: HubConfig;
+	private _workspaceDefinition: WorkspaceDefinition | undefined;
 	/**
 	 * Max time to wait for an executor result before failing the
 	 * dispatch. Mirrors HubGateway's `remoteCallTimeoutMs` so the IPC
@@ -46,28 +44,21 @@ export class Hub {
 		this._remoteCallTimeoutMs = config.remoteCallTimeoutMs ?? 60_000;
 		this._registry = new AgentRegistry();
 
-		this._sourceManager = new SourceManager(
-			(sourceName, content, subscriberNames, mode) => {
-				const metaContent = formatDPiMetaMessage({ sourceType: "source", sourceName }, content);
-				for (const agentName of subscriberNames) {
-					const record = this._registry.get(agentName);
-					if (record) {
-						record.worker.postMessage({
-							type: "message",
-							fromAgentName: `source:${sourceName}`,
-							content: metaContent,
-							sourceName,
-							mode,
-						} satisfies HubToWorkerMessage);
-					}
+		this._sourceManager = new SourceManager((sourceName, content, subscriberNames) => {
+			const metaContent = formatDPiMetaMessage({ sourceType: "source", sourceName }, content);
+			for (const agentName of subscriberNames) {
+				const record = this._registry.get(agentName);
+				if (record) {
+					record.worker.postMessage({
+						type: "message",
+						fromAgentName: `source:${sourceName}`,
+						content: metaContent,
+						sourceName,
+						mode: "steer",
+					} satisfies HubToWorkerMessage);
 				}
-			},
-			// Pass the workspace root so the source manager persists
-			// `sources/<name>/source.json` on setSource and removes it
-			// on deleteSource. Restore happens in `start()` via
-			// `restoreSourceConfigs()`.
-			{ workspaceRoot: config.workspaceRoot },
-		);
+			}
+		});
 
 		this._executorRegistry = new ExecutorRegistry();
 
@@ -82,14 +73,19 @@ export class Hub {
 		);
 	}
 
+	async stop(): Promise<void> {
+		this._sourceManager.stopAll();
+	}
+
 	async start(): Promise<void> {
 		const hubPort = this._config.port ?? DEFAULT_HUB_PORT;
 
 		// 1. Start gateway
 		await this._gateway.start(hubPort);
+		this._workspaceDefinition = await readWorkspaceDefinitionFromTs(this._config.workspaceRoot);
 
 		// 2. Discover and start persisted agents from agents/ directory
-		await this._restorePersistedAgents();
+		const restoredAgents = await this._restorePersistedAgents();
 
 		// 3. Ensure root agent exists
 		if (!this._registry.getByName("root")) {
@@ -98,14 +94,7 @@ export class Hub {
 			});
 		}
 
-		// 4. Restore persisted sources (`sources/<name>/source.json`).
-		// Done AFTER the agent registry is fully populated so the
-		// subscriber-rehydration step can match persisted agent names
-		// against the live registry. Sources whose persisted creator
-		// / subscriber set has no remaining agents still come back
-		// online — the source subprocess is independent of agent
-		// lifecycle — but start with an empty subscribers set.
-		this._restorePersistedSources();
+		this._syncWorkspaceSources(restoredAgents);
 
 		process.stderr.write(`[d-pi hub] Workspace: ${this._config.workspaceRoot}\n`);
 		process.stderr.write(`[d-pi hub] Listening on port ${hubPort}\n`);
@@ -136,7 +125,7 @@ export class Hub {
 	 * logged. This matches the spirit of the strict-JSON `//` comment handling:
 	 * surface corruption rather than paper over it.
 	 */
-	private async _restorePersistedAgents(): Promise<void> {
+	private async _restorePersistedAgents(): Promise<ReturnType<typeof orderAgentsForRestore>> {
 		const discovered = await discoverPersistedAgents(this._config.workspaceRoot);
 		const ordered = orderAgentsForRestore(discovered);
 
@@ -174,27 +163,67 @@ export class Hub {
 				);
 			}
 		}
+		return ordered;
 	}
 
-	/**
-	 * Restore every persisted source from `sources/<name>/source.json`.
-	 * Re-spawns the subprocess and re-attaches to subscribers that
-	 * are still alive in the registry. See `SourceManager.restoreFromConfigs`
-	 * for the per-source details.
-	 *
-	 * Subscribers that were recorded but no longer have a live agent
-	 * (their `agent.ts` was deleted, or the agent failed to start)
-	 * are silently dropped — the source can re-acquire them later
-	 * by calling set_source with an updated subscribers list if the agent reappears.
-	 */
-	private _restorePersistedSources(): void {
-		const files = discoverSourceConfigs(this._config.workspaceRoot);
-		if (files.length === 0) return;
-		const liveAgentNames = new Set<string>();
-		for (const record of this._registry.getAll()) {
-			liveAgentNames.add(record.name);
+	private _syncWorkspaceSources(agents: ReturnType<typeof orderAgentsForRestore>): void {
+		const workspace = this._workspaceDefinition;
+		if (!workspace) {
+			this._sourceManager.syncSources({}, new Map(), this._config.workspaceRoot);
+			return;
 		}
-		this._sourceManager.restoreFromConfigs(files, liveAgentNames);
+		const subscribersBySource = new Map<string, Set<string>>();
+		for (const entry of agents) {
+			for (const sourceName of Object.keys(entry.definition.sources ?? {})) {
+				if (!workspace.sources[sourceName]) continue;
+				const subscribers = subscribersBySource.get(sourceName) ?? new Set<string>();
+				subscribers.add(entry.config.name);
+				subscribersBySource.set(sourceName, subscribers);
+			}
+		}
+		this._sourceManager.syncSources(workspace.sources, subscribersBySource, this._config.workspaceRoot);
+	}
+
+	private async _reloadWorkspaceSources(): Promise<void> {
+		this._workspaceDefinition = await readWorkspaceDefinitionFromTs(this._config.workspaceRoot);
+		this._syncWorkspaceSources(orderAgentsForRestore(await discoverPersistedAgents(this._config.workspaceRoot)));
+	}
+
+	private async _requestWorkspaceReload(
+		requesterAgentName: string,
+		callId: string,
+		reason: string | undefined,
+	): Promise<void> {
+		const requester = this._registry.get(requesterAgentName);
+		if (!requester) return;
+		const metadata = {
+			...(reason === undefined ? {} : { reason }),
+			caller: requesterAgentName,
+			time: new Date().toISOString(),
+		};
+		try {
+			await this._reloadWorkspaceSources();
+		} catch (err) {
+			requester.worker.postMessage({
+				type: "tool_result",
+				callId,
+				result: { ok: false, metadata, error: err instanceof Error ? err.message : String(err) },
+			} satisfies HubToWorkerMessage);
+			return;
+		}
+		const agents = Array.from(this._registry.getAll()).filter((record) => record.status !== "destroyed");
+		for (const record of agents) {
+			record.worker.postMessage({
+				type: "reload_agent",
+				callId: `${callId}:${record.name}`,
+				metadata,
+			} satisfies HubToWorkerMessage);
+		}
+		requester.worker.postMessage({
+			type: "tool_result",
+			callId,
+			result: { ok: true, metadata },
+		} satisfies HubToWorkerMessage);
 	}
 
 	async createAgent(
@@ -339,17 +368,6 @@ export class Hub {
 			);
 		}
 
-		// Safety check: agent must not be creator of any active source
-		const createdSources = this._sourceManager.getSourcesByCreator(agentName);
-		if (createdSources.length > 0) {
-			throw new Error(
-				`Cannot destroy agent "${record.name}": it is the creator of source(s) [${createdSources.join(", ")}]. Destroy or transfer ownership of those sources first.`,
-			);
-		}
-
-		// Auto-unsubscribe from all sources
-		this._sourceManager.removeAgentSubscriptions(agentName);
-
 		// Collect all workers to terminate before unregister removes them from registry
 		const workersToTerminate: Array<{ name: string; worker: Worker; cwd: string }> = [];
 		const r = this._registry.get(agentName);
@@ -416,6 +434,13 @@ export class Hub {
 
 			case "status_update":
 				this._registry.updateStatus(message.agentName, message.status);
+				break;
+
+			case "reload_workspace":
+				void this._requestWorkspaceReload(message.agentName, message.callId, message.reason);
+				break;
+
+			case "reload_agent_result":
 				break;
 
 			case "tool_call":
@@ -507,64 +532,6 @@ export class Hub {
 							boundAgentName: this._gateway.getBoundAgentName(executor.connectId),
 						})),
 					} satisfies TeamSnapshot;
-					break;
-				}
-
-				case "set_source": {
-					const p = params as {
-						name: string;
-						command: string;
-						args?: string[];
-						cwd?: string;
-						env?: Record<string, string>;
-						subscribers?: string[];
-					};
-					try {
-						this._sourceManager.setSource(
-							{
-								name: p.name,
-								command: p.command,
-								args: p.args,
-								cwd: p.cwd,
-								env: p.env,
-								subscribers: p.subscribers,
-							},
-							fromAgentName,
-						);
-						result = { ok: true } satisfies SetSourceResult;
-					} catch (err) {
-						result = {
-							ok: false,
-							error: err instanceof Error ? err.message : String(err),
-						} satisfies SetSourceResult;
-					}
-					break;
-				}
-
-				case "get_source": {
-					const p = params as { name?: string };
-					if (p.name) {
-						const source = this._sourceManager.getSource(p.name);
-						result = source
-							? ({ source } satisfies GetSourceResult)
-							: ({ error: `Source "${p.name}" not found` } satisfies GetSourceResult);
-					} else {
-						result = { sources: this._sourceManager.listSources() } satisfies GetSourceResult;
-					}
-					break;
-				}
-
-				case "delete_source": {
-					const p = params as { name: string };
-					try {
-						this._sourceManager.deleteSource(p.name);
-						result = { ok: true } satisfies DeleteSourceResult;
-					} catch (err) {
-						result = {
-							ok: false,
-							error: err instanceof Error ? err.message : String(err),
-						} satisfies DeleteSourceResult;
-					}
 					break;
 				}
 

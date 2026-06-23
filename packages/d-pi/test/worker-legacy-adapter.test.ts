@@ -242,6 +242,7 @@ function createTestSession(testSessionId: string, overrides: Partial<TestSession
 		testSessionId,
 		agent: {
 			waitForIdle: vi.fn(async () => {}),
+			abort: vi.fn(async () => {}),
 		},
 		modelRegistry: {
 			find: () => undefined,
@@ -1102,6 +1103,20 @@ describe("worker runtime adapter", () => {
 		}
 	});
 
+	it("forwards abort requests to the underlying session agent", async () => {
+		const session = createTestSession("abort-session");
+		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime(session));
+		const harness = createIpcHarness(proxy);
+		try {
+			const response = await requestIpc(harness, "abort-1", "abort", {});
+
+			expect(response).toMatchObject({ status: 200, body: { ok: true } });
+			expect(session.agent.abort).toHaveBeenCalledTimes(1);
+		} finally {
+			harness.server.stop();
+		}
+	});
+
 	it("writes steering inputs to steering.jsonl instead of dispatcher memory queues", async () => {
 		const queuePath = join(mkdtempSync(join(tmpdir(), "d-pi-worker-queue-")), "agent", "steering.jsonl");
 		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime(), { steeringQueuePath: queuePath });
@@ -1511,6 +1526,20 @@ describe("worker runtime adapter", () => {
 						role: "toolResult",
 						toolCallId: "tool-ls",
 						content: [expect.objectContaining({ type: "text", text: "package.json\nsrc" })],
+					}),
+				]),
+			);
+			const realtime = await queryIpc(harness, "realtime-tools", "realtime");
+			const realtimeBody = realtime.body as {
+				items: Array<{ type: string; toolCallId?: string; args?: unknown; status?: string }>;
+			};
+			expect(realtimeBody.items).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						type: "tool_state",
+						toolCallId: "tool-ls",
+						status: "succeeded",
+						args: { path: "." },
 					}),
 				]),
 			);

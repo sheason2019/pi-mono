@@ -17,9 +17,6 @@ export const DEFAULT_AGENT_TOOL_NAMES = [
 	"create_agent",
 	"destroy_agent",
 	"team",
-	"set_source",
-	"get_source",
-	"delete_source",
 	"reload",
 ] as const;
 
@@ -45,9 +42,6 @@ const TOOL_HELPER_NAMES: Record<(typeof DEFAULT_AGENT_TOOL_NAMES)[number], strin
 	create_agent: "createCreateAgentTool",
 	destroy_agent: "createDestroyAgentTool",
 	team: "createTeamTool",
-	set_source: "createSetSourceTool",
-	get_source: "createGetSourceTool",
-	delete_source: "createDeleteSourceTool",
 	reload: "createReloadTool",
 };
 
@@ -121,11 +115,17 @@ function providerHelper(provider: AgentProviderDefinition):
 
 function formatModelExpression(model: AgentModelDefinition, indent: string): string {
 	if (!("id" in model)) {
-		return `defineModel({ provider: ${JSON.stringify(model.provider)}, name: ${JSON.stringify(model.name)} })`;
+		const fields = [
+			`provider: ${JSON.stringify(model.provider)}`,
+			`name: ${JSON.stringify(model.name)}`,
+			...(model.description === undefined ? [] : [`description: ${JSON.stringify(model.description)}`]),
+		];
+		return `defineModel({ ${fields.join(", ")} })`;
 	}
 	const lines = ["defineModel({"];
 	lines.push(`${indent}\tid: ${JSON.stringify(model.id)},`);
 	if (model.name !== undefined) lines.push(`${indent}\tname: ${JSON.stringify(model.name)},`);
+	if (model.description !== undefined) lines.push(`${indent}\tdescription: ${JSON.stringify(model.description)},`);
 	lines.push(
 		`${indent}\tprovider: ${
 			typeof model.provider === "string" ? JSON.stringify(model.provider) : formatProviderExpression(model.provider)
@@ -192,7 +192,6 @@ export interface AgentTsSourceConfig {
 	description?: string;
 	roles?: string[];
 	modelDefinition?: AgentModelDefinition;
-	models?: AgentModelDefinition[];
 	toolNames?: string[];
 }
 
@@ -220,7 +219,7 @@ export function buildAgentTsSource(config: AgentTsSourceConfig): string {
 	const toolNames = config.toolNames ?? [...DEFAULT_AGENT_TOOL_NAMES];
 	assertKnownToolNames(config.name, "toolNames", toolNames);
 	const lines = [
-		'import { createCreateAgentTool, createDeleteSourceTool, createDestroyAgentTool, createDispatchBashTool, createDispatchEditTool, createDispatchFindTool, createDispatchGrepTool, createDispatchLsTool, createDispatchReadTool, createDispatchTools, createDispatchWriteTool, createGetSourceTool, createReloadTool, createSendMessageTool, createSetSourceTool, createTeamTool, defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill } from "@sheason/d-pi";',
+		'import { createCreateAgentTool, createDestroyAgentTool, createDispatchBashTool, createDispatchEditTool, createDispatchFindTool, createDispatchGrepTool, createDispatchLsTool, createDispatchReadTool, createDispatchTools, createDispatchWriteTool, createReloadTool, createSendMessageTool, createTeamTool, defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill } from "@sheason/d-pi";',
 	];
 	if (config.parentName) {
 		lines.push(`import parentAgent from "../${config.parentName}/agent.ts";`);
@@ -238,13 +237,6 @@ export function buildAgentTsSource(config: AgentTsSourceConfig): string {
 	}
 	if (config.modelDefinition) {
 		lines.push(`\tmodel: ${formatModelExpression(config.modelDefinition, "\t")},`);
-	}
-	if (config.models && config.models.length > 0) {
-		lines.push("\tmodels: [");
-		for (const model of config.models) {
-			lines.push(`${formatModelExpression(model, "\t\t")},`.replace(/^/gm, "\t\t"));
-		}
-		lines.push("\t],");
 	}
 	lines.push('\tskills: defineSkill({ dir: "./skills" }),');
 	lines.push("\ttools: [");

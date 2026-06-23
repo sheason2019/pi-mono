@@ -10,6 +10,7 @@ import type {
 	AgentToolDefinition,
 } from "./agent-definition.ts";
 import { setAgentDefinitionMetadata } from "./agent-definition.ts";
+import { defineSource, type SourceDefinition } from "./workspace-definition.ts";
 
 const AGENT_TS_FILE = "agent.ts";
 
@@ -152,12 +153,23 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 	return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
 }
 
-function assertModels(value: unknown): asserts value is AgentModelDefinition[] {
-	if (!Array.isArray(value)) {
-		throw new TypeError("Agent definition models must be an array");
+function assertSources(value: unknown): asserts value is Record<string, SourceDefinition> {
+	if (!isRecord(value) || Array.isArray(value)) {
+		throw new TypeError("Agent definition sources must be an object");
 	}
-	for (let index = 0; index < value.length; index++) {
-		assertModel(value[index]);
+	for (const [key, source] of Object.entries(value)) {
+		if (!key.trim()) {
+			throw new TypeError("Agent definition sources keys must be non-empty");
+		}
+		try {
+			defineSource(source as SourceDefinition);
+		} catch (err) {
+			throw new TypeError(
+				`Agent definition sources.${key} must be a source definition: ${
+					err instanceof Error ? err.message : String(err)
+				}`,
+			);
+		}
 	}
 }
 
@@ -193,7 +205,10 @@ function assertAgentDefinition(value: unknown): asserts value is AgentDefinition
 		assertModel(value.model);
 	}
 	if (value.models !== undefined) {
-		assertModels(value.models);
+		throw new TypeError("Agent definition models is not supported; define shared models in workspace d-pi.ts");
+	}
+	if (value.sources !== undefined) {
+		assertSources(value.sources);
 	}
 	if (value.parent !== undefined) {
 		assertAgentDefinition(value.parent);

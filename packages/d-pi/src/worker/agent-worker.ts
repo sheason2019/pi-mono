@@ -10,6 +10,7 @@ import { parentPort, workerData } from "node:worker_threads";
 import type { AgentToolResult, AgentToolUpdateCallback, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { TSchema } from "typebox";
+import { Type } from "typebox";
 import type { AgentToolDefinition } from "../agent-definition.ts";
 import { readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
 import { type AgentBuiltinToolKind, getAgentBuiltinToolKind } from "../agent-tool-helpers.ts";
@@ -27,13 +28,9 @@ import { projectDPiTranscript } from "../runtime/transcript/projector.ts";
 import type { DPiPromptImage } from "../runtime/types.ts";
 import {
 	createDPiCreateAgentTool,
-	createDPiDeleteSourceTool,
 	createDPiDestroyAgentTool,
 	createDPiDispatchTools,
-	createDPiGetSourceTool,
-	createDPiReloadTool,
 	createDPiSendMessageTool,
-	createDPiSetSourceTool,
 	createDPiTeamTool,
 	type DPiDispatchLocalExecutors,
 	type DPiDispatchParameterSchemas,
@@ -41,7 +38,7 @@ import {
 	type DPiRemoteToolResult,
 	type DPiToolDetails,
 } from "../surface/index.ts";
-import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
+import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage, WorkspaceReloadMetadata } from "../types.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
 import {
 	createDPiAgentSessionFromServices,
@@ -73,9 +70,101 @@ let remoteFirstRuntimeModel: Model<Api> | undefined;
 let remoteFirstRuntimeThinkingLevel: ThinkingLevel | undefined;
 let ipcServer: DPiAgentIpcServer | undefined;
 let proxy: DPiLocalAgentSessionProxy | undefined;
+let reloadCallCounter = 0;
+let pendingAgentReload = false;
+let pendingAgentReloadMetadata: WorkspaceReloadMetadata | undefined;
+let pendingAgentReloadPromise: Promise<void> | undefined;
+let agentIsBusy = false;
 
 function postToHub(message: WorkerToHubMessage): void {
 	port.postMessage(message);
+}
+
+function requestWorkspaceReload(reason?: string): Promise<void> {
+	const callId = `${config.agentName}-reload-${++reloadCallCounter}`;
+	return new Promise((resolve, reject) => {
+		const handler = (message: HubToWorkerMessage) => {
+			if (message.type !== "tool_result" || message.callId !== callId) {
+				return;
+			}
+			port.off("message", handler);
+			const result = message.result as { ok?: boolean; error?: string };
+			if (result.error || result.ok === false) {
+				reject(new Error(result.error ?? "Workspace reload failed"));
+				return;
+			}
+			resolve();
+		};
+		port.on("message", handler);
+		postToHub({
+			type: "reload_workspace",
+			agentName: config.agentName,
+			callId,
+			...(reason === undefined ? {} : { reason }),
+		});
+	});
+}
+
+async function reloadAgentResources(
+	callId: string | undefined,
+	metadata: WorkspaceReloadMetadata | undefined,
+): Promise<void> {
+	if (!runtime?.session) {
+		const error = "Reload not available: d-pi session is not initialized yet.";
+		if (callId) {
+			postToHub({
+				type: "reload_agent_result",
+				agentName: config.agentName,
+				callId,
+				ok: false,
+				metadata: metadata ?? { caller: "unknown", time: new Date().toISOString() },
+				error,
+			});
+			return;
+		}
+		throw new Error(error);
+	}
+	await runtime.session.reload();
+	proxy?.setBanner(generateDPiBanner(runtime.session));
+	if (callId) {
+		postToHub({
+			type: "reload_agent_result",
+			agentName: config.agentName,
+			callId,
+			ok: true,
+			metadata: metadata ?? { caller: "unknown", time: new Date().toISOString() },
+		});
+	}
+}
+
+function startAgentReload(callId?: string, metadata?: WorkspaceReloadMetadata): void {
+	pendingAgentReloadPromise = reloadAgentResources(callId, metadata).finally(() => {
+		pendingAgentReloadPromise = undefined;
+	});
+}
+
+function handleReloadAgent(callId: string, metadata: WorkspaceReloadMetadata): void {
+	if (agentIsBusy) {
+		pendingAgentReload = true;
+		pendingAgentReloadMetadata = metadata;
+		return;
+	}
+	startAgentReload(callId, metadata);
+}
+
+function flushPendingAgentReload(): void {
+	if (!pendingAgentReload || agentIsBusy) return;
+	pendingAgentReload = false;
+	const metadata = pendingAgentReloadMetadata;
+	pendingAgentReloadMetadata = undefined;
+	startAgentReload(undefined, metadata);
+}
+
+async function waitForPendingAgentReload(): Promise<void> {
+	flushPendingAgentReload();
+	if (pendingAgentReloadPromise) {
+		await pendingAgentReloadPromise;
+	}
 }
 
 function toPromptImages(images: Array<{ url: string; mediaType?: string }> | undefined): DPiPromptImage[] | undefined {
@@ -92,7 +181,7 @@ interface AgentLocalToolsExtensionOptions {
 	agentTools: AgentToolDefinition[];
 	channel: HubChannel;
 	cwd: string;
-	getReloadFn: () => (() => Promise<void>) | undefined;
+	getReloadFn: () => ((reason?: string) => Promise<void>) | undefined;
 	getResourceLoader: () => ResourceLoader | undefined;
 	getModelRegistry: () => ModelRegistry | undefined;
 }
@@ -120,26 +209,37 @@ function createWorkerBuiltinToolMap(
 		["create_agent", createDPiCreateAgentTool(hubClient)],
 		["destroy_agent", createDPiDestroyAgentTool(hubClient)],
 		["team", createDPiTeamTool(hubClient)],
-		["set_source", createDPiSetSourceTool(hubClient)],
-		["get_source", createDPiGetSourceTool(hubClient)],
-		["delete_source", createDPiDeleteSourceTool(hubClient)],
 		...createWorkerDispatchTools(options.channel, options.cwd).map(
 			(tool) => [tool.name as AgentBuiltinToolKind, tool as ToolDefinition] as const,
 		),
 		[
 			"reload",
-			createDPiReloadTool({
-				runtimeHooks: {
-					reloadContext: async () => {
-						const reloadFn = options.getReloadFn();
-						if (!reloadFn) {
-							throw new Error("Reload not available: d-pi session is not initialized yet.");
-						}
-						await reloadFn();
-					},
+			{
+				name: "reload",
+				label: "Reload Workspace",
+				description:
+					"Reload the d-pi workspace configuration and notify every agent to reload its own resources. Ready agents reload immediately; busy agents reload when they become ready.",
+				parameters: Type.Object({
+					reason: Type.Optional(
+						Type.String({
+							description:
+								"Optional reason for the workspace reload. Explain what changed or why reload is needed.",
+						}),
+					),
+				}),
+				async execute(_toolCallId, params) {
+					const reloadFn = options.getReloadFn();
+					if (!reloadFn) {
+						throw new Error("Reload not available: d-pi session is not initialized yet.");
+					}
+					const input = params as { reason?: unknown };
+					await reloadFn(typeof input.reason === "string" ? input.reason : undefined);
+					return {
+						content: [{ type: "text" as const, text: "Workspace reload requested." }],
+						details: createReloadSnapshot(options).details,
+					};
 				},
-				getSnapshot: () => createReloadSnapshot(options),
-			}),
+			},
 		],
 	]);
 }
@@ -248,6 +348,9 @@ port.on("message", (message: HubToWorkerMessage) => {
 			break;
 		case "message":
 			void routeIncomingHubMessage(message);
+			break;
+		case "reload_agent":
+			handleReloadAgent(message.callId, message.metadata);
 			break;
 		case "destroy":
 			gracefulShutdown();
@@ -383,10 +486,7 @@ async function runAgentWorker(): Promise<void> {
 							agentTools: agentDefinition?.tools ?? [],
 							channel,
 							cwd,
-							getReloadFn: () => {
-								const session = runtime?.session;
-								return session ? () => session.reload() : undefined;
-							},
+							getReloadFn: () => (runtime?.session ? requestWorkspaceReload : undefined),
 							getResourceLoader: () => runtime?.session?.resourceLoader,
 							getModelRegistry: () => runtime?.session?.modelRegistry,
 						}),
@@ -544,8 +644,10 @@ async function runAgentWorker(): Promise<void> {
 		agentRuntime.subscribe((event) => {
 			proxy?.applyRuntimeEvent(event);
 			if (event.type === "agent_start") {
+				agentIsBusy = true;
 				postToHub({ type: "status_update", agentName, status: "busy" });
 			} else if (event.type === "agent_end") {
+				agentIsBusy = false;
 				postToHub({ type: "status_update", agentName, status: "ready" });
 			}
 		});
@@ -565,25 +667,32 @@ async function runAgentWorker(): Promise<void> {
 			if (!agentRuntime) {
 				throw new Error(`Agent "${agentName}" has no model configured`);
 			}
+			await waitForPendingAgentReload();
 			await agentRuntime.prompt(_text, { mode: "next", images: toPromptImages(_options?.images) });
 		},
 		steer: async (_text: string, images?: Array<{ url: string; mediaType?: string }>) => {
 			if (!agentRuntime) {
 				throw new Error(`Agent "${agentName}" has no model configured`);
 			}
+			await waitForPendingAgentReload();
 			await agentRuntime.prompt(_text, { mode: "steer", images: toPromptImages(images) });
 		},
 		followUp: async (_text: string, images?: Array<{ url: string; mediaType?: string }>) => {
 			if (!agentRuntime) {
 				throw new Error(`Agent "${agentName}" has no model configured`);
 			}
+			await waitForPendingAgentReload();
 			await agentRuntime.prompt(_text, { mode: "followUp", images: toPromptImages(images) });
 		},
 		compact: async (customInstructions?: string) => {
 			if (!agentRuntime) {
 				throw new Error(`Agent "${agentName}" has no model configured`);
 			}
+			await waitForPendingAgentReload();
 			return await agentRuntime.compact(customInstructions);
+		},
+		abort: async () => {
+			await agentRuntime?.abort();
 		},
 	});
 

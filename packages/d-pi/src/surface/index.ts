@@ -13,39 +13,30 @@ export {
 	type DPiAgentStatus,
 	type DPiCreateAgentActionPayload,
 	type DPiCreateAgentActionResult,
-	type DPiDeleteSourceActionPayload,
 	type DPiDestroyAgentActionPayload,
 	type DPiDispatchRemoteToolActionPayload,
 	type DPiDispatchRemoteToolActionResult,
-	type DPiGetSourceActionPayload,
-	type DPiGetSourceActionResult,
 	type DPiHubActionRequest,
 	type DPiHubActionsClient,
 	type DPiHubActionsTransport,
 	type DPiHubMessageMode,
 	type DPiSendMessageActionPayload,
-	type DPiSourceConfig,
 	type DPiSourceInfo,
-	type DPiSourceStatus,
 	type DPiTeamAgentEntry,
 	type DPiTeamExecutorEntry,
 	type DPiTeamSnapshot,
 } from "./hub-actions.ts";
 export {
 	createDPiCreateAgentTool,
-	createDPiDeleteSourceTool,
 	createDPiDestroyAgentTool,
-	createDPiGetSourceTool,
 	createDPiOrchestrationTools,
 	createDPiSendMessageTool,
-	createDPiSetSourceTool,
 	createDPiTeamTool,
 	type DPiSendMessageToolOptions,
 } from "./orchestration-tools.ts";
 export type { DPiRemoteExecutor, DPiRemoteToolRequest, DPiRemoteToolResult } from "./remote-executor.ts";
 export { defineDPiRemoteExecutor } from "./remote-executor.ts";
 export type {
-	DPiReloadContextHookInput,
 	DPiRuntimeHookEvent,
 	DPiRuntimeHookHandlers,
 	DPiRuntimeHooks,
@@ -53,10 +44,5 @@ export type {
 	DPiSetThinkingLevelHookInput,
 } from "./runtime-hooks.ts";
 export { createDPiRuntimeHooks } from "./runtime-hooks.ts";
-export {
-	type CreateDPiReloadToolOptions,
-	createDPiReloadTool,
-	type DPiReloadToolSnapshot,
-} from "./runtime-tools.ts";
 export type { DPiTool, DPiToolDefinition, DPiToolDetails, DPiToolExecute, DPiToolJsonValue } from "./tool-surface.ts";
 export { defineDPiTool, dPiToolJsonDetails, dPiToolTextResult } from "./tool-surface.ts";

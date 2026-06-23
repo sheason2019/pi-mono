@@ -1,603 +1,170 @@
-import { type ChildProcess, spawn } from "node:child_process";
-import { createInterface, type Interface as ReadlineInterface } from "node:readline";
-import type { SourceConfig, SourceInfo, SourceStatus } from "../types.ts";
-import {
-	deleteSourceConfig,
-	type SourceConfigFile,
-	sourceConfigFileToConfig,
-	writeSourceConfig,
-} from "./source-persistence.ts";
-import { validateLine } from "./source-validator.ts";
+import type { SourceDefinition } from "../workspace-definition.ts";
+
+export type SourceStatus = "running" | "stopped" | "error";
 
 interface SourceRecord {
 	name: string;
-	command: string;
-	args: string[];
-	cwd: string | undefined;
-	env: Record<string, string> | undefined;
+	definition: SourceDefinition;
 	status: SourceStatus;
-	process: ChildProcess | undefined;
-	// Subscribers are agent NAMES (not UUIDs). With agent names
-	// as the unique key (see the "name is identity" rationale in
-	// the changelog), a persisted subscribers list is meaningful
-	// across hub restarts: a source can re-attach to the same
-	// agents on restart without an indirection table.
 	subscribers: Set<string>;
-	creatorName: string | undefined;
+	controller: AbortController;
 	restartCount: number;
 	restartTimer: ReturnType<typeof setTimeout> | undefined;
 	destroyed: boolean;
-	stdoutReader: ReadlineInterface | undefined;
-	stderrReader: ReadlineInterface | undefined;
+	workspaceRoot: string;
 }
 
-const MAX_RESTART_DELAY_MS = 60_000;
-const INITIAL_RESTART_DELAY_MS = 10_000;
-const MAX_RESTART_ATTEMPTS = 5;
+export interface SourceInfo {
+	name: string;
+	status: SourceStatus;
+	subscribers: string[];
+	restartCount: number;
+}
 
 export interface SourceManagerOptions {
-	/** Initial backoff between restart attempts. Default 10s. */
 	initialRestartDelayMs?: number;
-	/** Cap on the exponential backoff. Default 60s. */
 	maxRestartDelayMs?: number;
-	/** Number of consecutive restart attempts before the source is marked failed. Default 5. */
-	maxRestartAttempts?: number;
-	/**
-	 * Workspace root. When set, the supervisor writes a
-	 * `sources/<name>/source.json` on `setSource` and removes it
-	 * on `deleteSource`. On `restoreFromConfigs`, the supervisor
-	 * reads every such file, re-spawns the subprocess, and
-	 * re-subscribes any agents that are still alive in the registry.
-	 *
-	 * When `undefined` (e.g. in unit tests), the supervisor runs
-	 * purely in-memory and persists nothing — useful for tests
-	 * that don't want fs side-effects.
-	 */
-	workspaceRoot?: string;
 }
 
-/**
- * Source-message routing mode. Sources declare a per-event `params.mode`
- * in their JSONRPC notification; SourceManager parses + coerces it and
- * forwards the resolved mode to the broadcast callback as the 4th
- * argument. The downstream extension maps it 1:1 to `pi.sendMessage`
- * options — the routing decision is fully owned by SourceManager.
- *
- * The vocabulary mirrors the user-facing TUI Enter / Ctrl+Enter
- * distinction so source authors don't have to think about internal
- * queue mechanics:
- *
- * - "next":  queue at the start of the agent's next turn (default for
- *            most messages, e.g. lark chats, health reports). Maps to
- *            `{ triggerTurn: true }` at the extension layer.
- * - "steer": interrupt the current turn and inject immediately
- *            (urgent events). Maps to `{ deliverAs: "steer" }` at the
- *            extension layer.
- *
- * The previous `params.deliverAs` ("steer" | "followUp" | "prompt")
- * and `params.drainMode` ("all" | "one-at-a-time") fields have been
- * collapsed into this single `mode` field. drainMode is no longer
- * exposed at the source layer — the extension always batches
- * ("all") internally.
- */
-export type MessageMode = "next" | "steer";
-
-/** Coerce a JSONRPC `params.mode` value into a valid mode (default: "next"). */
-function coerceMode(raw: unknown): MessageMode {
-	if (raw === "next" || raw === "steer") {
-		return raw;
-	}
-	return "next";
-}
+const INITIAL_RESTART_DELAY_MS = 5_000;
+const MAX_RESTART_DELAY_MS = 60_000;
 
 export class SourceManager {
-	private readonly _sources = new Map<string, SourceRecord>();
-	private readonly _onBroadcast: (
-		sourceName: string,
-		line: string,
-		subscriberAgentIds: string[],
-		mode: MessageMode,
-	) => void;
-	private readonly _initialRestartDelayMs: number;
-	private readonly _maxRestartDelayMs: number;
-	private readonly _maxRestartAttempts: number;
-	private readonly _workspaceRoot: string | undefined;
+	private readonly sources = new Map<string, SourceRecord>();
+	private readonly onBroadcast: (sourceName: string, data: string, subscriberAgentNames: string[]) => void;
+	private readonly initialRestartDelayMs: number;
+	private readonly maxRestartDelayMs: number;
 
-	constructor(onBroadcast: SourceManager["_onBroadcast"], options: SourceManagerOptions = {}) {
-		this._onBroadcast = onBroadcast;
-		this._initialRestartDelayMs = options.initialRestartDelayMs ?? INITIAL_RESTART_DELAY_MS;
-		this._maxRestartDelayMs = options.maxRestartDelayMs ?? MAX_RESTART_DELAY_MS;
-		this._maxRestartAttempts = options.maxRestartAttempts ?? MAX_RESTART_ATTEMPTS;
-		this._workspaceRoot = options.workspaceRoot;
+	constructor(
+		onBroadcast: (sourceName: string, data: string, subscriberAgentNames: string[]) => void,
+		options: SourceManagerOptions = {},
+	) {
+		this.onBroadcast = onBroadcast;
+		this.initialRestartDelayMs = options.initialRestartDelayMs ?? INITIAL_RESTART_DELAY_MS;
+		this.maxRestartDelayMs = options.maxRestartDelayMs ?? MAX_RESTART_DELAY_MS;
 	}
 
-	setSource(config: SourceConfig, creatorName?: string): void {
-		const existing = this._sources.get(config.name);
-		if (!existing) {
-			this._createSourceRecord(config, creatorName);
-			return;
+	syncSources(
+		definitions: Record<string, SourceDefinition>,
+		subscribersBySource: ReadonlyMap<string, ReadonlySet<string>>,
+		workspaceRoot: string,
+	): void {
+		for (const [name, record] of this.sources) {
+			if (!definitions[name] || definitions[name] !== record.definition) {
+				this.destroyRecord(record);
+			}
 		}
-
-		const nextArgs = config.args ?? [];
-		const nextEnv = config.env;
-		const shouldRestart =
-			existing.command !== config.command ||
-			!arrayEquals(existing.args, nextArgs) ||
-			existing.cwd !== config.cwd ||
-			!recordEquals(existing.env, nextEnv);
-
-		existing.command = config.command;
-		existing.args = nextArgs;
-		existing.cwd = config.cwd;
-		existing.env = nextEnv;
-		if (config.subscribers) {
-			existing.subscribers = new Set(config.subscribers);
+		for (const [name, definition] of Object.entries(definitions)) {
+			const existing = this.sources.get(name);
+			if (existing) {
+				existing.subscribers = new Set(subscribersBySource.get(name) ?? []);
+				continue;
+			}
+			this.createRecord(name, definition, new Set(subscribersBySource.get(name) ?? []), workspaceRoot);
 		}
-		if (!existing.creatorName && creatorName) {
-			existing.creatorName = creatorName;
-		}
-		if (this._workspaceRoot) {
-			this._writePersistedConfig(existing);
-		}
-		if (shouldRestart) {
-			this._restartRecord(existing);
-		}
-	}
-
-	getSource(name: string): SourceInfo | undefined {
-		const record = this._sources.get(name);
-		return record ? this._toSourceInfo(record) : undefined;
-	}
-
-	deleteSource(name: string): void {
-		const record = this._sources.get(name);
-		if (!record) {
-			throw new Error(`Source "${name}" not found`);
-		}
-		if (this._workspaceRoot) {
-			deleteSourceConfig(this._workspaceRoot, name);
-		}
-		this._destroyRecord(record);
 	}
 
 	listSources(): SourceInfo[] {
-		return Array.from(this._sources.values()).map((r) => this._toSourceInfo(r));
+		return [...this.sources.values()].map((record) => this.toSourceInfo(record));
 	}
 
-	/**
-	 * Inspector used by tests and operators to see the supervisor's view of a
-	 * source: how many times it has been restarted and what its lifecycle
-	 * status is. Returns undefined if no source is registered under `name`.
-	 */
 	getSourceStats(name: string): { status: SourceStatus; restartCount: number; destroyed: boolean } | undefined {
-		const record = this._sources.get(name);
-		if (!record) return undefined;
-		return {
-			status: record.status,
-			restartCount: record.restartCount,
-			destroyed: record.destroyed,
-		};
-	}
-
-	removeAgentSubscriptions(agentName: string): void {
-		for (const record of this._sources.values()) {
-			record.subscribers.delete(agentName);
-		}
-		// Persist the post-removal subscribers list for every source
-		// that was affected. Cheap; a typical destroy_agent on a leaf
-		// agent touches O(1) sources.
-		if (this._workspaceRoot) {
-			for (const record of this._sources.values()) {
-				this._writePersistedConfig(record);
-			}
-		}
-	}
-
-	/** Return names of sources whose creator is the given agent */
-	getSourcesByCreator(agentName: string): string[] {
-		const result: string[] = [];
-		for (const record of this._sources.values()) {
-			if (record.creatorName === agentName) {
-				result.push(record.name);
-			}
-		}
-		return result;
-	}
-
-	/** Return names of sources the given agent is subscribed to */
-	getAgentSubscriptions(agentName: string): string[] {
-		const result: string[] = [];
-		for (const record of this._sources.values()) {
-			if (record.subscribers.has(agentName)) {
-				result.push(record.name);
-			}
-		}
-		return result;
+		const record = this.sources.get(name);
+		return record
+			? { status: record.status, restartCount: record.restartCount, destroyed: record.destroyed }
+			: undefined;
 	}
 
 	stopAll(): void {
-		for (const record of this._sources.values()) {
-			this._destroyRecord(record);
+		for (const record of this.sources.values()) {
+			this.destroyRecord(record);
 		}
-		this._sources.clear();
+		this.sources.clear();
 	}
 
-	private _spawnProcess(record: SourceRecord): void {
-		// Invoke the child as a real argv vector (no shell). With `shell: true`
-		// we used to glue `command` and `args` with single spaces and hand the
-		// whole thing to `/bin/sh -c`, which silently broke multi-word args
-		// such as `sh -c "exit 7"` because the inner quote pair was lost when
-		// the args were re-tokenised by the shell — `sh -c exit 7` parses as
-		// `sh -c` with `exit` as the script and `7` as `$0`, so the child
-		// always exited 0 instead of 7. Spawning with an explicit argv array
-		// preserves the original token boundaries verbatim. Users who need
-		// shell features (pipes, redirects, globs, variable expansion) can
-		// opt in explicitly with `command: "sh"`, `args: ["-c", "cmd | tee log"]`.
-		const child = spawn(record.command, record.args, {
-			cwd: record.cwd,
-			env: record.env ? { ...process.env, ...record.env } : process.env,
-			stdio: ["pipe", "pipe", "pipe"],
-			shell: false,
-		});
-
-		record.process = child;
-		record.status = "running";
-
-		const stdoutReader = createInterface({ input: child.stdout! });
-		stdoutReader.on("line", (line) => {
-			try {
-				const result = validateLine(line);
-				switch (result.kind) {
-					case "notification":
-						this._onLine(record.name, line);
-						break;
-					case "request":
-					case "response":
-					case "invalid":
-						// Silent drop. Source is push-only (request/response
-						// have no business here), and invalid lines are not
-						// the hub's problem to diagnose — that's the source's
-						// own contract. Per the "only valuable output"
-						// principle, no stderr warning either.
-						break;
-				}
-			} catch (err) {
-				// Validator itself threw — log and continue. Never crash the source.
-				process.stderr.write(`[d-pi source] Source "${record.name}" validator threw: ${(err as Error).message}\n`);
-			}
-		});
-		record.stdoutReader = stdoutReader;
-
-		const stderrReader = createInterface({ input: child.stderr! });
-		stderrReader.on("line", (line) => {
-			// Stderr is operational / debug output, NOT source content.
-			// Forwarding it as a "source message" floods subscribed agents
-			// with noise (subprocess heartbeats, ready markers, per-line
-			// debug logs). Log to the d-pi supervisor's own stderr
-			// (visible in the hub's terminal / journal) and stop there.
-			// Agents that need stderr visibility can opt in via a future
-			// `forwardStderr: true` source option, but the default must
-			// be silent.
-			process.stderr.write(`[d-pi source:${record.name}] ${line}\n`);
-		});
-		record.stderrReader = stderrReader;
-
-		child.on("error", (err) => {
-			process.stderr.write(`[d-pi source] Source "${record.name}" process error: ${err.message}\n`);
-			record.process = undefined;
-			this._closeReaders(record);
-			if (record.destroyed) return;
-			record.status = "error";
-			this._notifyCreator(
-				record,
-				`Source "${record.name}" encountered a process error: ${err.message}. Restarting with exponential backoff.`,
-			);
-			this._scheduleRestart(record);
-		});
-
-		child.on("exit", (code, signal) => {
-			process.stderr.write(`[d-pi source] Source "${record.name}" exited with code=${code} signal=${signal}\n`);
-			record.process = undefined;
-			this._closeReaders(record);
-			if (record.destroyed) return;
-
-			// A Source is a long-running supervised process. Every non-destroyed
-			// exit (code 0, non-zero, or signal) is treated as a supervisor-level
-			// failure and is eligible for restart. Treating `code === 0` as
-			// "normal completion" is wrong: long-running consumers like
-			// `lark-cli event consume` exit cleanly (code 0) when the internal
-			// bus daemon goes idle, when the WebSocket drops, or when stdin is
-			// closed. Those are not user-initiated stops and must be recovered.
-			record.status = "stopped";
-			this._notifyCreator(
-				record,
-				`Source "${record.name}" exited (code=${code}, signal=${signal}). Restarting with exponential backoff.`,
-			);
-			this._scheduleRestart(record);
-		});
-	}
-
-	private _createSourceRecord(config: SourceConfig, creatorName?: string): void {
+	private createRecord(
+		name: string,
+		definition: SourceDefinition,
+		subscribers: Set<string>,
+		workspaceRoot: string,
+	): void {
 		const record: SourceRecord = {
-			name: config.name,
-			command: config.command,
-			args: config.args ?? [],
-			cwd: config.cwd,
-			env: config.env,
-			status: "running",
-			process: undefined,
-			subscribers: new Set(config.subscribers ?? (creatorName ? [creatorName] : [])),
-			creatorName,
+			name,
+			definition,
+			status: "stopped",
+			subscribers,
+			controller: new AbortController(),
 			restartCount: 0,
 			restartTimer: undefined,
 			destroyed: false,
-			stdoutReader: undefined,
-			stderrReader: undefined,
+			workspaceRoot,
 		};
-
-		if (this._workspaceRoot) {
-			this._writePersistedConfig(record);
-		}
-
-		this._sources.set(config.name, record);
-		this._spawnProcess(record);
+		this.sources.set(name, record);
+		this.runRecord(record);
 	}
 
-	private _restartRecord(record: SourceRecord): void {
-		if (record.restartTimer) {
-			clearTimeout(record.restartTimer);
-			record.restartTimer = undefined;
-		}
-		record.process?.removeAllListeners("error");
-		record.process?.removeAllListeners("exit");
-		this._closeReaders(record);
-		this._killProcess(record);
-		record.restartCount = 0;
-		record.destroyed = false;
-		this._spawnProcess(record);
-	}
-
-	private _scheduleRestart(record: SourceRecord): void {
+	private runRecord(record: SourceRecord): void {
 		if (record.destroyed) return;
-		if (record.restartTimer) return; // Already scheduled
-
-		// If we have already burned through our budget of restart attempts,
-		// give up: mark the source as failed, surface a final [source-error]
-		// to the creator, and stop supervising. This bounds the restart loop
-		// for persistently crashing children (e.g. a misconfigured command)
-		// while still recovering transparently from transient blips.
-		if (record.restartCount >= this._maxRestartAttempts) {
-			record.status = "failed";
-			this._notifyCreator(
-				record,
-				`Source "${record.name}" failed after ${record.restartCount} restart attempts; giving up. Last operator action required: destroy and recreate the source, or fix the underlying command.`,
-			);
-			process.stderr.write(
-				`[d-pi source] Source "${record.name}" giving up after ${record.restartCount} restart attempts\n`,
-			);
-			return;
+		record.status = "running";
+		record.controller = new AbortController();
+		const output = (data: string): void => {
+			if (record.destroyed || record.controller.signal.aborted) return;
+			if (typeof data !== "string") {
+				process.stderr.write(`[d-pi source] Source "${record.name}" produced non-string output; dropping\n`);
+				return;
+			}
+			if (record.subscribers.size === 0) return;
+			this.onBroadcast(record.name, data, [...record.subscribers]);
+		};
+		try {
+			Promise.resolve(
+				record.definition.execute(output, {
+					signal: record.controller.signal,
+					workspaceRoot: record.workspaceRoot,
+					name: record.name,
+				}),
+			).catch((err: unknown) => this.handleError(record, err));
+		} catch (err) {
+			this.handleError(record, err);
 		}
+	}
 
-		const delay = Math.min(this._initialRestartDelayMs * 2 ** record.restartCount, this._maxRestartDelayMs);
-		record.restartCount++;
-
+	private handleError(record: SourceRecord, err: unknown): void {
+		if (record.destroyed || record.controller.signal.aborted) return;
+		record.status = "error";
 		process.stderr.write(
-			`[d-pi source] Source "${record.name}" restarting in ${delay}ms (attempt ${record.restartCount})\n`,
+			`[d-pi source] Source "${record.name}" failed: ${err instanceof Error ? err.message : String(err)}\n`,
 		);
+		this.scheduleRestart(record);
+	}
 
+	private scheduleRestart(record: SourceRecord): void {
+		if (record.destroyed || record.restartTimer) return;
+		const delay = Math.min(this.initialRestartDelayMs * 2 ** record.restartCount, this.maxRestartDelayMs);
+		record.restartCount += 1;
 		record.restartTimer = setTimeout(() => {
 			record.restartTimer = undefined;
-			if (record.destroyed) return;
-			process.stderr.write(`[d-pi source] Source "${record.name}" restarting now\n`);
-			this._spawnProcess(record);
+			this.runRecord(record);
 		}, delay);
 	}
 
-	private _onLine(sourceName: string, line: string): void {
-		const record = this._sources.get(sourceName);
-		if (!record || record.destroyed || record.subscribers.size === 0) return;
-
-		const subscriberIds = Array.from(record.subscribers);
-
-		// Parse the JSONRPC notification to extract the routing mode AND
-		// the inner data payload. We forward ONLY the inner data to
-		// subscribers — the JSONRPC envelope (`jsonrpc`, `method`,
-		// `params.type`, `params.id`, `params.mode`) is wire-protocol
-		// detail that the LLM doesn't need to see. The hub forwards this
-		// body directly so source payloads remain plain provider-facing text.
-		// notification. If the data is not an object, fall back to
-		// stringifying the parsed value so the agent still gets
-		// something parseable instead of a rejected notification.
-		let mode: MessageMode = "next";
-		let payload: string;
-		try {
-			const parsed = JSON.parse(line) as {
-				params?: { mode?: unknown; data?: unknown };
-			};
-			if (parsed && typeof parsed === "object" && parsed.params && typeof parsed.params === "object") {
-				mode = coerceMode(parsed.params.mode);
-				payload =
-					parsed.params.data === undefined
-						? line
-						: typeof parsed.params.data === "string"
-							? parsed.params.data
-							: JSON.stringify(parsed.params.data);
-			} else {
-				payload = line;
-			}
-		} catch {
-			// Shouldn't happen for validated notifications, but stay safe.
-			mode = "next";
-			payload = line;
-		}
-
-		this._onBroadcast(sourceName, payload, subscriberIds, mode);
-	}
-
-	private _notifyCreator(record: SourceRecord, message: string): void {
-		if (!record.creatorName) return;
-		// Supervisor-error notifications are operational infra, not source
-		// content — use the default "next" mode so they flow with normal
-		// delivery (turn-start injection, batches with other queue items).
-		this._onBroadcast(record.name, `[source-error] ${message}`, [record.creatorName], "next");
-	}
-
-	private _closeReaders(record: SourceRecord): void {
-		if (record.stdoutReader) {
-			record.stdoutReader.close();
-			record.stdoutReader = undefined;
-		}
-		if (record.stderrReader) {
-			record.stderrReader.close();
-			record.stderrReader = undefined;
-		}
-	}
-
-	private _destroyRecord(record: SourceRecord): void {
+	private destroyRecord(record: SourceRecord): void {
 		record.destroyed = true;
-		record.subscribers.clear();
+		record.status = "stopped";
 		if (record.restartTimer) {
 			clearTimeout(record.restartTimer);
 			record.restartTimer = undefined;
 		}
-		this._closeReaders(record);
-		this._killProcess(record);
-		this._sources.delete(record.name);
+		record.controller.abort();
+		this.sources.delete(record.name);
 	}
 
-	private _killProcess(record: SourceRecord): void {
-		const child = record.process;
-		record.process = undefined;
-		record.status = "stopped";
-
-		if (!child || child.killed) return;
-
-		// Kill the child process. Without detached:true the child
-		// shares the hub's process group, so child.kill() is enough
-		// — the OS sends SIGTERM to just this child, not the hub.
-		child.kill("SIGTERM");
-
-		// Force-kill after 3s if SIGTERM wasn't enough
-		setTimeout(() => {
-			try {
-				child.kill("SIGKILL");
-			} catch {
-				// Already dead
-			}
-		}, 3000);
-	}
-
-	/**
-	 * Re-spawn every persisted source and re-attach to subscribers
-	 * that are still alive. Called by `Hub.start()` after the agent
-	 * registry has been restored (so we can match persisted
-	 * subscriber names against the live registry).
-	 *
-	 * Per-source: skip if a runtime source with the same name
-	 * already exists (the operator may have started a fresh hub
-	 * session and the setSource tool might have re-registered
-	 * manually — in that case the persisted config is a no-op).
-	 *
-	 * Per-subscriber: skip names that don't resolve to a live
-	 * agent in `liveAgentNames`. The persisted subscriber set is
-	 * authoritative for "who was subscribed" but the hub can only
-	 * re-attach to currently-alive agents; a source whose creator
-	 * was destroyed before the restart can still come back online
-	 * (the source process is independent of the creator agent's
-	 * lifecycle) but starts with an empty subscribers set.
-	 */
-	restoreFromConfigs(files: SourceConfigFile[], liveAgentNames: Set<string>): void {
-		if (files.length === 0) return;
-
-		for (const file of files) {
-			if (this._sources.has(file.name)) {
-				// Operator pre-registered a fresh source with the same
-				// name during this hub session; leave the runtime one
-				// alone. Skip the persisted one (don't double-spawn).
-				process.stderr.write(`[d-pi source] Skipping restore of source "${file.name}": already registered\n`);
-				continue;
-			}
-
-			const config = sourceConfigFileToConfig(file);
-			const record: SourceRecord = {
-				name: file.name,
-				command: config.command,
-				args: config.args ?? [],
-				cwd: config.cwd,
-				env: config.env,
-				status: "running",
-				process: undefined,
-				subscribers: new Set(),
-				creatorName: file.creatorName,
-				restartCount: 0,
-				restartTimer: undefined,
-				destroyed: false,
-				stdoutReader: undefined,
-				stderrReader: undefined,
-			};
-
-			// Re-attach subscribers that are still alive in the
-			// registry. The persisted names are agent identities (no
-			// UUID indirection needed — see the "name is identity"
-			// rationale in the changelog). Dead names are silently
-			// dropped; the source can re-acquire them via
-			// a later set_source call after the operator creates a new
-			// agent with the same name.
-			for (const name of file.subscribers) {
-				if (liveAgentNames.has(name)) {
-					record.subscribers.add(name);
-				}
-			}
-
-			process.stderr.write(
-				`[d-pi source] Restoring source "${file.name}" (${record.subscribers.size} subscriber(s) still alive)\n`,
-			);
-
-			this._sources.set(record.name, record);
-			this._spawnProcess(record);
-		}
-	}
-
-	/**
-	 * Write the current record's persisted shape to disk. Idempotent.
-	 * No-op when the manager was constructed without `workspaceRoot`
-	 * (unit-test mode).
-	 */
-	private _writePersistedConfig(record: SourceRecord): void {
-		if (!this._workspaceRoot) return;
-		const file: SourceConfigFile = {
-			name: record.name,
-			command: record.command,
-			args: [...record.args],
-			cwd: record.cwd,
-			env: record.env,
-			subscribers: Array.from(record.subscribers),
-			creatorName: record.creatorName,
-		};
-		writeSourceConfig(this._workspaceRoot, file);
-	}
-
-	private _toSourceInfo(record: SourceRecord): SourceInfo {
+	private toSourceInfo(record: SourceRecord): SourceInfo {
 		return {
 			name: record.name,
-			command: record.command,
-			args: [...record.args],
-			cwd: record.cwd,
-			env: record.env,
 			status: record.status,
-			subscribers: Array.from(record.subscribers),
+			subscribers: [...record.subscribers],
+			restartCount: record.restartCount,
 		};
 	}
-}
-
-function arrayEquals(a: string[], b: string[]): boolean {
-	return a.length === b.length && a.every((value, index) => value === b[index]);
-}
-
-function recordEquals(a: Record<string, string> | undefined, b: Record<string, string> | undefined): boolean {
-	if (a === b) return true;
-	if (!a || !b) return false;
-	const aEntries = Object.entries(a);
-	const bEntries = Object.entries(b);
-	return aEntries.length === bEntries.length && aEntries.every(([key, value]) => b[key] === value);
 }

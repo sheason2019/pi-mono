@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import type { Api, Model, Provider, ThinkingLevelMap } from "@earendil-works/pi-ai";
 import type { Static, TSchema } from "typebox";
 import type { ToolDefinition } from "./extension/contracts.ts";
+import type { SourceDefinition } from "./workspace-definition.ts";
 
 export interface AgentToolExecutionContext {
 	cwd: string;
@@ -46,11 +47,13 @@ export interface AgentProviderDefinition {
 export interface AgentModelReferenceDefinition {
 	provider: string;
 	name: string;
+	description?: string;
 }
 
 export interface AgentLocalModelDefinition {
 	id: string;
 	name?: string;
+	description?: string;
 	provider: AgentProviderDefinition | Provider;
 	reasoning?: boolean;
 	thinkingLevelMap?: ThinkingLevelMap;
@@ -77,7 +80,7 @@ export interface AgentDefinitionInput {
 	description?: string;
 	roles?: AgentRoleDefinition[];
 	model?: AgentModelDefinition;
-	models?: AgentModelDefinition[];
+	sources?: Record<string, SourceDefinition>;
 	tools?: AgentToolDefinition[];
 	skills?: AgentSkillDefinition;
 	contextFiles?: AgentContextFileDefinition[];
@@ -89,7 +92,7 @@ export interface AgentDefinition {
 	description?: string;
 	roles?: AgentRoleDefinition[];
 	model?: AgentModelDefinition;
-	models?: AgentModelDefinition[];
+	sources?: Record<string, SourceDefinition>;
 	tools: AgentToolDefinition[];
 	skills?: AgentSkillDefinition;
 	contextFiles: AgentContextFileDefinition[];
@@ -238,6 +241,7 @@ export function defineModel(input: AgentModelDefinition): AgentModelDefinition {
 		return {
 			id: input.id,
 			...(input.name === undefined ? {} : { name: input.name }),
+			...(input.description === undefined ? {} : { description: input.description }),
 			provider: typeof input.provider === "string" ? input.provider : defineProvider(input.provider),
 			...(input.reasoning === undefined ? {} : { reasoning: input.reasoning }),
 			...(input.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: { ...input.thinkingLevelMap } }),
@@ -258,11 +262,11 @@ export function defineModel(input: AgentModelDefinition): AgentModelDefinition {
 			...(input.compat === undefined ? {} : { compat: input.compat }),
 		};
 	}
-	return { provider: input.provider, name: input.name };
-}
-
-export function defineModels(...input: AgentModelDefinition[]): AgentModelDefinition[] {
-	return input.map(defineModel);
+	return {
+		provider: input.provider,
+		name: input.name,
+		...(input.description === undefined ? {} : { description: input.description }),
+	};
 }
 
 export function defineRole(input: AgentRoleDefinition): AgentRoleDefinition {
@@ -279,7 +283,7 @@ export function defineAgent(input: AgentDefinitionInput): AgentDefinition {
 		...(input.description === undefined ? {} : { description: input.description }),
 		...(input.roles === undefined ? {} : { roles: defineRoles(...input.roles) }),
 		...(input.model === undefined ? {} : { model: defineModel(input.model) }),
-		...(input.models === undefined ? {} : { models: defineModels(...input.models) }),
+		...(input.sources === undefined ? {} : { sources: { ...input.sources } }),
 		tools: defineTools(...(input.tools ?? [])),
 		...(input.skills === undefined ? {} : { skills: defineSkill(input.skills) }),
 		contextFiles: defineContextFiles(...(input.contextFiles ?? [])),

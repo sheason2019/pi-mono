@@ -8,8 +8,9 @@
 	"scripts": {
 		"clean": "npm run clean --workspaces",
 		"build": "npm --workspace @sheason/d-pi run build",
-		"check": "biome check --write --error-on-warnings . && npm run check:pinned-deps && npm run check:ts-imports && tsgo --noEmit && npm run check:browser-smoke",
+		"check": "npm run check:generated && biome check --write --error-on-warnings . && npm run check:pinned-deps && npm run check:ts-imports && tsgo --noEmit && npm run check:browser-smoke",
 		"check:browser-smoke": "node scripts/check-browser-smoke.mjs",
+		"check:generated": "npm --workspace @sheason/d-pi run inject-build-meta",
 		"check:pinned-deps": "node scripts/check-pinned-deps.mjs",
 		"check:ts-imports": "node scripts/check-ts-relative-imports.mjs",
 		"test": "npm run test --workspaces --if-present",

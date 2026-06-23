@@ -122,6 +122,7 @@ describe("buildAgentTsSource", () => {
 					modelDefinition: {
 						id: "gpt-local",
 						name: "GPT Local",
+						description: "Generated rich model",
 						provider: {
 							provider: "openai",
 							api: "openai-responses",
@@ -146,6 +147,7 @@ describe("buildAgentTsSource", () => {
 		expect(written?.model).toMatchObject({
 			id: "gpt-local",
 			name: "GPT Local",
+			description: "Generated rich model",
 			provider: {
 				provider: "openai",
 				api: "openai-responses",
@@ -165,6 +167,7 @@ describe("buildAgentTsSource", () => {
 		const source = readFileSync(join(agentDir, "agent.ts"), "utf-8");
 		expect(source).toContain("defineOpenAIProvider");
 		expect(source).toContain('apiKey: "agent-key"');
+		expect(source).toContain('description: "Generated rich model"');
 		expect(source).toContain("contextWindow: 200000");
 	});
 });

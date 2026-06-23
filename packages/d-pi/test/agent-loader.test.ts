@@ -122,7 +122,7 @@ describe("normalizeLoadedAgentDefinition", () => {
 		).toThrow(/tools\[0\]\.label/i);
 	});
 
-	it("accepts rich model definitions and rejects invalid rich model shapes", () => {
+	it("accepts one model definition and rejects invalid rich model shapes", () => {
 		const rich = normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
 			model: {
 				id: "gpt-test",
@@ -135,13 +135,6 @@ describe("normalizeLoadedAgentDefinition", () => {
 				maxTokens: 32_000,
 				cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
 			},
-			models: [
-				{
-					id: "claude-test",
-					provider: "anthropic",
-					contextWindow: 100_000,
-				},
-			],
 			tools: [executableTool("dispatch_read")],
 			skills: { dir: "./skills" },
 			contextFiles: [],
@@ -152,7 +145,15 @@ describe("normalizeLoadedAgentDefinition", () => {
 			provider: { provider: "openai", api: "openai-responses" },
 			contextWindow: 200_000,
 		});
-		expect(rich.models).toEqual([{ id: "claude-test", provider: "anthropic", contextWindow: 100_000 }]);
+		expect("models" in rich).toBe(false);
+		expect(() =>
+			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
+				models: [{ id: "claude-test", provider: "anthropic", contextWindow: 100_000 }],
+				tools: [executableTool("dispatch_read")],
+				skills: { dir: "./skills" },
+				contextFiles: [],
+			}),
+		).toThrow(/models is not supported/);
 
 		expect(() =>
 			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
@@ -180,6 +181,38 @@ describe("normalizeLoadedAgentDefinition", () => {
 				contextFiles: [],
 			}),
 		).toThrow(/model.provider must be openai or anthropic when passed as a string/i);
+	});
+
+	it("accepts source definitions referenced from workspace d-pi.ts", () => {
+		const source = {
+			execute(output: (data: string) => void) {
+				output("hello");
+			},
+		};
+		const loaded = normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
+			tools: [executableTool("dispatch_read")],
+			skills: { dir: "./skills" },
+			contextFiles: [],
+			sources: { "lark-bot": source },
+		});
+
+		expect(loaded.sources).toEqual({ "lark-bot": source });
+		expect(() =>
+			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
+				tools: [executableTool("dispatch_read")],
+				skills: { dir: "./skills" },
+				contextFiles: [],
+				sources: [{ execute: "not-a-function" }],
+			}),
+		).toThrow(/sources must be an object/);
+		expect(() =>
+			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
+				tools: [executableTool("dispatch_read")],
+				skills: { dir: "./skills" },
+				contextFiles: [],
+				sources: { "lark-bot": { execute: "not-a-function" } },
+			}),
+		).toThrow(/sources\.lark-bot/);
 	});
 });
 

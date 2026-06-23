@@ -373,6 +373,41 @@ describe("d-pi native interactive components", () => {
 		expect(rendered).not.toContain("Successfully replaced");
 	});
 
+	it.each([
+		["dispatch_bash", { command: "printf test" }, "$ printf test"],
+		["dispatch_read", { path: "AGENTS.md" }, "read resource AGENTS.md"],
+		["dispatch_ls", { path: "." }, "ls ."],
+		["dispatch_grep", { pattern: "TODO", path: ".", glob: "*.ts" }, "grep /TODO/ in . (*.ts)"],
+		["dispatch_find", { pattern: "*.ts", path: "src" }, "find *.ts in src"],
+		["dispatch_write", { path: "new.ts", content: "hello" }, "write new.ts"],
+		["dispatch_edit", { path: "file.ts", edits: [{ oldText: "old", newText: "new" }] }, "edit file.ts"],
+	])("preserves %s args when rendering settled transcript tool state", (toolName, args, expectedHeader) => {
+		const state = {
+			...snapshot(),
+			messages: [],
+			transcriptItems: [
+				{
+					id: "tool-state-1",
+					type: "tool_state" as const,
+					toolCallId: "tool-1",
+					toolName,
+					status: "succeeded" as const,
+					args,
+					result: { content: [{ type: "text", text: "ok" }] },
+					timestamp: 2,
+				},
+			],
+		};
+
+		const rendered = stripAnsi(
+			buildDPiInteractiveMessageListComponent(state, { color: false, cwd: "/tmp" }).render(80).join("\n"),
+		);
+
+		expect(rendered).toContain(expectedHeader);
+		expect(rendered).not.toContain("$ ...");
+		expect(rendered).not.toContain(toolName);
+	});
+
 	it("matches upstream addMessageToChat spacing before user messages after prior content", () => {
 		const state = {
 			...snapshot(),

@@ -64,6 +64,7 @@ export interface DPiAgentHarness {
 	nextTurn(text: string, options?: AgentHarnessPromptOptions): Promise<unknown>;
 	subscribe(listener: DPiAgentHarnessEventListener): () => void;
 	setResources?(resources: AgentHarnessResources): Promise<void> | void;
+	abort?(): Promise<unknown> | unknown;
 }
 
 export interface DPiAgentHarnessFactoryOptions {
@@ -407,6 +408,12 @@ export class DPiAgentRuntime {
 		}
 	}
 
+	async abort(): Promise<void> {
+		await this.harness.abort?.();
+		this.activeTurn = false;
+		await this.emit({ type: "agent_end", agentName: this.agentName });
+	}
+
 	async reloadContext(): Promise<void> {
 		this.contextManager.reload();
 		this.context = loadContextInfo(this.contextManager);
@@ -703,12 +710,16 @@ export class DPiAgentRuntime {
 			return;
 		}
 		if (event.type === "tool_end") {
+			const existing = this.transcriptItems.find(
+				(item) => item.type === "tool_state" && item.toolCallId === event.toolCallId,
+			);
 			const item: DPiTranscriptItem = {
 				id: `tool-state-${event.toolCallId}`,
 				type: "tool_state",
 				toolCallId: event.toolCallId,
 				toolName: event.toolName ?? toolNameFromResult(event.result) ?? event.toolCallId,
 				status: event.status,
+				...(existing?.type === "tool_state" && existing.args !== undefined ? { args: existing.args } : {}),
 				...(event.result === undefined ? {} : { result: event.result }),
 				...(event.error === undefined ? {} : { error: event.error }),
 				timestamp: event.endedAt,
@@ -719,6 +730,7 @@ export class DPiAgentRuntime {
 					toolCallId: item.toolCallId,
 					toolName: item.toolName,
 					status: item.status,
+					...(item.args === undefined ? {} : { args: item.args }),
 					...(item.result === undefined ? {} : { result: item.result }),
 					...(item.error === undefined ? {} : { error: item.error }),
 					timestamp: item.timestamp,

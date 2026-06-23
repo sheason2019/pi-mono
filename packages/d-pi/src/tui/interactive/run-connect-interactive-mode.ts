@@ -17,7 +17,8 @@ import {
 	TUI,
 } from "@earendil-works/pi-tui";
 import { AGENT_SWITCH_FILE } from "../../extension/multi-agent-extension.ts";
-import type { AgentStatus, SourceInfo, TeamAgentEntry, TeamSnapshot } from "../../types.ts";
+import type { SourceInfo } from "../../hub/source-manager.ts";
+import type { AgentStatus, TeamAgentEntry, TeamSnapshot } from "../../types.ts";
 import { DPiNativeCustomEditor } from "../native/components/custom-editor.ts";
 import { DPiNativeDynamicBorder } from "../native/components/dynamic-border.ts";
 import { DPiNativeStatusContainer } from "../native/components/status-container.ts";
@@ -472,13 +473,13 @@ export async function showDPiConnectSourcesSelector(options: {
 	try {
 		const sources = await fetchDPiConnectSources(options.hubUrl, options.authHeaders, options.fetch ?? fetch);
 		if (sources.length === 0) {
-			options.showStatus("No sources registered. Use set_source tool to register one.");
+			options.showStatus("No sources declared in d-pi.ts.");
 			return;
 		}
 		const items: SelectItem[] = sources.map((source) => ({
 			value: source.name,
 			label: `${source.name} [${source.status}]`,
-			description: `command="${[source.command, ...source.args].join(" ")}" subscribers=${source.subscribers.join(",")}`,
+			description: `subscribers=${source.subscribers.join(",")}`,
 		}));
 		const list = new SelectList(items, 12, getDPiNativeSelectListTheme(options.theme), {
 			maxPrimaryColumnWidth: 40,

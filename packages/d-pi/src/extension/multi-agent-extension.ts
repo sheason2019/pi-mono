@@ -1,7 +1,8 @@
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentStatus, SourceInfo, TeamAgentEntry, TeamSnapshot, WorkerToHubMessage } from "../types.ts";
+import type { SourceInfo } from "../hub/source-manager.ts";
+import type { AgentStatus, TeamAgentEntry, TeamSnapshot, WorkerToHubMessage } from "../types.ts";
 import type { ExtensionFactory } from "./contracts.ts";
 import { HubChannel } from "./hub-channel.ts";
 
@@ -149,12 +150,10 @@ function createMultiAgentClientFactory(config: DPiClientConfig): ExtensionFactor
 					}
 					const sources = (await response.json()) as SourceInfo[];
 					if (sources.length === 0) {
-						ctx.ui.notify("No sources registered. Use set_source tool to register one.", "info");
+						ctx.ui.notify("No sources declared in d-pi.ts.", "info");
 						return;
 					}
-					const options = sources.map(
-						(s) => `  ${s.name} [${s.status}] command="${s.command}" subscribers=${s.subscribers.join(",")}`,
-					);
+					const options = sources.map((s) => `  ${s.name} [${s.status}] subscribers=${s.subscribers.join(",")}`);
 					const title = `Sources (${sources.length})`;
 					await ctx.ui.select(title, options);
 				} catch (err) {

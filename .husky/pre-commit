@@ -37,7 +37,9 @@ fi
 
 # Restage files that were previously staged and may have been modified by formatting
 for file in $STAGED_FILES; do
-  if [ -f "$file" ]; then
+  if git diff --cached --name-only --diff-filter=D -- "$file" | grep -qx "$file"; then
+    true
+  elif [ -f "$file" ]; then
     git add "$file"
   fi
 done

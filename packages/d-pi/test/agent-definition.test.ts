@@ -14,9 +14,11 @@ import {
 	defineRole,
 	defineRoles,
 	defineSkill,
+	defineSource,
 	defineTool,
 	defineTools,
 	defineTuiComponent,
+	defineWorkspace,
 	getAgentBuiltinToolKind,
 } from "../src/index.ts";
 
@@ -47,6 +49,7 @@ describe("agent definition helpers", () => {
 		const model = defineModel({
 			id: "gpt-test",
 			name: "GPT Test",
+			description: "Strong local model for complex coding tasks",
 			provider: openai,
 			reasoning: true,
 			thinkingLevelMap: { off: null, high: "high" },
@@ -77,6 +80,7 @@ describe("agent definition helpers", () => {
 		expect(model).toEqual({
 			id: "gpt-test",
 			name: "GPT Test",
+			description: "Strong local model for complex coding tasks",
 			provider: openai,
 			reasoning: true,
 			thinkingLevelMap: { off: null, high: "high" },
@@ -89,9 +93,16 @@ describe("agent definition helpers", () => {
 	});
 
 	it("keeps legacy provider/name model references valid", () => {
-		expect(defineModel({ provider: "anthropic", name: "claude-sonnet-4" })).toEqual({
+		expect(
+			defineModel({
+				provider: "anthropic",
+				name: "claude-sonnet-4",
+				description: "Strong hosted model",
+			}),
+		).toEqual({
 			provider: "anthropic",
 			name: "claude-sonnet-4",
+			description: "Strong hosted model",
 		});
 	});
 
@@ -193,6 +204,36 @@ describe("agent definition helpers", () => {
 		expect("tuiComponents" in agent).toBe(false);
 		expect(() => defineTuiComponent({ customType: "", render: renderer })).toThrow(/customType/i);
 		expect(() => defineTuiComponent({ customType: "broken", render: undefined as never })).toThrow(/render/i);
+	});
+
+	it("defines workspace-level models and executable sources for agent references", () => {
+		const model = defineModel({ provider: "anthropic", name: "claude-sonnet-4" });
+		const source = defineSource({
+			description: "Lark message source",
+			execute(output) {
+				output("hello");
+			},
+		});
+		const workspace = defineWorkspace({
+			models: { "anthropic/claude-sonnet-4": model },
+			sources: { "lark-bot": source },
+		});
+		const agent = defineAgent({
+			model: workspace.models["anthropic/claude-sonnet-4"],
+			sources: { "lark-bot": workspace.sources["lark-bot"]! },
+		});
+
+		expect(workspace.models["anthropic/claude-sonnet-4"]).toBe(model);
+		expect(workspace.sources["lark-bot"]?.execute).toBe(source.execute);
+		expect(workspace.sources["lark-bot"]?.description).toBe("Lark message source");
+		expect(workspace.sources["lark-bot"]?.name).toBe("lark-bot");
+		expect(Object.keys(workspace.sources["lark-bot"] ?? {})).not.toContain("name");
+		expect(agent.model).toEqual(model);
+		expect(agent.sources).toEqual({ "lark-bot": workspace.sources["lark-bot"] });
+		expect(() => defineWorkspace({ models: { invalid: model } })).toThrow(/provider\/model/);
+		expect(() => defineWorkspace({ models: [model] as never })).toThrow(/models must be an object/);
+		expect(() => defineWorkspace({ sources: [source] as never })).toThrow(/sources must be an object/);
+		expect(() => defineSource({ execute: undefined as never })).toThrow(/execute/i);
 	});
 
 	it("copies arrays and nested definitions so caller mutation cannot change the definition", () => {
