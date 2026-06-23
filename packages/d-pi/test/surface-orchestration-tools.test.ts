@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createHubActionsClientFromHubChannel } from "../src/extension/hub-actions-adapter.ts";
 import type { HubChannel } from "../src/extension/hub-channel.ts";
+import { type DPiBuiltinContext, setBuiltinContext } from "../src/surface/builtin-context.ts";
 import type {
 	DPiCreateAgentActionPayload,
 	DPiCreateAgentActionResult,
@@ -11,11 +12,7 @@ import type {
 	DPiSendMessageActionPayload,
 	DPiTeamSnapshot,
 } from "../src/surface/index.ts";
-import {
-	createDPiDestroyAgentTool,
-	createDPiSendMessageTool,
-	createDPiTeamTool,
-} from "../src/surface/orchestration-tools.ts";
+import { createDestroyAgentTool, createSendMessageTool, createTeamTool } from "../src/surface/orchestration-tools.ts";
 
 interface TextToolResult {
 	content: Array<{ type: "text"; text: string }>;
@@ -55,6 +52,21 @@ class RecordingHubActionsClient implements DPiHubActionsClient {
 	}
 }
 
+function setupContext(client: RecordingHubActionsClient, agentName = "root"): void {
+	setBuiltinContext({
+		hubClient: client,
+		agentName,
+		localExecutors: {},
+		remoteExecutor: {
+			async executeRemoteTool(): Promise<never> {
+				throw new Error("not implemented");
+			},
+		},
+		getReloadFn: () => undefined,
+		getReloadDetails: () => ({}),
+	} as DPiBuiltinContext);
+}
+
 function asTextToolResult(result: unknown): TextToolResult {
 	return result as TextToolResult;
 }
@@ -90,7 +102,8 @@ describe("d-pi surface orchestration tools", () => {
 
 	it("sends messages through the typed sendMessage action", async () => {
 		const client = new RecordingHubActionsClient();
-		const tool = createDPiSendMessageTool(client, { agentName: "root" });
+		setupContext(client, "root");
+		const tool = createSendMessageTool();
 
 		const result = asTextToolResult(
 			await tool.execute("call-1", { agent_name: "child", message: "hello", mode: "steer" }),
@@ -105,7 +118,8 @@ describe("d-pi surface orchestration tools", () => {
 
 	it("defaults to next mode when mode is not specified", async () => {
 		const client = new RecordingHubActionsClient();
-		const tool = createDPiSendMessageTool(client, { agentName: "root" });
+		setupContext(client, "root");
+		const tool = createSendMessageTool();
 
 		const result = asTextToolResult(await tool.execute("call-1", { agent_name: "child", message: "hello" }));
 
@@ -130,7 +144,8 @@ describe("d-pi surface orchestration tools", () => {
 				{ connectId: "exec-2", cwd: "/tmp", attached: false, boundAgentName: undefined },
 			],
 		};
-		const tool = createDPiTeamTool(client);
+		setupContext(client);
+		const tool = createTeamTool();
 
 		const result = asTextToolResult(await tool.execute("call-3", {}));
 
@@ -156,7 +171,8 @@ describe("d-pi surface orchestration tools", () => {
 
 	it("routes destroy_agent through the typed destroyAgent action", async () => {
 		const client = new RecordingHubActionsClient();
-		const tool = createDPiDestroyAgentTool(client);
+		setupContext(client);
+		const tool = createDestroyAgentTool();
 
 		const result = asTextToolResult(await tool.execute("call-7", { agent_name: "child" }));
 
@@ -170,7 +186,8 @@ describe("d-pi surface orchestration tools", () => {
 			client.sendMessageCalls.push(payload);
 			return { ok: false };
 		};
-		const tool = createDPiSendMessageTool(client, { agentName: "root" });
+		setupContext(client, "root");
+		const tool = createSendMessageTool();
 
 		const result = asTextToolResult(
 			await tool.execute("call-8", { agent_name: "child", message: "hello", mode: "next" }),

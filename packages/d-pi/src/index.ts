@@ -36,23 +36,6 @@ export {
 	normalizeLoadedAgentDefinition,
 	readLoadedAgentDefinitionFromTs,
 } from "./agent-loader.ts";
-export {
-	type AgentBuiltinToolKind,
-	createCreateAgentTool,
-	createDestroyAgentTool,
-	createDispatchBashTool,
-	createDispatchEditTool,
-	createDispatchFindTool,
-	createDispatchGrepTool,
-	createDispatchLsTool,
-	createDispatchReadTool,
-	createDispatchTools,
-	createDispatchWriteTool,
-	createReloadTool,
-	createSendMessageTool,
-	createTeamTool,
-	getAgentBuiltinToolKind,
-} from "./agent-tool-helpers.ts";
 export { DPiContextManager, type DPiContextManagerOptions } from "./context/context-manager.ts";
 export type { DPiContextFile } from "./context/resource-loader.ts";
 export {

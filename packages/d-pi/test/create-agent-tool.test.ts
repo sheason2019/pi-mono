@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { setBuiltinContext } from "../src/surface/builtin-context.ts";
 import type { DPiHubActionsClient } from "../src/surface/index.ts";
-import { createDPiCreateAgentTool } from "../src/surface/orchestration-tools.ts";
+import { createCreateAgentTool } from "../src/surface/orchestration-tools.ts";
 
-type ToolExecute = ReturnType<typeof createDPiCreateAgentTool>["execute"];
+type ToolExecute = ReturnType<typeof createCreateAgentTool>["execute"];
 type ToolParams = Parameters<ToolExecute>[1];
 type ToolResult = Awaited<ReturnType<ToolExecute>>;
 
@@ -22,8 +23,19 @@ function makeClient(): DPiHubActionsClient & { createAgent: ReturnType<typeof vi
 	return client;
 }
 
-function makeCtx(): Parameters<ToolExecute>[3] {
-	return vi.fn();
+function setupContext(client: DPiHubActionsClient): void {
+	setBuiltinContext({
+		hubClient: client,
+		agentName: "root",
+		localExecutors: {},
+		remoteExecutor: {
+			async executeRemoteTool(): Promise<never> {
+				throw new Error("not implemented");
+			},
+		},
+		getReloadFn: () => undefined,
+		getReloadDetails: () => ({}),
+	});
 }
 
 describe("create_agent tool", () => {
@@ -34,14 +46,15 @@ describe("create_agent tool", () => {
 			agentName: "child",
 		};
 		client.createAgent.mockResolvedValueOnce(okResult);
+		setupContext(client);
 
-		const tool = createDPiCreateAgentTool(client);
+		const tool = createCreateAgentTool();
 		const params: ToolParams = {
 			name: "child",
 			cwd: "/repo/agents/child",
 		};
 
-		const result = await tool.execute("call-2", params, new AbortController().signal, makeCtx());
+		const result = await tool.execute("call-2", params, new AbortController().signal);
 
 		expect(isError(result)).toBe(false);
 		expect(client.createAgent).toHaveBeenCalledWith({ name: "child", cwd: "/repo/agents/child" });
@@ -51,13 +64,14 @@ describe("create_agent tool", () => {
 	it("surfaces hub-side error result as isError", async () => {
 		const client = makeClient();
 		client.createAgent.mockRejectedValueOnce(new Error("name conflict"));
+		setupContext(client);
 
-		const tool = createDPiCreateAgentTool(client);
+		const tool = createCreateAgentTool();
 		const params: ToolParams = {
 			name: "child",
 		};
 
-		const result = await tool.execute("call-5", params, new AbortController().signal, makeCtx());
+		const result = await tool.execute("call-5", params, new AbortController().signal);
 
 		expect(isError(result)).toBe(true);
 		expect(getText(result)).toMatch(/name conflict/);

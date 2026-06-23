@@ -57,10 +57,10 @@ describe("buildNativeToolSet", () => {
 		expect(filesWithExternalRuntimeDependency.sort()).toEqual([]);
 	});
 
-	it("returns the 7 canonical native tools", () => {
+	it("returns the canonical native tools (bash + read)", () => {
 		const tools = buildNativeToolSet(process.cwd());
 		const names = tools.map((t) => t.name).sort();
-		expect(names).toEqual(["bash", "edit", "find", "grep", "ls", "read", "write"]);
+		expect(names).toEqual(["bash", "read"]);
 	});
 
 	it("passes cwd to every tool", () => {
@@ -74,25 +74,21 @@ describe("buildNativeToolSet", () => {
 		}
 	});
 
-	it("executes bash, write, read, and ls against the configured cwd", async () => {
+	it("executes bash and read against the configured cwd", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "d-pi-native-tools-"));
 		try {
 			const physicalCwd = await realpath(cwd);
 			const tools = buildNativeToolSet(cwd);
 
-			const writeResult = await getTool(tools, "write").execute("write-1", {
-				path: "nested/file.txt",
-				content: "hello native tools",
+			const bashWriteResult = await getTool(tools, "bash").execute("bash-1", {
+				command: "mkdir -p nested && echo -n 'hello native tools' > nested/file.txt && echo done",
 			});
-			expect(readTextContent(writeResult)).toContain("Wrote 18 characters");
+			expect(readTextContent(bashWriteResult)).toContain("done");
 
 			const readResult = await getTool(tools, "read").execute("read-1", { path: "nested/file.txt" });
 			expect(readTextContent(readResult)).toBe("hello native tools");
 
-			const lsResult = await getTool(tools, "ls").execute("ls-1", { path: "nested" });
-			expect(readTextContent(lsResult)).toBe("file.txt");
-
-			const bashResult = await getTool(tools, "bash").execute("bash-1", {
+			const bashResult = await getTool(tools, "bash").execute("bash-2", {
 				command: "pwd && test -f nested/file.txt",
 			});
 			expect(readTextContent(bashResult).split(/\r?\n/)[0]).toBe(physicalCwd);

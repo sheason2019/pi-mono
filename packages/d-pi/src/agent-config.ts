@@ -8,11 +8,6 @@ export const AGENT_SESSION_DIR = "session";
 export const DEFAULT_AGENT_TOOL_NAMES = [
 	"dispatch_bash",
 	"dispatch_read",
-	"dispatch_ls",
-	"dispatch_grep",
-	"dispatch_find",
-	"dispatch_write",
-	"dispatch_edit",
 	"send_message",
 	"create_agent",
 	"destroy_agent",
@@ -20,24 +15,9 @@ export const DEFAULT_AGENT_TOOL_NAMES = [
 	"reload",
 ] as const;
 
-const DISPATCH_TOOL_NAMES = [
-	"dispatch_bash",
-	"dispatch_read",
-	"dispatch_ls",
-	"dispatch_grep",
-	"dispatch_find",
-	"dispatch_write",
-	"dispatch_edit",
-] as const;
-
 const TOOL_HELPER_NAMES: Record<(typeof DEFAULT_AGENT_TOOL_NAMES)[number], string> = {
 	dispatch_bash: "createDispatchBashTool",
 	dispatch_read: "createDispatchReadTool",
-	dispatch_ls: "createDispatchLsTool",
-	dispatch_grep: "createDispatchGrepTool",
-	dispatch_find: "createDispatchFindTool",
-	dispatch_write: "createDispatchWriteTool",
-	dispatch_edit: "createDispatchEditTool",
 	send_message: "createSendMessageTool",
 	create_agent: "createCreateAgentTool",
 	destroy_agent: "createDestroyAgentTool",
@@ -148,24 +128,13 @@ function formatModelExpression(model: AgentModelDefinition, indent: string): str
 }
 
 function formatToolExpressions(toolNames: string[]): string[] {
-	const remainingToolNames = new Set(toolNames);
 	const expressions: string[] = [];
-	if (DISPATCH_TOOL_NAMES.every((toolName) => remainingToolNames.has(toolName))) {
-		expressions.push("...createDispatchTools()");
-		for (const toolName of DISPATCH_TOOL_NAMES) {
-			remainingToolNames.delete(toolName);
-		}
-	}
 	for (const toolName of toolNames) {
-		if (!remainingToolNames.has(toolName)) {
-			continue;
-		}
 		const helperName = TOOL_HELPER_NAMES[toolName as (typeof DEFAULT_AGENT_TOOL_NAMES)[number]];
 		if (!helperName) {
 			throw new Error(`Cannot emit agent.ts: unknown tool helper for ${toolName}`);
 		}
 		expressions.push(`${helperName}()`);
-		remainingToolNames.delete(toolName);
 	}
 	return expressions;
 }
@@ -219,7 +188,7 @@ export function buildAgentTsSource(config: AgentTsSourceConfig): string {
 	const toolNames = config.toolNames ?? [...DEFAULT_AGENT_TOOL_NAMES];
 	assertKnownToolNames(config.name, "toolNames", toolNames);
 	const lines = [
-		'import { createCreateAgentTool, createDestroyAgentTool, createDispatchBashTool, createDispatchEditTool, createDispatchFindTool, createDispatchGrepTool, createDispatchLsTool, createDispatchReadTool, createDispatchTools, createDispatchWriteTool, createReloadTool, createSendMessageTool, createTeamTool, defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill } from "@sheason/d-pi";',
+		'import { createCreateAgentTool, createDestroyAgentTool, createDispatchBashTool, createDispatchReadTool, createReloadTool, createSendMessageTool, createTeamTool, defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill } from "@sheason/d-pi";',
 	];
 	if (config.parentName) {
 		lines.push(`import parentAgent from "../${config.parentName}/agent.ts";`);

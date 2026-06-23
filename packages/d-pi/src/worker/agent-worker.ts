@@ -10,14 +10,8 @@ import { parentPort, workerData } from "node:worker_threads";
 import type { AgentToolResult, AgentToolUpdateCallback, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { TSchema } from "typebox";
-import { Type } from "typebox";
 import type { AgentToolDefinition } from "../agent-definition.ts";
 import { readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
-import {
-	type AgentBuiltinToolKind,
-	DISPATCH_NATIVE_TOOL_NAMES,
-	getAgentBuiltinToolKind,
-} from "../agent-tool-helpers.ts";
 import { DPiContextManager } from "../context/context-manager.ts";
 import { DPI_META_PROMPT } from "../dpi-meta.ts";
 import { buildNativeToolSet } from "../executor/native-tools.ts";
@@ -31,16 +25,11 @@ import { DPiSessionStore } from "../runtime/session-store.ts";
 import { projectDPiTranscript } from "../runtime/transcript/projector.ts";
 import type { DPiPromptImage } from "../runtime/types.ts";
 import {
-	createDPiCreateAgentTool,
-	createDPiDestroyAgentTool,
-	createDPiDispatchTools,
-	createDPiSendMessageTool,
-	createDPiTeamTool,
-	type DPiDispatchLocalExecutors,
-	type DPiDispatchParameterSchemas,
+	type DPiLocalToolExecutor,
 	type DPiRemoteExecutor,
 	type DPiRemoteToolResult,
 	type DPiToolDetails,
+	setBuiltinContext,
 } from "../surface/index.ts";
 import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage, WorkspaceReloadMetadata } from "../types.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
@@ -192,83 +181,31 @@ interface AgentLocalToolsExtensionOptions {
 
 function createAgentLocalToolsExtension(options: AgentLocalToolsExtensionOptions): ExtensionFactory {
 	return (pi) => {
-		const builtins = createWorkerBuiltinToolMap(options);
+		setupBuiltinContext(options);
 		for (const tool of options.agentTools) {
-			const builtinKind = getAgentBuiltinToolKind(tool);
-			const resolvedTool = builtinKind ? builtins.get(builtinKind) : tool;
-			if (!resolvedTool) {
-				throw new Error(`Configured d-pi built-in tool "${tool.name}" is not available in this worker.`);
-			}
-			pi.registerTool(resolvedTool);
+			pi.registerTool(tool as ToolDefinition);
 		}
 	};
 }
 
-function createWorkerBuiltinToolMap(
-	options: AgentLocalToolsExtensionOptions,
-): Map<AgentBuiltinToolKind, ToolDefinition> {
-	const hubClient = createHubActionsClientFromHubChannel(options.channel);
-	return new Map<AgentBuiltinToolKind, ToolDefinition>([
-		["send_message", createDPiSendMessageTool(hubClient, { agentName: options.channel.agentName })],
-		["create_agent", createDPiCreateAgentTool(hubClient)],
-		["destroy_agent", createDPiDestroyAgentTool(hubClient)],
-		["team", createDPiTeamTool(hubClient)],
-		...createWorkerDispatchTools(options.channel, options.cwd).map(
-			(tool) => [tool.name as AgentBuiltinToolKind, tool as ToolDefinition] as const,
-		),
-		[
-			"reload",
-			{
-				name: "reload",
-				label: "Reload Workspace",
-				description:
-					"Reload the d-pi workspace configuration and notify every agent to reload its own resources. Ready agents reload immediately; busy agents reload when they become ready.",
-				parameters: Type.Object({
-					reason: Type.Optional(
-						Type.String({
-							description:
-								"Optional reason for the workspace reload. Explain what changed or why reload is needed.",
-						}),
-					),
-				}),
-				async execute(_toolCallId, params) {
-					const reloadFn = options.getReloadFn();
-					if (!reloadFn) {
-						throw new Error("Reload not available: d-pi session is not initialized yet.");
-					}
-					const input = params as { reason?: unknown };
-					await reloadFn(typeof input.reason === "string" ? input.reason : undefined);
-					return {
-						content: [{ type: "text" as const, text: "Workspace reload requested." }],
-						details: createReloadSnapshot(options).details,
-					};
-				},
-			},
-		],
-	]);
-}
-
-function createWorkerDispatchTools(channel: HubChannel, cwd: string): ToolDefinition[] {
-	const localExecutors = {} as DPiDispatchLocalExecutors;
-	const parameterSchemas = {} as DPiDispatchParameterSchemas;
-	const nativeTools = new Map(buildNativeToolSet(cwd).map((tool) => [tool.name, tool as NativeToolDefinition]));
-
-	for (const nativeName of DISPATCH_NATIVE_TOOL_NAMES) {
-		const nativeDef = nativeTools.get(nativeName);
-		if (!nativeDef) {
-			throw new Error(`Missing d-pi native tool: ${nativeName}`);
-		}
-		parameterSchemas[nativeName] = nativeDef.parameters;
-		localExecutors[nativeName] = (toolCallId, params, signal, onUpdate) =>
-			nativeDef.execute(toolCallId, params, signal, onUpdate);
+function setupBuiltinContext(options: AgentLocalToolsExtensionOptions): void {
+	const nativeTools = new Map(
+		buildNativeToolSet(options.cwd).map((tool) => [tool.name, tool as NativeToolDefinition]),
+	);
+	const localExecutors: Record<string, DPiLocalToolExecutor> = {};
+	for (const [name, tool] of nativeTools) {
+		localExecutors[name] = (toolCallId, params, signal, onUpdate) =>
+			tool.execute(toolCallId, params as never, signal, onUpdate as never);
 	}
-
-	return createDPiDispatchTools({
+	const hubClient = createHubActionsClientFromHubChannel(options.channel);
+	setBuiltinContext({
+		hubClient,
+		agentName: options.channel.agentName,
 		localExecutors,
-		parameterSchemas,
-		remoteExecutor: createWorkerRemoteExecutor(channel),
-		sourceAgentName: channel.agentName,
-	}) as ToolDefinition[];
+		remoteExecutor: createWorkerRemoteExecutor(options.channel),
+		getReloadFn: options.getReloadFn,
+		getReloadDetails: () => createReloadSnapshot(options).details,
+	});
 }
 
 function createWorkerRemoteExecutor(channel: HubChannel): DPiRemoteExecutor {
@@ -546,7 +483,7 @@ async function runAgentWorker(): Promise<void> {
 			sessionManager: opts.sessionManager,
 			model: resolvedModel,
 			tools: agentToolNames,
-			excludeTools: [...DISPATCH_NATIVE_TOOL_NAMES],
+			excludeTools: ["bash", "read"],
 		});
 
 		process.stderr.write(`[d-pi worker ${agentName}] Session created from services\n`);

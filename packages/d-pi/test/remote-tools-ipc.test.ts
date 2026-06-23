@@ -9,7 +9,8 @@ import { ExecutorRegistry } from "../src/hub/executor-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
 import { Hub } from "../src/hub/hub.ts";
 import { SourceManager } from "../src/hub/source-manager.ts";
-import { createDPiSendMessageTool } from "../src/surface/orchestration-tools.ts";
+import { setBuiltinContext } from "../src/surface/builtin-context.ts";
+import { createSendMessageTool } from "../src/surface/orchestration-tools.ts";
 import type { HubToWorkerMessage, WorkerToHubMessage } from "../src/types.ts";
 
 let tempDir: string | undefined;
@@ -318,7 +319,19 @@ describe('send_message via IPC (case "send_message" in _handleToolCall)', () => 
 			)._handleWorkerMessage({}, message);
 		});
 		const client = createHubActionsClientFromHubChannel(channel);
-		const tool = createDPiSendMessageTool(client, { agentName: "root" });
+		setBuiltinContext({
+			hubClient: client,
+			agentName: "root",
+			localExecutors: {},
+			remoteExecutor: {
+				async executeRemoteTool(): Promise<never> {
+					throw new Error("not implemented");
+				},
+			},
+			getReloadFn: () => undefined,
+			getReloadDetails: () => ({}),
+		});
+		const tool = createSendMessageTool();
 
 		const result = await tool.execute("call-1", {
 			agent_name: "child",

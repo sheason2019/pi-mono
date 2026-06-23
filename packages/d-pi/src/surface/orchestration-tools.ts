@@ -1,18 +1,10 @@
 import { Type } from "typebox";
-import type {
-	DPiCreateAgentActionPayload,
-	DPiHubActionsClient,
-	DPiHubMessageMode,
-	DPiTeamSnapshot,
-} from "./hub-actions.ts";
+import { getBuiltinContext } from "./builtin-context.ts";
+import type { DPiCreateAgentActionPayload, DPiHubMessageMode, DPiTeamSnapshot } from "./hub-actions.ts";
 import type { DPiTool, DPiToolDetails } from "./tool-surface.ts";
 import { defineDPiTool, dPiToolJsonDetails, dPiToolTextResult } from "./tool-surface.ts";
 
-export interface DPiSendMessageToolOptions {
-	agentName: string;
-}
-
-export function createDPiSendMessageTool(client: DPiHubActionsClient, options: DPiSendMessageToolOptions): DPiTool {
+export function createSendMessageTool(): DPiTool {
 	return defineDPiTool({
 		name: "send_message",
 		label: "Send Message",
@@ -29,14 +21,15 @@ export function createDPiSendMessageTool(client: DPiHubActionsClient, options: D
 			),
 		}),
 		async execute(_toolCallId, params) {
+			const ctx = getBuiltinContext();
 			try {
 				const targetAgentName = params.agent_name?.trim();
 				if (!targetAgentName) {
 					return errorTextResult("Failed to send message: agent_name is required");
 				}
 				const mode: DPiHubMessageMode = params.mode ?? "next";
-				const result = await client.sendMessage({
-					fromAgentName: options.agentName,
+				const result = await ctx.hubClient.sendMessage({
+					fromAgentName: ctx.agentName,
 					toAgentName: targetAgentName,
 					content: params.message,
 					mode,
@@ -55,7 +48,7 @@ export function createDPiSendMessageTool(client: DPiHubActionsClient, options: D
 	});
 }
 
-export function createDPiCreateAgentTool(client: DPiHubActionsClient): DPiTool {
+export function createCreateAgentTool(): DPiTool {
 	return defineDPiTool({
 		name: "create_agent",
 		label: "Create Agent",
@@ -68,12 +61,13 @@ export function createDPiCreateAgentTool(client: DPiHubActionsClient): DPiTool {
 			),
 		}),
 		async execute(_toolCallId, params) {
+			const ctx = getBuiltinContext();
 			try {
 				const payload: DPiCreateAgentActionPayload = {
 					name: params.name,
 					cwd: params.cwd,
 				};
-				const result = await client.createAgent(payload);
+				const result = await ctx.hubClient.createAgent(payload);
 				return dPiToolTextResult(
 					`Created agent "${result.agentName}"`,
 					dPiToolJsonDetails({ agentName: result.agentName }),
@@ -85,7 +79,7 @@ export function createDPiCreateAgentTool(client: DPiHubActionsClient): DPiTool {
 	});
 }
 
-export function createDPiDestroyAgentTool(client: DPiHubActionsClient): DPiTool {
+export function createDestroyAgentTool(): DPiTool {
 	return defineDPiTool({
 		name: "destroy_agent",
 		label: "Destroy Agent",
@@ -95,8 +89,9 @@ export function createDPiDestroyAgentTool(client: DPiHubActionsClient): DPiTool 
 			agent_name: Type.String({ description: "Name of the agent to destroy" }),
 		}),
 		async execute(_toolCallId, params) {
+			const ctx = getBuiltinContext();
 			try {
-				const result = await client.destroyAgent({ agentName: params.agent_name });
+				const result = await ctx.hubClient.destroyAgent({ agentName: params.agent_name });
 				const actionError = okActionError(result);
 				if (actionError) {
 					return errorTextResult(`Failed to destroy agent: ${actionError}`);
@@ -109,7 +104,7 @@ export function createDPiDestroyAgentTool(client: DPiHubActionsClient): DPiTool 
 	});
 }
 
-export function createDPiTeamTool(client: DPiHubActionsClient): DPiTool {
+export function createTeamTool(): DPiTool {
 	return defineDPiTool({
 		name: "team",
 		label: "Team",
@@ -117,8 +112,9 @@ export function createDPiTeamTool(client: DPiHubActionsClient): DPiTool {
 			"List the current team snapshot - agents, their parent/child relationships, roles, and connection status. Use agent names when calling destroy_agent or send_message.",
 		parameters: Type.Object({}),
 		async execute() {
+			const ctx = getBuiltinContext();
 			try {
-				const snapshot = await client.getTeam();
+				const snapshot = await ctx.hubClient.getTeam();
 				const agentLines = snapshot.agents.map((agent) => {
 					const depth = getDepth(snapshot, agent.name);
 					const indent = "  ".repeat(depth);
@@ -139,16 +135,33 @@ export function createDPiTeamTool(client: DPiHubActionsClient): DPiTool {
 	});
 }
 
-export function createDPiOrchestrationTools(
-	client: DPiHubActionsClient,
-	options: DPiSendMessageToolOptions,
-): DPiTool[] {
-	return [
-		createDPiSendMessageTool(client, options),
-		createDPiCreateAgentTool(client),
-		createDPiDestroyAgentTool(client),
-		createDPiTeamTool(client),
-	];
+export function createReloadTool(): DPiTool {
+	return defineDPiTool({
+		name: "reload",
+		label: "Reload Workspace",
+		description:
+			"Reload the d-pi workspace configuration and notify every agent to reload its own resources. Ready agents reload immediately; busy agents reload when they become ready.",
+		parameters: Type.Object({
+			reason: Type.Optional(
+				Type.String({
+					description: "Optional reason for the workspace reload. Explain what changed or why reload is needed.",
+				}),
+			),
+		}),
+		async execute(_toolCallId, params) {
+			const ctx = getBuiltinContext();
+			const reloadFn = ctx.getReloadFn();
+			if (!reloadFn) {
+				throw new Error("Reload not available: d-pi session is not initialized yet.");
+			}
+			const input = params as { reason?: unknown };
+			await reloadFn(typeof input.reason === "string" ? input.reason : undefined);
+			return {
+				content: [{ type: "text" as const, text: "Workspace reload requested." }],
+				details: ctx.getReloadDetails(),
+			};
+		},
+	});
 }
 
 function errorTextResult(text: string) {

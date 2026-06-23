@@ -1,12 +1,8 @@
 import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import { type Static, type TSchema, Type } from "typebox";
-import type { NativeToolName } from "../executor/native-tools.ts";
-import { NATIVE_TOOL_NAMES } from "../executor/native-tools.ts";
-import type { DPiRemoteExecutor } from "./remote-executor.ts";
+import { getBuiltinContext } from "./builtin-context.ts";
 import type { DPiTool, DPiToolDetails } from "./tool-surface.ts";
 import { defineDPiTool } from "./tool-surface.ts";
-
-export type DPiDispatchNativeToolName = NativeToolName;
 
 export type DPiLocalToolExecutor = (
 	toolCallId: string,
@@ -15,75 +11,74 @@ export type DPiLocalToolExecutor = (
 	onUpdate?: AgentToolUpdateCallback<unknown>,
 ) => Promise<AgentToolResult<unknown>>;
 
-export type DPiDispatchLocalExecutors = Record<DPiDispatchNativeToolName, DPiLocalToolExecutor>;
+const BashParameters = Type.Object({
+	command: Type.String(),
+	timeout_ms: Type.Optional(Type.Number()),
+});
 
-export type DPiDispatchParameterSchemas = Record<DPiDispatchNativeToolName, TSchema>;
+const ReadParameters = Type.Object({
+	path: Type.String(),
+});
 
-export interface CreateDPiDispatchToolsOptions {
-	localExecutors: DPiDispatchLocalExecutors;
-	remoteExecutor: DPiRemoteExecutor;
-	parameterSchemas?: Partial<DPiDispatchParameterSchemas>;
-	sourceAgentName?: string;
+export function createDispatchBashTool(): DPiTool {
+	return createDispatchTool("bash", "Dispatch bash", BashParameters);
 }
 
-const DISPATCH_TOOL_SPECS: Array<{ native: DPiDispatchNativeToolName; dispatch: string; label: string }> =
-	NATIVE_TOOL_NAMES.map((native) => ({
-		native,
-		dispatch: `dispatch_${native}`,
-		label: `Dispatch ${native}`,
-	}));
+export function createDispatchReadTool(): DPiTool {
+	return createDispatchTool("read", "Dispatch read", ReadParameters);
+}
 
-const EMPTY_PARAMETERS = Type.Object({});
+function createDispatchTool(nativeName: string, label: string, parameters: TSchema): DPiTool {
+	const dispatchParameters = withConnectIdParameter(parameters);
 
-export function createDPiDispatchTools(options: CreateDPiDispatchToolsOptions): DPiTool[] {
-	return DISPATCH_TOOL_SPECS.map((spec) => {
-		const nativeParameters = options.parameterSchemas?.[spec.native] ?? EMPTY_PARAMETERS;
-		const parameters = withConnectIdParameter(nativeParameters);
-		const localExecutor = options.localExecutors[spec.native];
+	return defineDPiTool({
+		name: `dispatch_${nativeName}`,
+		label,
+		description:
+			`Execute ${nativeName} either locally on the hub host or remotely on a connected d-pi client. ` +
+			"Without the `connect_id` parameter, runs on the hub host (same as a local tool). " +
+			"With `connect_id`, dispatches to the specified connected client device. " +
+			"Use `connect_id` when the task targets the user's device (their laptop, local files, shell environment). " +
+			"Omit `connect_id` when operating on the hub host. " +
+			"Do NOT use `connect_id` to test whether a client is connected - only use it when you need to operate on the user's device for a specific task.",
+		parameters: dispatchParameters,
+		async execute(toolCallId, params, signal, onUpdate) {
+			const ctx = getBuiltinContext();
+			const paramsRecord = toRecord(params);
+			const connectId = typeof paramsRecord.connect_id === "string" ? paramsRecord.connect_id : undefined;
+			const nativeParams = stripConnectId(paramsRecord);
 
-		return defineDPiTool({
-			name: spec.dispatch,
-			label: spec.label,
-			description:
-				`Execute ${spec.native} either locally on the hub host or remotely on a connected d-pi client. ` +
-				"Without the `connect_id` parameter, runs on the hub host (same as a local tool). " +
-				"With `connect_id`, dispatches to the specified connected client device. " +
-				"Use `connect_id` when the task targets the user's device (their laptop, local files, shell environment). " +
-				"Omit `connect_id` when operating on the hub host. " +
-				"Do NOT use `connect_id` to test whether a client is connected - only use it when you need to operate on the user's device for a specific task.",
-			parameters,
-			async execute(toolCallId, params, signal, onUpdate) {
-				const paramsRecord = toRecord(params);
-				const connectId = typeof paramsRecord.connect_id === "string" ? paramsRecord.connect_id : undefined;
-				const nativeParams = stripConnectId(paramsRecord);
+			const localExecutor = ctx.localExecutors[nativeName];
+			if (!localExecutor) {
+				throw new Error(`No local executor registered for native tool: ${nativeName}`);
+			}
 
-				if (!connectId) {
-					return (await localExecutor(
-						toolCallId,
-						nativeParams,
-						signal,
-						onUpdate as AgentToolUpdateCallback<unknown> | undefined,
-					)) as AgentToolResult<DPiToolDetails>;
+			if (!connectId) {
+				return (await localExecutor(
+					toolCallId,
+					nativeParams,
+					signal,
+					onUpdate as AgentToolUpdateCallback<unknown> | undefined,
+				)) as AgentToolResult<DPiToolDetails>;
+			}
+
+			try {
+				const result = await ctx.remoteExecutor.executeRemoteTool({
+					requestId: toolCallId,
+					connectId,
+					toolName: nativeName,
+					params: nativeParams,
+					sourceAgentName: ctx.agentName,
+				});
+
+				if (!result.ok || result.error) {
+					return errorTextResult(result.error ?? "remote dispatch returned ok=false");
 				}
-
-				try {
-					const result = await options.remoteExecutor.executeRemoteTool({
-						requestId: toolCallId,
-						connectId,
-						toolName: spec.native,
-						params: nativeParams,
-						sourceAgentName: options.sourceAgentName,
-					});
-
-					if (!result.ok || result.error) {
-						return errorTextResult(result.error ?? "remote dispatch returned ok=false");
-					}
-					return result.result as AgentToolResult<DPiToolDetails>;
-				} catch (err) {
-					return errorTextResult(errorMessage(err));
-				}
-			},
-		});
+				return result.result as AgentToolResult<DPiToolDetails>;
+			} catch (err) {
+				return errorTextResult(errorMessage(err));
+			}
+		},
 	});
 }
 
@@ -108,7 +103,7 @@ function toObjectSchema(parameters: TSchema): TSchema & { properties?: unknown; 
 	if (isRecord(parameters) && parameters.type === "object") {
 		return parameters as TSchema & { properties?: unknown; required?: unknown };
 	}
-	return EMPTY_PARAMETERS;
+	return Type.Object({});
 }
 
 function toRecord(params: Static<TSchema>): Record<string, unknown> {
