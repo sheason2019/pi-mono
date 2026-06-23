@@ -189,16 +189,25 @@ export class Hub {
 		this._syncWorkspaceSources(orderAgentsForRestore(await discoverPersistedAgents(this._config.workspaceRoot)));
 	}
 
-	private async _requestWorkspaceReload(requesterAgentName: string, callId: string): Promise<void> {
+	private async _requestWorkspaceReload(
+		requesterAgentName: string,
+		callId: string,
+		reason: string | undefined,
+	): Promise<void> {
 		const requester = this._registry.get(requesterAgentName);
 		if (!requester) return;
+		const metadata = {
+			...(reason === undefined ? {} : { reason }),
+			caller: requesterAgentName,
+			time: new Date().toISOString(),
+		};
 		try {
 			await this._reloadWorkspaceSources();
 		} catch (err) {
 			requester.worker.postMessage({
 				type: "tool_result",
 				callId,
-				result: { ok: false, error: err instanceof Error ? err.message : String(err) },
+				result: { ok: false, metadata, error: err instanceof Error ? err.message : String(err) },
 			} satisfies HubToWorkerMessage);
 			return;
 		}
@@ -207,9 +216,14 @@ export class Hub {
 			record.worker.postMessage({
 				type: "reload_agent",
 				callId: `${callId}:${record.name}`,
+				metadata,
 			} satisfies HubToWorkerMessage);
 		}
-		requester.worker.postMessage({ type: "tool_result", callId, result: { ok: true } } satisfies HubToWorkerMessage);
+		requester.worker.postMessage({
+			type: "tool_result",
+			callId,
+			result: { ok: true, metadata },
+		} satisfies HubToWorkerMessage);
 	}
 
 	async createAgent(
@@ -423,7 +437,7 @@ export class Hub {
 				break;
 
 			case "reload_workspace":
-				void this._requestWorkspaceReload(message.agentName, message.callId);
+				void this._requestWorkspaceReload(message.agentName, message.callId, message.reason);
 				break;
 
 			case "reload_agent_result":

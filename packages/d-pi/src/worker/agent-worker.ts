@@ -10,6 +10,7 @@ import { parentPort, workerData } from "node:worker_threads";
 import type { AgentToolResult, AgentToolUpdateCallback, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { TSchema } from "typebox";
+import { Type } from "typebox";
 import type { AgentToolDefinition } from "../agent-definition.ts";
 import { readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
 import { type AgentBuiltinToolKind, getAgentBuiltinToolKind } from "../agent-tool-helpers.ts";
@@ -37,7 +38,7 @@ import {
 	type DPiRemoteToolResult,
 	type DPiToolDetails,
 } from "../surface/index.ts";
-import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
+import type { AgentWorkerConfig, HubToWorkerMessage, WorkerToHubMessage, WorkspaceReloadMetadata } from "../types.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
 import {
 	createDPiAgentSessionFromServices,
@@ -71,6 +72,7 @@ let ipcServer: DPiAgentIpcServer | undefined;
 let proxy: DPiLocalAgentSessionProxy | undefined;
 let reloadCallCounter = 0;
 let pendingAgentReload = false;
+let pendingAgentReloadMetadata: WorkspaceReloadMetadata | undefined;
 let pendingAgentReloadPromise: Promise<void> | undefined;
 let agentIsBusy = false;
 
@@ -78,7 +80,7 @@ function postToHub(message: WorkerToHubMessage): void {
 	port.postMessage(message);
 }
 
-function requestWorkspaceReload(): Promise<void> {
+function requestWorkspaceReload(reason?: string): Promise<void> {
 	const callId = `${config.agentName}-reload-${++reloadCallCounter}`;
 	return new Promise((resolve, reject) => {
 		const handler = (message: HubToWorkerMessage) => {
@@ -94,15 +96,30 @@ function requestWorkspaceReload(): Promise<void> {
 			resolve();
 		};
 		port.on("message", handler);
-		postToHub({ type: "reload_workspace", agentName: config.agentName, callId });
+		postToHub({
+			type: "reload_workspace",
+			agentName: config.agentName,
+			callId,
+			...(reason === undefined ? {} : { reason }),
+		});
 	});
 }
 
-async function reloadAgentResources(callId?: string): Promise<void> {
+async function reloadAgentResources(
+	callId: string | undefined,
+	metadata: WorkspaceReloadMetadata | undefined,
+): Promise<void> {
 	if (!runtime?.session) {
 		const error = "Reload not available: d-pi session is not initialized yet.";
 		if (callId) {
-			postToHub({ type: "reload_agent_result", agentName: config.agentName, callId, ok: false, error });
+			postToHub({
+				type: "reload_agent_result",
+				agentName: config.agentName,
+				callId,
+				ok: false,
+				metadata: metadata ?? { caller: "unknown", time: new Date().toISOString() },
+				error,
+			});
 			return;
 		}
 		throw new Error(error);
@@ -110,28 +127,37 @@ async function reloadAgentResources(callId?: string): Promise<void> {
 	await runtime.session.reload();
 	proxy?.setBanner(generateDPiBanner(runtime.session));
 	if (callId) {
-		postToHub({ type: "reload_agent_result", agentName: config.agentName, callId, ok: true });
+		postToHub({
+			type: "reload_agent_result",
+			agentName: config.agentName,
+			callId,
+			ok: true,
+			metadata: metadata ?? { caller: "unknown", time: new Date().toISOString() },
+		});
 	}
 }
 
-function startAgentReload(callId?: string): void {
-	pendingAgentReloadPromise = reloadAgentResources(callId).finally(() => {
+function startAgentReload(callId?: string, metadata?: WorkspaceReloadMetadata): void {
+	pendingAgentReloadPromise = reloadAgentResources(callId, metadata).finally(() => {
 		pendingAgentReloadPromise = undefined;
 	});
 }
 
-function handleReloadAgent(callId: string): void {
+function handleReloadAgent(callId: string, metadata: WorkspaceReloadMetadata): void {
 	if (agentIsBusy) {
 		pendingAgentReload = true;
+		pendingAgentReloadMetadata = metadata;
 		return;
 	}
-	startAgentReload(callId);
+	startAgentReload(callId, metadata);
 }
 
 function flushPendingAgentReload(): void {
 	if (!pendingAgentReload || agentIsBusy) return;
 	pendingAgentReload = false;
-	startAgentReload();
+	const metadata = pendingAgentReloadMetadata;
+	pendingAgentReloadMetadata = undefined;
+	startAgentReload(undefined, metadata);
 }
 
 async function waitForPendingAgentReload(): Promise<void> {
@@ -155,7 +181,7 @@ interface AgentLocalToolsExtensionOptions {
 	agentTools: AgentToolDefinition[];
 	channel: HubChannel;
 	cwd: string;
-	getReloadFn: () => (() => Promise<void>) | undefined;
+	getReloadFn: () => ((reason?: string) => Promise<void>) | undefined;
 	getResourceLoader: () => ResourceLoader | undefined;
 	getModelRegistry: () => ModelRegistry | undefined;
 }
@@ -193,13 +219,21 @@ function createWorkerBuiltinToolMap(
 				label: "Reload Workspace",
 				description:
 					"Reload the d-pi workspace configuration and notify every agent to reload its own resources. Ready agents reload immediately; busy agents reload when they become ready.",
-				parameters: { type: "object", properties: {} },
-				async execute() {
+				parameters: Type.Object({
+					reason: Type.Optional(
+						Type.String({
+							description:
+								"Optional reason for the workspace reload. Explain what changed or why reload is needed.",
+						}),
+					),
+				}),
+				async execute(_toolCallId, params) {
 					const reloadFn = options.getReloadFn();
 					if (!reloadFn) {
 						throw new Error("Reload not available: d-pi session is not initialized yet.");
 					}
-					await reloadFn();
+					const input = params as { reason?: unknown };
+					await reloadFn(typeof input.reason === "string" ? input.reason : undefined);
 					return {
 						content: [{ type: "text" as const, text: "Workspace reload requested." }],
 						details: createReloadSnapshot(options).details,
@@ -316,7 +350,7 @@ port.on("message", (message: HubToWorkerMessage) => {
 			void routeIncomingHubMessage(message);
 			break;
 		case "reload_agent":
-			handleReloadAgent(message.callId);
+			handleReloadAgent(message.callId, message.metadata);
 			break;
 		case "destroy":
 			gracefulShutdown();

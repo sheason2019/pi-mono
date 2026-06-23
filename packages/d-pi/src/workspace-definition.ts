@@ -13,6 +13,7 @@ export interface SourceContext {
 
 export interface SourceDefinition {
 	execute(output: SourceOutput, context: SourceContext): Promise<void> | void;
+	description?: string;
 	readonly name?: string;
 }
 
@@ -32,7 +33,10 @@ export function defineSource(input: SourceDefinition): SourceDefinition {
 	if (typeof input.execute !== "function") {
 		throw new TypeError("defineSource requires an execute function");
 	}
-	return { execute: input.execute };
+	return {
+		execute: input.execute,
+		...(input.description === undefined ? {} : { description: input.description }),
+	};
 }
 
 export function defineWorkspace(input: WorkspaceDefinitionInput): WorkspaceDefinition {

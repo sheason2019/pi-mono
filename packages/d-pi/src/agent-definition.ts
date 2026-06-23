@@ -47,11 +47,13 @@ export interface AgentProviderDefinition {
 export interface AgentModelReferenceDefinition {
 	provider: string;
 	name: string;
+	description?: string;
 }
 
 export interface AgentLocalModelDefinition {
 	id: string;
 	name?: string;
+	description?: string;
 	provider: AgentProviderDefinition | Provider;
 	reasoning?: boolean;
 	thinkingLevelMap?: ThinkingLevelMap;
@@ -239,6 +241,7 @@ export function defineModel(input: AgentModelDefinition): AgentModelDefinition {
 		return {
 			id: input.id,
 			...(input.name === undefined ? {} : { name: input.name }),
+			...(input.description === undefined ? {} : { description: input.description }),
 			provider: typeof input.provider === "string" ? input.provider : defineProvider(input.provider),
 			...(input.reasoning === undefined ? {} : { reasoning: input.reasoning }),
 			...(input.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: { ...input.thinkingLevelMap } }),
@@ -259,7 +262,11 @@ export function defineModel(input: AgentModelDefinition): AgentModelDefinition {
 			...(input.compat === undefined ? {} : { compat: input.compat }),
 		};
 	}
-	return { provider: input.provider, name: input.name };
+	return {
+		provider: input.provider,
+		name: input.name,
+		...(input.description === undefined ? {} : { description: input.description }),
+	};
 }
 
 export function defineRole(input: AgentRoleDefinition): AgentRoleDefinition {

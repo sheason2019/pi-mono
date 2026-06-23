@@ -115,11 +115,17 @@ function providerHelper(provider: AgentProviderDefinition):
 
 function formatModelExpression(model: AgentModelDefinition, indent: string): string {
 	if (!("id" in model)) {
-		return `defineModel({ provider: ${JSON.stringify(model.provider)}, name: ${JSON.stringify(model.name)} })`;
+		const fields = [
+			`provider: ${JSON.stringify(model.provider)}`,
+			`name: ${JSON.stringify(model.name)}`,
+			...(model.description === undefined ? [] : [`description: ${JSON.stringify(model.description)}`]),
+		];
+		return `defineModel({ ${fields.join(", ")} })`;
 	}
 	const lines = ["defineModel({"];
 	lines.push(`${indent}\tid: ${JSON.stringify(model.id)},`);
 	if (model.name !== undefined) lines.push(`${indent}\tname: ${JSON.stringify(model.name)},`);
+	if (model.description !== undefined) lines.push(`${indent}\tdescription: ${JSON.stringify(model.description)},`);
 	lines.push(
 		`${indent}\tprovider: ${
 			typeof model.provider === "string" ? JSON.stringify(model.provider) : formatProviderExpression(model.provider)

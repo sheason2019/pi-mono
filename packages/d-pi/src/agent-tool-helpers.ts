@@ -1,3 +1,4 @@
+import { Type } from "typebox";
 import type { AgentToolDefinition } from "./agent-definition.ts";
 import { buildNativeToolSet } from "./executor/native-tools.ts";
 import type { ToolDefinition } from "./extension/contracts.ts";
@@ -91,7 +92,14 @@ export function createReloadTool(): AgentToolDefinition {
 			label: "Reload Workspace",
 			description:
 				"Reload the d-pi workspace configuration and notify every agent to reload its own resources. Ready agents reload immediately; busy agents reload when they become ready.",
-			parameters: { type: "object", properties: {} },
+			parameters: Type.Object({
+				reason: Type.Optional(
+					Type.String({
+						description:
+							"Optional reason for the workspace reload. Explain what changed or why reload is needed.",
+					}),
+				),
+			}),
 			async execute() {
 				throw new Error("reload is not bound to a d-pi worker runtime");
 			},

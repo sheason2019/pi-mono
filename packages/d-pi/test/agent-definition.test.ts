@@ -49,6 +49,7 @@ describe("agent definition helpers", () => {
 		const model = defineModel({
 			id: "gpt-test",
 			name: "GPT Test",
+			description: "Strong local model for complex coding tasks",
 			provider: openai,
 			reasoning: true,
 			thinkingLevelMap: { off: null, high: "high" },
@@ -79,6 +80,7 @@ describe("agent definition helpers", () => {
 		expect(model).toEqual({
 			id: "gpt-test",
 			name: "GPT Test",
+			description: "Strong local model for complex coding tasks",
 			provider: openai,
 			reasoning: true,
 			thinkingLevelMap: { off: null, high: "high" },
@@ -91,9 +93,16 @@ describe("agent definition helpers", () => {
 	});
 
 	it("keeps legacy provider/name model references valid", () => {
-		expect(defineModel({ provider: "anthropic", name: "claude-sonnet-4" })).toEqual({
+		expect(
+			defineModel({
+				provider: "anthropic",
+				name: "claude-sonnet-4",
+				description: "Strong hosted model",
+			}),
+		).toEqual({
 			provider: "anthropic",
 			name: "claude-sonnet-4",
+			description: "Strong hosted model",
 		});
 	});
 
@@ -200,6 +209,7 @@ describe("agent definition helpers", () => {
 	it("defines workspace-level models and executable sources for agent references", () => {
 		const model = defineModel({ provider: "anthropic", name: "claude-sonnet-4" });
 		const source = defineSource({
+			description: "Lark message source",
 			execute(output) {
 				output("hello");
 			},
@@ -215,6 +225,7 @@ describe("agent definition helpers", () => {
 
 		expect(workspace.models["anthropic/claude-sonnet-4"]).toBe(model);
 		expect(workspace.sources["lark-bot"]?.execute).toBe(source.execute);
+		expect(workspace.sources["lark-bot"]?.description).toBe("Lark message source");
 		expect(workspace.sources["lark-bot"]?.name).toBe("lark-bot");
 		expect(Object.keys(workspace.sources["lark-bot"] ?? {})).not.toContain("name");
 		expect(agent.model).toEqual(model);

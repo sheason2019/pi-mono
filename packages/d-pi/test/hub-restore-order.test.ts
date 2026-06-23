@@ -404,10 +404,43 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			hub as unknown as {
 				_handleWorkerMessage(worker: unknown, message: unknown): void;
 			}
-		)._handleWorkerMessage({}, { type: "reload_workspace", agentName: "root", callId: "reload-1" });
+		)._handleWorkerMessage(
+			{},
+			{ type: "reload_workspace", agentName: "root", callId: "reload-1", reason: "updated model descriptions" },
+		);
 		await waitFor(() => readyMessages.length > 1 && busyMessages.length > 0);
-		expect(readyMessages).toContainEqual({ type: "reload_agent", callId: "reload-1:root" });
-		expect(busyMessages).toEqual([{ type: "reload_agent", callId: "reload-1:busy-child" }]);
-		expect(readyMessages).toContainEqual({ type: "tool_result", callId: "reload-1", result: { ok: true } });
+		const reloadMetadata = {
+			reason: "updated model descriptions",
+			caller: "root",
+			time: expect.any(String),
+		};
+		expect(readyMessages).toContainEqual({ type: "reload_agent", callId: "reload-1:root", metadata: reloadMetadata });
+		expect(busyMessages).toEqual([{ type: "reload_agent", callId: "reload-1:busy-child", metadata: reloadMetadata }]);
+		expect(readyMessages).toContainEqual({
+			type: "tool_result",
+			callId: "reload-1",
+			result: { ok: true, metadata: reloadMetadata },
+		});
+
+		(
+			hub as unknown as {
+				_handleWorkerMessage(worker: unknown, message: unknown): void;
+			}
+		)._handleWorkerMessage({}, { type: "reload_workspace", agentName: "root", callId: "reload-2" });
+		await waitFor(() => readyMessages.length > 3 && busyMessages.length > 1);
+		const reloadWithoutReason = {
+			caller: "root",
+			time: expect.any(String),
+		};
+		expect(readyMessages).toContainEqual({
+			type: "reload_agent",
+			callId: "reload-2:root",
+			metadata: reloadWithoutReason,
+		});
+		expect(readyMessages).toContainEqual({
+			type: "tool_result",
+			callId: "reload-2",
+			result: { ok: true, metadata: reloadWithoutReason },
+		});
 	});
 });
