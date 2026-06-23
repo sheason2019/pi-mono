@@ -44,7 +44,7 @@ export class HubChannel {
 
 	/** Send a message to another agent (by name). mode defaults to "next" (Enter-style). */
 	sendMessage(toAgentName: string, content: string, mode: MessageMode = "next"): Promise<unknown> {
-		return this._callTool("send_message", { agent_id: toAgentName, message: content, mode });
+		return this._callTool("send_message", { agent_name: toAgentName, message: content, mode });
 	}
 
 	/** Create a new child agent */
@@ -54,7 +54,7 @@ export class HubChannel {
 
 	/** Destroy an agent (by name) */
 	destroyAgent(agentName: string): Promise<unknown> {
-		return this._callTool("destroy_agent", { agent_id: agentName });
+		return this._callTool("destroy_agent", { agent_name: agentName });
 	}
 
 	/** Get the team snapshot */

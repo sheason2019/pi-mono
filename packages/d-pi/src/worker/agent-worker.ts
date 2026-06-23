@@ -13,7 +13,11 @@ import type { TSchema } from "typebox";
 import { Type } from "typebox";
 import type { AgentToolDefinition } from "../agent-definition.ts";
 import { readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
-import { type AgentBuiltinToolKind, getAgentBuiltinToolKind } from "../agent-tool-helpers.ts";
+import {
+	type AgentBuiltinToolKind,
+	DISPATCH_NATIVE_TOOL_NAMES,
+	getAgentBuiltinToolKind,
+} from "../agent-tool-helpers.ts";
 import { DPiContextManager } from "../context/context-manager.ts";
 import { DPI_META_PROMPT } from "../dpi-meta.ts";
 import { buildNativeToolSet } from "../executor/native-tools.ts";
@@ -53,7 +57,7 @@ import {
 	type DPiWorkerSessionManager,
 	generateDPiBanner,
 	resolveDPiInitialModel,
-} from "./coding-agent-worker-adapter.ts";
+} from "./worker-adapter.ts";
 
 const dPiClientExtensionPath = new URL(
 	`../extension/client-extension${import.meta.url.endsWith(".ts") ? ".ts" : ".js"}`,
@@ -327,8 +331,6 @@ function createReloadSnapshot(options: AgentLocalToolsExtensionOptions): {
 	return { snapshot, details };
 }
 
-const DISPATCH_NATIVE_TOOL_NAMES = ["bash", "read", "ls", "grep", "find", "write", "edit"] as const;
-
 interface NativeToolDefinition {
 	parameters: TSchema;
 	execute(
@@ -544,7 +546,7 @@ async function runAgentWorker(): Promise<void> {
 			sessionManager: opts.sessionManager,
 			model: resolvedModel,
 			tools: agentToolNames,
-			excludeTools: ["bash", "read", "edit", "write", "grep", "find", "ls"],
+			excludeTools: [...DISPATCH_NATIVE_TOOL_NAMES],
 		});
 
 		process.stderr.write(`[d-pi worker ${agentName}] Session created from services\n`);

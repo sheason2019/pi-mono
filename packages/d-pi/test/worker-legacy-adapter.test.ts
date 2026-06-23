@@ -3,7 +3,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type Api, type Model, Type } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { describe, expect, it, vi } from "vitest";
 import type { LoadedAgentDefinition } from "../src/agent-loader.ts";
 import type { ExtensionAPI } from "../src/extension/contracts.ts";
@@ -29,7 +30,7 @@ import {
 	generateDPiBanner,
 	resolveDPiInitialModel,
 	runtimeModelSpecFromResolvedModel,
-} from "../src/worker/coding-agent-worker-adapter.ts";
+} from "../src/worker/worker-adapter.ts";
 
 type InitialModelOptions = Parameters<typeof resolveDPiInitialModel>[0];
 type WorkerModelRegistry = InitialModelOptions["modelRegistry"];

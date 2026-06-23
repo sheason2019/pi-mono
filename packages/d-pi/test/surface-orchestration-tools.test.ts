@@ -93,7 +93,7 @@ describe("d-pi surface orchestration tools", () => {
 		const tool = createDPiSendMessageTool(client, { agentName: "root" });
 
 		const result = asTextToolResult(
-			await tool.execute("call-1", { agent_id: "child", message: "hello", mode: "steer" }),
+			await tool.execute("call-1", { agent_name: "child", message: "hello", mode: "steer" }),
 		);
 
 		expect(client.sendMessageCalls).toEqual([
@@ -103,13 +103,11 @@ describe("d-pi surface orchestration tools", () => {
 		expect(result.isError).toBeUndefined();
 	});
 
-	it("accepts legacy target aliases for send_message", async () => {
+	it("defaults to next mode when mode is not specified", async () => {
 		const client = new RecordingHubActionsClient();
 		const tool = createDPiSendMessageTool(client, { agentName: "root" });
 
-		const result = asTextToolResult(
-			await tool.execute("call-1", { agentIds: ["child"], message: "hello", mode: "next" }),
-		);
+		const result = asTextToolResult(await tool.execute("call-1", { agent_name: "child", message: "hello" }));
 
 		expect(client.sendMessageCalls).toEqual([
 			{ fromAgentName: "root", toAgentName: "child", content: "hello", mode: "next" },
@@ -160,7 +158,7 @@ describe("d-pi surface orchestration tools", () => {
 		const client = new RecordingHubActionsClient();
 		const tool = createDPiDestroyAgentTool(client);
 
-		const result = asTextToolResult(await tool.execute("call-7", { agent_id: "child" }));
+		const result = asTextToolResult(await tool.execute("call-7", { agent_name: "child" }));
 
 		expect(client.destroyAgentCalls).toEqual([{ agentName: "child" }]);
 		expect(textOf(result)).toContain('Agent "child" destroyed');
@@ -175,7 +173,7 @@ describe("d-pi surface orchestration tools", () => {
 		const tool = createDPiSendMessageTool(client, { agentName: "root" });
 
 		const result = asTextToolResult(
-			await tool.execute("call-8", { agent_id: "child", message: "hello", mode: "next" }),
+			await tool.execute("call-8", { agent_name: "child", message: "hello", mode: "next" }),
 		);
 
 		expect(result.isError).toBe(true);
@@ -188,9 +186,9 @@ describe("orchestration tool adapters", () => {
 		const createAgentCalls: DPiCreateAgentActionPayload[] = [];
 		const channel = {
 			agentName: "root",
-			createAgent: async (name: string, cwd?: string): Promise<{ agentId: string; name: string }> => {
+			createAgent: async (name: string, cwd?: string): Promise<{ agentName: string }> => {
 				createAgentCalls.push({ name, cwd });
-				return { agentId: "agent-1", name };
+				return { agentName: name };
 			},
 		} as unknown as HubChannel;
 
@@ -206,6 +204,6 @@ describe("orchestration tool adapters", () => {
 				cwd: "/repo",
 			},
 		]);
-		expect(result).toEqual({ agentName: "child", agentId: "agent-1" });
+		expect(result).toEqual({ agentName: "child" });
 	});
 });

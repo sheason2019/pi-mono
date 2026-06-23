@@ -281,7 +281,7 @@ describe('send_message via IPC (case "send_message" in _handleToolCall)', () => 
 			hub as unknown as {
 				_handleToolCall(callId: string, tool: string, params: unknown, fromAgentName: string): Promise<void>;
 			}
-		)._handleToolCall(callId, "send_message", { agent_id: "child", message: "hello child", mode: "steer" }, "root");
+		)._handleToolCall(callId, "send_message", { agent_name: "child", message: "hello child", mode: "steer" }, "root");
 
 		expect(rootResults).toEqual([{ ok: true }]);
 		expect(childMessages).toHaveLength(1);
@@ -294,39 +294,6 @@ describe('send_message via IPC (case "send_message" in _handleToolCall)', () => 
 		expect(delivered.content).toContain("hello child");
 		expect(delivered.content).toContain('"sourceType":"agent"');
 		expect(delivered.content).toContain('"agentName":"root"');
-	});
-
-	it("accepts legacy agentIds target params at the hub boundary", async () => {
-		const rootResults: unknown[] = [];
-		const childMessages: HubToWorkerMessage[] = [];
-		const callId = "send-message-call-legacy-agent-ids";
-		registerFakeAgent(hub, "root", (message) => {
-			if (message.type === "tool_result" && message.callId === callId) {
-				rootResults.push(message.result);
-			}
-		});
-		registerFakeAgent(
-			hub,
-			"child",
-			(message) => {
-				childMessages.push(message);
-			},
-			"root",
-		);
-
-		await (
-			hub as unknown as {
-				_handleToolCall(callId: string, tool: string, params: unknown, fromAgentName: string): Promise<void>;
-			}
-		)._handleToolCall(callId, "send_message", { agentIds: ["child"], message: "hello child" }, "root");
-
-		expect(rootResults).toEqual([{ ok: true }]);
-		expect(childMessages).toHaveLength(1);
-		expect(childMessages[0]).toMatchObject({
-			type: "message",
-			fromAgentName: "root",
-			mode: "next",
-		});
 	});
 
 	it("routes through the real send_message tool and HubChannel to the target worker", async () => {
@@ -354,7 +321,7 @@ describe('send_message via IPC (case "send_message" in _handleToolCall)', () => 
 		const tool = createDPiSendMessageTool(client, { agentName: "root" });
 
 		const result = await tool.execute("call-1", {
-			agent_id: "child",
+			agent_name: "child",
 			message: "hello through tool",
 			mode: "next",
 		});

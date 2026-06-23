@@ -1,4 +1,4 @@
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type {
 	DPiCreateAgentActionPayload,
 	DPiHubActionsClient,
@@ -19,15 +19,7 @@ export function createDPiSendMessageTool(client: DPiHubActionsClient, options: D
 		description:
 			"Send a message to another agent in the network. The target agent will receive the message as input. This is asynchronous - the tool returns immediately and does not wait for a reply. Use mode='steer' to interrupt the target's current turn; the default mode='next' queues the message at the start of the target's next turn.",
 		parameters: Type.Object({
-			agent_id: Type.Optional(Type.String({ description: "Name of the target agent" })),
-			agent_name: Type.Optional(Type.String({ description: "Alias for agent_id" })),
-			toAgentName: Type.Optional(Type.String({ description: "Alias for agent_id" })),
-			agentIds: Type.Optional(
-				Type.Union([Type.String(), Type.Array(Type.String())], {
-					description:
-						"Legacy alias for agent_id; when an array is provided it must contain exactly one agent name",
-				}),
-			),
+			agent_name: Type.String({ description: "Name of the target agent" }),
 			message: Type.String({ description: "Message content to send" }),
 			mode: Type.Optional(
 				Type.Union([Type.Literal("next"), Type.Literal("steer")], {
@@ -38,9 +30,9 @@ export function createDPiSendMessageTool(client: DPiHubActionsClient, options: D
 		}),
 		async execute(_toolCallId, params) {
 			try {
-				const targetAgentName = resolveSendMessageTarget(params);
+				const targetAgentName = params.agent_name?.trim();
 				if (!targetAgentName) {
-					return errorTextResult("Failed to send message: target agent name is required");
+					return errorTextResult("Failed to send message: agent_name is required");
 				}
 				const mode: DPiHubMessageMode = params.mode ?? "next";
 				const result = await client.sendMessage({
@@ -63,20 +55,6 @@ export function createDPiSendMessageTool(client: DPiHubActionsClient, options: D
 	});
 }
 
-function resolveSendMessageTarget(params: {
-	agent_id?: string;
-	agent_name?: string;
-	toAgentName?: string;
-	agentIds?: string | string[];
-}): string | undefined {
-	if (params.agent_id?.trim()) return params.agent_id.trim();
-	if (params.agent_name?.trim()) return params.agent_name.trim();
-	if (params.toAgentName?.trim()) return params.toAgentName.trim();
-	if (typeof params.agentIds === "string") return params.agentIds.trim() || undefined;
-	if (Array.isArray(params.agentIds) && params.agentIds.length === 1) return params.agentIds[0]?.trim() || undefined;
-	return undefined;
-}
-
 export function createDPiCreateAgentTool(client: DPiHubActionsClient): DPiTool {
 	return defineDPiTool({
 		name: "create_agent",
@@ -96,12 +74,10 @@ export function createDPiCreateAgentTool(client: DPiHubActionsClient): DPiTool {
 					cwd: params.cwd,
 				};
 				const result = await client.createAgent(payload);
-				const agentIdText = result.agentId === undefined ? "" : ` (agentId=${result.agentId})`;
-				const details =
-					result.agentId === undefined
-						? { agentName: result.agentName }
-						: { agentName: result.agentName, agentId: result.agentId };
-				return dPiToolTextResult(`Created agent "${result.agentName}"${agentIdText}`, dPiToolJsonDetails(details));
+				return dPiToolTextResult(
+					`Created agent "${result.agentName}"`,
+					dPiToolJsonDetails({ agentName: result.agentName }),
+				);
 			} catch (err) {
 				return errorTextResult(`Failed to create agent: ${errorMessage(err)}`);
 			}
@@ -116,16 +92,16 @@ export function createDPiDestroyAgentTool(client: DPiHubActionsClient): DPiTool 
 		description:
 			"Destroy an agent in the network. The agent must have no children and must not be the creator of any active source. Unsubscribe from all sources and destroy all child agents first.",
 		parameters: Type.Object({
-			agent_id: Type.String({ description: "ID or name of the agent to destroy" }),
+			agent_name: Type.String({ description: "Name of the agent to destroy" }),
 		}),
 		async execute(_toolCallId, params) {
 			try {
-				const result = await client.destroyAgent({ agentName: params.agent_id });
+				const result = await client.destroyAgent({ agentName: params.agent_name });
 				const actionError = okActionError(result);
 				if (actionError) {
 					return errorTextResult(`Failed to destroy agent: ${actionError}`);
 				}
-				return dPiToolTextResult(`Agent "${params.agent_id}" destroyed`);
+				return dPiToolTextResult(`Agent "${params.agent_name}" destroyed`);
 			} catch (err) {
 				return errorTextResult(`Failed to destroy agent: ${errorMessage(err)}`);
 			}
@@ -138,7 +114,7 @@ export function createDPiTeamTool(client: DPiHubActionsClient): DPiTool {
 		name: "team",
 		label: "Team",
 		description:
-			"List the current team snapshot - agents, their parent/child relationships, roles, and connection status. Use agent names (not IDs) when calling destroy_agent or send_message.",
+			"List the current team snapshot - agents, their parent/child relationships, roles, and connection status. Use agent names when calling destroy_agent or send_message.",
 		parameters: Type.Object({}),
 		async execute() {
 			try {

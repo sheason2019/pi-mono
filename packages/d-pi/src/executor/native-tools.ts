@@ -3,10 +3,12 @@ import { constants } from "node:fs";
 import { access, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
-import { Type } from "@earendil-works/pi-ai";
-import type { Static, TSchema } from "typebox";
+import { type Static, type TSchema, Type } from "typebox";
 
 const MAX_TEXT_BYTES = 128_000;
+
+export const NATIVE_TOOL_NAMES = ["bash", "read", "ls", "grep", "find", "write", "edit"] as const;
+export type NativeToolName = (typeof NATIVE_TOOL_NAMES)[number];
 
 const BashParameters = Type.Object({
 	command: Type.String(),

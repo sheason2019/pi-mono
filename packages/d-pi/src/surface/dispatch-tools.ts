@@ -1,11 +1,12 @@
 import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
-import { Type } from "@earendil-works/pi-ai";
-import type { Static, TSchema } from "typebox";
+import { type Static, type TSchema, Type } from "typebox";
+import type { NativeToolName } from "../executor/native-tools.ts";
+import { NATIVE_TOOL_NAMES } from "../executor/native-tools.ts";
 import type { DPiRemoteExecutor } from "./remote-executor.ts";
 import type { DPiTool, DPiToolDetails } from "./tool-surface.ts";
 import { defineDPiTool } from "./tool-surface.ts";
 
-export type DPiDispatchNativeToolName = "bash" | "read" | "ls" | "grep" | "find" | "write" | "edit";
+export type DPiDispatchNativeToolName = NativeToolName;
 
 export type DPiLocalToolExecutor = (
 	toolCallId: string,
@@ -25,15 +26,12 @@ export interface CreateDPiDispatchToolsOptions {
 	sourceAgentName?: string;
 }
 
-const DISPATCH_TOOL_SPECS: Array<{ native: DPiDispatchNativeToolName; dispatch: string; label: string }> = [
-	{ native: "bash", dispatch: "dispatch_bash", label: "Dispatch bash" },
-	{ native: "read", dispatch: "dispatch_read", label: "Dispatch read" },
-	{ native: "ls", dispatch: "dispatch_ls", label: "Dispatch ls" },
-	{ native: "grep", dispatch: "dispatch_grep", label: "Dispatch grep" },
-	{ native: "find", dispatch: "dispatch_find", label: "Dispatch find" },
-	{ native: "write", dispatch: "dispatch_write", label: "Dispatch write" },
-	{ native: "edit", dispatch: "dispatch_edit", label: "Dispatch edit" },
-];
+const DISPATCH_TOOL_SPECS: Array<{ native: DPiDispatchNativeToolName; dispatch: string; label: string }> =
+	NATIVE_TOOL_NAMES.map((native) => ({
+		native,
+		dispatch: `dispatch_${native}`,
+		label: `Dispatch ${native}`,
+	}));
 
 const EMPTY_PARAMETERS = Type.Object({});
 

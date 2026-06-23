@@ -1,6 +1,6 @@
 import { ExecutorClient } from "./client.ts";
-import { buildNativeToolSet } from "./coding-agent-native-tools.ts";
 import { type ExecutorEnv, readExecutorEnv } from "./env.ts";
+import { buildNativeToolSet } from "./native-tools.ts";
 import { ToolRunner } from "./runner.ts";
 
 export { buildNativeToolSet, readExecutorEnv, type ExecutorEnv, ExecutorClient, ToolRunner };

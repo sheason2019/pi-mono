@@ -7,14 +7,7 @@ import type {
 } from "../surface/index.ts";
 import type { HubChannel } from "./hub-channel.ts";
 
-interface LegacyCreateAgentResult {
-	agentId?: string;
-	agentName?: string;
-	name?: string;
-	error?: string;
-}
-
-interface LegacyOkResult {
+interface OkResult {
 	ok?: boolean;
 	error?: string;
 }
@@ -23,12 +16,11 @@ export function createHubActionsClientFromHubChannel(channel: HubChannel): DPiHu
 	return {
 		async createAgent(payload): Promise<DPiCreateAgentActionResult> {
 			const raw = await channel.createAgent(payload.name, payload.cwd);
-			const result = legacyCreateAgentResult(raw);
+			const result = asCreateAgentResult(raw);
 			if (result.error) {
 				throw new Error(result.error);
 			}
-			const agentName = result.agentName ?? result.name ?? payload.name;
-			return result.agentId === undefined ? { agentName } : { agentName, agentId: result.agentId };
+			return { agentName: result.agentName ?? payload.name };
 		},
 		async destroyAgent(payload): Promise<{ ok: boolean; error?: string }> {
 			return normalizeOkResult(await channel.destroyAgent(payload.agentName));
@@ -47,27 +39,25 @@ export function createHubActionsClientFromHubChannel(channel: HubChannel): DPiHu
 	};
 }
 
-function legacyCreateAgentResult(value: unknown): LegacyCreateAgentResult {
+function asCreateAgentResult(value: unknown): { agentName?: string; error?: string } {
 	if (!isRecord(value)) {
 		return {};
 	}
 	return {
-		agentId: stringField(value, "agentId"),
 		agentName: stringField(value, "agentName"),
-		name: stringField(value, "name"),
 		error: stringField(value, "error"),
 	};
 }
 
 function normalizeOkResult(value: unknown): { ok: boolean; error?: string } {
-	const result = legacyOkResult(value);
+	const result = asOkResult(value);
 	if (result.error) {
 		return { ok: false, error: result.error };
 	}
 	return { ok: result.ok ?? true };
 }
 
-function legacyOkResult(value: unknown): LegacyOkResult {
+function asOkResult(value: unknown): OkResult {
 	if (!isRecord(value)) {
 		return {};
 	}
