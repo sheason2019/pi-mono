@@ -148,7 +148,7 @@ export function assertKnownToolNames(
 	for (const toolName of toolNames) {
 		if (!knownNames.has(toolName)) {
 			throw new Error(
-				`Cannot migrate agent "${agentName}": unknown tool name "${toolName}" in ${fieldName}. ` +
+				`Invalid agent "${agentName}": unknown tool name "${toolName}" in ${fieldName}. ` +
 					`Known tools: ${DEFAULT_AGENT_TOOL_NAMES.join(", ")}`,
 			);
 		}
@@ -162,26 +162,6 @@ export interface AgentTsSourceConfig {
 	roles?: string[];
 	modelDefinition?: AgentModelDefinition;
 	toolNames?: string[];
-}
-
-export function resolveMigratedToolNames(config: {
-	name: string;
-	includeTools?: string[];
-	excludeTools?: string[];
-}): string[] {
-	if (config.includeTools && config.excludeTools) {
-		throw new Error(`Cannot migrate agent "${config.name}": includeTools and excludeTools are mutually exclusive.`);
-	}
-	if (config.includeTools) {
-		assertKnownToolNames(config.name, "includeTools", config.includeTools);
-		return [...config.includeTools];
-	}
-	if (config.excludeTools) {
-		assertKnownToolNames(config.name, "excludeTools", config.excludeTools);
-		const excludeSet = new Set(config.excludeTools);
-		return DEFAULT_AGENT_TOOL_NAMES.filter((toolName) => !excludeSet.has(toolName));
-	}
-	return [...DEFAULT_AGENT_TOOL_NAMES];
 }
 
 export function buildAgentTsSource(config: AgentTsSourceConfig): string {

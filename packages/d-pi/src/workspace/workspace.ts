@@ -5,7 +5,6 @@ import {
 	readdirSync,
 	readFileSync,
 	readlinkSync,
-	renameSync,
 	statSync,
 	symlinkSync,
 	writeFileSync,
@@ -14,12 +13,10 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildAgentTsSource } from "../agent-config.ts";
 import type { WorkspaceConfig, WorkspaceContext } from "../types.ts";
-import { migrateWorkspaceToAgentTs } from "./migrate-agent-ts.ts";
 
 const DPI_DIR = ".dpi";
 const CONFIG_FILE = "config.json";
 const AGENTS_DIR = "agents";
-const LEGACY_GROUP_ARCHITECTURE_DIR = "group-architecture";
 const TEAM_TEMPLATE_DIR = "team-template";
 const SKILLS_DIR = "skills";
 const EXTENSIONS_DIR = "extensions";
@@ -27,7 +24,7 @@ const TUI_COMPONENTS_DIR = "tui-components";
 const APPEND_SYSTEM_MD = "APPEND_SYSTEM.md";
 const AGENTS_MD = "AGENTS.md";
 const D_PI_PACKAGE_NAME = "@sheason/d-pi";
-export const TARGET_WORKSPACE_VERSION = 3;
+export const WORKSPACE_VERSION = 4;
 
 function dPiPackageRoot(): string {
 	return dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -101,30 +98,19 @@ export interface LoadWorkspaceContextOptions {
 	roles?: string[];
 }
 
-/**
- * Check if the given directory is a d-pi workspace root (contains .dpi/).
- */
 export function isWorkspaceRoot(dir: string): boolean {
 	return existsSync(join(resolve(dir), DPI_DIR));
 }
 
-/**
- * Validate and load workspace config from .dpi/config.json.
- * Throws if the config is missing or invalid.
- */
 export function validateWorkspace(workspaceRoot: string): WorkspaceConfig {
 	const configPath = join(workspaceRoot, DPI_DIR, CONFIG_FILE);
 	if (!existsSync(configPath)) {
 		throw new Error(`Invalid workspace: missing ${DPI_DIR}/${CONFIG_FILE}`);
 	}
 	try {
-		// Strict JSON parse. The init template (and every agent config) is
-		// emitted as canonical JSON via JSON.stringify, so no comment-stripping
-		// workaround is needed. If a user adds a hand-written config with `//`
-		// or trailing commas, JSON.parse will surface the SyntaxError.
 		const raw = readFileSync(configPath, "utf-8");
 		const parsed = JSON.parse(raw);
-		if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== TARGET_WORKSPACE_VERSION) {
+		if (parsed.version !== WORKSPACE_VERSION) {
 			throw new Error(`Unsupported workspace version: ${parsed.version}`);
 		}
 		return parsed as WorkspaceConfig;
@@ -136,68 +122,12 @@ export function validateWorkspace(workspaceRoot: string): WorkspaceConfig {
 	}
 }
 
-export interface WorkspaceMigrationResult {
-	fromVersion: number;
-	toVersion: number;
-	renamedGroupArchitecture: boolean;
-}
-
-export function migrateWorkspace(workspaceRoot: string): WorkspaceMigrationResult {
-	const resolved = resolve(workspaceRoot);
-	const config = validateWorkspace(resolved);
-	if (config.version === TARGET_WORKSPACE_VERSION) {
-		return {
-			fromVersion: TARGET_WORKSPACE_VERSION,
-			toVersion: TARGET_WORKSPACE_VERSION,
-			renamedGroupArchitecture: false,
-		};
-	}
-	if (config.version !== 1 && config.version !== 2) {
-		throw new Error(`Unsupported workspace version: ${config.version}`);
-	}
-
-	let renamedGroupArchitecture = false;
-	let fromVersion = config.version;
-	if (config.version === 1) {
-		renamedGroupArchitecture = migrateWorkspaceV1ToV2(resolved);
-		writeWorkspaceConfig(resolved, { version: 2 });
-		fromVersion = 1;
-	}
-
-	migrateWorkspaceToAgentTs(resolved);
-	writeWorkspaceConfig(resolved, { version: TARGET_WORKSPACE_VERSION });
-	return { fromVersion, toVersion: TARGET_WORKSPACE_VERSION, renamedGroupArchitecture };
-}
-
-function migrateWorkspaceV1ToV2(workspaceRoot: string): boolean {
-	const legacyDir = join(workspaceRoot, LEGACY_GROUP_ARCHITECTURE_DIR);
-	const teamTemplateDir = join(workspaceRoot, TEAM_TEMPLATE_DIR);
-	if (!existsSync(legacyDir)) {
-		return false;
-	}
-	if (existsSync(teamTemplateDir)) {
-		throw new Error(
-			`Cannot migrate workspace: both ${LEGACY_GROUP_ARCHITECTURE_DIR}/ and ${TEAM_TEMPLATE_DIR}/ exist. Remove or merge one before running d-pi migrate.`,
-		);
-	}
-	renameSync(legacyDir, teamTemplateDir);
-	return true;
-}
-
-function writeWorkspaceConfig(workspaceRoot: string, config: WorkspaceConfig): void {
-	writeFileSync(join(workspaceRoot, DPI_DIR, CONFIG_FILE), `${JSON.stringify(config, null, "\t")}\n`);
-}
-
-/**
- * Load workspace context: APPEND_SYSTEM.md content, skill paths, extension paths.
- */
 export function loadWorkspaceContext(
 	workspaceRoot: string,
 	options: LoadWorkspaceContextOptions = {},
 ): WorkspaceContext {
 	const resolved = resolve(workspaceRoot);
 
-	// Read APPEND_SYSTEM.md if present
 	const appendSystemPath = join(resolved, APPEND_SYSTEM_MD);
 	let appendSystemPrompt: string | undefined;
 	if (existsSync(appendSystemPath)) {
@@ -303,14 +233,9 @@ function pushAgentsFileIfExists(target: Array<{ path: string; content: string }>
 	}
 }
 
-/**
- * Initialize a d-pi workspace in the given directory.
- * Creates .dpi/config.json, agents/, agents/root/, and context file templates.
- */
 export function initWorkspace(dir: string): void {
 	const resolved = resolve(dir);
 
-	// Check if already a workspace
 	if (isWorkspaceRoot(resolved)) {
 		throw new Error(`Already a d-pi workspace: ${resolved}`);
 	}
@@ -319,24 +244,17 @@ export function initWorkspace(dir: string): void {
 	writeWorkspacePackageJson(resolved);
 	linkDPiPackageIntoWorkspace(resolved);
 
-	// Create .dpi/
 	const dpiDir = join(resolved, DPI_DIR);
 	mkdirSync(dpiDir, { recursive: true });
 
-	// Write .dpi/config.json — strict JSON, no comments.
-	// Currently only the `version` marker is emitted. `version` is reserved as
-	// a migration marker for future workspace-level fields. Tool allow/deny
-	// lists are agent-only (see agent.ts schema) and intentionally have no
-	// workspace-level fallback.
 	writeFileSync(
 		join(dpiDir, CONFIG_FILE),
 		`{
-\t"version": ${TARGET_WORKSPACE_VERSION}
+\t"version": ${WORKSPACE_VERSION}
 }
 `,
 	);
 
-	// Create agents/ and agents/root/
 	const agentsDir = join(resolved, AGENTS_DIR);
 	const rootAgentDir = join(agentsDir, "root");
 	mkdirSync(rootAgentDir, { recursive: true });
@@ -352,9 +270,6 @@ export function initWorkspace(dir: string): void {
 		}),
 	);
 
-	// --- Workspace-level context files ---
-
-	// AGENTS.md: shared context injected into all agents
 	const agentsMdPath = join(resolved, "AGENTS.md");
 	if (!existsSync(agentsMdPath)) {
 		writeFileSync(
@@ -368,7 +283,7 @@ Add project-specific instructions, conventions, and guidelines here.
 
 Strict JSON — no comments, no trailing commas. Top-level keys:
 
-- \`version\` (required, must be \`${TARGET_WORKSPACE_VERSION}\`) — workspace schema version
+- \`version\` (required, must be \`${WORKSPACE_VERSION}\`) — workspace schema version
 
 ## Agent Configuration (\`agents/<name>/agent.ts\`)
 
@@ -388,7 +303,7 @@ Each agent exports a standard definition:
 - \`roles\` (optional): array of role names — see \`team-template/roles/\`.
 - \`skills\` (optional): use \`defineSkill({ dir: "./skills" })\` for agent-local skills.
 - \`tools\` (required): executable tool definitions, usually explicit built-in helpers such as
-  \`...createDispatchTools()\`, \`createTeamTool()\`, and custom \`defineTool({ name, description, parameters, execute })\`.
+  \`createDispatchBashTool()\`, \`createDispatchReadTool()\`, \`createTeamTool()\`, and custom \`defineTool({ name, description, parameters, execute })\`.
   This is the effective tool set for the agent.
 - \`contextFiles\` (optional): explicitly include \`./AGENTS.md\` as \`context\` and
   \`./.pi/APPEND_SYSTEM.md\` as \`append_system\` when this agent needs local context.
@@ -405,7 +320,6 @@ Each agent exports a standard definition:
 		);
 	}
 
-	// APPEND_SYSTEM.md: shared content appended to all agents' system prompts
 	const appendSystemMdPath = join(resolved, APPEND_SYSTEM_MD);
 	if (!existsSync(appendSystemMdPath)) {
 		writeFileSync(
@@ -419,9 +333,6 @@ that all agents should follow.
 		);
 	}
 
-	// --- Agent-level context files (root agent) ---
-
-	// agents/root/AGENTS.md: root-agent-specific context
 	const rootAgentsMdPath = join(rootAgentDir, "AGENTS.md");
 	if (!existsSync(rootAgentsMdPath)) {
 		writeFileSync(
@@ -435,7 +346,6 @@ is also loaded automatically.
 		);
 	}
 
-	// agents/root/.pi/APPEND_SYSTEM.md: root-agent-specific system prompt append
 	const rootPiDir = join(rootAgentDir, ".pi");
 	mkdirSync(rootPiDir, { recursive: true });
 	const rootAppendSystemPath = join(rootPiDir, APPEND_SYSTEM_MD);

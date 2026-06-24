@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runDPiCli } from "../src/cli-runner.ts";
-import { initWorkspace, TARGET_WORKSPACE_VERSION, validateWorkspace } from "../src/workspace/workspace.ts";
+import { initWorkspace, validateWorkspace, WORKSPACE_VERSION } from "../src/workspace/workspace.ts";
 
 let tmpRoot: string | undefined;
 
@@ -35,7 +35,7 @@ describe("init template: strict-JSON output", () => {
 
 		// The point of the regression: strict JSON.parse must accept the file.
 		const parsed = JSON.parse(raw) as { version: number };
-		expect(parsed.version).toBe(TARGET_WORKSPACE_VERSION);
+		expect(parsed.version).toBe(WORKSPACE_VERSION);
 	});
 
 	it("writes agents/root/agent.ts in the standard v3 schema", () => {
@@ -93,7 +93,7 @@ describe("init template: strict-JSON output", () => {
 		// validateWorkspace no longer strips `//` comments — the init template
 		// must be canonical JSON on its own.
 		const config = validateWorkspace(workspace);
-		expect(config.version).toBe(TARGET_WORKSPACE_VERSION);
+		expect(config.version).toBe(WORKSPACE_VERSION);
 	});
 
 	it("validateWorkspace rejects a hand-written config that still uses JS comments", () => {
@@ -110,7 +110,7 @@ describe("init template: strict-JSON output", () => {
 		writeFileSync(
 			configPath,
 			`{
-	"version": ${TARGET_WORKSPACE_VERSION},
+	"version": ${WORKSPACE_VERSION},
 	// "someFutureField": "example"
 }
 `,
@@ -160,7 +160,7 @@ describe("init template: strict-JSON output", () => {
 			join(workspace, "team-template"),
 		);
 		expect(stdout.join("\n")).toContain("Cloned team template from https://example.com/team-template.git");
-		expect(validateWorkspace(workspace).version).toBe(TARGET_WORKSPACE_VERSION);
+		expect(validateWorkspace(workspace).version).toBe(WORKSPACE_VERSION);
 	});
 
 	it("CLI init output describes the root agent.ts layout", async () => {
