@@ -24,7 +24,6 @@ const TUI_COMPONENTS_DIR = "tui-components";
 const APPEND_SYSTEM_MD = "APPEND_SYSTEM.md";
 const AGENTS_MD = "AGENTS.md";
 const D_PI_PACKAGE_NAME = "@sheason/d-pi";
-export const WORKSPACE_VERSION = 4;
 
 function dPiPackageRoot(): string {
 	return dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -110,9 +109,6 @@ export function validateWorkspace(workspaceRoot: string): WorkspaceConfig {
 	try {
 		const raw = readFileSync(configPath, "utf-8");
 		const parsed = JSON.parse(raw);
-		if (parsed.version !== WORKSPACE_VERSION) {
-			throw new Error(`Unsupported workspace version: ${parsed.version}`);
-		}
 		return parsed as WorkspaceConfig;
 	} catch (err) {
 		if (err instanceof SyntaxError) {
@@ -247,13 +243,7 @@ export function initWorkspace(dir: string): void {
 	const dpiDir = join(resolved, DPI_DIR);
 	mkdirSync(dpiDir, { recursive: true });
 
-	writeFileSync(
-		join(dpiDir, CONFIG_FILE),
-		`{
-\t"version": ${WORKSPACE_VERSION}
-}
-`,
-	);
+	writeFileSync(join(dpiDir, CONFIG_FILE), "{}\n");
 
 	const agentsDir = join(resolved, AGENTS_DIR);
 	const rootAgentDir = join(agentsDir, "root");
@@ -281,9 +271,7 @@ Add project-specific instructions, conventions, and guidelines here.
 
 ## Workspace Configuration (\`.dpi/config.json\`)
 
-Strict JSON — no comments, no trailing commas. Top-level keys:
-
-- \`version\` (required, must be \`${WORKSPACE_VERSION}\`) — workspace schema version
+Strict JSON — no comments, no trailing commas.
 
 ## Agent Configuration (\`agents/<name>/agent.ts\`)
 

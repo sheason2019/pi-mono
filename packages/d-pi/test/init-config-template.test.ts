@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runDPiCli } from "../src/cli-runner.ts";
-import { initWorkspace, validateWorkspace, WORKSPACE_VERSION } from "../src/workspace/workspace.ts";
+import { initWorkspace, validateWorkspace } from "../src/workspace/workspace.ts";
 
 let tmpRoot: string | undefined;
 
@@ -34,8 +34,7 @@ describe("init template: strict-JSON output", () => {
 		expect(raw).not.toMatch(/,[\s\n]*[}\]]/);
 
 		// The point of the regression: strict JSON.parse must accept the file.
-		const parsed = JSON.parse(raw) as { version: number };
-		expect(parsed.version).toBe(WORKSPACE_VERSION);
+		JSON.parse(raw);
 	});
 
 	it("writes agents/root/agent.ts in the standard v3 schema", () => {
@@ -86,14 +85,13 @@ describe("init template: strict-JSON output", () => {
 		expect(realpathSync(linkedPackagePath)).toBe(realpathSync(packageRoot));
 	});
 
-	it("validateWorkspace accepts the freshly-init config and reports the target version", () => {
+	it("validateWorkspace accepts the freshly-init config", () => {
 		const workspace = freshWorkspace();
 		initWorkspace(workspace);
 
 		// validateWorkspace no longer strips `//` comments — the init template
 		// must be canonical JSON on its own.
-		const config = validateWorkspace(workspace);
-		expect(config.version).toBe(WORKSPACE_VERSION);
+		validateWorkspace(workspace);
 	});
 
 	it("validateWorkspace rejects a hand-written config that still uses JS comments", () => {
@@ -110,7 +108,6 @@ describe("init template: strict-JSON output", () => {
 		writeFileSync(
 			configPath,
 			`{
-	"version": ${WORKSPACE_VERSION},
 	// "someFutureField": "example"
 }
 `,
@@ -124,9 +121,6 @@ describe("init template: strict-JSON output", () => {
 		initWorkspace(workspace);
 
 		const agentsMd = readFileSync(join(workspace, "AGENTS.md"), "utf-8");
-		// Workspace-level keys — only `version` is documented (reserved as a
-		// migration marker)
-		expect(agentsMd).toMatch(/version/);
 		const workspaceSection = agentsMd.split("## Agent Configuration")[0];
 		expect(workspaceSection).not.toMatch(/includeTools/);
 		expect(workspaceSection).not.toMatch(/excludeTools/);
@@ -160,7 +154,7 @@ describe("init template: strict-JSON output", () => {
 			join(workspace, "team-template"),
 		);
 		expect(stdout.join("\n")).toContain("Cloned team template from https://example.com/team-template.git");
-		expect(validateWorkspace(workspace).version).toBe(WORKSPACE_VERSION);
+		validateWorkspace(workspace);
 	});
 
 	it("CLI init output describes the root agent.ts layout", async () => {

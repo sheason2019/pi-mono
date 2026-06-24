@@ -29,9 +29,7 @@ export interface AgentConfig {
 }
 
 // === Workspace Configuration ===
-export interface WorkspaceConfig {
-	version: 4;
-}
+export interface WorkspaceConfig {}
 
 export interface WorkspaceContext {
 	workspaceRoot: string;
