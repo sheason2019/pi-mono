@@ -65,6 +65,9 @@ export interface DPiAgentHarness {
 	nextTurn(text: string, options?: AgentHarnessPromptOptions): Promise<unknown>;
 	subscribe(listener: DPiAgentHarnessEventListener): () => void;
 	setResources?(resources: AgentHarnessResources): Promise<void> | void;
+	setModel?(model: Model<Api>): Promise<void> | void;
+	setThinkingLevel?(level: ThinkingLevel): Promise<void> | void;
+	setTools?(tools: AgentTool[], activeToolNames?: string[]): Promise<void> | void;
 	abort?(): Promise<unknown> | unknown;
 }
 
@@ -502,6 +505,20 @@ export class DPiAgentRuntime {
 			transcriptItems: this.transcriptItems.map((item) => ({ ...item })),
 			messages: this.messages.map((message) => ({ ...message })),
 		};
+	}
+
+	async updateModel(model: Model<Api>, thinkingLevel?: ThinkingLevel): Promise<void> {
+		this.modelManager.setModel(model);
+		await this.harness.setModel?.(model);
+		if (thinkingLevel !== undefined) {
+			await this.harness.setThinkingLevel?.(thinkingLevel);
+		}
+		await this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
+	}
+
+	async updateTools(tools: AgentTool[], activeToolNames: string[]): Promise<void> {
+		await this.harness.setTools?.(tools, activeToolNames);
+		await this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
 	}
 
 	getSnapshot(): DPiRuntimeSnapshot {

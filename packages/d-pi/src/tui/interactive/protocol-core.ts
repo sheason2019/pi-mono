@@ -154,15 +154,6 @@ const protocolHandlers: Record<string, DPiInteractiveProtocolHandler> = {
 			return bad("Invalid settings body");
 		}
 		proxy.updateSettings(data);
-		if (typeof data.autoCompact === "boolean") {
-			proxy.setAutoCompactEnabled(data.autoCompact);
-		}
-		if (data.steeringMode === "all" || data.steeringMode === "one-at-a-time") {
-			proxy.setSteeringMode(data.steeringMode);
-		}
-		if (data.followUpMode === "all" || data.followUpMode === "one-at-a-time") {
-			proxy.setFollowUpMode(data.followUpMode);
-		}
 		return ok();
 	},
 };

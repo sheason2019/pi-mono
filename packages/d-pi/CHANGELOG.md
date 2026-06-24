@@ -2,18 +2,25 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `autoCompact` option to `defineAgent()` for declarative control over automatic context compaction. Defaults to `true`.
+
 ### Changed
 
 - Rebuilt the d-pi connect path around a d-pi-owned remote-first service API and TUI client. The hub now exposes stable snapshot, SSE event, and prompt action routes under `/api/agents/:name/*`; `d-pi connect` routes its child TUI through the new remote client/controller, while executor registration continues to use per-session `connectId` values and hub routing uses decoded agent names.
 
 ### Fixed
 
+- Fixed the `reload` command not actually reloading agent configuration. Reload now re-reads `agent.ts`, rebuilds the model registry, updates the runtime model and thinking level when they change, and refreshes the session banner and resource state.
 - Fixed remote worker IPC behavior after the runtime cutover: state queries, prompt/steer/follow-up actions, SSE subscribe/unsubscribe, extension-generated messages, and local native tool execution are now handled by d-pi-owned adapters instead of placeholder or timeout-prone bridges.
 - Fixed context usage percentage always showing 0% in the TUI footer. The worker adapter and runtime snapshot now compute context window usage via the upstream `estimateContextTokens` helper, which uses provider-reported usage data when available and falls back to a character-based heuristic otherwise.
 
 ### Removed
 
+- Replaced `thinkingLevelMap` with a single `thinkingLevel` field in `defineModel()`. The active thinking level is now determined entirely by the model definition instead of being runtime-configurable, and the empty `DPiWorkerSettingsManager` has been removed.
 - Removed imperative model and thinking level controls (`setModel`, `cycleModel`, `setThinkingLevel`, `cycleThinkingLevel`) from the session proxy, extension API, runtime hooks, and TUI keybindings. Model and thinking configuration is now exclusively declared in `agent.ts` and applied at runtime via the reload tool.
+- Removed imperative `setAutoCompactEnabled`, `setSteeringMode`, `setFollowUpMode`, `setScopedModels`, and `setEnabledModels` from the session proxy and protocol. Auto-compact is now configured declaratively via `defineAgent({ autoCompact })`; steering/follow-up mode and scoped model filters (which had no runtime effect) have been removed entirely.
 - Removed the non-d-pi workspace packages and converged repository build, check, test, release, and local smoke-test configuration around the single `@sheason/d-pi` package.
 - Removed the d-pi package dependency on the legacy interactive runtime package. Extension contracts, native tools, worker IPC/session shims, and tests now use d-pi-owned contracts or the upstream `@earendil-works/pi-*` packages directly.
 

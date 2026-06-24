@@ -116,9 +116,6 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	get model(): string {
 		return this.statusState.model;
 	}
-	get thinkingLevel(): DPiInteractiveSessionStateSnapshot["thinkingLevel"] {
-		return this.statusState.thinkingLevel;
-	}
 	get isStreaming(): boolean {
 		return this.statusState.isStreaming;
 	}
@@ -147,15 +144,6 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	async compact(customInstructions?: string): Promise<void> {
 		await this.post("compact", { customInstructions });
 	}
-	setAutoCompactEnabled(enabled: boolean): void {
-		void this.post("settings", { autoCompact: enabled });
-	}
-	setSteeringMode(mode: "all" | "one-at-a-time"): void {
-		void this.post("settings", { steeringMode: mode });
-	}
-	setFollowUpMode(mode: "all" | "one-at-a-time"): void {
-		void this.post("settings", { followUpMode: mode });
-	}
 	async newSession(): Promise<void> {
 		await this.post("new-session");
 	}
@@ -173,12 +161,6 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	}
 	async reload(): Promise<void> {
 		await this.post("reload");
-	}
-	setScopedModels(enabledIds: string[] | null): void {
-		void this.post("scoped-models", { enabledIds });
-	}
-	setEnabledModels(patterns: string[] | undefined): void {
-		void this.post("enabled-models", { patterns });
 	}
 	updateSettings(updates: Record<string, unknown>): void {
 		void this.post("settings", updates);

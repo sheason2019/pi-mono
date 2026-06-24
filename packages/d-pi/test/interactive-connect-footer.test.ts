@@ -13,7 +13,6 @@ import {
 function snapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "stepfun/step-3.7-flash",
-		thinkingLevel: "high",
 		isStreaming: false,
 		isCompacting: false,
 		isBashRunning: false,
@@ -30,11 +29,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/remote/agent/root",
 		availableProviderCount: 2,
 		remoteSettings: {
-			autoCompact: true,
-			thinkingLevel: "high",
-			availableThinkingLevels: ["off", "low", "medium", "high"],
-			steeringMode: "all",
-			followUpMode: "all",
 			enableSkillCommands: true,
 			doubleEscapeAction: "tree",
 			showImages: true,
@@ -57,8 +51,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 			showTerminalProgress: true,
 			warnings: {},
 		},
-		scopedModelIds: null,
-		enabledModelPatterns: undefined,
 		extensionPaths: [],
 	};
 }
@@ -89,7 +81,6 @@ describe("d-pi connect footer snapshot", () => {
 
 		expect(footerSnapshot.cwd).toBe("~/workspace");
 		expect(footerSnapshot.model).toBe("no-model");
-		expect(footerSnapshot.thinkingLevel).toBe(remote.thinkingLevel);
 		expect(footerSnapshot.contextUsage).toEqual({ tokens: null, contextWindow: 0, percent: null });
 		expect(footerSnapshot.modelInfo).toEqual({ id: "", provider: "", reasoning: false, contextWindow: 0 });
 	});

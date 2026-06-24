@@ -76,7 +76,6 @@ function createProxy(overrides: Partial<DPiInteractiveAgentSessionProxy> = {}): 
 function connectSnapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "anthropic/claude-sonnet-4",
-		thinkingLevel: "medium",
 		isStreaming: false,
 		isCompacting: false,
 		isBashRunning: false,
@@ -93,11 +92,6 @@ function connectSnapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/tmp/workspace",
 		availableProviderCount: 1,
 		remoteSettings: {
-			autoCompact: true,
-			thinkingLevel: "medium",
-			availableThinkingLevels: ["off", "low", "medium", "high"],
-			steeringMode: "all",
-			followUpMode: "all",
 			enableSkillCommands: true,
 			doubleEscapeAction: "tree",
 			showImages: true,
@@ -120,8 +114,6 @@ function connectSnapshot(): DPiInteractiveSessionStateSnapshot {
 			showTerminalProgress: true,
 			warnings: {},
 		},
-		scopedModelIds: null,
-		enabledModelPatterns: undefined,
 		extensionPaths: [],
 	};
 }
@@ -257,7 +249,6 @@ describe("d-pi interactive editor submit", () => {
 						sessionFile: "/tmp/session.jsonl",
 						cwd: "/tmp/workspace",
 						model: "anthropic/claude-sonnet-4",
-						thinkingLevel: "medium",
 						messages: [{ role: "assistant", content: "last answer" }],
 						contextUsage: { tokens: 10, contextWindow: 100, percent: 10 },
 						tokenUsage: {
@@ -277,11 +268,6 @@ describe("d-pi interactive editor submit", () => {
 						autoCompactEnabled: true,
 						availableProviderCount: 1,
 						remoteSettings: {
-							autoCompact: true,
-							thinkingLevel: "medium",
-							availableThinkingLevels: ["off", "low", "medium", "high"],
-							steeringMode: "all",
-							followUpMode: "all",
 							enableSkillCommands: true,
 							doubleEscapeAction: "tree",
 							showImages: true,
@@ -304,8 +290,6 @@ describe("d-pi interactive editor submit", () => {
 							showTerminalProgress: true,
 							warnings: {},
 						},
-						scopedModelIds: null,
-						enabledModelPatterns: undefined,
 						extensionPaths: [],
 						banner: { changelogMarkdown: "changes" },
 					}) as unknown as DPiInteractiveSessionStateSnapshot,

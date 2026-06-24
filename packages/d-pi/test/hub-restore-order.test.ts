@@ -62,6 +62,7 @@ function discoveredAgent(entryName: string, config: AgentConfig): DiscoveredAgen
 			contextFiles: [],
 			agentDir: `/tmp/${entryName}`,
 			agentFilePath: `/tmp/${entryName}/agent.ts`,
+			autoCompact: true,
 		},
 	};
 }

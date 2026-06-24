@@ -15,7 +15,7 @@ function modelInfo(model: Model<Api>): DPiModelInfo {
 }
 
 export class DPiModelManager {
-	private readonly model: Model<Api>;
+	private model: Model<Api>;
 
 	constructor(options: DPiModelManagerOptions) {
 		this.model = options.model;
@@ -23,6 +23,10 @@ export class DPiModelManager {
 
 	getModel(): Model<Api> {
 		return this.model;
+	}
+
+	setModel(model: Model<Api>): void {
+		this.model = model;
 	}
 
 	getModelInfo(): DPiModelInfo {

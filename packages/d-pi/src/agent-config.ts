@@ -112,8 +112,8 @@ function formatModelExpression(model: AgentModelDefinition, indent: string): str
 		},`,
 	);
 	if (model.reasoning !== undefined) lines.push(`${indent}\treasoning: ${JSON.stringify(model.reasoning)},`);
-	if (model.thinkingLevelMap !== undefined) {
-		lines.push(`${indent}\tthinkingLevelMap: ${formatJsonValue(model.thinkingLevelMap)},`);
+	if (model.thinkingLevel !== undefined) {
+		lines.push(`${indent}\tthinkingLevel: ${JSON.stringify(model.thinkingLevel)},`);
 	}
 	if (model.input !== undefined) lines.push(`${indent}\tinput: ${formatArrayLiteral(model.input)},`);
 	if (model.cost !== undefined) {

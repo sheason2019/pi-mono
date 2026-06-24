@@ -286,7 +286,7 @@ Each agent exports a standard definition:
   English, no formatting.
 - \`model\` (optional): \`defineModel({ provider, name })\` for a model declared in this
   agent's \`models\` array, or
-  \`defineModel({ id, provider: defineOpenAIProvider(...), contextWindow, thinkingLevelMap, ... })\`
+  \`defineModel({ id, provider: defineOpenAIProvider(...), contextWindow, thinkingLevel, ... })\`
   for an agent-local model. Custom providers must use \`defineProvider(...)\`.
 - \`roles\` (optional): array of role names — see \`team-template/roles/\`.
 - \`skills\` (optional): use \`defineSkill({ dir: "./skills" })\` for agent-local skills.

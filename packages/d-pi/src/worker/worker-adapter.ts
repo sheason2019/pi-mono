@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type AgentMessage, estimateContextTokens } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentLocalModelDefinition, AgentModelDefinition, AgentProviderDefinition } from "../agent-definition.ts";
@@ -51,10 +50,6 @@ export interface DPiWorkerAuthStorage {
 	readonly kind: "d-pi-auth-storage";
 }
 
-export interface DPiWorkerSettingsManager {
-	getDefaultThinkingLevel(): ThinkingLevel | undefined;
-}
-
 export interface DPiRequestAuth {
 	apiKey: string;
 	headers?: Record<string, string>;
@@ -62,6 +57,7 @@ export interface DPiRequestAuth {
 
 export interface DPiWorkerModelRegistry extends ModelRegistry {
 	getApiKeyAndHeaders?(model: Model<Api>): Promise<DPiRequestAuth | undefined> | DPiRequestAuth | undefined;
+	updateAgentDefinition(agentDefinition: LoadedAgentDefinition | undefined): void;
 }
 
 export interface DPiWorkerSessionManager {
@@ -72,7 +68,6 @@ export interface DPiWorkerSessionManager {
 export interface DPiWorkerInfrastructure {
 	agentDir: string;
 	authStorage: DPiWorkerAuthStorage;
-	settingsManager: DPiWorkerSettingsManager;
 	modelRegistry: DPiWorkerModelRegistry;
 }
 
@@ -109,7 +104,6 @@ export interface DPiBindExtensionsOptions {
 export interface DPiAgentSessionServices {
 	diagnostics: unknown[];
 	cwd?: string;
-	settingsManager?: DPiWorkerSettingsManager;
 	modelRegistry?: DPiWorkerModelRegistry;
 	resourceLoaderOptions?: {
 		extensionFactories?: Array<{ factory: ExtensionFactory; name: string }>;
@@ -126,7 +120,6 @@ export interface DPiCreateSessionServicesOptions {
 	cwd: string;
 	agentDir: string;
 	authStorage: DPiWorkerAuthStorage;
-	settingsManager: DPiWorkerSettingsManager;
 	modelRegistry: DPiWorkerModelRegistry;
 	resourceLoaderOptions?: DPiAgentSessionServices["resourceLoaderOptions"];
 }
@@ -163,12 +156,10 @@ export function createDPiWorkerInfrastructure(
 	cwd: string,
 	options: DPiWorkerInfrastructureOptions = {},
 ): DPiWorkerInfrastructure {
-	const settingsManager = createSettingsManager(cwd);
 	const modelRegistry = createBuiltInModelRegistry(options.agentDefinition);
 	return {
 		agentDir: cwd,
 		authStorage: { kind: "d-pi-auth-storage" },
-		settingsManager,
 		modelRegistry,
 	};
 }
@@ -216,7 +207,6 @@ export async function createDPiAgentSessionServices(
 	return {
 		diagnostics: [],
 		cwd: options.cwd,
-		settingsManager: options.settingsManager,
 		modelRegistry: options.modelRegistry,
 		resourceLoaderOptions: options.resourceLoaderOptions,
 	};
@@ -528,7 +518,6 @@ export interface DPiLocalQueueItem {
 
 export interface DPiLocalAgentState {
 	model: string;
-	thinkingLevel: ThinkingLevel;
 	isStreaming: boolean;
 	isCompacting: boolean;
 	isBashRunning: boolean;
@@ -560,8 +549,6 @@ export interface DPiLocalAgentState {
 	cwd: string;
 	availableProviderCount: number;
 	remoteSettings: DPiInteractiveRemoteSettings;
-	scopedModelIds: string[] | null;
-	enabledModelPatterns: string[] | undefined;
 	extensionPaths: string[];
 	agent: {
 		sessionId: string;
@@ -576,12 +563,12 @@ export interface DPiLocalAgentState {
 	transcriptItems?: DPiTranscriptItem[];
 	streaming: boolean;
 	queued: DPiLocalQueueItem[];
-	thinking?: ThinkingLevel;
 	extensions: DPiSessionExtensionSnapshot;
 }
 
 export interface DPiLocalAgentSessionProxyOptions {
 	steeringQueuePath?: string;
+	agentDefinition?: LoadedAgentDefinition;
 }
 
 export type DPiLocalAgentEvent =
@@ -656,13 +643,8 @@ const sessionMessageStates = new WeakMap<DPiWorkerSession, DPiSessionMessageStat
 let generatedSessionSequence = 0;
 let generatedMessageSequence = 0;
 
-function createDefaultRemoteSettings(thinkingLevel: ThinkingLevel): DPiInteractiveRemoteSettings {
+function createDefaultRemoteSettings(): DPiInteractiveRemoteSettings {
 	return {
-		autoCompact: true,
-		thinkingLevel,
-		availableThinkingLevels: ["off", "low", "medium", "high"],
-		steeringMode: "all",
-		followUpMode: "all",
 		enableSkillCommands: true,
 		doubleEscapeAction: "tree",
 		showImages: true,
@@ -915,6 +897,7 @@ export class DPiAgentIpcServer {
 
 export class DPiLocalAgentSessionProxy {
 	private readonly runtime: DPiAgentSessionRuntime;
+	private agentDefinition: LoadedAgentDefinition | undefined;
 	private readonly steeringQueuePath: string;
 	private readonly listeners = new Set<(event: DPiLocalAgentEvent) => void>();
 	private readonly messages: DPiLocalAgentMessage[] = [];
@@ -929,8 +912,6 @@ export class DPiLocalAgentSessionProxy {
 	private streaming = false;
 	private compacting = false;
 	private sessionName: string | undefined;
-	private scopedModelIds: string[] | null = null;
-	private enabledModelPatterns: string[] | undefined;
 	private remoteSettingsOverrides: Partial<DPiInteractiveRemoteSettings> = {};
 	private tokenUsage: DPiLocalAgentState["tokenUsage"] = {
 		input: 0,
@@ -956,6 +937,7 @@ export class DPiLocalAgentSessionProxy {
 
 	constructor(runtime: DPiAgentSessionRuntime, options: DPiLocalAgentSessionProxyOptions = {}) {
 		this.runtime = runtime;
+		this.agentDefinition = options.agentDefinition;
 		this.steeringQueuePath =
 			options.steeringQueuePath ??
 			join(getSessionMetadata(runtime.session).cwd ?? tmpdir(), `.d-pi-${randomUUID()}`, "steering.jsonl");
@@ -964,6 +946,11 @@ export class DPiLocalAgentSessionProxy {
 
 	setBanner(banner: DPiInteractiveBannerData | undefined): void {
 		this.banner = banner;
+		this.emitState();
+	}
+
+	updateAgentDefinition(agentDefinition: LoadedAgentDefinition | undefined): void {
+		this.agentDefinition = agentDefinition;
 		this.emitState();
 	}
 
@@ -984,11 +971,9 @@ export class DPiLocalAgentSessionProxy {
 		const metadata = getSessionMetadata(this.runtime.session);
 		const extensionState = getSessionExtensionSnapshot(this.runtime.session);
 		const model = metadata.model;
-		const thinkingLevel: ThinkingLevel = "off";
 		const remoteSettings = {
-			...createDefaultRemoteSettings(thinkingLevel),
+			...createDefaultRemoteSettings(),
 			...this.remoteSettingsOverrides,
-			thinkingLevel,
 		};
 		const contextWindow = model?.contextWindow ?? 0;
 		const contextEstimate = estimateContextTokens(this.messages as AgentMessage[]);
@@ -996,7 +981,6 @@ export class DPiLocalAgentSessionProxy {
 		const percent = contextWindow > 0 ? (tokens / contextWindow) * 100 : 0;
 		return {
 			model: model?.id ?? "",
-			thinkingLevel,
 			isStreaming: this.streaming,
 			isCompacting: this.compacting,
 			isBashRunning: false,
@@ -1016,12 +1000,10 @@ export class DPiLocalAgentSessionProxy {
 				reasoning: model?.reasoning ?? false,
 				contextWindow: model?.contextWindow ?? 0,
 			},
-			autoCompactEnabled: true,
+			autoCompactEnabled: this.agentDefinition?.autoCompact ?? true,
 			cwd: metadata.cwd ?? "",
 			availableProviderCount: this.runtime.session.modelRegistry.getAll().length,
 			remoteSettings,
-			scopedModelIds: this.scopedModelIds,
-			enabledModelPatterns: this.enabledModelPatterns,
 			extensionPaths: [],
 			agent: {
 				sessionId: metadata.id,
@@ -1166,21 +1148,6 @@ export class DPiLocalAgentSessionProxy {
 		}
 	}
 
-	setAutoCompactEnabled(enabled: boolean): void {
-		this.remoteSettingsOverrides = { ...this.remoteSettingsOverrides, autoCompact: enabled };
-		this.emitState();
-	}
-
-	setSteeringMode(mode: "all" | "one-at-a-time"): void {
-		this.remoteSettingsOverrides = { ...this.remoteSettingsOverrides, steeringMode: mode };
-		this.emitState();
-	}
-
-	setFollowUpMode(mode: "all" | "one-at-a-time"): void {
-		this.remoteSettingsOverrides = { ...this.remoteSettingsOverrides, followUpMode: mode };
-		this.emitState();
-	}
-
 	async newSession(): Promise<void> {
 		await this.runtime.newSession();
 	}
@@ -1207,16 +1174,6 @@ export class DPiLocalAgentSessionProxy {
 		this.emitState();
 	}
 
-	setScopedModels(enabledIds: string[] | null): void {
-		this.scopedModelIds = enabledIds;
-		this.emitState();
-	}
-
-	setEnabledModels(patterns: string[] | undefined): void {
-		this.enabledModelPatterns = patterns;
-		this.emitState();
-	}
-
 	async reload(): Promise<void> {
 		await this.runtime.session.reload();
 		this.emitState();
@@ -1224,15 +1181,6 @@ export class DPiLocalAgentSessionProxy {
 
 	updateSettings(updates: Record<string, unknown>): void {
 		this.remoteSettingsOverrides = { ...this.remoteSettingsOverrides, ...remoteSettingsUpdates(updates) };
-		if (typeof updates.autoCompact === "boolean") {
-			this.setAutoCompactEnabled(updates.autoCompact);
-		}
-		if (updates.steeringMode === "all" || updates.steeringMode === "one-at-a-time") {
-			this.setSteeringMode(updates.steeringMode);
-		}
-		if (updates.followUpMode === "all" || updates.followUpMode === "one-at-a-time") {
-			this.setFollowUpMode(updates.followUpMode);
-		}
 		this.emitState();
 	}
 
@@ -1726,7 +1674,7 @@ function createPlaceholderSession(
 ): DPiWorkerSession {
 	const resourceLoader = createEmptyResourceLoader(services.resourceLoaderOptions);
 	const modelRegistry = services.modelRegistry ?? createEmptyModelRegistry();
-	const extensionState = createEmptyExtensionState(services.settingsManager);
+	const extensionState = createEmptyExtensionState();
 	let lastBindOptions: DPiBindExtensionsOptions | undefined;
 	const session: DPiWorkerSession = {
 		agent: {
@@ -1744,7 +1692,7 @@ function createPlaceholderSession(
 		},
 		bindExtensions: async (bindOptions) => {
 			lastBindOptions = bindOptions;
-			resetExtensionState(extensionState, services.settingsManager);
+			resetExtensionState(extensionState);
 			for (const extension of services.resourceLoaderOptions?.extensionFactories ?? []) {
 				try {
 					extension.factory(createExtensionApi(extensionState, getSessionMessageState(session)));
@@ -1765,20 +1713,9 @@ function createPlaceholderSession(
 	return session;
 }
 
-interface PiSettings {
-	defaultThinkingLevel?: ThinkingLevel;
-}
-
-function createSettingsManager(cwd: string): DPiWorkerSettingsManager {
-	void cwd;
-	const settings: PiSettings = {};
-	return {
-		getDefaultThinkingLevel: () => settings.defaultThinkingLevel,
-	};
-}
-
-function createBuiltInModelRegistry(agentDefinition?: LoadedAgentDefinition): DPiWorkerModelRegistry {
-	let registry = loadAvailableModels(agentDefinition);
+function createBuiltInModelRegistry(initialAgentDefinition?: LoadedAgentDefinition): DPiWorkerModelRegistry {
+	let currentAgentDefinition = initialAgentDefinition;
+	let registry = loadAvailableModels(currentAgentDefinition);
 	return {
 		find: (provider, modelId) => findBuiltInModel(registry.models, provider, modelId),
 		getAll: () => [...registry.models],
@@ -1798,7 +1735,11 @@ function createBuiltInModelRegistry(agentDefinition?: LoadedAgentDefinition): DP
 			};
 		},
 		refresh: () => {
-			registry = loadAvailableModels(agentDefinition);
+			registry = loadAvailableModels(currentAgentDefinition);
+		},
+		updateAgentDefinition: (agentDefinition: LoadedAgentDefinition | undefined) => {
+			currentAgentDefinition = agentDefinition;
+			registry = loadAvailableModels(currentAgentDefinition);
 		},
 	};
 }
@@ -1896,7 +1837,6 @@ function agentLocalModelToPiModel(
 		provider: provider.provider,
 		baseUrl: provider.baseUrl,
 		reasoning: definition.reasoning ?? false,
-		...(definition.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: { ...definition.thinkingLevelMap } }),
 		input: definition.input ? [...definition.input] : ["text"],
 		cost: definition.cost ? { ...definition.cost } : { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: definition.contextWindow,
@@ -1926,6 +1866,7 @@ function createEmptyModelRegistry(): DPiWorkerModelRegistry {
 		getAll: () => [],
 		getAvailable: async () => [],
 		refresh: () => {},
+		updateAgentDefinition: () => {},
 	};
 }
 
@@ -1943,8 +1884,7 @@ function createEmptyResourceLoader(options?: DPiAgentSessionServices["resourceLo
 	};
 }
 
-function createEmptyExtensionState(settingsManager?: DPiWorkerSettingsManager): DPiSessionExtensionState {
-	const thinking = settingsManager?.getDefaultThinkingLevel();
+function createEmptyExtensionState(): DPiSessionExtensionState {
 	return {
 		tools: [],
 		commands: [],
@@ -1956,11 +1896,10 @@ function createEmptyExtensionState(settingsManager?: DPiWorkerSettingsManager): 
 		messageRenderers: [],
 		inputHandlerDefinitions: [],
 		eventHandlerDefinitions: [],
-		...(thinking ? { thinking } : {}),
 	};
 }
 
-function resetExtensionState(state: DPiSessionExtensionState, settingsManager?: DPiWorkerSettingsManager): void {
+function resetExtensionState(state: DPiSessionExtensionState): void {
 	state.tools = [];
 	state.commands = [];
 	state.renderers = [];
@@ -1971,7 +1910,6 @@ function resetExtensionState(state: DPiSessionExtensionState, settingsManager?: 
 	state.messageRenderers = [];
 	state.inputHandlerDefinitions = [];
 	state.eventHandlerDefinitions = [];
-	void settingsManager;
 }
 
 function createExtensionApi(state: DPiSessionExtensionState, messages: DPiSessionMessageState): ExtensionAPI {
@@ -2339,9 +2277,6 @@ function modelToInteractiveModel(model: Model<Api>): DPiInteractiveModelItemData
 
 function remoteSettingsUpdates(updates: Record<string, unknown>): Partial<DPiInteractiveRemoteSettings> {
 	const result: Partial<DPiInteractiveRemoteSettings> = {};
-	if (typeof updates.autoCompact === "boolean") {
-		result.autoCompact = updates.autoCompact;
-	}
 	if (typeof updates.showImages === "boolean") {
 		result.showImages = updates.showImages;
 	}
@@ -2356,12 +2291,6 @@ function remoteSettingsUpdates(updates: Record<string, unknown>): Partial<DPiInt
 	}
 	if (typeof updates.enableSkillCommands === "boolean") {
 		result.enableSkillCommands = updates.enableSkillCommands;
-	}
-	if (updates.steeringMode === "all" || updates.steeringMode === "one-at-a-time") {
-		result.steeringMode = updates.steeringMode;
-	}
-	if (updates.followUpMode === "all" || updates.followUpMode === "one-at-a-time") {
-		result.followUpMode = updates.followUpMode;
 	}
 	if (typeof updates.transport === "string") {
 		result.transport = updates.transport;

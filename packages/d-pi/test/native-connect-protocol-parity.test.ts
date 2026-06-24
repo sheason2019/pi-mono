@@ -15,7 +15,6 @@ import {
 function snapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "anthropic/claude-sonnet-4",
-		thinkingLevel: "medium",
 		isStreaming: false,
 		isCompacting: false,
 		isBashRunning: false,
@@ -32,11 +31,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/tmp/workspace",
 		availableProviderCount: 1,
 		remoteSettings: {
-			autoCompact: true,
-			thinkingLevel: "medium",
-			availableThinkingLevels: ["off", "low", "medium", "high"],
-			steeringMode: "all",
-			followUpMode: "all",
 			enableSkillCommands: true,
 			doubleEscapeAction: "tree",
 			showImages: true,
@@ -59,8 +53,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 			showTerminalProgress: true,
 			warnings: {},
 		},
-		scopedModelIds: null,
-		enabledModelPatterns: undefined,
 		extensionPaths: [],
 	};
 }
@@ -76,17 +68,12 @@ function createProxy(): DPiInteractiveAgentSessionProxy {
 		abortBash: vi.fn(),
 		clearQueue: vi.fn(() => ({ steering: [], followUp: [] })),
 		compact: vi.fn(async () => {}),
-		setAutoCompactEnabled: vi.fn(),
-		setSteeringMode: vi.fn(),
-		setFollowUpMode: vi.fn(),
 		newSession: vi.fn(async () => {}),
 		switchSession: vi.fn(async () => {}),
 		fork: vi.fn(async () => {}),
 		renameSession: vi.fn(),
 		setLabel: vi.fn(),
 		reload: vi.fn(async () => {}),
-		setScopedModels: vi.fn(),
-		setEnabledModels: vi.fn(),
 		updateSettings: vi.fn(),
 		getTree: vi.fn(() => []),
 		getUserMessagesForForking: vi.fn(() => []),
@@ -102,9 +89,6 @@ function createProxy(): DPiInteractiveAgentSessionProxy {
 		getSnapshot: vi.fn(() => state),
 		get model() {
 			return state.model;
-		},
-		get thinkingLevel() {
-			return state.thinkingLevel;
 		},
 		get isStreaming() {
 			return state.isStreaming;

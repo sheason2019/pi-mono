@@ -16,7 +16,6 @@ export interface BuildDPiInteractiveFooterViewOptions extends DPiInteractiveStyl
 	snapshot: DPiInteractiveSessionStateSnapshot;
 	gitBranch?: string | null;
 	width?: number;
-	showThinkingLevel?: boolean;
 }
 
 export function formatDPiInteractiveTokens(count: number): string {
@@ -28,7 +27,6 @@ export function buildDPiInteractiveFooterView(options: BuildDPiInteractiveFooter
 		snapshot: normalizeFooterSnapshot(options.snapshot),
 		gitBranch: options.gitBranch,
 		width: options.width,
-		showThinkingLevel: options.showThinkingLevel,
 		theme: createDPiNativeTheme(options),
 	});
 	return { lines: view.lines, text: view.text };

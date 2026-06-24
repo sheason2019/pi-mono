@@ -11,7 +11,6 @@ import {
 function createSnapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "claude-sonnet-4",
-		thinkingLevel: "medium",
 		isStreaming: false,
 		isCompacting: false,
 		isBashRunning: false,
@@ -61,11 +60,6 @@ function createSnapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/tmp/workspace",
 		availableProviderCount: 2,
 		remoteSettings: {
-			autoCompact: true,
-			thinkingLevel: "medium",
-			availableThinkingLevels: ["off", "low", "medium", "high"],
-			steeringMode: "all",
-			followUpMode: "all",
 			enableSkillCommands: true,
 			doubleEscapeAction: "tree",
 			showImages: true,
@@ -88,8 +82,6 @@ function createSnapshot(): DPiInteractiveSessionStateSnapshot {
 			showTerminalProgress: true,
 			warnings: {},
 		},
-		scopedModelIds: null,
-		enabledModelPatterns: undefined,
 		extensionPaths: [],
 	};
 }
@@ -105,9 +97,6 @@ function createProxy(snapshot: DPiInteractiveSessionStateSnapshot): DPiInteracti
 		clearQueue: vi.fn(() => ({ steering: [], followUp: [] })),
 		get model() {
 			return snapshot.model;
-		},
-		get thinkingLevel() {
-			return snapshot.thinkingLevel;
 		},
 		get isStreaming() {
 			return snapshot.isStreaming;
@@ -134,17 +123,12 @@ function createProxy(snapshot: DPiInteractiveSessionStateSnapshot): DPiInteracti
 			return snapshot.messages;
 		},
 		compact: vi.fn(async () => {}),
-		setAutoCompactEnabled: vi.fn(),
-		setSteeringMode: vi.fn(),
-		setFollowUpMode: vi.fn(),
 		newSession: vi.fn(async () => {}),
 		switchSession: vi.fn(async () => {}),
 		fork: vi.fn(async () => {}),
 		renameSession: vi.fn(),
 		setLabel: vi.fn(),
 		reload: vi.fn(async () => {}),
-		setScopedModels: vi.fn(),
-		setEnabledModels: vi.fn(),
 		updateSettings: vi.fn(),
 		getTree: vi.fn(() => []),
 		getUserMessagesForForking: vi.fn(() => []),

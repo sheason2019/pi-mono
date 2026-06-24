@@ -1,4 +1,4 @@
-import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api } from "@earendil-works/pi-ai";
 import type { DPiTranscriptItem } from "../../runtime/transcript/projector.ts";
 
@@ -99,11 +99,6 @@ export interface DPiInteractiveModelItemData {
 }
 
 export interface DPiInteractiveRemoteSettings {
-	autoCompact: boolean;
-	thinkingLevel: ThinkingLevel;
-	availableThinkingLevels: readonly ThinkingLevel[];
-	steeringMode: "all" | "one-at-a-time";
-	followUpMode: "all" | "one-at-a-time";
 	enableSkillCommands: boolean;
 	doubleEscapeAction: "fork" | "tree" | "none";
 	showImages: boolean;
@@ -180,7 +175,6 @@ export interface DPiInteractiveClientExtensionData {
 
 export interface DPiInteractiveSessionStateSnapshot {
 	model: string;
-	thinkingLevel: ThinkingLevel;
 	isStreaming: boolean;
 	isCompacting: boolean;
 	isBashRunning: boolean;
@@ -198,8 +192,6 @@ export interface DPiInteractiveSessionStateSnapshot {
 	cwd: string;
 	availableProviderCount: number;
 	remoteSettings: DPiInteractiveRemoteSettings;
-	scopedModelIds: string[] | null;
-	enabledModelPatterns: string[] | undefined;
 	extensionPaths: string[];
 }
 
@@ -230,7 +222,6 @@ export interface DPiInteractiveAgentSessionProxy {
 	clearQueue(): { steering: string[]; followUp: string[] };
 
 	readonly model: string;
-	readonly thinkingLevel: ThinkingLevel;
 	readonly isStreaming: boolean;
 	readonly isCompacting: boolean;
 	readonly isBashRunning: boolean;
@@ -241,9 +232,6 @@ export interface DPiInteractiveAgentSessionProxy {
 	readonly messages: readonly AgentMessage[];
 
 	compact(customInstructions?: string): Promise<void>;
-	setAutoCompactEnabled(enabled: boolean): void;
-	setSteeringMode(mode: "all" | "one-at-a-time"): void;
-	setFollowUpMode(mode: "all" | "one-at-a-time"): void;
 
 	newSession(): Promise<void>;
 	switchSession(sessionFile: string): Promise<void>;
@@ -252,8 +240,6 @@ export interface DPiInteractiveAgentSessionProxy {
 	setLabel(entryId: string, label: string | undefined): void;
 	reload(): Promise<void>;
 
-	setScopedModels(enabledIds: string[] | null): void;
-	setEnabledModels(patterns: string[] | undefined): void;
 	updateSettings(updates: Record<string, unknown>): void;
 
 	getTree(): DPiInteractiveTreeNodeData[];
