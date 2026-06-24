@@ -466,17 +466,11 @@ export class Hub {
 			switch (tool) {
 				case "send_message": {
 					const p = params as {
-						agent_id?: string;
-						agent_name?: string;
-						toAgentName?: string;
-						agentIds?: string | string[];
+						agent_name: string;
 						message: string;
 						mode?: "next" | "steer";
 					};
-					const targetAgentName = resolveSendMessageTarget(p);
-					// Names are the unique key — the registry is name-keyed
-					// so a single get() lookup suffices. No more "name or id"
-					// disambiguation; the user always passes the agent's name.
+					const targetAgentName = p.agent_name?.trim();
 					const targetAgent = targetAgentName ? this._registry.get(targetAgentName) : undefined;
 					if (!targetAgent) {
 						result = {
@@ -510,9 +504,9 @@ export class Hub {
 				}
 
 				case "destroy_agent": {
-					const p = params as { agent_id: string };
+					const p = params as { agent_name: string };
 					try {
-						await this.destroyAgent(p.agent_id);
+						await this.destroyAgent(p.agent_name);
 						result = { ok: true } satisfies DestroyAgentResult;
 					} catch (err) {
 						result = {
@@ -613,18 +607,4 @@ export class Hub {
 			} satisfies HubToWorkerMessage);
 		}
 	}
-}
-
-function resolveSendMessageTarget(params: {
-	agent_id?: string;
-	agent_name?: string;
-	toAgentName?: string;
-	agentIds?: string | string[];
-}): string | undefined {
-	if (params.agent_id?.trim()) return params.agent_id.trim();
-	if (params.agent_name?.trim()) return params.agent_name.trim();
-	if (params.toAgentName?.trim()) return params.toAgentName.trim();
-	if (typeof params.agentIds === "string") return params.agentIds.trim() || undefined;
-	if (Array.isArray(params.agentIds) && params.agentIds.length === 1) return params.agentIds[0]?.trim() || undefined;
-	return undefined;
 }

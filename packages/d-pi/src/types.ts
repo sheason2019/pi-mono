@@ -29,12 +29,7 @@ export interface AgentConfig {
 }
 
 // === Workspace Configuration ===
-// Only `version` is currently defined. Reserved as a migration marker — future
-// workspace-level fields should bump `version` and be parsed by
-// validateWorkspace() with explicit version checks.
-export interface WorkspaceConfig {
-	version: 1 | 2 | 3;
-}
+export interface WorkspaceConfig {}
 
 export interface WorkspaceContext {
 	workspaceRoot: string;

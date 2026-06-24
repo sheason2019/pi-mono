@@ -1,11 +1,12 @@
+export {
+	type DPiBuiltinContext,
+	setBuiltinContext,
+} from "./builtin-context.ts";
 export type { DPiCommand, DPiCommandContext } from "./command-surface.ts";
 export { defineDPiCommand } from "./command-surface.ts";
 export {
-	type CreateDPiDispatchToolsOptions,
-	createDPiDispatchTools,
-	type DPiDispatchLocalExecutors,
-	type DPiDispatchNativeToolName,
-	type DPiDispatchParameterSchemas,
+	createDispatchBashTool,
+	createDispatchReadTool,
 	type DPiLocalToolExecutor,
 } from "./dispatch-tools.ts";
 export {
@@ -27,12 +28,11 @@ export {
 	type DPiTeamSnapshot,
 } from "./hub-actions.ts";
 export {
-	createDPiCreateAgentTool,
-	createDPiDestroyAgentTool,
-	createDPiOrchestrationTools,
-	createDPiSendMessageTool,
-	createDPiTeamTool,
-	type DPiSendMessageToolOptions,
+	createCreateAgentTool,
+	createDestroyAgentTool,
+	createReloadTool,
+	createSendMessageTool,
+	createTeamTool,
 } from "./orchestration-tools.ts";
 export type { DPiRemoteExecutor, DPiRemoteToolRequest, DPiRemoteToolResult } from "./remote-executor.ts";
 export { defineDPiRemoteExecutor } from "./remote-executor.ts";

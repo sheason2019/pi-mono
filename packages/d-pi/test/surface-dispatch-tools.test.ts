@@ -1,14 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { Type } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import {
-	createDPiDispatchTools,
-	type DPiDispatchLocalExecutors,
-	type DPiDispatchNativeToolName,
-} from "../src/surface/dispatch-tools.ts";
+import { setBuiltinContext } from "../src/surface/builtin-context.ts";
+import { createDispatchBashTool, createDispatchReadTool } from "../src/surface/dispatch-tools.ts";
 import type { DPiRemoteToolRequest, DPiRemoteToolResult } from "../src/surface/index.ts";
-import type { DPiTool } from "../src/surface/tool-surface.ts";
 
 interface TextToolResult {
 	content: Array<{ type: "text"; text: string }>;
@@ -17,7 +12,6 @@ interface TextToolResult {
 }
 
 interface RecordedLocalCall {
-	toolName: DPiDispatchNativeToolName;
 	toolCallId: string;
 	params: unknown;
 }
@@ -36,50 +30,33 @@ class RecordingRemoteExecutor {
 	}
 }
 
-const createValueSchema = () =>
-	Type.Object({
-		value: Type.String(),
-	});
-
-const parameterSchemas: Record<DPiDispatchNativeToolName, ReturnType<typeof Type.Object>> = {
-	bash: createValueSchema(),
-	read: createValueSchema(),
-	ls: createValueSchema(),
-	grep: createValueSchema(),
-	find: createValueSchema(),
-	write: createValueSchema(),
-	edit: createValueSchema(),
-};
-
-function createRecordingLocalExecutors(calls: RecordedLocalCall[]): DPiDispatchLocalExecutors {
-	const createExecutor =
-		(toolName: DPiDispatchNativeToolName) =>
-		async (toolCallId: string, params: Record<string, unknown>): Promise<TextToolResult> => {
-			calls.push({ toolName, toolCallId, params });
-			return { content: [{ type: "text", text: `local ${toolName}` }], details: { local: toolName } };
-		};
-
-	return {
-		bash: createExecutor("bash"),
-		read: createExecutor("read"),
-		ls: createExecutor("ls"),
-		grep: createExecutor("grep"),
-		find: createExecutor("find"),
-		write: createExecutor("write"),
-		edit: createExecutor("edit"),
+function createRecordingLocalExecutor(calls: RecordedLocalCall[], toolName: string) {
+	return async (toolCallId: string, params: Record<string, unknown>): Promise<TextToolResult> => {
+		calls.push({ toolCallId, params });
+		return { content: [{ type: "text", text: `local ${toolName}` }], details: { local: toolName } };
 	};
-}
-
-function getTool(tools: DPiTool[], name: string): DPiTool {
-	const tool = tools.find((item) => item.name === name);
-	if (!tool) {
-		throw new Error(`Missing tool ${name}`);
-	}
-	return tool;
 }
 
 function asTextToolResult(result: unknown): TextToolResult {
 	return result as TextToolResult;
+}
+
+function setupContext(
+	localCalls: RecordedLocalCall[],
+	remoteExecutor: RecordingRemoteExecutor,
+	sourceAgentName?: string,
+) {
+	setBuiltinContext({
+		hubClient: {} as never,
+		agentName: sourceAgentName ?? "root",
+		localExecutors: {
+			bash: createRecordingLocalExecutor(localCalls, "bash"),
+			read: createRecordingLocalExecutor(localCalls, "read"),
+		},
+		remoteExecutor,
+		getReloadFn: () => undefined,
+		getReloadDetails: () => ({}),
+	});
 }
 
 describe("d-pi surface dispatch tools", () => {
@@ -92,88 +69,143 @@ describe("d-pi surface dispatch tools", () => {
 		expect(source).not.toContain("ExtensionAPI");
 	});
 
-	it("creates one dispatch tool for each native tool", () => {
-		const tools = createDPiDispatchTools({
-			localExecutors: createRecordingLocalExecutors([]),
-			remoteExecutor: new RecordingRemoteExecutor(),
-			parameterSchemas,
+	describe("dispatch_bash", () => {
+		it("creates a dispatch_bash tool", () => {
+			const localCalls: RecordedLocalCall[] = [];
+			setupContext(localCalls, new RecordingRemoteExecutor());
+			const tool = createDispatchBashTool();
+
+			expect(tool.name).toBe("dispatch_bash");
+			expect(tool.label).toBe("Dispatch bash");
 		});
 
-		expect(tools.map((tool) => tool.name)).toEqual([
-			"dispatch_bash",
-			"dispatch_read",
-			"dispatch_ls",
-			"dispatch_grep",
-			"dispatch_find",
-			"dispatch_write",
-			"dispatch_edit",
-		]);
+		it("runs local executor without connect_id and strips connect_id from native params", async () => {
+			const localCalls: RecordedLocalCall[] = [];
+			setupContext(localCalls, new RecordingRemoteExecutor());
+			const tool = createDispatchBashTool();
+
+			const result = asTextToolResult(
+				await tool.execute("call-local", {
+					command: "pwd",
+					connect_id: undefined,
+				}),
+			);
+
+			expect(localCalls).toEqual([{ toolCallId: "call-local", params: { command: "pwd" } }]);
+			expect(result).toEqual({ content: [{ type: "text", text: "local bash" }], details: { local: "bash" } });
+		});
+
+		it("runs remote executor with connect_id", async () => {
+			const localCalls: RecordedLocalCall[] = [];
+			const remoteExecutor = new RecordingRemoteExecutor();
+			setupContext(localCalls, remoteExecutor, "root");
+			const tool = createDispatchBashTool();
+
+			const result = asTextToolResult(
+				await tool.execute("remote-call", {
+					command: "ls",
+					connect_id: "connect-1",
+				}),
+			);
+
+			expect(remoteExecutor.calls).toEqual([
+				{
+					requestId: "remote-call",
+					connectId: "connect-1",
+					toolName: "bash",
+					params: { command: "ls" },
+					sourceAgentName: "root",
+				},
+			]);
+			expect(result).toEqual({ content: [{ type: "text", text: "remote ok" }], details: { remote: true } });
+		});
+
+		it("returns isError when remote execution returns ok false", async () => {
+			const localCalls: RecordedLocalCall[] = [];
+			const remoteExecutor = new RecordingRemoteExecutor();
+			remoteExecutor.result = { requestId: "remote-call", ok: false, error: "client offline" };
+			setupContext(localCalls, remoteExecutor);
+			const tool = createDispatchBashTool();
+
+			const result = asTextToolResult(
+				await tool.execute("remote-call", {
+					command: "echo hi",
+					connect_id: "connect-2",
+				}),
+			);
+
+			expect(result.isError).toBe(true);
+			expect(result.content.map((part) => part.text).join("\n")).toContain("client offline");
+		});
 	});
 
-	it("runs local executors without connect_id and strips connect_id from native params", async () => {
-		const calls: RecordedLocalCall[] = [];
-		const tools = createDPiDispatchTools({
-			localExecutors: createRecordingLocalExecutors(calls),
-			remoteExecutor: new RecordingRemoteExecutor(),
-			parameterSchemas,
+	describe("dispatch_read", () => {
+		it("creates a dispatch_read tool", () => {
+			const localCalls: RecordedLocalCall[] = [];
+			setupContext(localCalls, new RecordingRemoteExecutor());
+			const tool = createDispatchReadTool();
+
+			expect(tool.name).toBe("dispatch_read");
+			expect(tool.label).toBe("Dispatch read");
 		});
 
-		const result = asTextToolResult(
-			await getTool(tools, "dispatch_bash").execute("call-local", {
-				value: "pwd",
-				connect_id: undefined,
-			}),
-		);
+		it("runs local executor without connect_id and strips connect_id from native params", async () => {
+			const localCalls: RecordedLocalCall[] = [];
+			setupContext(localCalls, new RecordingRemoteExecutor());
+			const tool = createDispatchReadTool();
 
-		expect(calls).toEqual([{ toolName: "bash", toolCallId: "call-local", params: { value: "pwd" } }]);
-		expect(result).toEqual({ content: [{ type: "text", text: "local bash" }], details: { local: "bash" } });
-	});
+			const result = asTextToolResult(
+				await tool.execute("call-local", {
+					path: "/tmp/file.txt",
+					connect_id: undefined,
+				}),
+			);
 
-	it("runs remote executor with connect_id and returns the remote native tool result", async () => {
-		const remoteExecutor = new RecordingRemoteExecutor();
-		const tools = createDPiDispatchTools({
-			localExecutors: createRecordingLocalExecutors([]),
-			remoteExecutor,
-			parameterSchemas,
-			sourceAgentName: "root",
+			expect(localCalls).toEqual([{ toolCallId: "call-local", params: { path: "/tmp/file.txt" } }]);
+			expect(result).toEqual({ content: [{ type: "text", text: "local read" }], details: { local: "read" } });
 		});
 
-		const result = asTextToolResult(
-			await getTool(tools, "dispatch_read").execute("remote-call", {
-				value: "/tmp/file.txt",
-				connect_id: "connect-1",
-			}),
-		);
+		it("runs remote executor with connect_id", async () => {
+			const localCalls: RecordedLocalCall[] = [];
+			const remoteExecutor = new RecordingRemoteExecutor();
+			setupContext(localCalls, remoteExecutor, "root");
+			const tool = createDispatchReadTool();
 
-		expect(remoteExecutor.calls).toEqual([
-			{
-				requestId: "remote-call",
-				connectId: "connect-1",
-				toolName: "read",
-				params: { value: "/tmp/file.txt" },
-				sourceAgentName: "root",
-			},
-		]);
-		expect(result).toEqual({ content: [{ type: "text", text: "remote ok" }], details: { remote: true } });
-	});
+			const result = asTextToolResult(
+				await tool.execute("remote-call", {
+					path: "/tmp/image.png",
+					connect_id: "connect-1",
+				}),
+			);
 
-	it("returns an isError tool result when remote execution returns ok false", async () => {
-		const remoteExecutor = new RecordingRemoteExecutor();
-		remoteExecutor.result = { requestId: "remote-call", ok: false, error: "client offline" };
-		const tools = createDPiDispatchTools({
-			localExecutors: createRecordingLocalExecutors([]),
-			remoteExecutor,
-			parameterSchemas,
+			expect(remoteExecutor.calls).toEqual([
+				{
+					requestId: "remote-call",
+					connectId: "connect-1",
+					toolName: "read",
+					params: { path: "/tmp/image.png" },
+					sourceAgentName: "root",
+				},
+			]);
+			expect(result).toEqual({ content: [{ type: "text", text: "remote ok" }], details: { remote: true } });
 		});
 
-		const result = asTextToolResult(
-			await getTool(tools, "dispatch_find").execute("remote-call", {
-				value: "*.ts",
-				connect_id: "connect-2",
-			}),
-		);
+		it("returns isError when remote execution returns ok false", async () => {
+			const localCalls: RecordedLocalCall[] = [];
+			const remoteExecutor = new RecordingRemoteExecutor();
+			remoteExecutor.result = { requestId: "remote-call", ok: false, error: "file not found" };
+			setupContext(localCalls, remoteExecutor);
+			const tool = createDispatchReadTool();
 
-		expect(result.isError).toBe(true);
-		expect(result.content.map((part) => part.text).join("\n")).toContain("client offline");
+			const result = asTextToolResult(
+				await tool.execute("remote-call", {
+					path: "/tmp/missing.txt",
+					connect_id: "connect-2",
+				}),
+			);
+
+			expect(result.isError).toBe(true);
+			expect(result.content.map((part) => part.text).join("\n")).toContain("file not found");
+		});
 	});
 });

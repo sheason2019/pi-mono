@@ -271,7 +271,7 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			workspaceRoot: workspace,
 			cwd: workspace,
 			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
-			workspaceConfig: { version: 1 },
+			workspaceConfig: {},
 		});
 		await expect(hub.createAgent("nonexistent-name-xxx", { name: "child" })).rejects.toThrow(
 			/parent agent "nonexistent-name-xxx" not found/,
@@ -287,7 +287,7 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			workspaceRoot: workspace,
 			cwd: workspace,
 			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
-			workspaceConfig: { version: 1 },
+			workspaceConfig: {},
 		});
 		// Skip the restore pass — we just want the createAgent defensive
 		// check in isolation. Inject a root record directly via the registry.
@@ -334,7 +334,7 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			workspaceRoot: workspace,
 			cwd: workspace,
 			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
-			workspaceConfig: { version: 1 },
+			workspaceConfig: {},
 		});
 
 		await hub.createAgent(undefined, { name: "root", persistDefinition: false });
@@ -370,7 +370,7 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			workspaceRoot: workspace,
 			cwd: workspace,
 			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
-			workspaceConfig: { version: 1 },
+			workspaceConfig: {},
 		});
 		const registry = (hub as unknown as { _registry: InstanceType<typeof AgentRegistry> })._registry;
 		const readyMessages: unknown[] = [];

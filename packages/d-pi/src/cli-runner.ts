@@ -13,14 +13,7 @@ import {
 } from "./tui/interactive/run-connect-interactive-mode.ts";
 import type { RunDPiRemoteTuiOptions } from "./tui/remote-tui.ts";
 import type { HubConfig } from "./types.ts";
-import {
-	initWorkspace,
-	isWorkspaceRoot,
-	loadWorkspaceContext,
-	migrateWorkspace,
-	TARGET_WORKSPACE_VERSION,
-	validateWorkspace,
-} from "./workspace/workspace.ts";
+import { initWorkspace, isWorkspaceRoot, loadWorkspaceContext, validateWorkspace } from "./workspace/workspace.ts";
 
 export interface DPiCliRuntime {
 	cwd: string;
@@ -68,7 +61,6 @@ function printHelp(runtime: DPiCliRuntime): void {
 
 Usage:
   d-pi init [--team-template <git-repo>]  Initialize a workspace in the current directory
-  d-pi migrate                      Migrate the current workspace to the latest schema
   d-pi serve [--port ${DEFAULT_HUB_PORT}]  Start the hub (must be in a workspace)
   d-pi connect <user@url> [--agent <id|name>]
   d-pi users create <name> [--description <text>]
@@ -200,21 +192,6 @@ export async function runDPiCli(args: string[], runtime: DPiCliRuntime = default
 		runtime.stdout("[d-pi] Run 'd-pi serve' to start the hub.");
 		return;
 	}
-	if (command === "migrate") {
-		if (!isWorkspaceRoot(runtime.cwd)) {
-			throw new Error("[d-pi] Not a d-pi workspace. Run 'd-pi init' first.");
-		}
-		const result = migrateWorkspace(runtime.cwd);
-		if (result.fromVersion === result.toVersion) {
-			runtime.stdout(`[d-pi] Workspace already at version ${result.toVersion}; no migration needed.`);
-			return;
-		}
-		runtime.stdout(`[d-pi] Migrated workspace from version ${result.fromVersion} to ${result.toVersion}.`);
-		if (result.renamedGroupArchitecture) {
-			runtime.stdout("[d-pi] Renamed group-architecture/ to team-template/.");
-		}
-		return;
-	}
 	if (command === "users") {
 		await handleUsers(args, runtime);
 		return;
@@ -228,11 +205,6 @@ export async function runDPiCli(args: string[], runtime: DPiCliRuntime = default
 			throw new Error("[d-pi] Not a d-pi workspace. Run 'd-pi init' first.");
 		}
 		const workspaceConfig = validateWorkspace(runtime.cwd);
-		if (workspaceConfig.version !== TARGET_WORKSPACE_VERSION) {
-			throw new Error(
-				`[d-pi] Workspace version ${workspaceConfig.version} is older than target version ${TARGET_WORKSPACE_VERSION}. Run 'd-pi migrate' before serving.`,
-			);
-		}
 		const workspaceContext = loadWorkspaceContext(runtime.cwd);
 		const portValue = optionValue(args, "--port");
 		const port = portValue ? parseInt(portValue, 10) : DEFAULT_HUB_PORT;

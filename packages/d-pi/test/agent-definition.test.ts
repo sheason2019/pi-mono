@@ -1,8 +1,12 @@
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import {
-	createDispatchTools,
+	createCreateAgentTool,
+	createDestroyAgentTool,
+	createDispatchBashTool,
+	createDispatchReadTool,
 	createReloadTool,
+	createSendMessageTool,
 	createTeamTool,
 	defineAgent,
 	defineAnthropicProvider,
@@ -19,7 +23,6 @@ import {
 	defineTools,
 	defineTuiComponent,
 	defineWorkspace,
-	getAgentBuiltinToolKind,
 } from "../src/index.ts";
 
 function testTool(name: string) {
@@ -119,38 +122,37 @@ describe("agent definition helpers", () => {
 		expect(() => defineTool({ name: "dispatch_read" } as never)).toThrow(/description/i);
 	});
 
-	it("creates executable built-in tool helper definitions with hidden binding metadata", () => {
-		const dispatchTools = createDispatchTools();
-		const teamTool = createTeamTool();
-		const reloadTool = createReloadTool();
-
-		expect(dispatchTools.map((tool) => tool.name)).toEqual([
+	it("creates built-in tool definitions directly without stub replacement", () => {
+		const allBuiltinTools = [
+			createSendMessageTool(),
+			createCreateAgentTool(),
+			createDestroyAgentTool(),
+			createTeamTool(),
+			createDispatchBashTool(),
+			createDispatchReadTool(),
+			createReloadTool(),
+		];
+		const expectedNames = [
+			"send_message",
+			"create_agent",
+			"destroy_agent",
+			"team",
 			"dispatch_bash",
 			"dispatch_read",
-			"dispatch_ls",
-			"dispatch_grep",
-			"dispatch_find",
-			"dispatch_write",
-			"dispatch_edit",
-		]);
-		expect(dispatchTools[0]).toMatchObject({
-			name: "dispatch_bash",
-			label: "Dispatch bash",
-			description: expect.any(String),
-			parameters: expect.objectContaining({ type: "object" }),
-			execute: expect.any(Function),
-		});
-		expect(getAgentBuiltinToolKind(dispatchTools[0])).toBe("dispatch_bash");
-		expect(getAgentBuiltinToolKind(teamTool)).toBe("team");
-		expect(getAgentBuiltinToolKind(reloadTool)).toBe("reload");
-		expect(Object.keys(teamTool)).not.toContain("@sheason/d-pi.agentBuiltinToolKind");
+			"reload",
+		];
+		expect(allBuiltinTools.map((t) => t.name)).toEqual(expectedNames);
+		for (const tool of allBuiltinTools) {
+			expect(tool.label).toBeTruthy();
+			expect(tool.description).toBeTruthy();
+			expect(tool.parameters).toBeTruthy();
+			expect(tool.execute).toBeInstanceOf(Function);
+		}
 
 		const agent = defineAgent({
-			tools: [teamTool, reloadTool, ...dispatchTools],
+			tools: allBuiltinTools,
 		});
-		expect(getAgentBuiltinToolKind(agent.tools[0])).toBe("team");
-		expect(getAgentBuiltinToolKind(agent.tools[1])).toBe("reload");
-		expect(getAgentBuiltinToolKind(agent.tools[2])).toBe("dispatch_bash");
+		expect(agent.tools.map((t) => t.name)).toEqual(expectedNames);
 	});
 
 	it("composes associated resource helpers into an agent definition", () => {

@@ -29,7 +29,6 @@ export interface DPiCreateAgentActionPayload {
 
 export interface DPiCreateAgentActionResult {
 	agentName: string;
-	agentId?: string;
 }
 
 export interface DPiDestroyAgentActionPayload {
