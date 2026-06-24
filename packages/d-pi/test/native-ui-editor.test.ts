@@ -67,7 +67,6 @@ describe("d-pi native editor", () => {
 		expect(keybindings.getKeys("app.model.cycleForward" as never)).toEqual([]);
 		expect(keybindings.getKeys("app.model.cycleBackward" as never)).toEqual([]);
 		expect(keybindings.getKeys("app.model.select" as never)).toEqual([]);
-		expect(keybindings.getKeys("app.thinking.cycle")).toEqual(["shift+tab"]);
 		expect(keybindings.getKeys("app.thinking.toggle")).toEqual(["ctrl+t"]);
 		expect(keybindings.getKeys("app.tools.expand")).toEqual(["ctrl+o"]);
 		expect(keybindings.getKeys("app.session.new")).toEqual([]);

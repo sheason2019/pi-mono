@@ -311,7 +311,6 @@ describe("d-pi interactive editor submit", () => {
 					}) as unknown as DPiInteractiveSessionStateSnapshot,
 			),
 			compact: vi.fn(async () => {}),
-			setModel: vi.fn(),
 			newSession: vi.fn(async () => {}),
 			fork: vi.fn(async () => {}),
 			renameSession: vi.fn(),

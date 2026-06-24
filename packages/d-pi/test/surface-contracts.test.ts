@@ -5,11 +5,9 @@ import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import {
 	createDPiHubActionsClient,
-	createDPiRuntimeHooks,
 	type DPiHubActionRequest,
 	type DPiHubActionsTransport,
 	type DPiRemoteToolRequest,
-	type DPiRuntimeHookEvent,
 	defineDPiCommand,
 	defineDPiRemoteExecutor,
 	defineDPiTool,
@@ -44,7 +42,6 @@ describe("d-pi surface contracts", () => {
 				expect.stringContaining("tool-surface.ts"),
 				expect.stringContaining("command-surface.ts"),
 				expect.stringContaining("hub-actions.ts"),
-				expect.stringContaining("runtime-hooks.ts"),
 				expect.stringContaining("remote-executor.ts"),
 			]),
 		);
@@ -123,26 +120,6 @@ describe("d-pi surface contracts", () => {
 			},
 		]);
 		await expect(readFile(rootIndexPath, "utf8")).resolves.toContain('export * from "./surface/index.ts";');
-	});
-
-	it("exposes runtime control hooks without mixing them into extensions", async () => {
-		const events: DPiRuntimeHookEvent[] = [];
-		const hooks = createDPiRuntimeHooks({
-			setModel: async (event) => {
-				events.push(event);
-			},
-			setThinkingLevel: async (event) => {
-				events.push(event);
-			},
-		});
-
-		await hooks.setModel({ modelId: "anthropic/claude-sonnet-4-5" });
-		await hooks.setThinkingLevel({ level: "medium" });
-
-		expect(events).toEqual([
-			{ type: "setModel", modelId: "anthropic/claude-sonnet-4-5" },
-			{ type: "setThinkingLevel", level: "medium" },
-		]);
 	});
 
 	it("defines a remote executor boundary for fake tool request/result handling", async () => {

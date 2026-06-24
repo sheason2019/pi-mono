@@ -1,4 +1,4 @@
-import type { AgentToolResult, AgentToolUpdateCallback, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { Component, MarkdownTheme } from "@earendil-works/pi-tui";
 import type { Static, TSchema } from "typebox";
@@ -76,9 +76,6 @@ export interface ExtensionAPI {
 		message: ExtensionMessage,
 		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "next" },
 	): void;
-	setModel(model: Model<Api>): Promise<boolean> | boolean;
-	getThinkingLevel(): ThinkingLevel;
-	setThinkingLevel(level: ThinkingLevel): void;
 }
 
 export type ExtensionFactory = (pi: ExtensionAPI) => void;

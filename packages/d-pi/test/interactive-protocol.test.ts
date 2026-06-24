@@ -134,10 +134,6 @@ function createProxy(snapshot: DPiInteractiveSessionStateSnapshot): DPiInteracti
 			return snapshot.messages;
 		},
 		compact: vi.fn(async () => {}),
-		setModel: vi.fn(),
-		cycleModel: vi.fn(),
-		setThinkingLevel: vi.fn(),
-		cycleThinkingLevel: vi.fn(),
 		setAutoCompactEnabled: vi.fn(),
 		setSteeringMode: vi.fn(),
 		setFollowUpMode: vi.fn(),

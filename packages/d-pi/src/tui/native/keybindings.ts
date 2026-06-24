@@ -5,7 +5,6 @@ export interface DPiAppKeybindings {
 	"app.clear": true;
 	"app.exit": true;
 	"app.suspend": true;
-	"app.thinking.cycle": true;
 	"app.tools.expand": true;
 	"app.thinking.toggle": true;
 	"app.session.toggleNamedFilter": true;
@@ -50,7 +49,6 @@ export const DPI_APP_KEYBINDINGS = {
 		defaultKeys: process.platform === "win32" ? [] : "ctrl+z",
 		description: "Suspend to background",
 	},
-	"app.thinking.cycle": { defaultKeys: "shift+tab", description: "Cycle thinking level" },
 	"app.tools.expand": { defaultKeys: "ctrl+o", description: "Toggle tool output" },
 	"app.thinking.toggle": { defaultKeys: "ctrl+t", description: "Toggle thinking blocks" },
 	"app.session.toggleNamedFilter": {

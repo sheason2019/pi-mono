@@ -1177,9 +1177,6 @@ export async function runDPiConnectInteractiveMode(
 			editor.setText(text);
 		}
 	});
-	editor.onAction("app.thinking.cycle", () => {
-		proxy.cycleThinkingLevel(1);
-	});
 	editor.onAction("app.thinking.toggle", () => {
 		proxy.updateSettings({ hideThinkingBlock: !proxy.getSnapshot().remoteSettings.hideThinkingBlock });
 	});

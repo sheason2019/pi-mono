@@ -108,20 +108,6 @@ const protocolHandlers: Record<string, DPiInteractiveProtocolHandler> = {
 		return ok();
 	},
 
-	async "set-thinking-level"(proxy, data) {
-		if (!isRecord(data) || typeof data.level !== "string") {
-			return bad("Missing 'level'");
-		}
-		proxy.setThinkingLevel(data.level as Parameters<typeof proxy.setThinkingLevel>[0]);
-		return ok();
-	},
-
-	async "cycle-thinking-level"(proxy, data) {
-		const direction = isRecord(data) && data.direction === -1 ? -1 : 1;
-		proxy.cycleThinkingLevel(direction);
-		return ok();
-	},
-
 	async "new-session"(proxy) {
 		await proxy.newSession();
 		return ok();
@@ -170,9 +156,6 @@ const protocolHandlers: Record<string, DPiInteractiveProtocolHandler> = {
 		proxy.updateSettings(data);
 		if (typeof data.autoCompact === "boolean") {
 			proxy.setAutoCompactEnabled(data.autoCompact);
-		}
-		if (typeof data.thinkingLevel === "string") {
-			proxy.setThinkingLevel(data.thinkingLevel as Parameters<typeof proxy.setThinkingLevel>[0]);
 		}
 		if (data.steeringMode === "all" || data.steeringMode === "one-at-a-time") {
 			proxy.setSteeringMode(data.steeringMode);

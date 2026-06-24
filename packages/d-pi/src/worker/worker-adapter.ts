@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { type AgentMessage, estimateContextTokens } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentLocalModelDefinition, AgentModelDefinition, AgentProviderDefinition } from "../agent-definition.ts";
 import type { LoadedAgentDefinition } from "../agent-loader.ts";
@@ -635,8 +636,6 @@ interface DPiSessionExtensionState extends DPiSessionExtensionSnapshot {
 	messageRenderers: Array<{ customType: string; renderer: MessageRenderer<unknown> }>;
 	inputHandlerDefinitions: Array<ExtensionHandler<InputEvent, InputEventResult>>;
 	eventHandlerDefinitions: Array<{ event: string; handler: ExtensionHandler }>;
-	currentModel?: Model<Api>;
-	thinking?: ThinkingLevel;
 }
 
 interface DPiSessionMetadata {
@@ -828,20 +827,6 @@ export class DPiAgentIpcServer {
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
 				return;
 			}
-			if (action === "set-thinking-level") {
-				if (typeof payload.level !== "string") {
-					this.handlers.onHttpResponse(requestId, 400, { ok: false, error: "Missing 'level'" });
-					return;
-				}
-				this.proxy.setThinkingLevel(payload.level as ThinkingLevel);
-				this.handlers.onHttpResponse(requestId, 200, { ok: true });
-				return;
-			}
-			if (action === "cycle-thinking-level") {
-				this.proxy.cycleThinkingLevel(payload.direction === -1 ? -1 : 1);
-				this.handlers.onHttpResponse(requestId, 200, { ok: true });
-				return;
-			}
 			if (action === "new-session") {
 				await this.proxy.newSession();
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
@@ -943,7 +928,6 @@ export class DPiLocalAgentSessionProxy {
 	private banner: DPiInteractiveBannerData | undefined;
 	private streaming = false;
 	private compacting = false;
-	private thinking: ThinkingLevel | undefined;
 	private sessionName: string | undefined;
 	private scopedModelIds: string[] | null = null;
 	private enabledModelPatterns: string[] | undefined;
@@ -999,13 +983,17 @@ export class DPiLocalAgentSessionProxy {
 	getState(): DPiLocalAgentState {
 		const metadata = getSessionMetadata(this.runtime.session);
 		const extensionState = getSessionExtensionSnapshot(this.runtime.session);
-		const model = metadata.model ?? getSessionExtensionState(this.runtime.session).currentModel;
-		const thinkingLevel = this.thinking ?? getSessionExtensionState(this.runtime.session).thinking ?? "off";
+		const model = metadata.model;
+		const thinkingLevel: ThinkingLevel = "off";
 		const remoteSettings = {
 			...createDefaultRemoteSettings(thinkingLevel),
 			...this.remoteSettingsOverrides,
 			thinkingLevel,
 		};
+		const contextWindow = model?.contextWindow ?? 0;
+		const contextEstimate = estimateContextTokens(this.messages as AgentMessage[]);
+		const tokens = contextEstimate.tokens;
+		const percent = contextWindow > 0 ? (tokens / contextWindow) * 100 : 0;
 		return {
 			model: model?.id ?? "",
 			thinkingLevel,
@@ -1018,9 +1006,9 @@ export class DPiLocalAgentSessionProxy {
 			sessionName: this.sessionName,
 			tokenUsage: this.tokenUsage,
 			contextUsage: {
-				tokens: 0,
-				contextWindow: model?.contextWindow ?? 0,
-				percent: 0,
+				tokens,
+				contextWindow,
+				percent,
 			},
 			modelInfo: {
 				id: model?.id ?? "",
@@ -1048,7 +1036,6 @@ export class DPiLocalAgentSessionProxy {
 			transcriptItems: [...this.transcriptItems],
 			streaming: this.streaming,
 			queued: this.steeringQueueItems(),
-			...(this.thinking ? { thinking: this.thinking } : {}),
 			extensions: extensionState,
 		};
 	}
@@ -1179,47 +1166,6 @@ export class DPiLocalAgentSessionProxy {
 		}
 	}
 
-	setModel(modelId: string): void {
-		const model = this.resolveModel(modelId);
-		if (!model) {
-			return;
-		}
-		getSessionExtensionState(this.runtime.session).currentModel = model;
-		this.emitState();
-	}
-
-	cycleModel(direction: 1 | -1): void {
-		const models = this.runtime.session.modelRegistry.getAll();
-		if (models.length === 0) {
-			return;
-		}
-		const state = this.getState();
-		const currentIndex = models.findIndex(
-			(model) => model.id === state.model || `${model.provider}/${model.id}` === state.model,
-		);
-		const nextIndex = currentIndex < 0 ? 0 : (currentIndex + direction + models.length) % models.length;
-		const next = models[nextIndex];
-		if (next) {
-			getSessionExtensionState(this.runtime.session).currentModel = next;
-			this.emitState();
-		}
-	}
-
-	setThinkingLevel(level: ThinkingLevel): void {
-		this.thinking = level;
-		getSessionExtensionState(this.runtime.session).thinking = level;
-		this.emit({ type: "state", data: this.getState() });
-	}
-
-	cycleThinkingLevel(direction: 1 | -1): void {
-		const levels: ThinkingLevel[] = ["off", "low", "medium", "high"];
-		const current = this.thinking ?? getSessionExtensionState(this.runtime.session).thinking ?? "off";
-		const currentIndex = levels.indexOf(current);
-		const next =
-			levels[(currentIndex < 0 ? 0 : currentIndex + direction + levels.length) % levels.length] ?? "medium";
-		this.setThinkingLevel(next);
-	}
-
 	setAutoCompactEnabled(enabled: boolean): void {
 		this.remoteSettingsOverrides = { ...this.remoteSettingsOverrides, autoCompact: enabled };
 		this.emitState();
@@ -1286,9 +1232,6 @@ export class DPiLocalAgentSessionProxy {
 		}
 		if (updates.followUpMode === "all" || updates.followUpMode === "one-at-a-time") {
 			this.setFollowUpMode(updates.followUpMode);
-		}
-		if (typeof updates.thinkingLevel === "string") {
-			this.setThinkingLevel(updates.thinkingLevel as ThinkingLevel);
 		}
 		this.emitState();
 	}
@@ -1416,9 +1359,6 @@ export class DPiLocalAgentSessionProxy {
 			return;
 		}
 		if (event.type === "state_update") {
-			if (event.state.thinking?.level) {
-				this.thinking = event.state.thinking.level;
-			}
 			this.emitState();
 			return;
 		}
@@ -1575,14 +1515,6 @@ export class DPiLocalAgentSessionProxy {
 			this.emit({ type: "message", data: message });
 			this.emitState();
 		}
-	}
-
-	private resolveModel(modelId: string): Model<Api> | undefined {
-		if (modelId.includes("/")) {
-			const slashIndex = modelId.indexOf("/");
-			return this.runtime.session.modelRegistry.find(modelId.slice(0, slashIndex), modelId.slice(slashIndex + 1));
-		}
-		return this.runtime.session.modelRegistry.getAll().find((model) => model.id === modelId);
 	}
 
 	private upsertStreamingAssistantMessage(message: DPiAgentMessage, emitEvents: boolean): void {
@@ -2039,8 +1971,7 @@ function resetExtensionState(state: DPiSessionExtensionState, settingsManager?: 
 	state.messageRenderers = [];
 	state.inputHandlerDefinitions = [];
 	state.eventHandlerDefinitions = [];
-	state.currentModel = undefined;
-	state.thinking = settingsManager?.getDefaultThinkingLevel();
+	void settingsManager;
 }
 
 function createExtensionApi(state: DPiSessionExtensionState, messages: DPiSessionMessageState): ExtensionAPI {
@@ -2074,16 +2005,6 @@ function createExtensionApi(state: DPiSessionExtensionState, messages: DPiSessio
 		on: registerExtensionHandler,
 		sendMessage(message) {
 			appendSessionMessage(messages, toLocalAgentMessage(message));
-		},
-		setModel(model) {
-			state.currentModel = model;
-			return true;
-		},
-		getThinkingLevel() {
-			return state.thinking ?? "medium";
-		},
-		setThinkingLevel(level) {
-			state.thinking = level;
 		},
 	};
 }

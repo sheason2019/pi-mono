@@ -216,7 +216,6 @@ export type DPiInteractiveAgentSessionEvent =
 	| { type: "compaction_end" }
 	| { type: "queue_update"; steering: string[]; followUp: string[] }
 	| { type: "session_info_changed"; name: string | undefined }
-	| { type: "thinking_level_changed"; level: ThinkingLevel }
 	| { type: "state_update"; snapshot?: Partial<DPiInteractiveSessionStateSnapshot> }
 	| ({ type: "turn_stats" } & DPiInteractiveTurnStats)
 	| { type: "session_replaced"; reason: "new" | "resume" | "fork" };
@@ -242,10 +241,6 @@ export interface DPiInteractiveAgentSessionProxy {
 	readonly messages: readonly AgentMessage[];
 
 	compact(customInstructions?: string): Promise<void>;
-	setModel(modelId: string): void;
-	cycleModel(direction: 1 | -1): void;
-	setThinkingLevel(level: ThinkingLevel): void;
-	cycleThinkingLevel(direction: 1 | -1): void;
 	setAutoCompactEnabled(enabled: boolean): void;
 	setSteeringMode(mode: "all" | "one-at-a-time"): void;
 	setFollowUpMode(mode: "all" | "one-at-a-time"): void;

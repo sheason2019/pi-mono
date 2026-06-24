@@ -50,8 +50,6 @@ export const DPI_NATIVE_CONNECT_PROTOCOL_ACTIONS = [
 	"abort-bash",
 	"clear-queue",
 	"compact",
-	"set-thinking-level",
-	"cycle-thinking-level",
 	"new-session",
 	"switch-session",
 	"fork",

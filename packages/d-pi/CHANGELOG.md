@@ -9,9 +9,11 @@
 ### Fixed
 
 - Fixed remote worker IPC behavior after the runtime cutover: state queries, prompt/steer/follow-up actions, SSE subscribe/unsubscribe, extension-generated messages, and local native tool execution are now handled by d-pi-owned adapters instead of placeholder or timeout-prone bridges.
+- Fixed context usage percentage always showing 0% in the TUI footer. The worker adapter and runtime snapshot now compute context window usage via the upstream `estimateContextTokens` helper, which uses provider-reported usage data when available and falls back to a character-based heuristic otherwise.
 
 ### Removed
 
+- Removed imperative model and thinking level controls (`setModel`, `cycleModel`, `setThinkingLevel`, `cycleThinkingLevel`) from the session proxy, extension API, runtime hooks, and TUI keybindings. Model and thinking configuration is now exclusively declared in `agent.ts` and applied at runtime via the reload tool.
 - Removed the non-d-pi workspace packages and converged repository build, check, test, release, and local smoke-test configuration around the single `@sheason/d-pi` package.
 - Removed the d-pi package dependency on the legacy interactive runtime package. Extension contracts, native tools, worker IPC/session shims, and tests now use d-pi-owned contracts or the upstream `@earendil-works/pi-*` packages directly.
 

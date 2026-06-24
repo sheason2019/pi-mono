@@ -16,6 +16,7 @@ import {
 	AgentHarnessError,
 	compact as compactSession,
 	DEFAULT_COMPACTION_SETTINGS,
+	estimateContextTokens,
 	NodeExecutionEnv,
 	prepareCompaction,
 	SessionError,
@@ -506,6 +507,9 @@ export class DPiAgentRuntime {
 	getSnapshot(): DPiRuntimeSnapshot {
 		const model = this.modelManager.getModelInfo();
 		const contextWindow = model.contextWindow ?? 0;
+		const contextEstimate = estimateContextTokens(this.messages);
+		const tokens = contextEstimate.tokens;
+		const percent = contextWindow > 0 ? (tokens / contextWindow) * 100 : 0;
 		return {
 			agentName: this.agentName,
 			...(this.connectId ? { connectId: this.connectId } : {}),
@@ -519,7 +523,7 @@ export class DPiAgentRuntime {
 			queues: cloneQueues(this.queues),
 			model,
 			thinking: {},
-			contextUsage: { tokens: null, contextWindow, percent: null },
+			contextUsage: { tokens, contextWindow, percent },
 			tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
 			session: { ...this.sessionInfo },
 			commands: [],

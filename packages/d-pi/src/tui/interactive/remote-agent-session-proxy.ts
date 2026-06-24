@@ -147,18 +147,6 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	async compact(customInstructions?: string): Promise<void> {
 		await this.post("compact", { customInstructions });
 	}
-	setModel(modelId: string): void {
-		void this.post("set-model", { modelId });
-	}
-	cycleModel(direction: 1 | -1): void {
-		void this.post("cycle-model", { direction });
-	}
-	setThinkingLevel(level: DPiInteractiveSessionStateSnapshot["thinkingLevel"]): void {
-		void this.post("set-thinking-level", { level });
-	}
-	cycleThinkingLevel(direction: 1 | -1): void {
-		void this.post("cycle-thinking-level", { direction });
-	}
 	setAutoCompactEnabled(enabled: boolean): void {
 		void this.post("settings", { autoCompact: enabled });
 	}
