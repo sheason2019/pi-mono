@@ -15,7 +15,15 @@ export interface DPiConnectOptions {
 	 * point, so the children resolve to the right binary.
 	 */
 	cliPath?: string;
+	/**
+	 * Max time in ms for hub API calls during connect setup (team fetch,
+	 * agent bind). Default 10_000. Without a bound, a down or unresponsive
+	 * hub would make `d-pi connect` hang indefinitely.
+	 */
+	connectTimeoutMs?: number;
 }
+
+const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 
 interface DPiConnectRuntimeOptions {
 	/** Optional fetch implementation for tests or embedded runtimes. */
@@ -42,6 +50,8 @@ export interface ConnectSessionSpawnOptions {
 	connectId: string;
 	/** Local cwd the executor should run in. */
 	cwd: string;
+	/** Timeout in ms for hub API calls (bind). Default 10_000. */
+	connectTimeoutMs?: number;
 }
 
 /**
@@ -78,7 +88,14 @@ export async function runDPiConnectMode(
 	const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
 
 	// 1. Fetch team from Hub to resolve initial agent
-	const networkResponse = await fetchImpl(`${url}/_hub/team`, { headers });
+	const connectTimeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
+	const networkResponse = await fetchWithTimeout(
+		fetchImpl,
+		`${url}/_hub/team`,
+		{ headers },
+		connectTimeoutMs,
+		`Failed to reach hub at ${url}`,
+	);
 	if (!networkResponse.ok) {
 		throw new Error(`Failed to fetch team: ${networkResponse.status} ${networkResponse.statusText}`);
 	}
@@ -105,6 +122,7 @@ export async function runDPiConnectMode(
 			// key for the executor registry — is session-unique.
 			connectId: createConnectId(),
 			cwd: process.cwd(),
+			connectTimeoutMs,
 			fetchImpl,
 		});
 
@@ -167,6 +185,34 @@ export function buildExecutorChildArgs(cliPath: string): string[] {
 /** Minimal fetch shape used by the parent for hub bookkeeping. */
 export type FetchLike = (url: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
+/**
+ * Fetch with an AbortController-based timeout. Throws a clear error on
+ * timeout or network failure so the CLI exits instead of hanging.
+ */
+async function fetchWithTimeout(
+	fetchImpl: FetchLike,
+	url: string,
+	init: RequestInit,
+	timeoutMs: number,
+	errorPrefix: string,
+): Promise<Response> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), timeoutMs);
+	try {
+		const res = await fetchImpl(url, { ...init, signal: controller.signal });
+		clearTimeout(timer);
+		return res;
+	} catch (err) {
+		clearTimeout(timer);
+		if (err instanceof Error && err.name === "AbortError") {
+			throw new Error(
+				`${errorPrefix}: connection timed out after ${timeoutMs}ms. The hub may be down or unreachable.`,
+			);
+		}
+		throw new Error(`${errorPrefix}: ${err instanceof Error ? err.message : String(err)}`);
+	}
+}
+
 const DPI_CHILD_ENV_KEYS = [
 	"DPI_AUTH_TOKEN",
 	"DPI_CONNECT_ID",
@@ -224,15 +270,22 @@ export async function bindAgentOnHub(
 	agentName: string,
 	connectId: string,
 	fetchImpl: FetchLike = fetch,
+	timeoutMs: number = DEFAULT_CONNECT_TIMEOUT_MS,
 ): Promise<void> {
 	const headers: Record<string, string> = { "Content-Type": "application/json" };
 	if (authToken) headers.Authorization = `Bearer ${authToken}`;
 	const encodedAgentName = encodeURIComponent(agentName);
-	const res = await fetchImpl(`${hubUrl}/_hub/agents/${encodedAgentName}/bind`, {
-		method: "POST",
-		headers,
-		body: JSON.stringify({ connectId }),
-	});
+	const res = await fetchWithTimeout(
+		fetchImpl,
+		`${hubUrl}/_hub/agents/${encodedAgentName}/bind`,
+		{
+			method: "POST",
+			headers,
+			body: JSON.stringify({ connectId }),
+		},
+		timeoutMs,
+		`Failed to reach hub at ${hubUrl}`,
+	);
 	if (!res.ok) {
 		throw new Error(`Failed to bind agent ${agentName} to connect ${connectId}: ${res.status} ${await res.text()}`);
 	}
@@ -248,7 +301,8 @@ export async function runConnectSession(opts: ConnectSessionSpawnOptions & { fet
 	const fetchImpl = opts.fetchImpl ?? fetch;
 
 	// 1. Register the agent→connectId binding on the hub.
-	await bindAgentOnHub(hubUrl, authToken, agentName, connectId, fetchImpl);
+	const connectTimeoutMs = opts.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
+	await bindAgentOnHub(hubUrl, authToken, agentName, connectId, fetchImpl, connectTimeoutMs);
 
 	// 2. Spawn executor + TUI in parallel.
 	const execChild = spawn(process.execPath, buildExecutorChildArgs(cliPath), {
