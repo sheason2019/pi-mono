@@ -33,15 +33,15 @@ describe("d-pi auth CLI", () => {
 		const home = createTempDir("d-pi-cli-home-");
 		const stdout: string[] = [];
 
-		await runDPiCli(["--help"], {
+		await runDPiCli(["serve", "--help"], {
 			cwd: home,
 			homeDir: home,
 			stdout: (line) => stdout.push(line),
 			stderr: () => {},
 		});
 
-		expect(stdout.join("\n")).toContain("d-pi serve [--port 39090]");
-		expect(stdout.join("\n")).not.toContain("d-pi serve [--port 9090]");
+		expect(stdout.join("\n")).toContain('(default: "39090")');
+		expect(stdout.join("\n")).not.toContain('(default: "9090")');
 	});
 
 	it("creates and lists local users", async () => {
@@ -199,7 +199,7 @@ describe("d-pi auth CLI", () => {
 				stderr: () => {},
 				runConnectInteractiveMode: async () => ({}),
 			}),
-		).rejects.toThrow("_connect-child requires agentUrl and hubUrl");
+		).rejects.toThrow("missing required argument 'hubUrl'");
 	});
 
 	it("keeps cli-runner independent from the interactive runtime connect child", async () => {

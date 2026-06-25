@@ -184,7 +184,7 @@ describe("init template: strict-JSON output", () => {
 				stdout: () => {},
 				stderr: () => {},
 			}),
-		).rejects.toThrow(/--team-template requires a git repository URL/);
+		).rejects.toThrow(/argument missing/);
 		expect(existsSync(join(workspace, ".dpi"))).toBe(false);
 	});
 });

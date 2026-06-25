@@ -1,6 +1,9 @@
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Command, CommanderError } from "commander";
 import { createAllowedUser, listAllowedUsers, removeAllowedUser, updateAllowedUser } from "./auth/allowed-users.ts";
 import { createLocalUser, listLocalUsers, removeLocalUser, updateLocalUser } from "./auth/local-users.ts";
 import { runDPiConnectMode } from "./connect/connect-mode.ts";
@@ -14,6 +17,16 @@ import {
 import type { RunDPiRemoteTuiOptions } from "./tui/remote-tui.ts";
 import type { HubConfig } from "./types.ts";
 import { initWorkspace, isWorkspaceRoot, loadWorkspaceContext } from "./workspace/workspace.ts";
+
+let cachedVersion: string | null = null;
+
+function getVersion(): string {
+	if (cachedVersion === null) {
+		const pkgPath = fileURLToPath(new URL("../package.json", import.meta.url));
+		cachedVersion = JSON.parse(readFileSync(pkgPath, "utf8")).version as string;
+	}
+	return cachedVersion;
+}
 
 export interface DPiCliRuntime {
 	cwd: string;
@@ -35,43 +48,8 @@ function defaultRuntime(): DPiCliRuntime {
 	};
 }
 
-function optionValue(args: string[], name: string): string | undefined {
-	const index = args.indexOf(name);
-	return index === -1 ? undefined : args[index + 1];
-}
-
-function hasOption(args: string[], name: string): boolean {
-	return args.includes(name);
-}
-
-function optionBoolean(args: string[], name: string): boolean | undefined {
-	const value = optionValue(args, name);
-	if (value === undefined) return undefined;
-	if (value === "true") return true;
-	if (value === "false") return false;
-	throw new Error(`${name} must be true or false`);
-}
-
 function localUsersRoot(runtime: DPiCliRuntime): string {
 	return join(runtime.homeDir, ".d-pi");
-}
-
-function printHelp(runtime: DPiCliRuntime): void {
-	runtime.stdout(`d-pi - Multi-agent tree orchestrator
-
-Usage:
-  d-pi init [--team-template <git-repo>]  Initialize a workspace in the current directory
-  d-pi serve [--port ${DEFAULT_HUB_PORT}]  Start the hub (must be in a workspace)
-  d-pi connect <user@url> [--agent <id|name>]
-  d-pi users create <name> [--description <text>]
-  d-pi users update <name> [--description <text>]
-  d-pi users delete <name>
-  d-pi users list
-  d-pi allow-user add <name> --key <publicKey> [--description <text>]
-  d-pi allow-user update <name> [--key <publicKey>] [--description <text>] [--disabled true|false]
-  d-pi allow-user remove <name>
-  d-pi allow-user list
-`);
 }
 
 function defaultCloneTeamTemplate(repo: string, targetDir: string): Promise<void> {
@@ -87,161 +65,225 @@ function defaultCloneTeamTemplate(repo: string, targetDir: string): Promise<void
 	});
 }
 
-async function handleUsers(args: string[], runtime: DPiCliRuntime): Promise<void> {
-	const subcommand = args[1];
-	if (subcommand === "create") {
-		const name = args[2];
-		if (!name) throw new Error("Missing local user name");
-		const description = optionValue(args, "--description") ?? "";
-		const user = createLocalUser(localUsersRoot(runtime), { name, description });
-		runtime.stdout(`Created local user ${user.name}`);
-		runtime.stdout(`description: ${user.description}`);
-		runtime.stdout(`publicKey: ${user.publicKey}`);
-		return;
-	}
-	if (subcommand === "list") {
-		const users = listLocalUsers(localUsersRoot(runtime));
-		for (const user of users) {
-			runtime.stdout(`${user.name}\t${user.description}\t${user.publicKey}`);
-		}
-		return;
-	}
-	if (subcommand === "update") {
-		const name = args[2];
-		if (!name) throw new Error("Missing local user name");
-		const user = updateLocalUser(localUsersRoot(runtime), name, { description: optionValue(args, "--description") });
-		runtime.stdout(`Updated local user ${user.name}`);
-		return;
-	}
-	if (subcommand === "delete") {
-		const name = args[2];
-		if (!name) throw new Error("Missing local user name");
-		removeLocalUser(localUsersRoot(runtime), name);
-		runtime.stdout(`Deleted local user ${name}`);
-		return;
-	}
-	throw new Error("Unknown users command");
-}
+function buildProgram(runtime: DPiCliRuntime): Command {
+	const program = new Command();
 
-async function handleAllowUser(args: string[], runtime: DPiCliRuntime): Promise<void> {
-	if (!isWorkspaceRoot(runtime.cwd)) {
-		throw new Error("allow-user commands must be run from a d-pi workspace root");
-	}
-	const subcommand = args[1];
-	if (subcommand === "add") {
-		const name = args[2];
-		if (!name) throw new Error("Missing allowed user name");
-		const publicKey = optionValue(args, "--key") ?? "";
-		const description = optionValue(args, "--description") ?? "";
-		const user = createAllowedUser(runtime.cwd, { name, publicKey, description });
-		runtime.stdout(`Allowed user ${user.name}`);
-		runtime.stdout(`description: ${user.description}`);
-		runtime.stdout(`publicKey: ${user.publicKey}`);
-		return;
-	}
-	if (subcommand === "list") {
-		const users = listAllowedUsers(runtime.cwd);
-		for (const user of users) {
-			runtime.stdout(`${user.name}\t${user.description}\t${user.publicKey}`);
-		}
-		return;
-	}
-	if (subcommand === "update") {
-		const name = args[2];
-		if (!name) throw new Error("Missing allowed user name");
-		const user = updateAllowedUser(runtime.cwd, name, {
-			description: optionValue(args, "--description"),
-			publicKey: optionValue(args, "--key"),
-			disabled: optionBoolean(args, "--disabled"),
+	program
+		.name("d-pi")
+		.description("Multi-agent tree orchestrator")
+		.version(getVersion())
+		.exitOverride()
+		.configureOutput({
+			writeOut: (str) => runtime.stdout(str.replace(/\n$/, "")),
+			writeErr: (str) => runtime.stderr(str.replace(/\n$/, "")),
+			outputError: (str, write) => write(str),
 		});
-		runtime.stdout(`Updated allowed user ${user.name}`);
-		return;
-	}
-	if (subcommand === "remove") {
-		const name = args[2];
-		if (!name) throw new Error("Missing allowed user name");
-		removeAllowedUser(runtime.cwd, name);
-		runtime.stdout(`Removed allowed user ${name}`);
-		return;
-	}
-	throw new Error("Unknown allow-user command");
+
+	program
+		.command("init")
+		.description("Initialize a workspace in the current directory")
+		.option("--team-template <git-repo>", "Clone a team template repository")
+		.action(async (options: { teamTemplate?: string }) => {
+			initWorkspace(runtime.cwd);
+			if (options.teamTemplate) {
+				const targetDir = join(runtime.cwd, "team-template");
+				const cloneTeamTemplate = runtime.cloneTeamTemplate ?? defaultCloneTeamTemplate;
+				await cloneTeamTemplate(options.teamTemplate, targetDir);
+				runtime.stdout(`[d-pi] Cloned team template from ${options.teamTemplate} into team-template/`);
+			}
+			runtime.stdout("[d-pi] Workspace initialized in current directory");
+			runtime.stdout("[d-pi]   AGENTS.md               — shared context for all agents");
+			runtime.stdout("[d-pi]   APPEND_SYSTEM.md        — shared system prompt for all agents");
+			runtime.stdout("[d-pi]   agents/root/            — root agent working directory");
+			runtime.stdout("[d-pi]   agents/root/agent.ts    — root agent definition");
+			runtime.stdout("[d-pi]   agents/root/AGENTS.md   — root agent specific context");
+			runtime.stdout("[d-pi]   agents/root/.pi/APPEND_SYSTEM.md — root agent system prompt");
+			runtime.stdout("[d-pi] Run 'd-pi serve' to start the hub.");
+		});
+
+	program
+		.command("serve")
+		.description("Start the hub (must be in a workspace)")
+		.option("--port <port>", "Port to listen on", String(DEFAULT_HUB_PORT))
+		.action(async (options: { port: string }) => {
+			if (!isWorkspaceRoot(runtime.cwd)) {
+				throw new Error("[d-pi] Not a d-pi workspace. Run 'd-pi init' first.");
+			}
+			const workspaceContext = loadWorkspaceContext(runtime.cwd);
+			const port = parseInt(options.port, 10);
+			const createHub = runtime.createHub ?? ((config: HubConfig) => new Hub(config));
+			const hub = createHub({
+				port,
+				cwd: runtime.cwd,
+				workspaceRoot: runtime.cwd,
+				workspaceContext,
+			});
+			await hub.start();
+		});
+
+	program
+		.command("connect")
+		.description("Connect to a running d-pi hub")
+		.argument("[target]", "Target URL or user@url", `http://localhost:${DEFAULT_HUB_PORT}`)
+		.option("--agent <id|name>", "Connect to a specific agent")
+		.action(async (target: string, options: { agent?: string }) => {
+			const url = target;
+			await runDPiConnectMode({ url, agent: options.agent });
+		});
+
+	const users = program.command("users").description("Manage local users");
+
+	users
+		.command("create")
+		.description("Create a local user")
+		.argument("<name>", "User name")
+		.option("--description <text>", "User description", "")
+		.action((name: string, options: { description: string }) => {
+			const user = createLocalUser(localUsersRoot(runtime), { name, description: options.description });
+			runtime.stdout(`Created local user ${user.name}`);
+			runtime.stdout(`description: ${user.description}`);
+			runtime.stdout(`publicKey: ${user.publicKey}`);
+		});
+
+	users
+		.command("list")
+		.description("List local users")
+		.action(() => {
+			const userList = listLocalUsers(localUsersRoot(runtime));
+			for (const user of userList) {
+				runtime.stdout(`${user.name}\t${user.description}\t${user.publicKey}`);
+			}
+		});
+
+	users
+		.command("update")
+		.description("Update a local user")
+		.argument("<name>", "User name")
+		.option("--description <text>", "User description")
+		.action((name: string, options: { description?: string }) => {
+			const user = updateLocalUser(localUsersRoot(runtime), name, { description: options.description });
+			runtime.stdout(`Updated local user ${user.name}`);
+		});
+
+	users
+		.command("delete")
+		.description("Delete a local user")
+		.argument("<name>", "User name")
+		.action((name: string) => {
+			removeLocalUser(localUsersRoot(runtime), name);
+			runtime.stdout(`Deleted local user ${name}`);
+		});
+
+	const allowUser = program.command("allow-user").description("Manage allowed users in a workspace");
+
+	allowUser
+		.command("add")
+		.description("Add an allowed user")
+		.argument("<name>", "User name")
+		.requiredOption("--key <publicKey>", "Public key")
+		.option("--description <text>", "User description", "")
+		.action((name: string, options: { key: string; description: string }) => {
+			if (!isWorkspaceRoot(runtime.cwd)) {
+				throw new Error("allow-user commands must be run from a d-pi workspace root");
+			}
+			const user = createAllowedUser(runtime.cwd, {
+				name,
+				publicKey: options.key,
+				description: options.description,
+			});
+			runtime.stdout(`Allowed user ${user.name}`);
+			runtime.stdout(`description: ${user.description}`);
+			runtime.stdout(`publicKey: ${user.publicKey}`);
+		});
+
+	allowUser
+		.command("list")
+		.description("List allowed users")
+		.action(() => {
+			if (!isWorkspaceRoot(runtime.cwd)) {
+				throw new Error("allow-user commands must be run from a d-pi workspace root");
+			}
+			const userList = listAllowedUsers(runtime.cwd);
+			for (const user of userList) {
+				runtime.stdout(`${user.name}\t${user.description}\t${user.publicKey}`);
+			}
+		});
+
+	allowUser
+		.command("update")
+		.description("Update an allowed user")
+		.argument("<name>", "User name")
+		.option("--key <publicKey>", "Public key")
+		.option("--description <text>", "User description")
+		.option("--disabled <boolean>", "Disable the user", (val: string) => {
+			if (val === "true") return true;
+			if (val === "false") return false;
+			throw new Error("--disabled must be true or false");
+		})
+		.action((name: string, options: { key?: string; description?: string; disabled?: boolean }) => {
+			if (!isWorkspaceRoot(runtime.cwd)) {
+				throw new Error("allow-user commands must be run from a d-pi workspace root");
+			}
+			const user = updateAllowedUser(runtime.cwd, name, {
+				description: options.description,
+				publicKey: options.key,
+				disabled: options.disabled,
+			});
+			runtime.stdout(`Updated allowed user ${user.name}`);
+		});
+
+	allowUser
+		.command("remove")
+		.description("Remove an allowed user")
+		.argument("<name>", "User name")
+		.action((name: string) => {
+			if (!isWorkspaceRoot(runtime.cwd)) {
+				throw new Error("allow-user commands must be run from a d-pi workspace root");
+			}
+			removeAllowedUser(runtime.cwd, name);
+			runtime.stdout(`Removed allowed user ${name}`);
+		});
+
+	program
+		.command("_connect-child", { hidden: true })
+		.description("Internal command for child process")
+		.argument("<agentUrl>", "Agent URL")
+		.argument("<hubUrl>", "Hub URL")
+		.action(async (agentUrl: string, hubUrl: string) => {
+			const authToken = process.env.DPI_AUTH_TOKEN;
+			const runInteractiveMode = runtime.runConnectInteractiveMode ?? runDPiConnectInteractiveMode;
+			await runInteractiveMode({
+				agentUrl,
+				hubUrl,
+				...(authToken ? { authHeaders: { Authorization: `Bearer ${authToken}` } } : {}),
+			});
+		});
+
+	program
+		.command("_executor-child", { hidden: true })
+		.description("Internal command for child process")
+		.action(async () => {
+			await runExecutor();
+		});
+
+	return program;
 }
 
 export async function runDPiCli(args: string[], runtime: DPiCliRuntime = defaultRuntime()): Promise<void> {
-	const command = args[0];
-	if (command === "init") {
-		const teamTemplateRepo = optionValue(args, "--team-template");
-		if (hasOption(args, "--team-template") && !teamTemplateRepo) {
-			throw new Error("--team-template requires a git repository URL");
+	const program = buildProgram(runtime);
+	try {
+		await program.parseAsync(args, { from: "user" });
+	} catch (error) {
+		if (error instanceof CommanderError) {
+			if (
+				error.code === "commander.helpDisplayed" ||
+				error.code === "commander.version" ||
+				error.code === "commander.help"
+			) {
+				return;
+			}
+			throw new Error(error.message);
 		}
-		initWorkspace(runtime.cwd);
-		if (teamTemplateRepo) {
-			const targetDir = join(runtime.cwd, "team-template");
-			const cloneTeamTemplate = runtime.cloneTeamTemplate ?? defaultCloneTeamTemplate;
-			await cloneTeamTemplate(teamTemplateRepo, targetDir);
-			runtime.stdout(`[d-pi] Cloned team template from ${teamTemplateRepo} into team-template/`);
-		}
-		runtime.stdout("[d-pi] Workspace initialized in current directory");
-		runtime.stdout("[d-pi]   .dpi/config.json        — workspace configuration");
-		runtime.stdout("[d-pi]   AGENTS.md               — shared context for all agents");
-		runtime.stdout("[d-pi]   APPEND_SYSTEM.md        — shared system prompt for all agents");
-		runtime.stdout("[d-pi]   agents/root/            — root agent working directory");
-		runtime.stdout("[d-pi]   agents/root/agent.ts    — root agent definition");
-		runtime.stdout("[d-pi]   agents/root/AGENTS.md   — root agent specific context");
-		runtime.stdout("[d-pi]   agents/root/.pi/APPEND_SYSTEM.md — root agent system prompt");
-		runtime.stdout("[d-pi] Run 'd-pi serve' to start the hub.");
-		return;
+		throw error;
 	}
-	if (command === "users") {
-		await handleUsers(args, runtime);
-		return;
-	}
-	if (command === "allow-user") {
-		await handleAllowUser(args, runtime);
-		return;
-	}
-	if (command === "serve") {
-		if (!isWorkspaceRoot(runtime.cwd)) {
-			throw new Error("[d-pi] Not a d-pi workspace. Run 'd-pi init' first.");
-		}
-		const workspaceContext = loadWorkspaceContext(runtime.cwd);
-		const portValue = optionValue(args, "--port");
-		const port = portValue ? parseInt(portValue, 10) : DEFAULT_HUB_PORT;
-		const createHub = runtime.createHub ?? ((config: HubConfig) => new Hub(config));
-		const hub = createHub({
-			port,
-			cwd: runtime.cwd,
-			workspaceRoot: runtime.cwd,
-			workspaceContext,
-		});
-		await hub.start();
-		return;
-	}
-	if (command === "connect") {
-		const target = args[1];
-		const url = target ?? optionValue(args, "--url") ?? `http://localhost:${DEFAULT_HUB_PORT}`;
-		const agent = optionValue(args, "--agent");
-		await runDPiConnectMode({ url, agent });
-		return;
-	}
-	if (command === "_connect-child") {
-		const agentUrl = args[1];
-		const hubUrl = args[2];
-		if (!agentUrl || !hubUrl) {
-			throw new Error("_connect-child requires agentUrl and hubUrl");
-		}
-		const authToken = process.env.DPI_AUTH_TOKEN;
-		const runInteractiveMode = runtime.runConnectInteractiveMode ?? runDPiConnectInteractiveMode;
-		await runInteractiveMode({
-			agentUrl,
-			hubUrl,
-			...(authToken ? { authHeaders: { Authorization: `Bearer ${authToken}` } } : {}),
-		});
-		return;
-	}
-	if (command === "_executor-child") {
-		await runExecutor();
-		return;
-	}
-	printHelp(runtime);
 }
