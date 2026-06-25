@@ -27,7 +27,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/remote/agent/root",
 		availableProviderCount: 2,
 		remoteSettings: {
-			doubleEscapeAction: "tree",
 			showImages: true,
 			imageWidthCells: 60,
 			autoResizeImages: true,

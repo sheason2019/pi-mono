@@ -1,2 +1,1 @@
 export const DEFAULT_HUB_PORT = 39090;
-export const DEFAULT_AGENT_PORT_START = 39091;

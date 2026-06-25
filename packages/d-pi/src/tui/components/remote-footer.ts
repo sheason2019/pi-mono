@@ -1,4 +1,3 @@
-import { type Component, Text } from "@earendil-works/pi-tui";
 import type { DPiJsonValue, DPiServiceSnapshot } from "../../service/protocol.ts";
 import type { DPiRemoteTuiConnectionState } from "../remote-tui.ts";
 
@@ -25,10 +24,6 @@ export function buildRemoteFooterView(options: BuildRemoteFooterViewOptions): DP
 		segments,
 		text: segments.join(" | "),
 	};
-}
-
-export function createRemoteFooterComponent(options: BuildRemoteFooterViewOptions): Component {
-	return new Text(buildRemoteFooterView(options).text, 0, 0);
 }
 
 function activitySegments(state: Record<string, DPiJsonValue> | undefined): string[] {

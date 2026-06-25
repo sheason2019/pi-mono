@@ -103,22 +103,11 @@ function requestWorkspaceReload(reason?: string): Promise<void> {
 }
 
 async function reloadAgentResources(
-	callId: string | undefined,
-	metadata: WorkspaceReloadMetadata | undefined,
+	_callId: string | undefined,
+	_metadata: WorkspaceReloadMetadata | undefined,
 ): Promise<void> {
 	if (!runtime?.session) {
 		const error = "Reload not available: d-pi session is not initialized yet.";
-		if (callId) {
-			postToHub({
-				type: "reload_agent_result",
-				agentName: config.agentName,
-				callId,
-				ok: false,
-				metadata: metadata ?? { caller: "unknown", time: new Date().toISOString() },
-				error,
-			});
-			return;
-		}
 		throw new Error(error);
 	}
 
@@ -145,15 +134,6 @@ async function reloadAgentResources(
 
 	await runtime.session.reload();
 	proxy?.setBanner(generateDPiBanner(runtime.session));
-	if (callId) {
-		postToHub({
-			type: "reload_agent_result",
-			agentName: config.agentName,
-			callId,
-			ok: true,
-			metadata: metadata ?? { caller: "unknown", time: new Date().toISOString() },
-		});
-	}
 }
 
 function startAgentReload(callId?: string, metadata?: WorkspaceReloadMetadata): void {
@@ -688,9 +668,7 @@ async function runAgentWorker(): Promise<void> {
 
 	// 8b. Subscribe to session events to report streaming status to Hub
 	proxy.subscribe((event) => {
-		if (event.type === "turn_start") {
-			postToHub({ type: "status_update", agentName, status: "busy" });
-		} else if (event.type === "turn_end" || event.type === "agent_end") {
+		if (event.type === "agent_end") {
 			postToHub({ type: "status_update", agentName, status: "ready" });
 		} else if (event.type === "compaction_start") {
 			postToHub({ type: "status_update", agentName, status: "busy" });

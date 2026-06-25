@@ -1,4 +1,3 @@
-import { type Component, Text } from "@earendil-works/pi-tui";
 import type { DPiJsonValue, DPiServiceEvent, DPiServiceSnapshot } from "../../service/protocol.ts";
 
 export type DPiRemoteMessageRole = "user" | "assistant" | "custom" | "tool" | "worker" | "runtime" | "unknown";
@@ -33,10 +32,6 @@ export function buildRemoteMessageListView(options: BuildRemoteMessageListViewOp
 	const text =
 		items.length === 0 ? (options.emptyText ?? "No remote messages yet.") : items.map(formatMessage).join("\n");
 	return { items, text };
-}
-
-export function createRemoteMessageListComponent(options: BuildRemoteMessageListViewOptions): Component {
-	return new Text(buildRemoteMessageListView(options).text, 0, 0);
 }
 
 function messagesFromSnapshot(snapshot: DPiServiceSnapshot | undefined): DPiRemoteMessageView[] {

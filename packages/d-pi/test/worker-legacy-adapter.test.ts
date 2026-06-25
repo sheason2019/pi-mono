@@ -29,7 +29,6 @@ import {
 	type DPiWorkerSession,
 	generateDPiBanner,
 	resolveDPiInitialModel,
-	runtimeModelSpecFromResolvedModel,
 } from "../src/worker/worker-adapter.ts";
 
 type InitialModelOptions = Parameters<typeof resolveDPiInitialModel>[0];
@@ -544,11 +543,6 @@ describe("worker runtime adapter", () => {
 		expect(result).toBeUndefined();
 		expect(registry.find).not.toHaveBeenCalled();
 		expect(registry.getAll).not.toHaveBeenCalled();
-	});
-
-	it("uses the resolved default model as the remote-first runtime model spec", () => {
-		expect(runtimeModelSpecFromResolvedModel(makeModel("stepfun", "step-3.7-flash"))).toBe("stepfun/step-3.7-flash");
-		expect(runtimeModelSpecFromResolvedModel(undefined)).toBeUndefined();
 	});
 
 	it("binds extension factories and exposes registered commands and tools in session state", async () => {

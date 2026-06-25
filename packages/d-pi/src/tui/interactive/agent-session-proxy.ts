@@ -99,7 +99,6 @@ export interface DPiInteractiveModelItemData {
 }
 
 export interface DPiInteractiveRemoteSettings {
-	doubleEscapeAction: "fork" | "tree" | "none";
 	showImages: boolean;
 	imageWidthCells: number;
 	autoResizeImages: boolean;
@@ -202,7 +201,6 @@ export type DPiInteractiveAgentSessionEvent =
 	| { type: "compaction_start" }
 	| { type: "compaction_end" }
 	| { type: "queue_update"; steering: string[] }
-	| { type: "session_info_changed"; name: string | undefined }
 	| { type: "state_update"; snapshot?: Partial<DPiInteractiveSessionStateSnapshot> }
 	| ({ type: "turn_stats" } & DPiInteractiveTurnStats)
 	| { type: "session_replaced"; reason: "new" | "resume" | "fork" };

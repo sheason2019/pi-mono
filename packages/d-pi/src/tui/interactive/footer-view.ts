@@ -1,8 +1,4 @@
-import {
-	buildDPiNativeFooterView,
-	type DPiNativeFooterView,
-	formatDPiNativeTokens,
-} from "../native/components/footer.ts";
+import { buildDPiNativeFooterView, type DPiNativeFooterView } from "../native/components/footer.ts";
 import { createDPiNativeTheme } from "../native/theme/theme.ts";
 import type { DPiInteractiveSessionStateSnapshot } from "./agent-session-proxy.ts";
 import type { DPiInteractiveStyleOptions } from "./style.ts";
@@ -16,10 +12,6 @@ export interface BuildDPiInteractiveFooterViewOptions extends DPiInteractiveStyl
 	snapshot: DPiInteractiveSessionStateSnapshot;
 	gitBranch?: string | null;
 	width?: number;
-}
-
-export function formatDPiInteractiveTokens(count: number): string {
-	return formatDPiNativeTokens(count);
 }
 
 export function buildDPiInteractiveFooterView(options: BuildDPiInteractiveFooterViewOptions): DPiInteractiveFooterView {

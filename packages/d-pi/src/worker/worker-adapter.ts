@@ -190,10 +190,6 @@ function resolveAgentDefinitionModel(
 	return modelRegistry.find(modelDefinition.provider, modelDefinition.name);
 }
 
-export function runtimeModelSpecFromResolvedModel(model: Model<Api> | undefined): string | undefined {
-	return model ? `${model.provider}/${model.id}` : undefined;
-}
-
 export async function createDPiAgentSessionServices(
 	options: DPiCreateSessionServicesOptions,
 ): Promise<DPiAgentSessionServices> {
@@ -582,7 +578,7 @@ export type DPiLocalAgentEvent =
 			type: "tool_execution_end";
 			data: { type: "tool_execution_end"; toolCallId: string; result: unknown; isError: boolean };
 	  }
-	| { type: "compaction_end" | "compaction_start" | "turn_end" | "turn_start"; data?: unknown };
+	| { type: "compaction_end" | "compaction_start"; data?: unknown };
 
 export interface DPiRegisteredTool {
 	name: string;
@@ -635,7 +631,6 @@ let generatedMessageSequence = 0;
 
 function createDefaultRemoteSettings(): DPiInteractiveRemoteSettings {
 	return {
-		doubleEscapeAction: "tree",
 		showImages: true,
 		imageWidthCells: 60,
 		autoResizeImages: true,

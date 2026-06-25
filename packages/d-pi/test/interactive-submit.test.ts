@@ -90,7 +90,6 @@ function connectSnapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/tmp/workspace",
 		availableProviderCount: 1,
 		remoteSettings: {
-			doubleEscapeAction: "tree",
 			showImages: true,
 			imageWidthCells: 60,
 			autoResizeImages: true,
@@ -262,7 +261,6 @@ describe("d-pi interactive editor submit", () => {
 						availableProviderCount: 1,
 						remoteSettings: {
 							enableSkillCommands: true,
-							doubleEscapeAction: "tree",
 							showImages: true,
 							imageWidthCells: 60,
 							autoResizeImages: true,

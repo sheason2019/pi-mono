@@ -77,15 +77,3 @@ export function workspaceAgentsPath(workspaceRoot: string): string {
 export function cwdAgentsPath(cwd: string): string {
 	return join(resolve(cwd), AGENTS_MD);
 }
-
-export function agentAgentsPath(agentDir: string): string {
-	return join(resolve(agentDir), AGENTS_MD);
-}
-
-export function agentAppendSystemPath(agentDir: string): string {
-	return join(resolve(agentDir), ".pi", APPEND_SYSTEM_MD);
-}
-
-export function agentSkillsPath(agentDir: string): string {
-	return join(resolve(agentDir), "skills");
-}

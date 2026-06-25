@@ -18,6 +18,12 @@
 
 ### Removed
 
+- Removed the `session_info_changed` event type from `DPiInteractiveAgentSessionEvent`. Session info changes are delivered via `state_update` events, and d-pi does not currently expose session renaming controls.
+- Removed `turn_start` and `turn_end` event types from the local agent event bus. Agent busy/ready state is already tracked via `agent_start` / `agent_end` events from the runtime.
+- Removed the `reload_agent_result` worker-to-hub IPC message. Agent reload is a fire-and-forget signal; the hub does not wait for per-agent results.
+- Removed `doubleEscapeAction` from `DPiInteractiveRemoteSettings`. The double-escape shortcut is not currently supported in d-pi's session model.
+- Removed the unused `runtimeModelSpecFromResolvedModel()` helper.
+- Removed `initTheme()` and `getMarkdownTheme()` stubs from the extension contracts module. d-pi delegates markdown styling to the TUI theme.
 - Removed the empty `WorkspaceConfig` interface and `validateWorkspace()` function. The legacy `.dpi/config.json` mechanism has been fully replaced by the `d-pi.ts` / `defineWorkspace()` configuration model.
 - Removed `abortBash()` from the agent session proxy and connect protocol. Bash execution is now handled at the agent tool level.
 - Removed `enableSkillCommands` and `transport` fields from `DPiInteractiveRemoteSettings`. These fields were always set to their default values (`true` and `"auto"`) and had no runtime effect.
@@ -27,6 +33,8 @@
 - Removed imperative `setAutoCompactEnabled`, `setSteeringMode`, `setFollowUpMode`, `setScopedModels`, and `setEnabledModels` from the session proxy and protocol. Auto-compact is now configured declaratively via `defineAgent({ autoCompact })`; steering/follow-up mode and scoped model filters (which had no runtime effect) have been removed entirely.
 - Removed the non-d-pi workspace packages and converged repository build, check, test, release, and local smoke-test configuration around the single `@sheason/d-pi` package.
 - Removed the d-pi package dependency on the legacy interactive runtime package. Extension contracts, native tools, worker IPC/session shims, and tests now use d-pi-owned contracts or the upstream `@earendil-works/pi-*` packages directly.
+- Removed `DEFAULT_AGENT_PORT_START` constant and its test. Agent port-based mode was removed in a previous cleanup.
+- Removed dead exported helpers: `formatDPiInteractiveTokens`, `agentAgentsPath`, `agentAppendSystemPath`, `agentSkillsPath`, `buildDPiMetaContent`, `createRemoteMessageListComponent`, `createRemoteFooterComponent`. None of these had any call sites in the source tree.
 
 ## [0.6.0-alpha.6] - 2026-06-12
 

@@ -1,6 +1,6 @@
 import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { Component, MarkdownTheme } from "@earendil-works/pi-tui";
+import type { Component } from "@earendil-works/pi-tui";
 import type { Static, TSchema } from "typebox";
 
 export interface ExtensionCommandContext {
@@ -114,28 +114,4 @@ export interface ModelRegistry {
 	getAvailable?(): Promise<Model<Api>[]>;
 	refresh(): void;
 	getError?(): unknown;
-}
-
-export function initTheme(_name: string): void {
-	// d-pi only needs markdown rendering contracts in tests; styling is supplied by the TUI theme.
-}
-
-export function getMarkdownTheme(): MarkdownTheme {
-	const style = (text: string): string => text;
-	return {
-		heading: style,
-		link: style,
-		linkUrl: style,
-		code: style,
-		codeBlock: style,
-		codeBlockBorder: style,
-		quote: style,
-		quoteBorder: style,
-		hr: style,
-		listBullet: style,
-		bold: style,
-		italic: style,
-		strikethrough: style,
-		underline: style,
-	};
 }

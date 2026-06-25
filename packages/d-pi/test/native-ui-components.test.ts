@@ -48,7 +48,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/tmp",
 		availableProviderCount: 1,
 		remoteSettings: {
-			doubleEscapeAction: "tree",
 			showImages: true,
 			imageWidthCells: 60,
 			autoResizeImages: true,

@@ -440,9 +440,6 @@ export class Hub {
 				void this._requestWorkspaceReload(message.agentName, message.callId, message.reason);
 				break;
 
-			case "reload_agent_result":
-				break;
-
 			case "tool_call":
 				this._handleToolCall(message.callId, message.tool, message.params, message.agentName);
 				break;
