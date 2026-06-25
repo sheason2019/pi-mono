@@ -36,6 +36,10 @@
 - Removed `DEFAULT_AGENT_PORT_START` constant and its test. Agent port-based mode was removed in a previous cleanup.
 - Removed dead exported helpers: `formatDPiInteractiveTokens`, `agentAgentsPath`, `agentAppendSystemPath`, `agentSkillsPath`, `buildDPiMetaContent`, `createRemoteMessageListComponent`, `createRemoteFooterComponent`. None of these had any call sites in the source tree.
 
+### Changed
+
+- Rewrote the d-pi CLI to use Commander.js instead of manual argument parsing. Command structure, help output, and option validation are now declaratively defined; the `runDPiCli(args, runtime?)` function signature and `DPiCliRuntime` injection interface remain unchanged.
+
 ## [0.6.0-alpha.6] - 2026-06-12
 
 ### Added

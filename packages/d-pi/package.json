@@ -34,6 +34,7 @@
 		"@earendil-works/pi-agent-core": "0.78.0",
 		"@earendil-works/pi-ai": "0.78.0",
 		"@earendil-works/pi-tui": "0.78.0",
+		"commander": "15.0.0",
 		"diff": "8.0.4",
 		"highlight.js": "10.7.3",
 		"typebox": "1.1.38"
