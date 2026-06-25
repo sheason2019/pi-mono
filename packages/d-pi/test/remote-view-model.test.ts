@@ -11,9 +11,7 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		model: "anthropic/claude-sonnet-4",
 		isStreaming: false,
 		isCompacting: false,
-		isBashRunning: false,
 		steeringMessages: [],
-		followUpMessages: [],
 		sessionFile: "/tmp/session.jsonl",
 		sessionName: "session",
 		messages: [{ role: "user", content: "hello", timestamp: 1 }],
@@ -25,13 +23,11 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/tmp/workspace",
 		availableProviderCount: 1,
 		remoteSettings: {
-			enableSkillCommands: true,
 			doubleEscapeAction: "tree",
 			showImages: true,
 			imageWidthCells: 60,
 			autoResizeImages: true,
 			blockImages: false,
-			transport: "auto",
 			httpIdleTimeoutMs: 600000,
 			currentTheme: "default",
 			availableThemes: ["default"],
@@ -47,7 +43,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 			showTerminalProgress: true,
 			warnings: {},
 		},
-		extensionPaths: [],
 	};
 }
 
@@ -249,12 +244,11 @@ describe("remote-first interactive view model", () => {
 
 		proxy.applyNamedEventForTest({
 			event: "queue_update",
-			data: JSON.stringify({ type: "queue_update", steering: ["interrupt"], followUp: ["legacy"] }),
+			data: JSON.stringify({ type: "queue_update", steering: ["interrupt"] }),
 		});
 
 		expect(proxy.getSnapshot()).toMatchObject({
 			steeringMessages: ["interrupt"],
-			followUpMessages: [],
 		});
 	});
 

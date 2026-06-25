@@ -28,9 +28,7 @@ export interface AgentConfig {
 	roles?: string[];
 }
 
-// === Workspace Configuration ===
-export interface WorkspaceConfig {}
-
+// === Workspace Context ===
 export interface WorkspaceContext {
 	workspaceRoot: string;
 	appendSystemPrompt?: string;
@@ -126,8 +124,6 @@ export interface AgentRecord {
 	name: string;
 	parentName: string | undefined;
 	children: string[];
-	/** @deprecated Agents no longer bind HTTP ports in stdio/IPC mode. */
-	port?: number;
 	status: AgentStatus;
 	worker: Worker;
 	cwd: string;
@@ -137,11 +133,8 @@ export interface AgentRecord {
 export interface HubConfig {
 	port?: number;
 	cwd: string;
-	/** @deprecated Agents no longer bind HTTP ports in stdio/IPC mode. */
-	agentPortStart?: number;
 	workspaceRoot: string;
 	workspaceContext: WorkspaceContext;
-	workspaceConfig: WorkspaceConfig;
 	/**
 	 * Max time (ms) the hub will wait for an executor to return a
 	 * result for a dispatched tool call, whether triggered from

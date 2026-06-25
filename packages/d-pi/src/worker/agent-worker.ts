@@ -355,11 +355,7 @@ async function runAgentWorker(): Promise<void> {
 	agentToolNames = agentDefinition?.tools.map((tool) => tool.name) ?? [];
 
 	// 1. Create infrastructure
-	const {
-		agentDir,
-		authStorage,
-		modelRegistry: workerModelRegistry,
-	} = createDPiWorkerInfrastructure(cwd, {
+	const { agentDir, modelRegistry: workerModelRegistry } = createDPiWorkerInfrastructure(cwd, {
 		agentDefinition,
 	});
 	modelRegistry = workerModelRegistry;
@@ -433,7 +429,6 @@ async function runAgentWorker(): Promise<void> {
 		const services = await createDPiAgentSessionServices({
 			cwd: opts.cwd,
 			agentDir: opts.agentDir,
-			authStorage,
 			modelRegistry: modelRegistry!,
 			resourceLoaderOptions: {
 				extensionFactories: [

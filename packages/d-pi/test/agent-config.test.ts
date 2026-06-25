@@ -157,7 +157,7 @@ describe("buildAgentTsSource", () => {
 				headers: { "x-agent": "rich" },
 			},
 			reasoning: true,
-			thinkingLevelMap: { off: null, high: "high" },
+			thinkingLevel: "high",
 			input: ["text", "image"],
 			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
 			contextWindow: 200_000,

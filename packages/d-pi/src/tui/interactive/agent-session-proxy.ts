@@ -99,13 +99,11 @@ export interface DPiInteractiveModelItemData {
 }
 
 export interface DPiInteractiveRemoteSettings {
-	enableSkillCommands: boolean;
 	doubleEscapeAction: "fork" | "tree" | "none";
 	showImages: boolean;
 	imageWidthCells: number;
 	autoResizeImages: boolean;
 	blockImages: boolean;
-	transport: string;
 	httpIdleTimeoutMs: number;
 	currentTheme: string;
 	availableThemes: string[];
@@ -177,9 +175,7 @@ export interface DPiInteractiveSessionStateSnapshot {
 	model: string;
 	isStreaming: boolean;
 	isCompacting: boolean;
-	isBashRunning: boolean;
 	steeringMessages: readonly string[];
-	followUpMessages: readonly string[];
 	sessionFile: string | undefined;
 	sessionName: string | undefined;
 	messages: readonly AgentMessage[];
@@ -192,7 +188,6 @@ export interface DPiInteractiveSessionStateSnapshot {
 	cwd: string;
 	availableProviderCount: number;
 	remoteSettings: DPiInteractiveRemoteSettings;
-	extensionPaths: string[];
 }
 
 export type DPiInteractiveAgentSessionEvent =
@@ -206,7 +201,7 @@ export type DPiInteractiveAgentSessionEvent =
 	| { type: "agent_end" }
 	| { type: "compaction_start" }
 	| { type: "compaction_end" }
-	| { type: "queue_update"; steering: string[]; followUp: string[] }
+	| { type: "queue_update"; steering: string[] }
 	| { type: "session_info_changed"; name: string | undefined }
 	| { type: "state_update"; snapshot?: Partial<DPiInteractiveSessionStateSnapshot> }
 	| ({ type: "turn_stats" } & DPiInteractiveTurnStats)
@@ -218,15 +213,12 @@ export interface DPiInteractiveAgentSessionProxy {
 	steer(text: string, images?: Array<{ url: string; mediaType?: string }>): void;
 	followUp(text: string, images?: Array<{ url: string; mediaType?: string }>): void;
 	abort(): void;
-	abortBash(): void;
-	clearQueue(): { steering: string[]; followUp: string[] };
+	clearQueue(): { steering: string[] };
 
 	readonly model: string;
 	readonly isStreaming: boolean;
 	readonly isCompacting: boolean;
-	readonly isBashRunning: boolean;
 	readonly steeringMessages: readonly string[];
-	readonly followUpMessages: readonly string[];
 	readonly sessionFile: string | undefined;
 	readonly sessionName: string | undefined;
 	readonly messages: readonly AgentMessage[];

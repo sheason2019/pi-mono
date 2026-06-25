@@ -536,15 +536,11 @@ export class DPiAgentRuntime {
 			transcriptItems: this.transcriptItems.map((item) => ({ ...item })),
 			streaming: { active: this.activeTurn },
 			compaction: { status: "idle", queued: false },
-			bash: { active: false, cwd: this.cwd, commands: [] },
 			queues: cloneQueues(this.queues),
 			model,
-			thinking: {},
 			contextUsage: { tokens, contextWindow, percent },
 			tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
 			session: { ...this.sessionInfo },
-			commands: [],
-			settings: {},
 		};
 	}
 

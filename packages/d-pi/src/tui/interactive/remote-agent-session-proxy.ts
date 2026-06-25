@@ -99,17 +99,12 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 		void this.post("abort");
 	}
 
-	abortBash(): void {
-		void this.post("abort-bash");
-	}
-
-	clearQueue(): { steering: string[]; followUp: string[] } {
+	clearQueue(): { steering: string[] } {
 		const dropped = {
 			steering: [...this.statusState.steeringMessages],
-			followUp: [...this.statusState.followUpMessages],
 		};
 		void this.post("clear-queue");
-		this.statusState = { ...this.statusState, steeringMessages: [], followUpMessages: [] };
+		this.statusState = { ...this.statusState, steeringMessages: [] };
 		return dropped;
 	}
 
@@ -122,14 +117,8 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	get isCompacting(): boolean {
 		return this.statusState.isCompacting;
 	}
-	get isBashRunning(): boolean {
-		return this.statusState.isBashRunning;
-	}
 	get steeringMessages(): readonly string[] {
 		return this.statusState.steeringMessages;
-	}
-	get followUpMessages(): readonly string[] {
-		return this.statusState.followUpMessages;
 	}
 	get sessionFile(): string | undefined {
 		return this.statusState.sessionFile;
@@ -294,7 +283,7 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 		} else if (event.type === "compaction_end") {
 			this.statusState = { ...this.statusState, isCompacting: false };
 		} else if (event.type === "queue_update") {
-			this.statusState = { ...this.statusState, steeringMessages: event.steering, followUpMessages: [] };
+			this.statusState = { ...this.statusState, steeringMessages: event.steering };
 		}
 	}
 

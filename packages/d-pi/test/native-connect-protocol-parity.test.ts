@@ -17,9 +17,7 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		model: "anthropic/claude-sonnet-4",
 		isStreaming: false,
 		isCompacting: false,
-		isBashRunning: false,
 		steeringMessages: [],
-		followUpMessages: [],
 		sessionFile: "/tmp/session.jsonl",
 		sessionName: "session",
 		messages: [],
@@ -31,13 +29,11 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/tmp/workspace",
 		availableProviderCount: 1,
 		remoteSettings: {
-			enableSkillCommands: true,
 			doubleEscapeAction: "tree",
 			showImages: true,
 			imageWidthCells: 60,
 			autoResizeImages: true,
 			blockImages: false,
-			transport: "auto",
 			httpIdleTimeoutMs: 600000,
 			currentTheme: "default",
 			availableThemes: ["default"],
@@ -53,7 +49,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 			showTerminalProgress: true,
 			warnings: {},
 		},
-		extensionPaths: [],
 	};
 }
 
@@ -65,8 +60,7 @@ function createProxy(): DPiInteractiveAgentSessionProxy {
 		steer: vi.fn(),
 		followUp: vi.fn(),
 		abort: vi.fn(),
-		abortBash: vi.fn(),
-		clearQueue: vi.fn(() => ({ steering: [], followUp: [] })),
+		clearQueue: vi.fn(() => ({ steering: [] })),
 		compact: vi.fn(async () => {}),
 		newSession: vi.fn(async () => {}),
 		switchSession: vi.fn(async () => {}),
@@ -96,14 +90,8 @@ function createProxy(): DPiInteractiveAgentSessionProxy {
 		get isCompacting() {
 			return state.isCompacting;
 		},
-		get isBashRunning() {
-			return state.isBashRunning;
-		},
 		get steeringMessages() {
 			return state.steeringMessages;
-		},
-		get followUpMessages() {
-			return state.followUpMessages;
 		},
 		get sessionFile() {
 			return state.sessionFile;

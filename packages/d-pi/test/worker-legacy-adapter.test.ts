@@ -568,7 +568,6 @@ describe("worker runtime adapter", () => {
 		const services = await createDPiAgentSessionServices({
 			cwd: "/tmp/d-pi-extension-bind",
 			agentDir: "/tmp/d-pi-extension-bind",
-			authStorage: { kind: "d-pi-auth-storage" },
 			modelRegistry: asWorkerModelRegistry(makeModelRegistry({})),
 			resourceLoaderOptions: {
 				extensionFactories: [{ name: "sample-extension", factory }],
@@ -621,7 +620,6 @@ describe("worker runtime adapter", () => {
 		const services = await createDPiAgentSessionServices({
 			cwd: "/tmp/d-pi-harness-tools",
 			agentDir: "/tmp/d-pi-harness-tools",
-			authStorage: { kind: "d-pi-auth-storage" },
 			modelRegistry: asWorkerModelRegistry(makeModelRegistry({})),
 			resourceLoaderOptions: {
 				extensionFactories: [{ name: "dispatch-extension", factory }],
@@ -688,7 +686,7 @@ describe("worker runtime adapter", () => {
 				queued: [],
 				tokenUsage: expect.objectContaining({ input: 0, output: 0 }),
 				contextUsage: expect.objectContaining({ tokens: 0, percent: 0 }),
-				remoteSettings: expect.objectContaining({ enableSkillCommands: true }),
+				remoteSettings: expect.objectContaining({ autoResizeImages: true }),
 			});
 		} finally {
 			harness.server.stop();
@@ -707,7 +705,7 @@ describe("worker runtime adapter", () => {
 			expect(status.status).toBe(200);
 			expect(status.body).toMatchObject({
 				isStreaming: false,
-				remoteSettings: expect.objectContaining({ enableSkillCommands: true }),
+				remoteSettings: expect.objectContaining({ autoResizeImages: true }),
 			});
 			expect(JSON.stringify(status.body)).not.toContain("hello view model");
 			expect(realtime.status).toBe(200);
@@ -952,7 +950,6 @@ describe("worker runtime adapter", () => {
 		const services = await createDPiAgentSessionServices({
 			cwd: "/tmp/d-pi-extension-input",
 			agentDir: "/tmp/d-pi-extension-input",
-			authStorage: { kind: "d-pi-auth-storage" },
 			modelRegistry: asWorkerModelRegistry(makeModelRegistry({})),
 			resourceLoaderOptions: {
 				extensionFactories: [{ name: "input-extension", factory }],
@@ -1051,7 +1048,6 @@ describe("worker runtime adapter", () => {
 					expect.objectContaining({ kind: "steer", text: "continue" }),
 				],
 				steeringMessages: ["tighten scope", "continue"],
-				followUpMessages: [],
 				messages: [],
 			});
 			expect(JSON.stringify(state.body)).not.toContain('"customType":"steer"');
@@ -1101,7 +1097,6 @@ describe("worker runtime adapter", () => {
 		expect(proxy.getState()).toMatchObject({
 			queued: [expect.objectContaining({ kind: "steer", text: "file-backed steer" })],
 			steeringMessages: ["file-backed steer"],
-			followUpMessages: [],
 		});
 	});
 
@@ -1110,7 +1105,7 @@ describe("worker runtime adapter", () => {
 		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime(), { steeringQueuePath: queuePath });
 		await appendSteeringMessage(queuePath, { text: "drop me", source: "connect" });
 
-		expect(proxy.clearQueue()).toEqual({ steering: ["drop me"], followUp: [] });
+		expect(proxy.clearQueue()).toEqual({ steering: ["drop me"] });
 
 		expect(await readSteeringMessages(queuePath)).toEqual([]);
 		expect(proxy.getState().steeringMessages).toEqual([]);
@@ -1123,7 +1118,7 @@ describe("worker runtime adapter", () => {
 		await appendSteeringMessage(queuePath, { text: "original two", source: "connect" });
 
 		const editingSource = proxy.clearQueue();
-		expect(editingSource).toEqual({ steering: ["original one", "original two"], followUp: [] });
+		expect(editingSource).toEqual({ steering: ["original one", "original two"] });
 		expect(await readSteeringMessages(queuePath)).toEqual([]);
 
 		await proxy.steer("edited message");
@@ -1191,7 +1186,6 @@ describe("worker runtime adapter", () => {
 			expect(proxy.getState()).toMatchObject({
 				messages: [],
 				steeringMessages: ["second"],
-				followUpMessages: [],
 			});
 		} finally {
 			harness.server.stop();
@@ -1282,7 +1276,6 @@ describe("worker runtime adapter", () => {
 		expect(proxy.getState()).toMatchObject({
 			messages: [],
 			steeringMessages: ["interrupt prompt", "legacy follow-up"],
-			followUpMessages: [],
 		});
 	});
 
@@ -1576,7 +1569,6 @@ describe("worker runtime adapter", () => {
 
 		expect(proxy.getState()).toMatchObject({
 			steeringMessages: [],
-			followUpMessages: [],
 			queued: [],
 		});
 	});

@@ -78,9 +78,7 @@ function connectSnapshot(): DPiInteractiveSessionStateSnapshot {
 		model: "anthropic/claude-sonnet-4",
 		isStreaming: false,
 		isCompacting: false,
-		isBashRunning: false,
 		steeringMessages: [],
-		followUpMessages: [],
 		sessionFile: undefined,
 		sessionName: undefined,
 		messages: [],
@@ -92,13 +90,11 @@ function connectSnapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/tmp/workspace",
 		availableProviderCount: 1,
 		remoteSettings: {
-			enableSkillCommands: true,
 			doubleEscapeAction: "tree",
 			showImages: true,
 			imageWidthCells: 60,
 			autoResizeImages: true,
 			blockImages: false,
-			transport: "auto",
 			httpIdleTimeoutMs: 600000,
 			currentTheme: "default",
 			availableThemes: ["default"],
@@ -114,7 +110,6 @@ function connectSnapshot(): DPiInteractiveSessionStateSnapshot {
 			showTerminalProgress: true,
 			warnings: {},
 		},
-		extensionPaths: [],
 	};
 }
 
@@ -242,9 +237,7 @@ describe("d-pi interactive editor submit", () => {
 					({
 						isStreaming: false,
 						isCompacting: false,
-						isBashRunning: false,
 						steeringMessages: [],
-						followUpMessages: [],
 						sessionName: "session",
 						sessionFile: "/tmp/session.jsonl",
 						cwd: "/tmp/workspace",
@@ -274,7 +267,6 @@ describe("d-pi interactive editor submit", () => {
 							imageWidthCells: 60,
 							autoResizeImages: true,
 							blockImages: false,
-							transport: "auto",
 							httpIdleTimeoutMs: 600000,
 							currentTheme: "default",
 							availableThemes: ["default"],
@@ -290,7 +282,6 @@ describe("d-pi interactive editor submit", () => {
 							showTerminalProgress: true,
 							warnings: {},
 						},
-						extensionPaths: [],
 						banner: { changelogMarkdown: "changes" },
 					}) as unknown as DPiInteractiveSessionStateSnapshot,
 			),
@@ -373,7 +364,7 @@ describe("d-pi interactive editor submit", () => {
 			disconnect,
 			getSnapshot: vi.fn(() => connectSnapshot()),
 			subscribe: vi.fn(() => vi.fn()),
-			clearQueue: vi.fn(() => ({ steering: [], followUp: [] })),
+			clearQueue: vi.fn(() => ({ steering: [] })),
 		} as Partial<DPiInteractiveAgentSessionProxy> & { connect(): Promise<void>; disconnect(): void });
 		const options = {
 			agentUrl: "https://dp.example/agents/root",
@@ -404,7 +395,7 @@ describe("d-pi interactive editor submit", () => {
 			disconnect: vi.fn(),
 			getSnapshot: vi.fn(() => connectSnapshot()),
 			subscribe: vi.fn(() => vi.fn()),
-			clearQueue: vi.fn(() => ({ steering: [], followUp: [] })),
+			clearQueue: vi.fn(() => ({ steering: [] })),
 		} as Partial<DPiInteractiveAgentSessionProxy> & { connect(): Promise<void>; disconnect(): void });
 		const handle = await runDPiConnectInteractiveMode({
 			agentUrl: "https://dp.example/agents/root",
@@ -429,7 +420,7 @@ describe("d-pi interactive editor submit", () => {
 			disconnect: vi.fn(),
 			getSnapshot: vi.fn(() => connectSnapshot()),
 			subscribe: vi.fn(() => vi.fn()),
-			clearQueue: vi.fn(() => ({ steering: [], followUp: [] })),
+			clearQueue: vi.fn(() => ({ steering: [] })),
 		} as Partial<DPiInteractiveAgentSessionProxy> & { connect(): Promise<void>; disconnect(): void });
 		const handle = await runDPiConnectInteractiveMode({
 			agentUrl: "https://dp.example/agents/root",
@@ -458,7 +449,7 @@ describe("d-pi interactive editor submit", () => {
 				listeners.push(listener);
 				return () => {};
 			}),
-			clearQueue: vi.fn(() => ({ steering: [], followUp: [] })),
+			clearQueue: vi.fn(() => ({ steering: [] })),
 		} as Partial<DPiInteractiveAgentSessionProxy> & { connect(): Promise<void>; disconnect(): void });
 		const handle = await runDPiConnectInteractiveMode({
 			agentUrl: "https://dp.example/agents/root",

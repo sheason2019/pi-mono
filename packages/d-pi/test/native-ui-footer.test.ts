@@ -8,9 +8,7 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		model: "stepfun/step-3.7-flash",
 		isStreaming: false,
 		isCompacting: false,
-		isBashRunning: false,
 		steeringMessages: [],
-		followUpMessages: [],
 		sessionFile: undefined,
 		sessionName: "launch",
 		messages: [],
@@ -30,13 +28,11 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "~/workspace",
 		availableProviderCount: 2,
 		remoteSettings: {
-			enableSkillCommands: true,
 			doubleEscapeAction: "tree",
 			showImages: true,
 			imageWidthCells: 60,
 			autoResizeImages: true,
 			blockImages: false,
-			transport: "auto",
 			httpIdleTimeoutMs: 600000,
 			currentTheme: "default",
 			availableThemes: ["default"],
@@ -52,7 +48,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 			showTerminalProgress: true,
 			warnings: {},
 		},
-		extensionPaths: [],
 	};
 }
 

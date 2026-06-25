@@ -18,6 +18,10 @@
 
 ### Removed
 
+- Removed the empty `WorkspaceConfig` interface and `validateWorkspace()` function. The legacy `.dpi/config.json` mechanism has been fully replaced by the `d-pi.ts` / `defineWorkspace()` configuration model.
+- Removed `abortBash()` from the agent session proxy and connect protocol. Bash execution is now handled at the agent tool level.
+- Removed `enableSkillCommands` and `transport` fields from `DPiInteractiveRemoteSettings`. These fields were always set to their default values (`true` and `"auto"`) and had no runtime effect.
+- Removed the `followUp` field from `queue_update` events and `clearQueue()` return values. The follow-up queue was never populated.
 - Replaced `thinkingLevelMap` with a single `thinkingLevel` field in `defineModel()`. The active thinking level is now determined entirely by the model definition instead of being runtime-configurable, and the empty `DPiWorkerSettingsManager` has been removed.
 - Removed imperative model and thinking level controls (`setModel`, `cycleModel`, `setThinkingLevel`, `cycleThinkingLevel`) from the session proxy, extension API, runtime hooks, and TUI keybindings. Model and thinking configuration is now exclusively declared in `agent.ts` and applied at runtime via the reload tool.
 - Removed imperative `setAutoCompactEnabled`, `setSteeringMode`, `setFollowUpMode`, `setScopedModels`, and `setEnabledModels` from the session proxy and protocol. Auto-compact is now configured declaratively via `defineAgent({ autoCompact })`; steering/follow-up mode and scoped model filters (which had no runtime effect) have been removed entirely.

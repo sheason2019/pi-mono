@@ -15,9 +15,7 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		model: "claude-sonnet-4",
 		isStreaming: true,
 		isCompacting: false,
-		isBashRunning: false,
 		steeringMessages: ["interrupt"],
-		followUpMessages: ["continue"],
 		sessionFile: "/tmp/session.jsonl",
 		sessionName: "launch",
 		messages: [
@@ -71,13 +69,11 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/Users/example/workspace",
 		availableProviderCount: 2,
 		remoteSettings: {
-			enableSkillCommands: true,
 			doubleEscapeAction: "tree",
 			showImages: true,
 			imageWidthCells: 60,
 			autoResizeImages: true,
 			blockImages: false,
-			transport: "auto",
 			httpIdleTimeoutMs: 600000,
 			currentTheme: "default",
 			availableThemes: ["default"],
@@ -93,7 +89,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 			showTerminalProgress: true,
 			warnings: {},
 		},
-		extensionPaths: [],
 	};
 }
 

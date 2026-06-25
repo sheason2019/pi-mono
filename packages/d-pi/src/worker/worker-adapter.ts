@@ -46,10 +46,6 @@ import type {
 } from "../tui/interactive/view-model.ts";
 import { createDPiInteractiveRealtimePage } from "../tui/interactive/view-model.ts";
 
-export interface DPiWorkerAuthStorage {
-	readonly kind: "d-pi-auth-storage";
-}
-
 export interface DPiRequestAuth {
 	apiKey: string;
 	headers?: Record<string, string>;
@@ -67,7 +63,6 @@ export interface DPiWorkerSessionManager {
 
 export interface DPiWorkerInfrastructure {
 	agentDir: string;
-	authStorage: DPiWorkerAuthStorage;
 	modelRegistry: DPiWorkerModelRegistry;
 }
 
@@ -119,7 +114,6 @@ export interface DPiAgentSessionServices {
 export interface DPiCreateSessionServicesOptions {
 	cwd: string;
 	agentDir: string;
-	authStorage: DPiWorkerAuthStorage;
 	modelRegistry: DPiWorkerModelRegistry;
 	resourceLoaderOptions?: DPiAgentSessionServices["resourceLoaderOptions"];
 }
@@ -159,7 +153,6 @@ export function createDPiWorkerInfrastructure(
 	const modelRegistry = createBuiltInModelRegistry(options.agentDefinition);
 	return {
 		agentDir: cwd,
-		authStorage: { kind: "d-pi-auth-storage" },
 		modelRegistry,
 	};
 }
@@ -520,9 +513,7 @@ export interface DPiLocalAgentState {
 	model: string;
 	isStreaming: boolean;
 	isCompacting: boolean;
-	isBashRunning: boolean;
 	steeringMessages: readonly string[];
-	followUpMessages: readonly string[];
 	sessionFile: string | undefined;
 	sessionName: string | undefined;
 	tokenUsage: {
@@ -549,7 +540,6 @@ export interface DPiLocalAgentState {
 	cwd: string;
 	availableProviderCount: number;
 	remoteSettings: DPiInteractiveRemoteSettings;
-	extensionPaths: string[];
 	agent: {
 		sessionId: string;
 		status: "busy" | "ready";
@@ -645,13 +635,11 @@ let generatedMessageSequence = 0;
 
 function createDefaultRemoteSettings(): DPiInteractiveRemoteSettings {
 	return {
-		enableSkillCommands: true,
 		doubleEscapeAction: "tree",
 		showImages: true,
 		imageWidthCells: 60,
 		autoResizeImages: true,
 		blockImages: false,
-		transport: "auto",
 		httpIdleTimeoutMs: 600000,
 		currentTheme: "default",
 		availableThemes: ["default"],
@@ -790,11 +778,6 @@ export class DPiAgentIpcServer {
 			}
 			if (action === "abort") {
 				this.proxy.abort();
-				this.handlers.onHttpResponse(requestId, 200, { ok: true });
-				return;
-			}
-			if (action === "abort-bash") {
-				this.proxy.abortBash();
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
 				return;
 			}
@@ -983,9 +966,7 @@ export class DPiLocalAgentSessionProxy {
 			model: model?.id ?? "",
 			isStreaming: this.streaming,
 			isCompacting: this.compacting,
-			isBashRunning: false,
 			steeringMessages: this.steeringQueueItems().map((item) => item.text),
-			followUpMessages: [],
 			sessionFile: metadata.path,
 			sessionName: this.sessionName,
 			tokenUsage: this.tokenUsage,
@@ -1004,7 +985,6 @@ export class DPiLocalAgentSessionProxy {
 			cwd: metadata.cwd ?? "",
 			availableProviderCount: this.runtime.session.modelRegistry.getAll().length,
 			remoteSettings,
-			extensionPaths: [],
 			agent: {
 				sessionId: metadata.id,
 				status: this.streaming ? "busy" : "ready",
@@ -1111,10 +1091,9 @@ export class DPiLocalAgentSessionProxy {
 		return [];
 	}
 
-	clearQueue(): { steering: string[]; followUp: string[] } {
+	clearQueue(): { steering: string[] } {
 		const dropped = {
 			steering: this.steeringQueueItems().map((item) => item.text),
-			followUp: [],
 		};
 		clearSteeringMessagesSync(this.steeringQueuePath);
 		this.emit({ type: "queue", data: { queued: [] } });
@@ -1411,10 +1390,6 @@ export class DPiLocalAgentSessionProxy {
 		}
 		this.streaming = false;
 		this.emit({ type: "agent_end", data: { type: "agent_end" } });
-		this.emitState();
-	}
-
-	abortBash(): void {
 		this.emitState();
 	}
 
@@ -2288,12 +2263,6 @@ function remoteSettingsUpdates(updates: Record<string, unknown>): Partial<DPiInt
 	}
 	if (typeof updates.blockImages === "boolean") {
 		result.blockImages = updates.blockImages;
-	}
-	if (typeof updates.enableSkillCommands === "boolean") {
-		result.enableSkillCommands = updates.enableSkillCommands;
-	}
-	if (typeof updates.transport === "string") {
-		result.transport = updates.transport;
 	}
 	if (typeof updates.httpIdleTimeoutMs === "number") {
 		result.httpIdleTimeoutMs = updates.httpIdleTimeoutMs;

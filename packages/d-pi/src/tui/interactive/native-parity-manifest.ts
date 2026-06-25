@@ -47,7 +47,6 @@ export const DPI_NATIVE_CONNECT_PROTOCOL_ACTIONS = [
 	"steer",
 	"follow-up",
 	"abort",
-	"abort-bash",
 	"clear-queue",
 	"compact",
 	"new-session",

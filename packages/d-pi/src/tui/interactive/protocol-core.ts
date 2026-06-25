@@ -92,11 +92,6 @@ const protocolHandlers: Record<string, DPiInteractiveProtocolHandler> = {
 		return ok();
 	},
 
-	async "abort-bash"(proxy) {
-		proxy.abortBash();
-		return ok();
-	},
-
 	async "clear-queue"(proxy) {
 		return ok({ ok: true, dropped: proxy.clearQueue() });
 	},

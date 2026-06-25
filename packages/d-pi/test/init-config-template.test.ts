@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runDPiCli } from "../src/cli-runner.ts";
-import { initWorkspace, validateWorkspace } from "../src/workspace/workspace.ts";
+import { initWorkspace, isWorkspaceRoot } from "../src/workspace/workspace.ts";
 
 let tmpRoot: string | undefined;
 
@@ -85,22 +85,22 @@ describe("init template: strict-JSON output", () => {
 		expect(realpathSync(linkedPackagePath)).toBe(realpathSync(packageRoot));
 	});
 
-	it("validateWorkspace accepts the freshly-init config", () => {
+	it("isWorkspaceRoot accepts the freshly-init config", () => {
 		const workspace = freshWorkspace();
 		initWorkspace(workspace);
 
-		// validateWorkspace no longer strips `//` comments — the init template
+		// isWorkspaceRoot checks for the .dpi directory — the init template
 		// must be canonical JSON on its own.
-		validateWorkspace(workspace);
+		expect(isWorkspaceRoot(workspace)).toBe(true);
 	});
 
-	it("validateWorkspace rejects a hand-written config that still uses JS comments", () => {
+	it("JSON.parse rejects a hand-written config that still uses JS comments", () => {
 		// Regression guard for the workaround removal: previously
 		// validateWorkspace did `raw.replace(/\/\/.*$/gm, "")` before
 		// JSON.parse, which silently masked hand-written `//` comments
 		// (and the resulting trailing-comma SyntaxError). With the
 		// workaround gone, a hand-written comment must surface as
-		// "Invalid workspace config: ... is not valid JSON".
+		// a SyntaxError from JSON.parse.
 		const workspace = freshWorkspace();
 		initWorkspace(workspace);
 
@@ -113,7 +113,8 @@ describe("init template: strict-JSON output", () => {
 `,
 		);
 
-		expect(() => validateWorkspace(workspace)).toThrowError(/Invalid workspace config/);
+		const raw = readFileSync(configPath, "utf-8");
+		expect(() => JSON.parse(raw)).toThrowError(SyntaxError);
 	});
 
 	it("AGENTS.md template documents the optional workspace and agent config keys", () => {
@@ -131,7 +132,7 @@ describe("init template: strict-JSON output", () => {
 		expect(agentsMd).toMatch(/defineOpenAIProvider/);
 		expect(agentsMd).toMatch(/defineProvider/);
 		expect(agentsMd).toMatch(/contextWindow/);
-		expect(agentsMd).toMatch(/thinkingLevelMap/);
+		expect(agentsMd).toMatch(/thinkingLevel/);
 		expect(agentsMd).not.toMatch(/agent\.json/);
 		expect(agentsMd).not.toMatch(/sessionId/);
 	});
@@ -154,7 +155,7 @@ describe("init template: strict-JSON output", () => {
 			join(workspace, "team-template"),
 		);
 		expect(stdout.join("\n")).toContain("Cloned team template from https://example.com/team-template.git");
-		validateWorkspace(workspace);
+		expect(isWorkspaceRoot(workspace)).toBe(true);
 	});
 
 	it("CLI init output describes the root agent.ts layout", async () => {

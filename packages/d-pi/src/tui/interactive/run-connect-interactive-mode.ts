@@ -956,7 +956,7 @@ export async function runDPiConnectInteractiveMode(
 		pendingMessagesContainer.clear();
 		pendingMessagesContainer.addChild(buildDPiInteractivePendingMessagesComponent(snapshot, { color: true }));
 		status.setWorking(
-			snapshot.isStreaming || snapshot.isBashRunning || snapshot.isCompacting,
+			snapshot.isStreaming || snapshot.isCompacting,
 			snapshot.isCompacting
 				? `Compacting context... (${dPiConnectKeyText("app.interrupt")} to cancel)`
 				: "Working...",
@@ -969,7 +969,7 @@ export async function runDPiConnectInteractiveMode(
 				color: true,
 			}).text,
 		);
-		terminal.setProgress(snapshot.isStreaming || snapshot.isBashRunning || snapshot.isCompacting);
+		terminal.setProgress(snapshot.isStreaming || snapshot.isCompacting);
 		tui.requestRender();
 	};
 	const showChatStatus = (text: string): void => {
@@ -1140,7 +1140,7 @@ export async function runDPiConnectInteractiveMode(
 	});
 	editor.onAction("app.message.dequeue", () => {
 		const dropped = proxy.clearQueue();
-		const text = [...dropped.steering, ...dropped.followUp].join("\n");
+		const text = dropped.steering.join("\n");
 		if (text) {
 			editor.setText(text);
 		}

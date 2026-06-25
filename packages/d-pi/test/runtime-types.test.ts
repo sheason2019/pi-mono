@@ -52,11 +52,6 @@ const snapshot = {
 		status: "idle",
 		queued: false,
 	},
-	bash: {
-		active: false,
-		cwd: "/workspace/project",
-		commands: [],
-	},
 	queues: {
 		prompts: [
 			{
@@ -83,10 +78,6 @@ const snapshot = {
 		displayName: "Claude Sonnet 4.5",
 		contextWindow: 200_000,
 	},
-	thinking: {
-		level: "medium",
-		budgetTokens: 8_192,
-	},
 	contextUsage: {
 		tokens: 12_345,
 		contextWindow: 200_000,
@@ -104,17 +95,6 @@ const snapshot = {
 		turnId: "turn-1",
 		path: "/workspace/project/.pi/session.json",
 		replacedAt: 1_700_000_006,
-	},
-	commands: [
-		{
-			name: "/agent",
-			description: "Switch active d-pi agent",
-			enabled: true,
-		},
-	],
-	settings: {
-		theme: "dark",
-		approvalMode: "default",
 	},
 	team: {
 		rootName: "root",
