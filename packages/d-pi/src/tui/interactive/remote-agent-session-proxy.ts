@@ -99,25 +99,17 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 		void this.post("abort");
 	}
 
-	abortBash(): void {
-		void this.post("abort-bash");
-	}
-
-	clearQueue(): { steering: string[]; followUp: string[] } {
+	clearQueue(): { steering: string[] } {
 		const dropped = {
 			steering: [...this.statusState.steeringMessages],
-			followUp: [...this.statusState.followUpMessages],
 		};
 		void this.post("clear-queue");
-		this.statusState = { ...this.statusState, steeringMessages: [], followUpMessages: [] };
+		this.statusState = { ...this.statusState, steeringMessages: [] };
 		return dropped;
 	}
 
 	get model(): string {
 		return this.statusState.model;
-	}
-	get thinkingLevel(): DPiInteractiveSessionStateSnapshot["thinkingLevel"] {
-		return this.statusState.thinkingLevel;
 	}
 	get isStreaming(): boolean {
 		return this.statusState.isStreaming;
@@ -125,14 +117,8 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	get isCompacting(): boolean {
 		return this.statusState.isCompacting;
 	}
-	get isBashRunning(): boolean {
-		return this.statusState.isBashRunning;
-	}
 	get steeringMessages(): readonly string[] {
 		return this.statusState.steeringMessages;
-	}
-	get followUpMessages(): readonly string[] {
-		return this.statusState.followUpMessages;
 	}
 	get sessionFile(): string | undefined {
 		return this.statusState.sessionFile;
@@ -146,27 +132,6 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 
 	async compact(customInstructions?: string): Promise<void> {
 		await this.post("compact", { customInstructions });
-	}
-	setModel(modelId: string): void {
-		void this.post("set-model", { modelId });
-	}
-	cycleModel(direction: 1 | -1): void {
-		void this.post("cycle-model", { direction });
-	}
-	setThinkingLevel(level: DPiInteractiveSessionStateSnapshot["thinkingLevel"]): void {
-		void this.post("set-thinking-level", { level });
-	}
-	cycleThinkingLevel(direction: 1 | -1): void {
-		void this.post("cycle-thinking-level", { direction });
-	}
-	setAutoCompactEnabled(enabled: boolean): void {
-		void this.post("settings", { autoCompact: enabled });
-	}
-	setSteeringMode(mode: "all" | "one-at-a-time"): void {
-		void this.post("settings", { steeringMode: mode });
-	}
-	setFollowUpMode(mode: "all" | "one-at-a-time"): void {
-		void this.post("settings", { followUpMode: mode });
 	}
 	async newSession(): Promise<void> {
 		await this.post("new-session");
@@ -185,12 +150,6 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	}
 	async reload(): Promise<void> {
 		await this.post("reload");
-	}
-	setScopedModels(enabledIds: string[] | null): void {
-		void this.post("scoped-models", { enabledIds });
-	}
-	setEnabledModels(patterns: string[] | undefined): void {
-		void this.post("enabled-models", { patterns });
 	}
 	updateSettings(updates: Record<string, unknown>): void {
 		void this.post("settings", updates);
@@ -324,7 +283,7 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 		} else if (event.type === "compaction_end") {
 			this.statusState = { ...this.statusState, isCompacting: false };
 		} else if (event.type === "queue_update") {
-			this.statusState = { ...this.statusState, steeringMessages: event.steering, followUpMessages: [] };
+			this.statusState = { ...this.statusState, steeringMessages: event.steering };
 		}
 	}
 

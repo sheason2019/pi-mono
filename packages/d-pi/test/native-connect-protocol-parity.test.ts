@@ -15,12 +15,9 @@ import {
 function snapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "anthropic/claude-sonnet-4",
-		thinkingLevel: "medium",
 		isStreaming: false,
 		isCompacting: false,
-		isBashRunning: false,
 		steeringMessages: [],
-		followUpMessages: [],
 		sessionFile: "/tmp/session.jsonl",
 		sessionName: "session",
 		messages: [],
@@ -32,18 +29,10 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/tmp/workspace",
 		availableProviderCount: 1,
 		remoteSettings: {
-			autoCompact: true,
-			thinkingLevel: "medium",
-			availableThinkingLevels: ["off", "low", "medium", "high"],
-			steeringMode: "all",
-			followUpMode: "all",
-			enableSkillCommands: true,
-			doubleEscapeAction: "tree",
 			showImages: true,
 			imageWidthCells: 60,
 			autoResizeImages: true,
 			blockImages: false,
-			transport: "auto",
 			httpIdleTimeoutMs: 600000,
 			currentTheme: "default",
 			availableThemes: ["default"],
@@ -59,9 +48,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 			showTerminalProgress: true,
 			warnings: {},
 		},
-		scopedModelIds: null,
-		enabledModelPatterns: undefined,
-		extensionPaths: [],
 	};
 }
 
@@ -73,24 +59,14 @@ function createProxy(): DPiInteractiveAgentSessionProxy {
 		steer: vi.fn(),
 		followUp: vi.fn(),
 		abort: vi.fn(),
-		abortBash: vi.fn(),
-		clearQueue: vi.fn(() => ({ steering: [], followUp: [] })),
+		clearQueue: vi.fn(() => ({ steering: [] })),
 		compact: vi.fn(async () => {}),
-		setModel: vi.fn(),
-		cycleModel: vi.fn(),
-		setThinkingLevel: vi.fn(),
-		cycleThinkingLevel: vi.fn(),
-		setAutoCompactEnabled: vi.fn(),
-		setSteeringMode: vi.fn(),
-		setFollowUpMode: vi.fn(),
 		newSession: vi.fn(async () => {}),
 		switchSession: vi.fn(async () => {}),
 		fork: vi.fn(async () => {}),
 		renameSession: vi.fn(),
 		setLabel: vi.fn(),
 		reload: vi.fn(async () => {}),
-		setScopedModels: vi.fn(),
-		setEnabledModels: vi.fn(),
 		updateSettings: vi.fn(),
 		getTree: vi.fn(() => []),
 		getUserMessagesForForking: vi.fn(() => []),
@@ -107,23 +83,14 @@ function createProxy(): DPiInteractiveAgentSessionProxy {
 		get model() {
 			return state.model;
 		},
-		get thinkingLevel() {
-			return state.thinkingLevel;
-		},
 		get isStreaming() {
 			return state.isStreaming;
 		},
 		get isCompacting() {
 			return state.isCompacting;
 		},
-		get isBashRunning() {
-			return state.isBashRunning;
-		},
 		get steeringMessages() {
 			return state.steeringMessages;
-		},
-		get followUpMessages() {
-			return state.followUpMessages;
 		},
 		get sessionFile() {
 			return state.sessionFile;
@@ -148,8 +115,6 @@ describe("native connect protocol parity", () => {
 			prompt: { text: "hello" },
 			steer: { text: "interrupt" },
 			"follow-up": { text: "continue" },
-			"set-model": { modelId: "anthropic/claude-sonnet-4" },
-			"set-thinking-level": { level: "medium" },
 			"switch-session": { sessionFile: "/tmp/session.jsonl" },
 			fork: { entryId: "entry-1" },
 			name: { name: "session" },

@@ -119,6 +119,9 @@ function assertLocalModel(value: Record<string, unknown>, context: string): void
 	if (value.reasoning !== undefined && typeof value.reasoning !== "boolean") {
 		throw new TypeError(`Agent definition ${context}.reasoning must be a boolean`);
 	}
+	if (value.thinkingLevel !== undefined && typeof value.thinkingLevel !== "string") {
+		throw new TypeError(`Agent definition ${context}.thinkingLevel must be a string`);
+	}
 	if (value.input !== undefined) {
 		if (!Array.isArray(value.input) || value.input.some((item) => item !== "text" && item !== "image")) {
 			throw new TypeError(`Agent definition ${context}.input must contain text or image`);
@@ -213,6 +216,9 @@ function assertAgentDefinition(value: unknown): asserts value is AgentDefinition
 	if (value.parent !== undefined) {
 		assertAgentDefinition(value.parent);
 	}
+	if (value.autoCompact !== undefined && typeof value.autoCompact !== "boolean") {
+		throw new TypeError("Agent definition autoCompact must be a boolean");
+	}
 }
 
 export function normalizeLoadedAgentDefinition(agentFilePath: string, definition: unknown): LoadedAgentDefinition {
@@ -223,6 +229,7 @@ export function normalizeLoadedAgentDefinition(agentFilePath: string, definition
 	const name = basename(agentDir);
 	const loaded: LoadedAgentDefinition = {
 		...definition,
+		autoCompact: definition.autoCompact ?? true,
 		name,
 		agentDir,
 		agentFilePath: resolvedAgentFilePath,

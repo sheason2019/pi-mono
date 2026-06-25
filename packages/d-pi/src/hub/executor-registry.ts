@@ -181,16 +181,6 @@ export class ExecutorRegistry {
 		return true;
 	}
 
-	/** @deprecated Use `resolveOne` instead. Kept for test compatibility. */
-	getPending(connectId: string, callId: string): PendingCall | undefined {
-		return this.entries.get(connectId)?.pendingCalls.get(callId);
-	}
-
-	/** @deprecated Use `resolveOne` instead. Kept for test compatibility. */
-	removePending(connectId: string, callId: string): void {
-		this.entries.get(connectId)?.pendingCalls.delete(callId);
-	}
-
 	setPendingTimer(connectId: string, callId: string, timer: NodeJS.Timeout): void {
 		this.entries.get(connectId)?.pendingTimers.set(callId, timer);
 	}

@@ -13,12 +13,9 @@ import {
 function snapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "claude-sonnet-4",
-		thinkingLevel: "high",
 		isStreaming: true,
 		isCompacting: false,
-		isBashRunning: false,
 		steeringMessages: ["interrupt"],
-		followUpMessages: ["continue"],
 		sessionFile: "/tmp/session.jsonl",
 		sessionName: "launch",
 		messages: [
@@ -72,18 +69,10 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/Users/example/workspace",
 		availableProviderCount: 2,
 		remoteSettings: {
-			autoCompact: true,
-			thinkingLevel: "high",
-			availableThinkingLevels: ["off", "low", "medium", "high"],
-			steeringMode: "all",
-			followUpMode: "all",
-			enableSkillCommands: true,
-			doubleEscapeAction: "tree",
 			showImages: true,
 			imageWidthCells: 60,
 			autoResizeImages: true,
 			blockImages: false,
-			transport: "auto",
 			httpIdleTimeoutMs: 600000,
 			currentTheme: "default",
 			availableThemes: ["default"],
@@ -99,9 +88,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 			showTerminalProgress: true,
 			warnings: {},
 		},
-		scopedModelIds: null,
-		enabledModelPatterns: undefined,
-		extensionPaths: [],
 	};
 }
 
@@ -289,14 +275,13 @@ describe("d-pi interactive view parity components", () => {
 		expect(view.lines[1]).toContain("CH38.1%");
 		expect(view.lines[1]).toContain("$0.123");
 		expect(view.lines[1]).toContain("1.2%/200k (auto)");
-		expect(view.lines[1]).toContain("(anthropic) claude-sonnet-4 • high");
+		expect(view.lines[1]).toContain("(anthropic) claude-sonnet-4");
 	});
 
 	it("renders OpenRouter prefixed model ids like native pi footer aliases", () => {
 		const state = {
 			...snapshot(),
 			model: "stepfun/step-3.7-flash",
-			thinkingLevel: "high" as const,
 			modelInfo: {
 				id: "stepfun/step-3.7-flash",
 				provider: "openrouter",

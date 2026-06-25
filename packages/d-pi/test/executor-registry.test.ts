@@ -35,14 +35,9 @@ describe("ExecutorRegistry", () => {
 		registry.register("c1", { cwd: "/tmp", sseConn: { send: () => {} } });
 		const fakeRes = { writeHead: () => {}, end: () => {} } as never;
 		registry.addPending("c1", "call-1", fakeRes);
-		// After PR #42 + this branch, addPending wraps the ServerResponse
-		// in a PendingCall, so getPending returns the wrapper, not the
-		// raw response. The load-bearing check is that resolveOne drives
-		// the wrapper to write the JSON body.
-		expect(registry.getPending("c1", "call-1")).toBeDefined();
 		const resolved = registry.resolveOne("c1", "call-1", { ok: true, result: 1 });
 		expect(resolved).toBe(true);
-		expect(registry.getPending("c1", "call-1")).toBeUndefined();
+		expect(registry.resolveOne("c1", "call-1", { ok: true, result: 2 })).toBe(false);
 	});
 
 	it("deregister rejects all pending calls with an error", () => {

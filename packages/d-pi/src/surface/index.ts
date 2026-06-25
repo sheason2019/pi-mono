@@ -36,13 +36,5 @@ export {
 } from "./orchestration-tools.ts";
 export type { DPiRemoteExecutor, DPiRemoteToolRequest, DPiRemoteToolResult } from "./remote-executor.ts";
 export { defineDPiRemoteExecutor } from "./remote-executor.ts";
-export type {
-	DPiRuntimeHookEvent,
-	DPiRuntimeHookHandlers,
-	DPiRuntimeHooks,
-	DPiSetModelHookInput,
-	DPiSetThinkingLevelHookInput,
-} from "./runtime-hooks.ts";
-export { createDPiRuntimeHooks } from "./runtime-hooks.ts";
 export type { DPiTool, DPiToolDefinition, DPiToolDetails, DPiToolExecute, DPiToolJsonValue } from "./tool-surface.ts";
 export { defineDPiTool, dPiToolJsonDetails, dPiToolTextResult } from "./tool-surface.ts";

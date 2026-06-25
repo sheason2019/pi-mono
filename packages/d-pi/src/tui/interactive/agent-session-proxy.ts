@@ -1,4 +1,4 @@
-import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api } from "@earendil-works/pi-ai";
 import type { DPiTranscriptItem } from "../../runtime/transcript/projector.ts";
 
@@ -99,18 +99,10 @@ export interface DPiInteractiveModelItemData {
 }
 
 export interface DPiInteractiveRemoteSettings {
-	autoCompact: boolean;
-	thinkingLevel: ThinkingLevel;
-	availableThinkingLevels: readonly ThinkingLevel[];
-	steeringMode: "all" | "one-at-a-time";
-	followUpMode: "all" | "one-at-a-time";
-	enableSkillCommands: boolean;
-	doubleEscapeAction: "fork" | "tree" | "none";
 	showImages: boolean;
 	imageWidthCells: number;
 	autoResizeImages: boolean;
 	blockImages: boolean;
-	transport: string;
 	httpIdleTimeoutMs: number;
 	currentTheme: string;
 	availableThemes: string[];
@@ -180,12 +172,9 @@ export interface DPiInteractiveClientExtensionData {
 
 export interface DPiInteractiveSessionStateSnapshot {
 	model: string;
-	thinkingLevel: ThinkingLevel;
 	isStreaming: boolean;
 	isCompacting: boolean;
-	isBashRunning: boolean;
 	steeringMessages: readonly string[];
-	followUpMessages: readonly string[];
 	sessionFile: string | undefined;
 	sessionName: string | undefined;
 	messages: readonly AgentMessage[];
@@ -198,9 +187,6 @@ export interface DPiInteractiveSessionStateSnapshot {
 	cwd: string;
 	availableProviderCount: number;
 	remoteSettings: DPiInteractiveRemoteSettings;
-	scopedModelIds: string[] | null;
-	enabledModelPatterns: string[] | undefined;
-	extensionPaths: string[];
 }
 
 export type DPiInteractiveAgentSessionEvent =
@@ -214,9 +200,7 @@ export type DPiInteractiveAgentSessionEvent =
 	| { type: "agent_end" }
 	| { type: "compaction_start" }
 	| { type: "compaction_end" }
-	| { type: "queue_update"; steering: string[]; followUp: string[] }
-	| { type: "session_info_changed"; name: string | undefined }
-	| { type: "thinking_level_changed"; level: ThinkingLevel }
+	| { type: "queue_update"; steering: string[] }
 	| { type: "state_update"; snapshot?: Partial<DPiInteractiveSessionStateSnapshot> }
 	| ({ type: "turn_stats" } & DPiInteractiveTurnStats)
 	| { type: "session_replaced"; reason: "new" | "resume" | "fork" };
@@ -227,28 +211,17 @@ export interface DPiInteractiveAgentSessionProxy {
 	steer(text: string, images?: Array<{ url: string; mediaType?: string }>): void;
 	followUp(text: string, images?: Array<{ url: string; mediaType?: string }>): void;
 	abort(): void;
-	abortBash(): void;
-	clearQueue(): { steering: string[]; followUp: string[] };
+	clearQueue(): { steering: string[] };
 
 	readonly model: string;
-	readonly thinkingLevel: ThinkingLevel;
 	readonly isStreaming: boolean;
 	readonly isCompacting: boolean;
-	readonly isBashRunning: boolean;
 	readonly steeringMessages: readonly string[];
-	readonly followUpMessages: readonly string[];
 	readonly sessionFile: string | undefined;
 	readonly sessionName: string | undefined;
 	readonly messages: readonly AgentMessage[];
 
 	compact(customInstructions?: string): Promise<void>;
-	setModel(modelId: string): void;
-	cycleModel(direction: 1 | -1): void;
-	setThinkingLevel(level: ThinkingLevel): void;
-	cycleThinkingLevel(direction: 1 | -1): void;
-	setAutoCompactEnabled(enabled: boolean): void;
-	setSteeringMode(mode: "all" | "one-at-a-time"): void;
-	setFollowUpMode(mode: "all" | "one-at-a-time"): void;
 
 	newSession(): Promise<void>;
 	switchSession(sessionFile: string): Promise<void>;
@@ -257,8 +230,6 @@ export interface DPiInteractiveAgentSessionProxy {
 	setLabel(entryId: string, label: string | undefined): void;
 	reload(): Promise<void>;
 
-	setScopedModels(enabledIds: string[] | null): void;
-	setEnabledModels(patterns: string[] | undefined): void;
 	updateSettings(updates: Record<string, unknown>): void;
 
 	getTree(): DPiInteractiveTreeNodeData[];

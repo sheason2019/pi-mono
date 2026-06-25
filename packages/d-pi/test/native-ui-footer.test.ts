@@ -6,12 +6,9 @@ import { createDPiNativeTheme, getDPiNativeEditorTheme } from "../src/tui/native
 function snapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "stepfun/step-3.7-flash",
-		thinkingLevel: "high",
 		isStreaming: false,
 		isCompacting: false,
-		isBashRunning: false,
 		steeringMessages: [],
-		followUpMessages: [],
 		sessionFile: undefined,
 		sessionName: "launch",
 		messages: [],
@@ -31,18 +28,10 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "~/workspace",
 		availableProviderCount: 2,
 		remoteSettings: {
-			autoCompact: true,
-			thinkingLevel: "high",
-			availableThinkingLevels: ["off", "low", "medium", "high"],
-			steeringMode: "all",
-			followUpMode: "all",
-			enableSkillCommands: true,
-			doubleEscapeAction: "tree",
 			showImages: true,
 			imageWidthCells: 60,
 			autoResizeImages: true,
 			blockImages: false,
-			transport: "auto",
 			httpIdleTimeoutMs: 600000,
 			currentTheme: "default",
 			availableThemes: ["default"],
@@ -58,9 +47,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 			showTerminalProgress: true,
 			warnings: {},
 		},
-		scopedModelIds: null,
-		enabledModelPatterns: undefined,
-		extensionPaths: [],
 	};
 }
 
@@ -77,7 +63,7 @@ describe("d-pi native footer and editor theme", () => {
 
 		expect(footer.lines[0]).toBe("\x1b[38;2;102;102;102m~/workspace (main) • launch\x1b[39m");
 		expect(footer.lines[1]).toContain("\x1b[38;2;102;102;102m↑134 ↓132 R1.2k CH48.9% 0.0%/256k (auto)\x1b[39m");
-		expect(footer.lines[1]).toContain("(stepfun) stepfun/step-3.7-flash • high");
+		expect(footer.lines[1]).toContain("(stepfun) stepfun/step-3.7-flash");
 	});
 
 	it("uses native editor theme tokens", () => {

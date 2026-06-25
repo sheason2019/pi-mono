@@ -657,46 +657,16 @@ function flattenTreeSelectItems(tree: DPiInteractiveTreeNodeData[]): SelectItem[
 }
 
 function buildSettingsSelectItems(settings: DPiInteractiveRemoteSettings): SelectItem[] {
-	return [
-		{
-			value: "autoCompact",
-			label: `Auto-compact: ${settings.autoCompact ? "on" : "off"}`,
-			description: "Automatically compact context when it gets too large",
-		},
-		{
-			value: "steeringMode",
-			label: `Steering mode: ${settings.steeringMode}`,
-			description: "How steering messages are delivered while streaming",
-		},
-		{
-			value: "followUpMode",
-			label: `Follow-up mode: ${settings.followUpMode}`,
-			description: "How follow-up messages are delivered",
-		},
-		...settings.availableThinkingLevels.map((level) => ({
-			value: `thinking:${level}`,
-			label: `Thinking: ${level}${settings.thinkingLevel === level ? " ✓" : ""}`,
-			description: "Set reasoning effort",
-		})),
-	];
+	void settings;
+	return [];
 }
 
 function settingUpdateFromSelectValue(
 	value: string,
 	settings: DPiInteractiveRemoteSettings,
 ): Record<string, unknown> | undefined {
-	if (value === "autoCompact") {
-		return { autoCompact: !settings.autoCompact };
-	}
-	if (value === "steeringMode") {
-		return { steeringMode: settings.steeringMode === "all" ? "one-at-a-time" : "all" };
-	}
-	if (value === "followUpMode") {
-		return { followUpMode: settings.followUpMode === "all" ? "one-at-a-time" : "all" };
-	}
-	if (value.startsWith("thinking:")) {
-		return { thinkingLevel: value.slice("thinking:".length) };
-	}
+	void value;
+	void settings;
 	return undefined;
 }
 
@@ -706,7 +676,6 @@ function sessionPanelText(snapshot: DPiInteractiveSessionStateSnapshot): string 
 		`Path: ${snapshot.sessionFile ?? "(none)"}`,
 		`CWD: ${snapshot.cwd}`,
 		`Model: ${snapshot.model}`,
-		`Thinking: ${snapshot.thinkingLevel}`,
 		`Messages: ${snapshot.messages.length}`,
 		`Context: ${snapshot.contextUsage.tokens ?? "?"}/${snapshot.contextUsage.contextWindow}`,
 	].join("\n");
@@ -987,7 +956,7 @@ export async function runDPiConnectInteractiveMode(
 		pendingMessagesContainer.clear();
 		pendingMessagesContainer.addChild(buildDPiInteractivePendingMessagesComponent(snapshot, { color: true }));
 		status.setWorking(
-			snapshot.isStreaming || snapshot.isBashRunning || snapshot.isCompacting,
+			snapshot.isStreaming || snapshot.isCompacting,
 			snapshot.isCompacting
 				? `Compacting context... (${dPiConnectKeyText("app.interrupt")} to cancel)`
 				: "Working...",
@@ -997,11 +966,10 @@ export async function runDPiConnectInteractiveMode(
 				snapshot: footerSnapshot,
 				gitBranch,
 				width: terminal.columns,
-				showThinkingLevel: false,
 				color: true,
 			}).text,
 		);
-		terminal.setProgress(snapshot.isStreaming || snapshot.isBashRunning || snapshot.isCompacting);
+		terminal.setProgress(snapshot.isStreaming || snapshot.isCompacting);
 		tui.requestRender();
 	};
 	const showChatStatus = (text: string): void => {
@@ -1172,13 +1140,10 @@ export async function runDPiConnectInteractiveMode(
 	});
 	editor.onAction("app.message.dequeue", () => {
 		const dropped = proxy.clearQueue();
-		const text = [...dropped.steering, ...dropped.followUp].join("\n");
+		const text = dropped.steering.join("\n");
 		if (text) {
 			editor.setText(text);
 		}
-	});
-	editor.onAction("app.thinking.cycle", () => {
-		proxy.cycleThinkingLevel(1);
 	});
 	editor.onAction("app.thinking.toggle", () => {
 		proxy.updateSettings({ hideThinkingBlock: !proxy.getSnapshot().remoteSettings.hideThinkingBlock });

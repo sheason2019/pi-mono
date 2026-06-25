@@ -92,11 +92,6 @@ const protocolHandlers: Record<string, DPiInteractiveProtocolHandler> = {
 		return ok();
 	},
 
-	async "abort-bash"(proxy) {
-		proxy.abortBash();
-		return ok();
-	},
-
 	async "clear-queue"(proxy) {
 		return ok({ ok: true, dropped: proxy.clearQueue() });
 	},
@@ -105,20 +100,6 @@ const protocolHandlers: Record<string, DPiInteractiveProtocolHandler> = {
 		const customInstructions =
 			isRecord(data) && typeof data.customInstructions === "string" ? data.customInstructions : undefined;
 		await proxy.compact(customInstructions);
-		return ok();
-	},
-
-	async "set-thinking-level"(proxy, data) {
-		if (!isRecord(data) || typeof data.level !== "string") {
-			return bad("Missing 'level'");
-		}
-		proxy.setThinkingLevel(data.level as Parameters<typeof proxy.setThinkingLevel>[0]);
-		return ok();
-	},
-
-	async "cycle-thinking-level"(proxy, data) {
-		const direction = isRecord(data) && data.direction === -1 ? -1 : 1;
-		proxy.cycleThinkingLevel(direction);
 		return ok();
 	},
 
@@ -168,18 +149,6 @@ const protocolHandlers: Record<string, DPiInteractiveProtocolHandler> = {
 			return bad("Invalid settings body");
 		}
 		proxy.updateSettings(data);
-		if (typeof data.autoCompact === "boolean") {
-			proxy.setAutoCompactEnabled(data.autoCompact);
-		}
-		if (typeof data.thinkingLevel === "string") {
-			proxy.setThinkingLevel(data.thinkingLevel as Parameters<typeof proxy.setThinkingLevel>[0]);
-		}
-		if (data.steeringMode === "all" || data.steeringMode === "one-at-a-time") {
-			proxy.setSteeringMode(data.steeringMode);
-		}
-		if (data.followUpMode === "all" || data.followUpMode === "one-at-a-time") {
-			proxy.setFollowUpMode(data.followUpMode);
-		}
 		return ok();
 	},
 };

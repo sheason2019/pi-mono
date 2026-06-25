@@ -62,6 +62,7 @@ function discoveredAgent(entryName: string, config: AgentConfig): DiscoveredAgen
 			contextFiles: [],
 			agentDir: `/tmp/${entryName}`,
 			agentFilePath: `/tmp/${entryName}/agent.ts`,
+			autoCompact: true,
 		},
 	};
 }
@@ -271,7 +272,6 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			workspaceRoot: workspace,
 			cwd: workspace,
 			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
-			workspaceConfig: {},
 		});
 		await expect(hub.createAgent("nonexistent-name-xxx", { name: "child" })).rejects.toThrow(
 			/parent agent "nonexistent-name-xxx" not found/,
@@ -287,7 +287,6 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			workspaceRoot: workspace,
 			cwd: workspace,
 			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
-			workspaceConfig: {},
 		});
 		// Skip the restore pass — we just want the createAgent defensive
 		// check in isolation. Inject a root record directly via the registry.
@@ -299,7 +298,6 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			name: "root",
 			parentName: undefined,
 			children: [],
-			port: 39091,
 			status: "ready",
 			worker: { postMessage: () => {}, on: () => {}, off: () => {} } as never,
 			cwd: workspace,
@@ -334,7 +332,6 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			workspaceRoot: workspace,
 			cwd: workspace,
 			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
-			workspaceConfig: {},
 		});
 
 		await hub.createAgent(undefined, { name: "root", persistDefinition: false });
@@ -370,7 +367,6 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			workspaceRoot: workspace,
 			cwd: workspace,
 			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
-			workspaceConfig: {},
 		});
 		const registry = (hub as unknown as { _registry: InstanceType<typeof AgentRegistry> })._registry;
 		const readyMessages: unknown[] = [];

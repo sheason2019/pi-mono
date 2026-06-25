@@ -51,7 +51,6 @@ function invokeRemoteViaIpc(
 			name: agentName,
 			parentName: undefined,
 			children: [],
-			port: 0,
 			status: "ready",
 			worker: fakeWorker as never,
 			cwd: tempDir!,
@@ -74,7 +73,6 @@ function registerFakeAgent(
 		name: agentName,
 		parentName,
 		children: [],
-		port: 0,
 		status: "ready",
 		worker: {
 			postMessage: onPostMessage,
@@ -106,7 +104,6 @@ describe('remote tool dispatch via IPC (case "dispatch" in _handleToolCall)', ()
 			cwd: tempDir!,
 			workspaceRoot: tempDir!,
 			workspaceContext: { workspaceRoot: tempDir!, additionalSkillPaths: [], additionalExtensionPaths: [] },
-			workspaceConfig: { version: 1 } as never,
 		});
 		// Replace the hub's internal references with our test instances
 		// so _handleToolCall uses the same executorRegistry / gateway
@@ -247,7 +244,6 @@ describe('send_message via IPC (case "send_message" in _handleToolCall)', () => 
 			cwd: tempDir!,
 			workspaceRoot: tempDir!,
 			workspaceContext: { workspaceRoot: tempDir!, additionalSkillPaths: [], additionalExtensionPaths: [] },
-			workspaceConfig: { version: 1 } as never,
 		});
 		(hub as unknown as { _gateway: HubGateway })._gateway = gateway;
 		(hub as unknown as { _executorRegistry: ExecutorRegistry })._executorRegistry = executorRegistry;

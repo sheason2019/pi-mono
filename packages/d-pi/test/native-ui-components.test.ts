@@ -34,12 +34,9 @@ const assistantMessage: AssistantMessage = {
 function snapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "claude-sonnet-4",
-		thinkingLevel: "high",
 		isStreaming: false,
 		isCompacting: false,
-		isBashRunning: false,
 		steeringMessages: [],
-		followUpMessages: [],
 		sessionFile: undefined,
 		sessionName: undefined,
 		messages: [{ role: "user", content: [{ type: "text", text: "Hi" }], timestamp: 1 }, assistantMessage],
@@ -51,18 +48,10 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/tmp",
 		availableProviderCount: 1,
 		remoteSettings: {
-			autoCompact: true,
-			thinkingLevel: "high",
-			availableThinkingLevels: ["off", "low", "medium", "high"],
-			steeringMode: "all",
-			followUpMode: "all",
-			enableSkillCommands: true,
-			doubleEscapeAction: "tree",
 			showImages: true,
 			imageWidthCells: 60,
 			autoResizeImages: true,
 			blockImages: false,
-			transport: "auto",
 			httpIdleTimeoutMs: 600000,
 			currentTheme: "default",
 			availableThemes: ["default"],
@@ -78,9 +67,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 			showTerminalProgress: true,
 			warnings: {},
 		},
-		scopedModelIds: null,
-		enabledModelPatterns: undefined,
-		extensionPaths: [],
 	};
 }
 

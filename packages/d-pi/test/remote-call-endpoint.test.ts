@@ -235,7 +235,7 @@ describe("hub endpoint POST /agents/{id}/remote-call", () => {
 			const body = (await res.json()) as { error: string };
 			expect(body.error).toMatch(/not yet ready/i);
 			// And the call should NOT be parked in pendingCalls.
-			expect(executorRegistry.getPending("c1", "c-1")).toBeUndefined();
+			expect(executorRegistry.resolveOne("c1", "c-1", { ok: true, result: null })).toBe(false);
 		} finally {
 			await gateway.stop();
 		}
@@ -305,7 +305,7 @@ describe("hub endpoint POST /agents/{id}/remote-call", () => {
 			expect(elapsed).toBeGreaterThanOrEqual(40);
 			expect(elapsed).toBeLessThan(2_000);
 			// And the pending entry was cleared.
-			expect(executorRegistry.getPending("c1", "c-1")).toBeUndefined();
+			expect(executorRegistry.resolveOne("c1", "c-1", { ok: true, result: null })).toBe(false);
 		} finally {
 			await gateway.stop();
 		}

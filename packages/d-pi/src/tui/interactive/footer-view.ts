@@ -1,8 +1,4 @@
-import {
-	buildDPiNativeFooterView,
-	type DPiNativeFooterView,
-	formatDPiNativeTokens,
-} from "../native/components/footer.ts";
+import { buildDPiNativeFooterView, type DPiNativeFooterView } from "../native/components/footer.ts";
 import { createDPiNativeTheme } from "../native/theme/theme.ts";
 import type { DPiInteractiveSessionStateSnapshot } from "./agent-session-proxy.ts";
 import type { DPiInteractiveStyleOptions } from "./style.ts";
@@ -16,11 +12,6 @@ export interface BuildDPiInteractiveFooterViewOptions extends DPiInteractiveStyl
 	snapshot: DPiInteractiveSessionStateSnapshot;
 	gitBranch?: string | null;
 	width?: number;
-	showThinkingLevel?: boolean;
-}
-
-export function formatDPiInteractiveTokens(count: number): string {
-	return formatDPiNativeTokens(count);
 }
 
 export function buildDPiInteractiveFooterView(options: BuildDPiInteractiveFooterViewOptions): DPiInteractiveFooterView {
@@ -28,7 +19,6 @@ export function buildDPiInteractiveFooterView(options: BuildDPiInteractiveFooter
 		snapshot: normalizeFooterSnapshot(options.snapshot),
 		gitBranch: options.gitBranch,
 		width: options.width,
-		showThinkingLevel: options.showThinkingLevel,
 		theme: createDPiNativeTheme(options),
 	});
 	return { lines: view.lines, text: view.text };

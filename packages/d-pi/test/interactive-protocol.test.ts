@@ -11,12 +11,9 @@ import {
 function createSnapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "claude-sonnet-4",
-		thinkingLevel: "medium",
 		isStreaming: false,
 		isCompacting: false,
-		isBashRunning: false,
 		steeringMessages: [],
-		followUpMessages: [],
 		sessionFile: "/tmp/session.jsonl",
 		sessionName: "root session",
 		messages: [],
@@ -61,18 +58,10 @@ function createSnapshot(): DPiInteractiveSessionStateSnapshot {
 		cwd: "/tmp/workspace",
 		availableProviderCount: 2,
 		remoteSettings: {
-			autoCompact: true,
-			thinkingLevel: "medium",
-			availableThinkingLevels: ["off", "low", "medium", "high"],
-			steeringMode: "all",
-			followUpMode: "all",
-			enableSkillCommands: true,
-			doubleEscapeAction: "tree",
 			showImages: true,
 			imageWidthCells: 60,
 			autoResizeImages: true,
 			blockImages: false,
-			transport: "auto",
 			httpIdleTimeoutMs: 600000,
 			currentTheme: "default",
 			availableThemes: ["default"],
@@ -88,9 +77,6 @@ function createSnapshot(): DPiInteractiveSessionStateSnapshot {
 			showTerminalProgress: true,
 			warnings: {},
 		},
-		scopedModelIds: null,
-		enabledModelPatterns: undefined,
-		extensionPaths: [],
 	};
 }
 
@@ -101,13 +87,9 @@ function createProxy(snapshot: DPiInteractiveSessionStateSnapshot): DPiInteracti
 		steer: vi.fn(),
 		followUp: vi.fn(),
 		abort: vi.fn(),
-		abortBash: vi.fn(),
-		clearQueue: vi.fn(() => ({ steering: [], followUp: [] })),
+		clearQueue: vi.fn(() => ({ steering: [] })),
 		get model() {
 			return snapshot.model;
-		},
-		get thinkingLevel() {
-			return snapshot.thinkingLevel;
 		},
 		get isStreaming() {
 			return snapshot.isStreaming;
@@ -115,14 +97,8 @@ function createProxy(snapshot: DPiInteractiveSessionStateSnapshot): DPiInteracti
 		get isCompacting() {
 			return snapshot.isCompacting;
 		},
-		get isBashRunning() {
-			return snapshot.isBashRunning;
-		},
 		get steeringMessages() {
 			return snapshot.steeringMessages;
-		},
-		get followUpMessages() {
-			return snapshot.followUpMessages;
 		},
 		get sessionFile() {
 			return snapshot.sessionFile;
@@ -134,21 +110,12 @@ function createProxy(snapshot: DPiInteractiveSessionStateSnapshot): DPiInteracti
 			return snapshot.messages;
 		},
 		compact: vi.fn(async () => {}),
-		setModel: vi.fn(),
-		cycleModel: vi.fn(),
-		setThinkingLevel: vi.fn(),
-		cycleThinkingLevel: vi.fn(),
-		setAutoCompactEnabled: vi.fn(),
-		setSteeringMode: vi.fn(),
-		setFollowUpMode: vi.fn(),
 		newSession: vi.fn(async () => {}),
 		switchSession: vi.fn(async () => {}),
 		fork: vi.fn(async () => {}),
 		renameSession: vi.fn(),
 		setLabel: vi.fn(),
 		reload: vi.fn(async () => {}),
-		setScopedModels: vi.fn(),
-		setEnabledModels: vi.fn(),
 		updateSettings: vi.fn(),
 		getTree: vi.fn(() => []),
 		getUserMessagesForForking: vi.fn(() => []),

@@ -73,14 +73,3 @@ function dPiMetaTextContent(content: unknown): string | undefined {
 	const text = parts.join("");
 	return text.startsWith("[meta(") ? text : undefined;
 }
-
-export function buildDPiMetaContent(meta: DPiMessageMeta): string {
-	switch (meta.sourceType) {
-		case "agent":
-			return `Message from agent "${meta.agentName ?? "unknown"}".`;
-		case "source":
-			return `Message from external source "${meta.sourceName ?? "unknown"}".`;
-		case "connect":
-			return "Message from Connect TUI.";
-	}
-}

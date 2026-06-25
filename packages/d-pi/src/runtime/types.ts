@@ -1,4 +1,4 @@
-import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Provider } from "@earendil-works/pi-ai";
 import type { DPiContextFile } from "../context/resource-loader.ts";
 import type { TeamSnapshot } from "../types.ts";
@@ -53,23 +53,6 @@ export interface DPiCompactionState {
 	error?: string;
 }
 
-export interface DPiBashCommandState {
-	id: string;
-	command: string;
-	status: "running" | "succeeded" | "failed" | "cancelled";
-	startedAt: number;
-	endedAt?: number;
-	exitCode?: number;
-	output?: string;
-}
-
-export interface DPiBashState {
-	active: boolean;
-	cwd: string;
-	commands: DPiBashCommandState[];
-	currentCommandId?: string;
-}
-
 export interface DPiPromptQueueItem {
 	id: string;
 	text: string;
@@ -101,11 +84,6 @@ export interface DPiModelInfo {
 	provider?: Provider;
 	displayName?: string;
 	contextWindow?: number;
-}
-
-export interface DPiThinkingState {
-	level?: ThinkingLevel;
-	budgetTokens?: number;
 }
 
 export interface DPiContextUsage {
@@ -146,19 +124,6 @@ export interface DPiRuntimeCompactResult<TDetails = unknown> {
 	messages: DPiAgentMessage[];
 }
 
-export interface DPiRuntimeCommand {
-	name: string;
-	description?: string;
-	enabled?: boolean;
-	metadata?: { [key: string]: DPiJsonValue };
-}
-
-export interface DPiRuntimeSettings {
-	theme?: string;
-	approvalMode?: string;
-	[key: string]: DPiJsonValue | undefined;
-}
-
 export interface DPiRuntimeContextInfo {
 	systemPromptParts: string[];
 	contextFiles: DPiContextFile[];
@@ -175,34 +140,18 @@ export interface DPiRuntimeSnapshot {
 	transcriptItems?: DPiTranscriptItem[];
 	streaming: DPiStreamingState;
 	compaction: DPiCompactionState;
-	bash: DPiBashState;
 	queues: DPiRuntimeQueues;
 	model: DPiModelInfo;
-	thinking: DPiThinkingState;
 	contextUsage: DPiContextUsage;
 	tokenUsage: DPiTokenUsage;
 	session: DPiRuntimeSessionInfo;
-	commands: DPiRuntimeCommand[];
-	settings: DPiRuntimeSettings;
 	team?: TeamSnapshot;
 }
 
 export type DPiRuntimeStatePatch = Partial<
 	Pick<
 		DPiRuntimeSnapshot,
-		| "streaming"
-		| "compaction"
-		| "bash"
-		| "queues"
-		| "context"
-		| "model"
-		| "thinking"
-		| "contextUsage"
-		| "tokenUsage"
-		| "session"
-		| "commands"
-		| "settings"
-		| "team"
+		"streaming" | "compaction" | "queues" | "context" | "model" | "contextUsage" | "tokenUsage" | "session" | "team"
 	>
 >;
 

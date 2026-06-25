@@ -11,7 +11,6 @@ export interface BuildDPiNativeFooterViewOptions {
 	snapshot: DPiInteractiveSessionStateSnapshot;
 	gitBranch?: string | null;
 	width?: number;
-	showThinkingLevel?: boolean;
 	theme?: DPiNativeTheme;
 }
 
@@ -41,14 +40,7 @@ export function buildDPiNativeFooterView(options: BuildDPiNativeFooterViewOption
 	}
 
 	const minPadding = 2;
-	let rightSideWithoutProvider = snapshot.modelInfo.id || "no-model";
-	if (snapshot.modelInfo.reasoning && options.showThinkingLevel !== false) {
-		const thinkingLevel = snapshot.thinkingLevel || "off";
-		rightSideWithoutProvider =
-			thinkingLevel === "off"
-				? `${rightSideWithoutProvider} • thinking off`
-				: `${rightSideWithoutProvider} • ${thinkingLevel}`;
-	}
+	const rightSideWithoutProvider = snapshot.modelInfo.id || "no-model";
 
 	let rightSide = rightSideWithoutProvider;
 	if (snapshot.availableProviderCount > 1 && snapshot.modelInfo.provider) {

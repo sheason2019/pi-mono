@@ -13,7 +13,7 @@ import {
 } from "./tui/interactive/run-connect-interactive-mode.ts";
 import type { RunDPiRemoteTuiOptions } from "./tui/remote-tui.ts";
 import type { HubConfig } from "./types.ts";
-import { initWorkspace, isWorkspaceRoot, loadWorkspaceContext, validateWorkspace } from "./workspace/workspace.ts";
+import { initWorkspace, isWorkspaceRoot, loadWorkspaceContext } from "./workspace/workspace.ts";
 
 export interface DPiCliRuntime {
 	cwd: string;
@@ -204,7 +204,6 @@ export async function runDPiCli(args: string[], runtime: DPiCliRuntime = default
 		if (!isWorkspaceRoot(runtime.cwd)) {
 			throw new Error("[d-pi] Not a d-pi workspace. Run 'd-pi init' first.");
 		}
-		const workspaceConfig = validateWorkspace(runtime.cwd);
 		const workspaceContext = loadWorkspaceContext(runtime.cwd);
 		const portValue = optionValue(args, "--port");
 		const port = portValue ? parseInt(portValue, 10) : DEFAULT_HUB_PORT;
@@ -214,7 +213,6 @@ export async function runDPiCli(args: string[], runtime: DPiCliRuntime = default
 			cwd: runtime.cwd,
 			workspaceRoot: runtime.cwd,
 			workspaceContext,
-			workspaceConfig,
 		});
 		await hub.start();
 		return;

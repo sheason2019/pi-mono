@@ -29,22 +29,15 @@ import {
 	type DPiWorkerSession,
 	generateDPiBanner,
 	resolveDPiInitialModel,
-	runtimeModelSpecFromResolvedModel,
 } from "../src/worker/worker-adapter.ts";
 
 type InitialModelOptions = Parameters<typeof resolveDPiInitialModel>[0];
 type WorkerModelRegistry = InitialModelOptions["modelRegistry"];
-type WorkerSettingsManager = Parameters<typeof createDPiAgentSessionServices>[0]["settingsManager"];
-type DefaultThinkingLevel = ReturnType<WorkerSettingsManager["getDefaultThinkingLevel"]>;
 
 interface MinimalModelRegistry {
 	find(provider: string, modelId: string): Model<Api> | undefined;
 	getAll(): Model<Api>[];
 	getAvailable(): Promise<Model<Api>[]>;
-}
-
-interface MinimalSettingsManager {
-	getDefaultThinkingLevel(): DefaultThinkingLevel;
 }
 
 function makeModel(provider: string, id: string): Model<Api> {
@@ -80,16 +73,6 @@ function makeModelRegistry(options: {
 		find: vi.fn(options.find ?? (() => undefined)),
 		getAll: vi.fn(() => options.all ?? []),
 		getAvailable: vi.fn(async () => options.available ?? []),
-	};
-}
-
-function asWorkerSettingsManager(settingsManager: MinimalSettingsManager): WorkerSettingsManager {
-	return settingsManager as unknown as WorkerSettingsManager;
-}
-
-function makeSettingsManager(options: { defaultThinkingLevel?: DefaultThinkingLevel } = {}): MinimalSettingsManager {
-	return {
-		getDefaultThinkingLevel: vi.fn(() => options.defaultThinkingLevel),
 	};
 }
 
@@ -250,6 +233,7 @@ function createTestSession(testSessionId: string, overrides: Partial<TestSession
 			getAll: () => [],
 			getAvailable: async () => [],
 			refresh: () => {},
+			updateAgentDefinition: () => {},
 		},
 		getToolDefinitions: vi.fn(() => []),
 		reload: vi.fn(async () => {
@@ -331,8 +315,7 @@ describe("worker runtime adapter", () => {
 		try {
 			const infrastructure = createDPiWorkerInfrastructure("/tmp/d-pi-worker-infra");
 
-			expect("getDefaultProvider" in infrastructure.settingsManager).toBe(false);
-			expect("getDefaultModel" in infrastructure.settingsManager).toBe(false);
+			expect("settingsManager" in infrastructure).toBe(false);
 			expect(infrastructure.modelRegistry.getAll()).toEqual([]);
 			expect(infrastructure.modelRegistry.find("stepfun", "step-3.7-flash")).toBeUndefined();
 			expect(infrastructure.modelRegistry.find("custom-openai", "custom-model")).toBeUndefined();
@@ -377,7 +360,7 @@ describe("worker runtime adapter", () => {
 					headers: { "x-agent": "root" },
 				},
 				reasoning: true,
-				thinkingLevelMap: { off: null, high: "high" },
+				thinkingLevel: "high",
 				input: ["text", "image"],
 				cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
 				contextWindow: 123_456,
@@ -387,6 +370,7 @@ describe("worker runtime adapter", () => {
 			tools: [],
 			skills: { dir: "./skills" },
 			contextFiles: [],
+			autoCompact: true,
 		};
 
 		try {
@@ -400,7 +384,6 @@ describe("worker runtime adapter", () => {
 				provider: "stepfun",
 				baseUrl: "https://agent-local.example/v1",
 				reasoning: true,
-				thinkingLevelMap: { off: null, high: "high" },
 				input: ["text", "image"],
 				cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
 				contextWindow: 123_456,
@@ -538,6 +521,7 @@ describe("worker runtime adapter", () => {
 				tools: [],
 				skills: { dir: "./skills" },
 				contextFiles: [],
+				autoCompact: true,
 			},
 		});
 
@@ -561,11 +545,6 @@ describe("worker runtime adapter", () => {
 		expect(registry.getAll).not.toHaveBeenCalled();
 	});
 
-	it("uses the resolved default model as the remote-first runtime model spec", () => {
-		expect(runtimeModelSpecFromResolvedModel(makeModel("stepfun", "step-3.7-flash"))).toBe("stepfun/step-3.7-flash");
-		expect(runtimeModelSpecFromResolvedModel(undefined)).toBeUndefined();
-	});
-
 	it("binds extension factories and exposes registered commands and tools in session state", async () => {
 		const factory = vi.fn((pi: ExtensionAPI) => {
 			pi.registerTool({
@@ -583,8 +562,6 @@ describe("worker runtime adapter", () => {
 		const services = await createDPiAgentSessionServices({
 			cwd: "/tmp/d-pi-extension-bind",
 			agentDir: "/tmp/d-pi-extension-bind",
-			authStorage: { kind: "d-pi-auth-storage" },
-			settingsManager: asWorkerSettingsManager(makeSettingsManager()),
 			modelRegistry: asWorkerModelRegistry(makeModelRegistry({})),
 			resourceLoaderOptions: {
 				extensionFactories: [{ name: "sample-extension", factory }],
@@ -637,8 +614,6 @@ describe("worker runtime adapter", () => {
 		const services = await createDPiAgentSessionServices({
 			cwd: "/tmp/d-pi-harness-tools",
 			agentDir: "/tmp/d-pi-harness-tools",
-			authStorage: { kind: "d-pi-auth-storage" },
-			settingsManager: asWorkerSettingsManager(makeSettingsManager()),
 			modelRegistry: asWorkerModelRegistry(makeModelRegistry({})),
 			resourceLoaderOptions: {
 				extensionFactories: [{ name: "dispatch-extension", factory }],
@@ -705,7 +680,7 @@ describe("worker runtime adapter", () => {
 				queued: [],
 				tokenUsage: expect.objectContaining({ input: 0, output: 0 }),
 				contextUsage: expect.objectContaining({ tokens: 0, percent: 0 }),
-				remoteSettings: expect.objectContaining({ autoCompact: true }),
+				remoteSettings: expect.objectContaining({ autoResizeImages: true }),
 			});
 		} finally {
 			harness.server.stop();
@@ -724,7 +699,7 @@ describe("worker runtime adapter", () => {
 			expect(status.status).toBe(200);
 			expect(status.body).toMatchObject({
 				isStreaming: false,
-				remoteSettings: expect.objectContaining({ autoCompact: true }),
+				remoteSettings: expect.objectContaining({ autoResizeImages: true }),
 			});
 			expect(JSON.stringify(status.body)).not.toContain("hello view model");
 			expect(realtime.status).toBe(200);
@@ -946,26 +921,6 @@ describe("worker runtime adapter", () => {
 		}
 	});
 
-	it("exposes the default thinking level from settings in interactive state", async () => {
-		const services = await createDPiAgentSessionServices({
-			cwd: "/tmp/d-pi-thinking-state",
-			agentDir: "/tmp/d-pi-thinking-state",
-			authStorage: { kind: "d-pi-auth-storage" },
-			settingsManager: asWorkerSettingsManager(makeSettingsManager({ defaultThinkingLevel: "high" })),
-			modelRegistry: asWorkerModelRegistry(makeModelRegistry({})),
-		});
-		const { session } = await createDPiAgentSessionFromServices({
-			services,
-			sessionManager: createDPiSessionManager("/tmp/d-pi-thinking-state"),
-		});
-		const state = new DPiLocalAgentSessionProxy(createTestRuntime(session)).getState();
-
-		expect(state.thinkingLevel).toBe("high");
-		expect(state.remoteSettings.thinkingLevel).toBe("high");
-		expect(state.contextUsage.tokens).toBe(0);
-		expect(state.contextUsage.percent).toBe(0);
-	});
-
 	it("routes extension input handler sendMessage output into proxy state and SSE", async () => {
 		const factory = vi.fn((pi: ExtensionAPI) => {
 			pi.on("input", (event) => {
@@ -989,8 +944,6 @@ describe("worker runtime adapter", () => {
 		const services = await createDPiAgentSessionServices({
 			cwd: "/tmp/d-pi-extension-input",
 			agentDir: "/tmp/d-pi-extension-input",
-			authStorage: { kind: "d-pi-auth-storage" },
-			settingsManager: asWorkerSettingsManager(makeSettingsManager()),
 			modelRegistry: asWorkerModelRegistry(makeModelRegistry({})),
 			resourceLoaderOptions: {
 				extensionFactories: [{ name: "input-extension", factory }],
@@ -1089,7 +1042,6 @@ describe("worker runtime adapter", () => {
 					expect.objectContaining({ kind: "steer", text: "continue" }),
 				],
 				steeringMessages: ["tighten scope", "continue"],
-				followUpMessages: [],
 				messages: [],
 			});
 			expect(JSON.stringify(state.body)).not.toContain('"customType":"steer"');
@@ -1139,7 +1091,6 @@ describe("worker runtime adapter", () => {
 		expect(proxy.getState()).toMatchObject({
 			queued: [expect.objectContaining({ kind: "steer", text: "file-backed steer" })],
 			steeringMessages: ["file-backed steer"],
-			followUpMessages: [],
 		});
 	});
 
@@ -1148,7 +1099,7 @@ describe("worker runtime adapter", () => {
 		const proxy = new DPiLocalAgentSessionProxy(createTestRuntime(), { steeringQueuePath: queuePath });
 		await appendSteeringMessage(queuePath, { text: "drop me", source: "connect" });
 
-		expect(proxy.clearQueue()).toEqual({ steering: ["drop me"], followUp: [] });
+		expect(proxy.clearQueue()).toEqual({ steering: ["drop me"] });
 
 		expect(await readSteeringMessages(queuePath)).toEqual([]);
 		expect(proxy.getState().steeringMessages).toEqual([]);
@@ -1161,7 +1112,7 @@ describe("worker runtime adapter", () => {
 		await appendSteeringMessage(queuePath, { text: "original two", source: "connect" });
 
 		const editingSource = proxy.clearQueue();
-		expect(editingSource).toEqual({ steering: ["original one", "original two"], followUp: [] });
+		expect(editingSource).toEqual({ steering: ["original one", "original two"] });
 		expect(await readSteeringMessages(queuePath)).toEqual([]);
 
 		await proxy.steer("edited message");
@@ -1229,7 +1180,6 @@ describe("worker runtime adapter", () => {
 			expect(proxy.getState()).toMatchObject({
 				messages: [],
 				steeringMessages: ["second"],
-				followUpMessages: [],
 			});
 		} finally {
 			harness.server.stop();
@@ -1320,7 +1270,6 @@ describe("worker runtime adapter", () => {
 		expect(proxy.getState()).toMatchObject({
 			messages: [],
 			steeringMessages: ["interrupt prompt", "legacy follow-up"],
-			followUpMessages: [],
 		});
 	});
 
@@ -1614,7 +1563,6 @@ describe("worker runtime adapter", () => {
 
 		expect(proxy.getState()).toMatchObject({
 			steeringMessages: [],
-			followUpMessages: [],
 			queued: [],
 		});
 	});

@@ -1,6 +1,6 @@
 import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Api, Model, Provider, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import type { Api, Model, Provider, ThinkingLevel } from "@earendil-works/pi-ai";
 import type { Static, TSchema } from "typebox";
 import type { ToolDefinition } from "./extension/contracts.ts";
 import type { SourceDefinition } from "./workspace-definition.ts";
@@ -56,7 +56,7 @@ export interface AgentLocalModelDefinition {
 	description?: string;
 	provider: AgentProviderDefinition | Provider;
 	reasoning?: boolean;
-	thinkingLevelMap?: ThinkingLevelMap;
+	thinkingLevel?: ThinkingLevel;
 	input?: Array<"text" | "image">;
 	cost?: {
 		input: number;
@@ -84,6 +84,7 @@ export interface AgentDefinitionInput {
 	tools?: AgentToolDefinition[];
 	skills?: AgentSkillDefinition;
 	contextFiles?: AgentContextFileDefinition[];
+	autoCompact?: boolean;
 }
 
 export interface AgentDefinition {
@@ -96,6 +97,7 @@ export interface AgentDefinition {
 	tools: AgentToolDefinition[];
 	skills?: AgentSkillDefinition;
 	contextFiles: AgentContextFileDefinition[];
+	autoCompact: boolean;
 }
 
 const AGENT_DEFINITION_METADATA = Symbol.for("@sheason/d-pi/agent-definition-metadata");
@@ -244,7 +246,7 @@ export function defineModel(input: AgentModelDefinition): AgentModelDefinition {
 			...(input.description === undefined ? {} : { description: input.description }),
 			provider: typeof input.provider === "string" ? input.provider : defineProvider(input.provider),
 			...(input.reasoning === undefined ? {} : { reasoning: input.reasoning }),
-			...(input.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: { ...input.thinkingLevelMap } }),
+			...(input.thinkingLevel === undefined ? {} : { thinkingLevel: input.thinkingLevel }),
 			...(input.input === undefined ? {} : { input: [...input.input] }),
 			...(input.cost === undefined
 				? {}
@@ -287,6 +289,7 @@ export function defineAgent(input: AgentDefinitionInput): AgentDefinition {
 		tools: defineTools(...(input.tools ?? [])),
 		...(input.skills === undefined ? {} : { skills: defineSkill(input.skills) }),
 		contextFiles: defineContextFiles(...(input.contextFiles ?? [])),
+		autoCompact: input.autoCompact ?? true,
 	};
 	const agentFilePath = inferCallingFilePath();
 	return setAgentDefinitionMetadata(definition, {

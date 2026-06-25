@@ -100,7 +100,7 @@ describe("hub endpoint POST /_hub/executor/results", () => {
 			expect(calls).toHaveLength(1);
 			expect(calls[0].status).toBe(200);
 			expect(JSON.parse(calls[0].body!)).toEqual({ ok: true, result: { foo: 1 } });
-			expect(executorRegistry.getPending("c1", "call-1")).toBeUndefined();
+			expect(executorRegistry.resolveOne("c1", "call-1", { ok: true, result: null })).toBe(false);
 		} finally {
 			await gateway.stop();
 		}

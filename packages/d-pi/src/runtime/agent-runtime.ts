@@ -16,6 +16,7 @@ import {
 	AgentHarnessError,
 	compact as compactSession,
 	DEFAULT_COMPACTION_SETTINGS,
+	estimateContextTokens,
 	NodeExecutionEnv,
 	prepareCompaction,
 	SessionError,
@@ -64,6 +65,9 @@ export interface DPiAgentHarness {
 	nextTurn(text: string, options?: AgentHarnessPromptOptions): Promise<unknown>;
 	subscribe(listener: DPiAgentHarnessEventListener): () => void;
 	setResources?(resources: AgentHarnessResources): Promise<void> | void;
+	setModel?(model: Model<Api>): Promise<void> | void;
+	setThinkingLevel?(level: ThinkingLevel): Promise<void> | void;
+	setTools?(tools: AgentTool[], activeToolNames?: string[]): Promise<void> | void;
 	abort?(): Promise<unknown> | unknown;
 }
 
@@ -503,9 +507,26 @@ export class DPiAgentRuntime {
 		};
 	}
 
+	async updateModel(model: Model<Api>, thinkingLevel?: ThinkingLevel): Promise<void> {
+		this.modelManager.setModel(model);
+		await this.harness.setModel?.(model);
+		if (thinkingLevel !== undefined) {
+			await this.harness.setThinkingLevel?.(thinkingLevel);
+		}
+		await this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
+	}
+
+	async updateTools(tools: AgentTool[], activeToolNames: string[]): Promise<void> {
+		await this.harness.setTools?.(tools, activeToolNames);
+		await this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
+	}
+
 	getSnapshot(): DPiRuntimeSnapshot {
 		const model = this.modelManager.getModelInfo();
 		const contextWindow = model.contextWindow ?? 0;
+		const contextEstimate = estimateContextTokens(this.messages);
+		const tokens = contextEstimate.tokens;
+		const percent = contextWindow > 0 ? (tokens / contextWindow) * 100 : 0;
 		return {
 			agentName: this.agentName,
 			...(this.connectId ? { connectId: this.connectId } : {}),
@@ -515,15 +536,11 @@ export class DPiAgentRuntime {
 			transcriptItems: this.transcriptItems.map((item) => ({ ...item })),
 			streaming: { active: this.activeTurn },
 			compaction: { status: "idle", queued: false },
-			bash: { active: false, cwd: this.cwd, commands: [] },
 			queues: cloneQueues(this.queues),
 			model,
-			thinking: {},
-			contextUsage: { tokens: null, contextWindow, percent: null },
+			contextUsage: { tokens, contextWindow, percent },
 			tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
 			session: { ...this.sessionInfo },
-			commands: [],
-			settings: {},
 		};
 	}
 

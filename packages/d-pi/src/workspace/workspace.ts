@@ -12,7 +12,7 @@ import {
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildAgentTsSource } from "../agent-config.ts";
-import type { WorkspaceConfig, WorkspaceContext } from "../types.ts";
+import type { WorkspaceContext } from "../types.ts";
 
 const DPI_DIR = ".dpi";
 const CONFIG_FILE = "config.json";
@@ -99,23 +99,6 @@ export interface LoadWorkspaceContextOptions {
 
 export function isWorkspaceRoot(dir: string): boolean {
 	return existsSync(join(resolve(dir), DPI_DIR));
-}
-
-export function validateWorkspace(workspaceRoot: string): WorkspaceConfig {
-	const configPath = join(workspaceRoot, DPI_DIR, CONFIG_FILE);
-	if (!existsSync(configPath)) {
-		throw new Error(`Invalid workspace: missing ${DPI_DIR}/${CONFIG_FILE}`);
-	}
-	try {
-		const raw = readFileSync(configPath, "utf-8");
-		const parsed = JSON.parse(raw);
-		return parsed as WorkspaceConfig;
-	} catch (err) {
-		if (err instanceof SyntaxError) {
-			throw new Error(`Invalid workspace config: ${configPath} is not valid JSON`);
-		}
-		throw err;
-	}
 }
 
 export function loadWorkspaceContext(
@@ -286,7 +269,7 @@ Each agent exports a standard definition:
   English, no formatting.
 - \`model\` (optional): \`defineModel({ provider, name })\` for a model declared in this
   agent's \`models\` array, or
-  \`defineModel({ id, provider: defineOpenAIProvider(...), contextWindow, thinkingLevelMap, ... })\`
+  \`defineModel({ id, provider: defineOpenAIProvider(...), contextWindow, thinkingLevel, ... })\`
   for an agent-local model. Custom providers must use \`defineProvider(...)\`.
 - \`roles\` (optional): array of role names — see \`team-template/roles/\`.
 - \`skills\` (optional): use \`defineSkill({ dir: "./skills" })\` for agent-local skills.
