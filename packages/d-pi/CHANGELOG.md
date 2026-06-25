@@ -5,16 +5,20 @@
 ### Added
 
 - Added `autoCompact` option to `defineAgent()` for declarative control over automatic context compaction. Defaults to `true`.
+- Added `d-pi doctor` command that diagnoses workspace health: workspace validity, d-pi.ts configuration, agent definitions, and serve readiness, with a plain-text report consumable by humans and agents.
 
 ### Changed
 
 - Rebuilt the d-pi connect path around a d-pi-owned remote-first service API and TUI client. The hub now exposes stable snapshot, SSE event, and prompt action routes under `/api/agents/:name/*`; `d-pi connect` routes its child TUI through the new remote client/controller, while executor registration continues to use per-session `connectId` values and hub routing uses decoded agent names.
+- Rewrote the d-pi CLI to use Commander.js instead of manual argument parsing. Command structure, help output, and option validation are now declaratively defined; the `runDPiCli(args, runtime?)` function signature and `DPiCliRuntime` injection interface remain unchanged.
+- Migrated the executor client from `node:http` to native `fetch` + Web Streams API. The SSE event loop now reads from a `ReadableStreamDefaultReader` instead of `IncomingMessage`, and all hub API calls go through a single `fetch`-based helper. The public `ExecutorClient` API is unchanged.
 
 ### Fixed
 
 - Fixed the `reload` command not actually reloading agent configuration. Reload now re-reads `agent.ts`, rebuilds the model registry, updates the runtime model and thinking level when they change, and refreshes the session banner and resource state.
 - Fixed remote worker IPC behavior after the runtime cutover: state queries, prompt/steer/follow-up actions, SSE subscribe/unsubscribe, extension-generated messages, and local native tool execution are now handled by d-pi-owned adapters instead of placeholder or timeout-prone bridges.
 - Fixed context usage percentage always showing 0% in the TUI footer. The worker adapter and runtime snapshot now compute context window usage via the upstream `estimateContextTokens` helper, which uses provider-reported usage data when available and falls back to a character-based heuristic otherwise.
+- Fixed `d-pi connect` hanging indefinitely when the hub is unreachable. Connect now has a 10-second timeout for hub API calls (team fetch, agent binding); the process exits cleanly on timeout instead of blocking forever.
 
 ### Removed
 
@@ -35,10 +39,6 @@
 - Removed the d-pi package dependency on the legacy interactive runtime package. Extension contracts, native tools, worker IPC/session shims, and tests now use d-pi-owned contracts or the upstream `@earendil-works/pi-*` packages directly.
 - Removed `DEFAULT_AGENT_PORT_START` constant and its test. Agent port-based mode was removed in a previous cleanup.
 - Removed dead exported helpers: `formatDPiInteractiveTokens`, `agentAgentsPath`, `agentAppendSystemPath`, `agentSkillsPath`, `buildDPiMetaContent`, `createRemoteMessageListComponent`, `createRemoteFooterComponent`. None of these had any call sites in the source tree.
-
-### Changed
-
-- Rewrote the d-pi CLI to use Commander.js instead of manual argument parsing. Command structure, help output, and option validation are now declaratively defined; the `runDPiCli(args, runtime?)` function signature and `DPiCliRuntime` injection interface remain unchanged.
 
 ## [0.6.0-alpha.6] - 2026-06-12
 

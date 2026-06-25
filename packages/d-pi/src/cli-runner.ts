@@ -8,6 +8,7 @@ import { createAllowedUser, listAllowedUsers, removeAllowedUser, updateAllowedUs
 import { createLocalUser, listLocalUsers, removeLocalUser, updateLocalUser } from "./auth/local-users.ts";
 import { runDPiConnectMode } from "./connect/connect-mode.ts";
 import { DEFAULT_HUB_PORT } from "./defaults.ts";
+import { formatReport, runDoctor } from "./doctor.ts";
 import { main as runExecutor } from "./executor/index.ts";
 import { Hub } from "./hub/hub.ts";
 import {
@@ -129,6 +130,17 @@ function buildProgram(runtime: DPiCliRuntime): Command {
 		.action(async (target: string, options: { agent?: string }) => {
 			const url = target;
 			await runDPiConnectMode({ url, agent: options.agent });
+		});
+
+	program
+		.command("doctor")
+		.description("Diagnose workspace health and configuration")
+		.action(async () => {
+			const report = await runDoctor(runtime.cwd);
+			runtime.stdout(formatReport(report));
+			if (report.summary.error > 0) {
+				process.exitCode = 1;
+			}
 		});
 
 	const users = program.command("users").description("Manage local users");
