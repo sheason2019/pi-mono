@@ -11,6 +11,7 @@ function modelInfo(model: Model<Api>): DPiModelInfo {
 		provider: model.provider,
 		displayName: model.name,
 		contextWindow: model.contextWindow,
+		reasoning: model.reasoning,
 	};
 }
 

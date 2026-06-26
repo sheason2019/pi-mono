@@ -57,8 +57,8 @@ export class DPiContextManager {
 	private readonly _agentName: string;
 	private readonly _agentDir: string;
 	private readonly _cwd: string;
-	private readonly _roles: string[] | undefined;
-	private readonly _agentDefinition: LoadedAgentDefinition | undefined;
+	private _roles: string[] | undefined;
+	private _agentDefinition: LoadedAgentDefinition | undefined;
 	private _snapshot: DPiContextSnapshot | undefined;
 
 	constructor(options: DPiContextManagerOptions) {
@@ -84,6 +84,12 @@ export class DPiContextManager {
 
 	getAgentDir(): string {
 		return this._agentDir;
+	}
+
+	updateAgentDefinition(agentDefinition: LoadedAgentDefinition | undefined): void {
+		this._agentDefinition = agentDefinition;
+		this._roles = undefined;
+		this._snapshot = undefined;
 	}
 
 	reload(): void {

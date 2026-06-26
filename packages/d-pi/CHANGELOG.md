@@ -17,13 +17,14 @@
 
 ### Fixed
 
-- Fixed the `reload` command not actually reloading agent configuration. Reload now re-reads `agent.ts`, rebuilds the model registry, updates the runtime model and thinking level when they change, and refreshes the session banner and resource state.
+- Fixed the `reload` tool and `/reload` command not actually updating the runtime model, tools, and system prompt. Both user-initiated and AI-initiated reload now re-read `agent.ts` directly in the worker thread, rebuild the model registry, update the runtime model and thinking level, refresh tools and context, and wait for completion before returning.
 - Fixed remote worker IPC behavior after the runtime cutover: state queries, prompt/steer/follow-up actions, SSE subscribe/unsubscribe, extension-generated messages, and local native tool execution are now handled by d-pi-owned adapters instead of placeholder or timeout-prone bridges.
 - Fixed context usage percentage always showing 0% in the TUI footer. The worker adapter and runtime snapshot now compute context window usage via the upstream `estimateContextTokens` helper, which uses provider-reported usage data when available and falls back to a character-based heuristic otherwise.
 - Fixed `d-pi connect` hanging indefinitely when the hub is unreachable. Connect now has a 10-second timeout for hub API calls (team fetch, agent binding); the process exits cleanly on timeout instead of blocking forever.
 
 ### Removed
 
+- Removed workspace-level reload (`reload_workspace` hub message, `reload_agent` broadcast, `WorkspaceReloadMetadata`). Reload is now a per-agent operation that reads `agent.ts` directly. Team template updates and agent discovery remain hub-startup responsibilities; agent creation/deletion goes through `create_agent`/`destroy_agent` tools.
 - Removed the `session_info_changed` event type from `DPiInteractiveAgentSessionEvent`. Session info changes are delivered via `state_update` events, and d-pi does not currently expose session renaming controls.
 - Removed `turn_start` and `turn_end` event types from the local agent event bus. Agent busy/ready state is already tracked via `agent_start` / `agent_end` events from the runtime.
 - Removed the `reload_agent_result` worker-to-hub IPC message. Agent reload is a fire-and-forget signal; the hub does not wait for per-agent results.

@@ -139,13 +139,13 @@ export function createTeamTool(): AgentToolDefinition {
 export function createReloadTool(): AgentToolDefinition {
 	return defineTool({
 		name: "reload",
-		label: "Reload Workspace",
+		label: "Reload",
 		description:
-			"Reload the d-pi workspace configuration and notify every agent to reload its own resources. Ready agents reload immediately; busy agents reload when they become ready.",
+			"Reload the agent's configuration from agent.ts. Use this after editing agent.ts to apply changes to the model, tools, commands, or system prompt. The reload takes effect immediately for the next LLM call.",
 		parameters: Type.Object({
 			reason: Type.Optional(
 				Type.String({
-					description: "Optional reason for the workspace reload. Explain what changed or why reload is needed.",
+					description: "Optional reason for the reload. Explain what changed or why reload is needed.",
 				}),
 			),
 		}),
@@ -158,7 +158,7 @@ export function createReloadTool(): AgentToolDefinition {
 			const input = params as { reason?: unknown };
 			await reloadFn(typeof input.reason === "string" ? input.reason : undefined);
 			return {
-				content: [{ type: "text" as const, text: "Workspace reload requested." }],
+				content: [{ type: "text" as const, text: "Agent configuration reloaded." }],
 				details: ctx.getReloadDetails(),
 			};
 		},
