@@ -1,8 +1,9 @@
 import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import { type Static, type TSchema, Type } from "typebox";
+import type { AgentToolDefinition } from "../agent-definition.ts";
+import { defineTool } from "../agent-definition.ts";
 import { getBuiltinContext } from "./builtin-context.ts";
-import type { DPiTool, DPiToolDetails } from "./tool-surface.ts";
-import { defineDPiTool } from "./tool-surface.ts";
+import type { DPiToolDetails } from "./tool-surface.ts";
 
 export type DPiLocalToolExecutor = (
 	toolCallId: string,
@@ -20,18 +21,18 @@ const ReadParameters = Type.Object({
 	path: Type.String(),
 });
 
-export function createDispatchBashTool(): DPiTool {
+export function createDispatchBashTool(): AgentToolDefinition {
 	return createDispatchTool("bash", "Dispatch bash", BashParameters);
 }
 
-export function createDispatchReadTool(): DPiTool {
+export function createDispatchReadTool(): AgentToolDefinition {
 	return createDispatchTool("read", "Dispatch read", ReadParameters);
 }
 
-function createDispatchTool(nativeName: string, label: string, parameters: TSchema): DPiTool {
+function createDispatchTool(nativeName: string, label: string, parameters: TSchema): AgentToolDefinition {
 	const dispatchParameters = withConnectIdParameter(parameters);
 
-	return defineDPiTool({
+	return defineTool({
 		name: `dispatch_${nativeName}`,
 		label,
 		description:

@@ -160,13 +160,7 @@ export interface DPiInteractiveSlashCommand {
 	name: string;
 	description?: string;
 	argumentHint?: string;
-	source: "builtin" | "extension" | "prompt" | "skill";
-	sourceInfo?: unknown;
-}
-
-export interface DPiInteractiveClientExtensionData {
-	name: string;
-	script: string;
+	source: "builtin" | "agent" | "prompt" | "skill";
 	sourceInfo?: unknown;
 }
 
@@ -239,9 +233,7 @@ export interface DPiInteractiveAgentSessionProxy {
 	fetchUserMessagesForForking(): Promise<DPiInteractiveUserMessageItem[]>;
 	fetchCommands(): Promise<DPiInteractiveSlashCommand[]>;
 	fetchModels(): Promise<DPiInteractiveModelItemData[]>;
-	fetchClientExtensions(): Promise<DPiInteractiveClientExtensionData[]>;
 	getCommands(): DPiInteractiveSlashCommand[];
 	getModels(): DPiInteractiveModelItemData[];
-	getClientExtensions(): DPiInteractiveClientExtensionData[];
 	getSnapshot(): DPiInteractiveSessionStateSnapshot;
 }

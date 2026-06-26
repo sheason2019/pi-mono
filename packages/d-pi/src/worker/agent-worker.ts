@@ -16,6 +16,7 @@ import type {
 	AgentToolDefinition,
 	ToolDefinition,
 } from "../agent-definition.ts";
+import { defineCommand } from "../agent-definition.ts";
 import { type LoadedAgentDefinition, readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
 import { DPiContextManager } from "../context/context-manager.ts";
 import type { ResourceLoader } from "../context/resource-loader.ts";
@@ -490,16 +491,16 @@ async function runAgentWorker(): Promise<void> {
 		const capabilities = setupAgentLocalTools({
 			getAgentTools: () => agentDefinition?.tools ?? [],
 			getAgentCommands: () => [
-				{
+				defineCommand({
 					name: "sources",
 					description: "List all registered sources",
 					execute: async () => {},
-				},
-				{
+				}),
+				defineCommand({
 					name: "agents",
 					description: "Switch to a different agent in the team",
 					execute: async () => {},
-				},
+				}),
 				...(agentDefinition?.commands ?? []),
 			],
 			getAgentMiddlewares: () => agentDefinition?.middlewares ?? [],

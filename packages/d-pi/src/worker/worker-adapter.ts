@@ -25,7 +25,6 @@ import type { DPiTranscriptItem } from "../runtime/transcript/projector.ts";
 import type { DPiAgentMessage } from "../runtime/types.ts";
 import type {
 	DPiInteractiveBannerData,
-	DPiInteractiveClientExtensionData,
 	DPiInteractiveModelItemData,
 	DPiInteractiveRemoteSettings,
 	DPiInteractiveSessionItemData,
@@ -265,7 +264,6 @@ export function generateDPiBanner(session: DPiWorkerSession): DPiInteractiveBann
 	const contextFiles = resourceLoader.getAgentsFiles().agentsFiles;
 	const skillsResult = resourceLoader.getSkills();
 	const promptsResult = resourceLoader.getPrompts();
-	const extensionsResult = resourceLoader.getExtensions();
 	const themesResult = resourceLoader.getThemes();
 	const loadedResources = [
 		...(contextFiles.length > 0
@@ -290,7 +288,6 @@ export function generateDPiBanner(session: DPiWorkerSession): DPiInteractiveBann
 				]
 			: []),
 		...loadedPromptResources(promptsResult.prompts),
-		...loadedExtensionResources(extensionsResult.extensions),
 		...loadedThemeResources(themesResult.themes),
 	];
 	const diagnostics = [
@@ -307,18 +304,6 @@ export function generateDPiBanner(session: DPiWorkerSession): DPiInteractiveBann
 					{
 						label: "Prompt conflicts",
 						entries: promptsResult.diagnostics as DPiInteractiveBannerData["diagnostics"][number]["entries"],
-					},
-				]
-			: []),
-		...(extensionsResult.errors.length > 0
-			? [
-					{
-						label: "Extension issues",
-						entries: extensionsResult.errors.map((error) => ({
-							type: "error" as const,
-							message: extensionErrorMessage(error),
-							...(extensionErrorPath(error) ? { path: extensionErrorPath(error) } : {}),
-						})),
 					},
 				]
 			: []),
@@ -394,21 +379,6 @@ function loadedPromptResources(prompts: unknown[]): DPiInteractiveBannerData["lo
 			];
 }
 
-function loadedExtensionResources(extensions: unknown[]): DPiInteractiveBannerData["loadedResources"] {
-	const paths = extensions
-		.map((extension) => promptRecordString(extension, "path"))
-		.filter((path): path is string => path !== undefined);
-	return paths.length === 0
-		? []
-		: [
-				{
-					name: "Extensions",
-					compactList: paths.map((path) => path.split("/").at(-1) ?? path).join(", "),
-					expandedList: paths.join("\n"),
-				},
-			];
-}
-
 function loadedThemeResources(themes: unknown[]): DPiInteractiveBannerData["loadedResources"] {
 	const entries = themes
 		.map((theme) => ({
@@ -436,14 +406,6 @@ function promptRecordString(value: unknown, key: string): string | undefined {
 	}
 	const field = (value as Record<string, unknown>)[key];
 	return typeof field === "string" ? field : undefined;
-}
-
-function extensionErrorMessage(error: unknown): string {
-	return promptRecordString(error, "error") ?? String(error);
-}
-
-function extensionErrorPath(error: unknown): string | undefined {
-	return promptRecordString(error, "path");
 }
 
 function toolResultContent(result: unknown, fallbackText: string): unknown[] {
@@ -542,7 +504,7 @@ export interface DPiLocalAgentState {
 	transcriptItems?: DPiTranscriptItem[];
 	streaming: boolean;
 	queued: DPiLocalQueueItem[];
-	extensions: DPiSessionExtensionSnapshot;
+	capabilities: DPiSessionCapabilitySnapshot;
 }
 
 export interface DPiLocalAgentSessionProxyOptions {
@@ -584,7 +546,7 @@ export interface DPiRegisteredCommand {
 	description: string;
 }
 
-export interface DPiSessionExtensionSnapshot {
+export interface DPiSessionCapabilitySnapshot {
 	tools: DPiRegisteredTool[];
 	commands: DPiRegisteredCommand[];
 	renderers: string[];
@@ -592,7 +554,7 @@ export interface DPiSessionExtensionSnapshot {
 	eventHandlers: string[];
 }
 
-interface DPiSessionRegistryState extends DPiSessionExtensionSnapshot {
+interface DPiSessionRegistryState extends DPiSessionCapabilitySnapshot {
 	toolDefinitions: ToolDefinition[];
 	commandDefinitions: AgentCommandDefinition[];
 	messageRenderers: Array<{ customType: string; renderer: MessageRenderer<unknown> }>;
@@ -723,10 +685,6 @@ export class DPiAgentIpcServer {
 		}
 		if (query === "sessions") {
 			this.handlers.onHttpResponse(requestId, 200, this.proxy.getSessions());
-			return;
-		}
-		if (query === "client-extensions") {
-			this.handlers.onHttpResponse(requestId, 200, this.proxy.getClientExtensions());
 			return;
 		}
 		if (query === "commands") {
@@ -936,7 +894,7 @@ export class DPiLocalAgentSessionProxy {
 
 	getState(): DPiLocalAgentState {
 		const metadata = getSessionMetadata(this.runtime.session);
-		const extensionState = getSessionExtensionSnapshot(this.runtime.session);
+		const capabilityState = getSessionCapabilitySnapshot(this.runtime.session);
 		const model = metadata.model;
 		const remoteSettings = {
 			...createDefaultRemoteSettings(),
@@ -982,7 +940,7 @@ export class DPiLocalAgentSessionProxy {
 			transcriptItems: [...this.transcriptItems],
 			streaming: this.streaming,
 			queued: this.steeringQueueItems(),
-			extensions: extensionState,
+			capabilities: capabilityState,
 		};
 	}
 
@@ -1003,16 +961,16 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	getCommands(): DPiInteractiveSlashCommand[] {
-		const extensionCommands = getSessionExtensionSnapshot(this.runtime.session).commands;
+		const registeredCommands = getSessionCapabilitySnapshot(this.runtime.session).commands;
 		const byName = new Map<string, DPiInteractiveSlashCommand>();
 		for (const name of DPI_NATIVE_CONNECT_BUILTIN_COMMANDS) {
 			byName.set(name, { name, source: "builtin" });
 		}
-		for (const command of extensionCommands) {
+		for (const command of registeredCommands) {
 			byName.set(command.name, {
 				name: command.name,
 				description: command.description,
-				source: "extension",
+				source: "agent",
 			});
 		}
 		return [...byName.values()];
@@ -1069,10 +1027,6 @@ export class DPiLocalAgentSessionProxy {
 				firstMessage: messageContentText(this.messages.find((message) => message.role === "user")?.content),
 			},
 		];
-	}
-
-	getClientExtensions(): DPiInteractiveClientExtensionData[] {
-		return [];
 	}
 
 	clearQueue(): { steering: string[] } {
@@ -1846,8 +1800,6 @@ function createEmptyResourceLoader(options?: DPiAgentSessionServices["resourceLo
 		getAgentsFiles: () => options?.agentsFilesOverride?.({ agentsFiles: [] }) ?? { agentsFiles: [] },
 		getPrompts: () => ({ prompts: [], diagnostics: [] }),
 		getThemes: () => ({ themes: [], diagnostics: [] }),
-		getExtensions: () => ({ extensions: [], errors: [], runtime: {} }),
-		extendResources: () => {},
 		reload: async () => {},
 	};
 }
@@ -2257,7 +2209,7 @@ function getSessionRegistryState(session: DPiWorkerSession): DPiSessionRegistryS
 	return state;
 }
 
-function getSessionExtensionSnapshot(session: DPiWorkerSession): DPiSessionExtensionSnapshot {
+function getSessionCapabilitySnapshot(session: DPiWorkerSession): DPiSessionCapabilitySnapshot {
 	const state = getSessionRegistryState(session);
 	return {
 		tools: state.tools.map((tool) => ({ ...tool })),

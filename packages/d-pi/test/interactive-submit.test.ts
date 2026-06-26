@@ -617,7 +617,7 @@ describe("d-pi interactive editor submit", () => {
 		const provider = createDPiConnectAutocompleteProvider(
 			[
 				{ name: "reload", description: "Reload resources", source: "builtin" },
-				{ name: "agents", description: "Switch agent", source: "extension" },
+				{ name: "agents", description: "Switch agent", source: "agent" },
 			],
 			"/tmp/workspace",
 		);

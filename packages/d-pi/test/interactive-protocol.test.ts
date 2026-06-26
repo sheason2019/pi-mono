@@ -124,10 +124,8 @@ function createProxy(snapshot: DPiInteractiveSessionStateSnapshot): DPiInteracti
 		fetchUserMessagesForForking: vi.fn(async () => []),
 		fetchCommands: vi.fn(async () => [{ name: "agents", source: "builtin" as const }]),
 		fetchModels: vi.fn(async () => []),
-		fetchClientExtensions: vi.fn(async () => []),
 		getCommands: vi.fn(() => [{ name: "agents", source: "builtin" as const }]),
 		getModels: vi.fn(() => []),
-		getClientExtensions: vi.fn(() => []),
 		getSnapshot: vi.fn(() => snapshot),
 	};
 }
@@ -189,9 +187,6 @@ describe("d-pi interactive protocol contract", () => {
 			{ id: "entry-1", type: "user", parentId: null, timestamp: "2026-06-19T00:00:00Z", children: [] },
 		]);
 		vi.mocked(proxy.fetchUserMessagesForForking).mockResolvedValueOnce([{ id: "entry-1", text: "hello" }]);
-		vi.mocked(proxy.fetchClientExtensions).mockResolvedValueOnce([
-			{ name: "client-ext", script: "export default {};" },
-		]);
 
 		await expect(handleDPiInteractiveProtocolQuery(proxy, "tree")).resolves.toMatchObject({
 			body: [{ id: "entry-1" }],
@@ -200,9 +195,6 @@ describe("d-pi interactive protocol contract", () => {
 			body: [{ id: "entry-1", text: "hello" }],
 		});
 		await expect(handleDPiInteractiveProtocolQuery(proxy, "models")).resolves.toMatchObject({ status: 404 });
-		await expect(handleDPiInteractiveProtocolQuery(proxy, "client-extensions")).resolves.toMatchObject({
-			body: [{ name: "client-ext", script: "export default {};" }],
-		});
 
 		expect(proxy.getTree).not.toHaveBeenCalled();
 		expect(proxy.getUserMessagesForForking).not.toHaveBeenCalled();

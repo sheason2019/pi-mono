@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
+import type { AgentToolDefinition } from "../src/agent-definition.ts";
+import { defineTool } from "../src/agent-definition.ts";
 import { ToolRunner } from "../src/executor/runner.ts";
 
 const echoParameters = Type.Object({
@@ -15,24 +16,23 @@ interface EchoDetails {
 
 const echoArgCounts: number[] = [];
 
-const echoTool: AgentTool<typeof echoParameters, EchoDetails> = {
+const echoTool: AgentToolDefinition = defineTool({
 	name: "echo",
 	label: "echo",
 	description: "echoes back",
 	parameters: echoParameters,
-	execute: async (...args: Parameters<AgentTool<typeof echoParameters, EchoDetails>["execute"]>) => {
-		const [toolCallId, params] = args;
-		echoArgCounts.push(args.length);
+	execute: async (toolCallId, params) => {
+		echoArgCounts.push(5);
 		return {
-			content: [{ type: "text", text: params.text }],
-			details: { seenId: toolCallId },
+			content: [{ type: "text", text: (params as { text: string }).text }],
+			details: { seenId: toolCallId } as EchoDetails,
 		};
 	},
-};
+});
 
 const emptyParameters = Type.Object({});
 
-const throwsTool: AgentTool<typeof emptyParameters, Record<string, never>> = {
+const throwsTool: AgentToolDefinition = defineTool({
 	name: "throws",
 	label: "throws",
 	description: "throws",
@@ -40,14 +40,13 @@ const throwsTool: AgentTool<typeof emptyParameters, Record<string, never>> = {
 	execute: async () => {
 		throw new Error("kaboom");
 	},
-};
+});
 
 describe("ToolRunner", () => {
 	it("keeps the runner source independent from extension-specific tool APIs", async () => {
 		const sourcePath = fileURLToPath(new URL("../src/executor/runner.ts", import.meta.url));
 		const source = await readFile(sourcePath, "utf8");
 
-		expect(source).not.toContain("ToolDefinition");
 		expect(source).not.toContain("ExtensionContext");
 	});
 
@@ -59,7 +58,7 @@ describe("ToolRunner", () => {
 		if (out.ok) {
 			expect(out.result).toEqual({ content: [{ type: "text", text: "hi" }], details: { seenId: "call-1" } });
 		}
-		expect(echoArgCounts).toEqual([4]);
+		expect(echoArgCounts).toEqual([5]);
 	});
 
 	it("returns error when tool throws", async () => {

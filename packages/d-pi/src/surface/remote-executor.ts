@@ -17,6 +17,6 @@ export interface DPiRemoteExecutor {
 	executeRemoteTool(request: DPiRemoteToolRequest): Promise<DPiRemoteToolResult>;
 }
 
-export function defineDPiRemoteExecutor(executor: DPiRemoteExecutor): DPiRemoteExecutor {
+export function defineRemoteExecutor(executor: DPiRemoteExecutor): DPiRemoteExecutor {
 	return executor;
 }

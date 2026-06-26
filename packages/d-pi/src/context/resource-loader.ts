@@ -16,8 +16,6 @@ export interface ResourceLoader {
 	getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> };
 	getPrompts(): { prompts: unknown[]; diagnostics: unknown[] };
 	getThemes(): { themes: unknown[]; diagnostics: unknown[] };
-	getExtensions(): { extensions: unknown[]; errors: unknown[]; runtime: unknown };
-	extendResources(resources: unknown): void;
 	reload(): Promise<void>;
 }
 

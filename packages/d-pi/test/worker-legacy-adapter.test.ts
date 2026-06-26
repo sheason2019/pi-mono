@@ -176,8 +176,6 @@ function createTestSession(testSessionId: string, overrides: Partial<TestSession
 		getAgentsFiles: () => ({ agentsFiles: [] }),
 		getPrompts: () => ({ prompts: [], diagnostics: [] }),
 		getThemes: () => ({ themes: [], diagnostics: [] }),
-		getExtensions: () => ({ extensions: [], errors: [], runtime: {} }),
-		extendResources: () => {},
 		reload: vi.fn(async () => {}),
 		...overrides.resourceLoader,
 	};
@@ -545,13 +543,13 @@ describe("worker runtime adapter", () => {
 			expect(commands.body).toContainEqual({
 				name: "sample",
 				description: "A command registered via capabilities.",
-				source: "extension",
+				source: "agent",
 			});
 
 			const state = await queryIpc(harness, "state-1", "state");
 			expect(state.status).toBe(200);
 			expect(state.body).toMatchObject({
-				extensions: {
+				capabilities: {
 					tools: [expect.objectContaining({ name: "sample_tool", label: "Sample Tool" })],
 					commands: [expect.objectContaining({ name: "sample" })],
 				},

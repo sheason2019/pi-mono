@@ -129,8 +129,8 @@ describe("d-pi hub gateway no longer rewrites /commands", () => {
 		const fakeCommands: ServeCommand[] = [
 			{ name: "settings", description: "Open settings menu", source: "builtin" },
 			{ name: "model", description: "Select model", source: "builtin" },
-			{ name: "sources", description: "List all registered sources", source: "extension" },
-			{ name: "agents", description: "Switch to a different agent in the network", source: "extension" },
+			{ name: "sources", description: "List all registered sources", source: "agent" },
+			{ name: "agents", description: "Switch to a different agent in the network", source: "agent" },
 		];
 		const hub = await startHub(tempDir!, fakeCommands);
 		try {
@@ -146,7 +146,7 @@ describe("d-pi hub gateway no longer rewrites /commands", () => {
 			expect(names.filter((n) => n === "sources")).toHaveLength(1);
 			const agentsEntry = body.find((c) => c.name === "agents");
 			expect(agentsEntry?.description).toBe("Switch to a different agent in the network");
-			expect(agentsEntry?.source).toBe("extension");
+			expect(agentsEntry?.source).toBe("agent");
 		} finally {
 			await hub.gateway.stop();
 		}
@@ -160,8 +160,8 @@ describe("d-pi hub gateway no longer rewrites /commands", () => {
 			{ name: "clone", description: "Duplicate the current session at the current position", source: "builtin" },
 			{ name: "new", description: "Start a new session", source: "builtin" },
 			{ name: "tree", description: "Navigate session tree (switch branches)", source: "builtin" },
-			{ name: "agents", description: "Switch to a different agent in the network", source: "extension" },
-			{ name: "sources", description: "List all registered sources", source: "extension" },
+			{ name: "agents", description: "Switch to a different agent in the network", source: "agent" },
+			{ name: "sources", description: "List all registered sources", source: "agent" },
 		];
 		const hub = await startHub(tempDir!, fakeCommands);
 		try {
@@ -180,7 +180,7 @@ describe("d-pi hub gateway no longer rewrites /commands", () => {
 	it("regression: if the agent omits /agents, the hub does NOT inject it", async () => {
 		const fakeCommands: ServeCommand[] = [
 			{ name: "settings", description: "Open settings menu", source: "builtin" },
-			{ name: "sources", description: "List all registered sources", source: "extension" },
+			{ name: "sources", description: "List all registered sources", source: "agent" },
 		];
 		const hub = await startHub(tempDir!, fakeCommands);
 		try {

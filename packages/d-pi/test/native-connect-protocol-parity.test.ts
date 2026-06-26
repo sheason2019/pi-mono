@@ -75,10 +75,8 @@ function createProxy(): DPiInteractiveAgentSessionProxy {
 		fetchUserMessagesForForking: vi.fn(async () => []),
 		fetchCommands: vi.fn(async () => []),
 		fetchModels: vi.fn(async () => []),
-		fetchClientExtensions: vi.fn(async () => []),
 		getCommands: vi.fn(() => []),
 		getModels: vi.fn(() => []),
-		getClientExtensions: vi.fn(() => []),
 		getSnapshot: vi.fn(() => state),
 		get model() {
 			return state.model;

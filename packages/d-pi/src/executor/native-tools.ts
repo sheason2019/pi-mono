@@ -1,9 +1,11 @@
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import { type Static, type TSchema, Type } from "typebox";
+import { type Static, Type } from "typebox";
+import type { AgentToolDefinition } from "../agent-definition.ts";
+import { defineTool } from "../agent-definition.ts";
 
 const MAX_TEXT_BYTES = 128_000;
 
@@ -16,22 +18,22 @@ const ReadParameters = Type.Object({
 	path: Type.String(),
 });
 
-export function buildNativeToolSet(cwd: string): AgentTool<TSchema, unknown>[] {
+export function buildNativeToolSet(cwd: string): AgentToolDefinition[] {
 	return [
-		{
+		defineTool({
 			name: "bash",
 			label: "Bash",
 			description: "Run a shell command in the configured working directory.",
 			parameters: BashParameters,
 			execute: async (_toolCallId, params, signal) => runBash(cwd, params as Static<typeof BashParameters>, signal),
-		} as AgentTool<typeof BashParameters, unknown>,
-		{
+		}),
+		defineTool({
 			name: "read",
 			label: "Read",
 			description: "Read a file as text or image.",
 			parameters: ReadParameters,
 			execute: async (_toolCallId, params) => runRead(cwd, params as Static<typeof ReadParameters>),
-		} as AgentTool<typeof ReadParameters, unknown>,
+		}),
 	];
 }
 

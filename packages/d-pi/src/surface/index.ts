@@ -2,15 +2,13 @@ export {
 	type DPiBuiltinContext,
 	setBuiltinContext,
 } from "./builtin-context.ts";
-export type { DPiCommand, DPiCommandContext } from "./command-surface.ts";
-export { defineDPiCommand } from "./command-surface.ts";
 export {
 	createDispatchBashTool,
 	createDispatchReadTool,
 	type DPiLocalToolExecutor,
 } from "./dispatch-tools.ts";
 export {
-	createDPiHubActionsClient,
+	createHubActionsClient,
 	type DPiAgentStatus,
 	type DPiCreateAgentActionPayload,
 	type DPiCreateAgentActionResult,
@@ -36,6 +34,6 @@ export {
 	createTeamTool,
 } from "./orchestration-tools.ts";
 export type { DPiRemoteExecutor, DPiRemoteToolRequest, DPiRemoteToolResult } from "./remote-executor.ts";
-export { defineDPiRemoteExecutor } from "./remote-executor.ts";
-export type { DPiTool, DPiToolDefinition, DPiToolDetails, DPiToolExecute, DPiToolJsonValue } from "./tool-surface.ts";
-export { defineDPiTool, dPiToolJsonDetails, dPiToolTextResult } from "./tool-surface.ts";
+export { defineRemoteExecutor } from "./remote-executor.ts";
+export type { DPiToolDetails, DPiToolJsonValue } from "./tool-surface.ts";
+export { toolJsonDetails, toolTextResult } from "./tool-surface.ts";
