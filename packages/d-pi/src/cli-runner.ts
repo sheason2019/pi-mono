@@ -8,6 +8,7 @@ import { createAllowedUser, listAllowedUsers, removeAllowedUser, updateAllowedUs
 import { createLocalUser, listLocalUsers, removeLocalUser, updateLocalUser } from "./auth/local-users.ts";
 import { runDPiConnectMode } from "./connect/connect-mode.ts";
 import { DEFAULT_HUB_PORT } from "./defaults.ts";
+import { createStreamRenderer, runDoctor } from "./doctor.ts";
 import { main as runExecutor } from "./executor/index.ts";
 import { Hub } from "./hub/hub.ts";
 import {
@@ -33,6 +34,8 @@ export interface DPiCliRuntime {
 	homeDir: string;
 	stdout: (line: string) => void;
 	stderr: (line: string) => void;
+	write?: (text: string) => void;
+	isTTY?: boolean;
 	createHub?: (config: HubConfig) => { start(): Promise<void> };
 	cloneTeamTemplate?: (repo: string, targetDir: string) => Promise<void>;
 	runRemoteTui?: (options: RunDPiRemoteTuiOptions) => Promise<unknown>;
@@ -45,6 +48,8 @@ function defaultRuntime(): DPiCliRuntime {
 		homeDir: homedir(),
 		stdout: (line) => console.log(line),
 		stderr: (line) => console.error(line),
+		write: (text) => process.stdout.write(text),
+		isTTY: Boolean(process.stdout.isTTY),
 	};
 }
 
@@ -129,6 +134,37 @@ function buildProgram(runtime: DPiCliRuntime): Command {
 		.action(async (target: string, options: { agent?: string }) => {
 			const url = target;
 			await runDPiConnectMode({ url, agent: options.agent });
+		});
+
+	program
+		.command("doctor")
+		.description("Diagnose workspace health and configuration")
+		.action(async () => {
+			const isTTY = runtime.isTTY ?? Boolean(process.stdout.isTTY);
+			const useColor = isTTY && process.env.NO_COLOR === undefined;
+			const write = runtime.write ?? ((text: string) => process.stdout.write(text));
+
+			const title = useColor
+				? `\x1b[1md-pi doctor\x1b[0m — workspace: ${runtime.cwd}\n\n`
+				: `d-pi doctor — workspace: ${runtime.cwd}\n\n`;
+			write(title);
+
+			const renderer = createStreamRenderer({
+				write,
+				isTTY,
+				useColor,
+			});
+
+			const report = await runDoctor(runtime.cwd, {
+				onCheckStart: (name) => renderer.onStart(name),
+				onCheckComplete: (check) => renderer.onComplete(check),
+			});
+
+			renderer.onFinish(report);
+
+			if (report.summary.error > 0) {
+				process.exitCode = 1;
+			}
 		});
 
 	const users = program.command("users").description("Manage local users");
