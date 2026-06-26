@@ -10,20 +10,27 @@ import { parentPort, workerData } from "node:worker_threads";
 import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { TSchema } from "typebox";
-import type { AgentCommandDefinition, AgentMiddlewareDefinition, AgentToolDefinition } from "../agent-definition.ts";
+import type {
+	AgentCommandDefinition,
+	AgentMiddlewareDefinition,
+	AgentToolDefinition,
+	ToolDefinition,
+} from "../agent-definition.ts";
 import { type LoadedAgentDefinition, readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
 import { DPiContextManager } from "../context/context-manager.ts";
+import type { ResourceLoader } from "../context/resource-loader.ts";
 import { DPI_META_PROMPT } from "../dpi-meta.ts";
 import { buildNativeToolSet } from "../executor/native-tools.ts";
-import type { ExtensionFactory, ModelRegistry, ResourceLoader, ToolDefinition } from "../extension/contracts.ts";
-import { createHubActionsClientFromHubChannel } from "../extension/hub-actions-adapter.ts";
-import { createMultiAgentExtension, type HubChannel } from "../extension/index.ts";
 import { agentDefinitionToConfig, formatAgentIdentitySection } from "../hub/agent-identity.ts";
+import { HubChannel as HubChannelClass } from "../multi-agent/hub-channel.ts";
+import type { HubChannel } from "../multi-agent/index.ts";
 import { DPiAgentRuntime } from "../runtime/agent-runtime.ts";
 import { DPiModelManager } from "../runtime/model-manager.ts";
+import type { ModelRegistry } from "../runtime/model-registry.ts";
 import { DPiSessionStore } from "../runtime/session-store.ts";
 import { projectDPiTranscript } from "../runtime/transcript/projector.ts";
 import type { DPiPromptImage } from "../runtime/types.ts";
+import { createHubActionsClientFromHubChannel } from "../surface/hub-actions-adapter.ts";
 import {
 	type DPiLocalToolExecutor,
 	type DPiRemoteExecutor,
@@ -49,10 +56,6 @@ import {
 	resolveDPiInitialModel,
 } from "./worker-adapter.ts";
 
-const dPiClientExtensionPath = new URL(
-	`../extension/client-extension${import.meta.url.endsWith(".ts") ? ".ts" : ".js"}`,
-	import.meta.url,
-).pathname;
 const config = workerData as AgentWorkerConfig;
 const port = parentPort!;
 
@@ -176,7 +179,7 @@ function toPromptImages(images: Array<{ url: string; mediaType?: string }> | und
 	}));
 }
 
-interface AgentLocalToolsExtensionOptions {
+interface AgentLocalToolsSetupOptions {
 	getAgentTools: () => AgentToolDefinition[];
 	getAgentCommands: () => AgentCommandDefinition[];
 	getAgentMiddlewares: () => AgentMiddlewareDefinition[];
@@ -187,32 +190,20 @@ interface AgentLocalToolsExtensionOptions {
 	getModelRegistry: () => ModelRegistry | undefined;
 }
 
-function createAgentLocalToolsExtension(options: AgentLocalToolsExtensionOptions): ExtensionFactory {
-	return (pi) => {
-		setupBuiltinContext(options);
-		for (const tool of options.getAgentTools()) {
-			pi.registerTool(tool as ToolDefinition);
-		}
-		for (const command of options.getAgentCommands()) {
-			pi.registerCommand(command.name, {
-				description: command.description,
-				async handler(args: string, ctx): Promise<void> {
-					await command.execute(args, { cwd: ctx.cwd, hasUI: true });
-				},
-			});
-		}
-		for (const middleware of options.getAgentMiddlewares()) {
-			if (middleware.onInput) {
-				pi.on("input", async (event, ctx) => {
-					const result = await middleware.onInput!(event, { cwd: ctx.cwd, hasUI: false });
-					return result ?? { action: "continue" };
-				});
-			}
-		}
+function setupAgentLocalTools(options: AgentLocalToolsSetupOptions): {
+	tools: ToolDefinition[];
+	commands: AgentCommandDefinition[];
+	middlewares: AgentMiddlewareDefinition[];
+} {
+	setupBuiltinContext(options);
+	return {
+		tools: options.getAgentTools() as ToolDefinition[],
+		commands: options.getAgentCommands(),
+		middlewares: options.getAgentMiddlewares(),
 	};
 }
 
-function setupBuiltinContext(options: AgentLocalToolsExtensionOptions): void {
+function setupBuiltinContext(options: AgentLocalToolsSetupOptions): void {
 	const nativeTools = new Map(
 		buildNativeToolSet(options.cwd).map((tool) => [tool.name, tool as NativeToolDefinition]),
 	);
@@ -247,7 +238,7 @@ function createWorkerRemoteExecutor(channel: HubChannel): DPiRemoteExecutor {
 	};
 }
 
-function createReloadSnapshot(options: AgentLocalToolsExtensionOptions): {
+function createReloadSnapshot(options: AgentLocalToolsSetupOptions): {
 	snapshot: DPiToolDetails;
 	details: DPiToolDetails;
 } {
@@ -360,15 +351,10 @@ async function runAgentWorker(): Promise<void> {
 
 	process.stderr.write(`[d-pi worker ${agentName}] Infrastructure created\n`);
 
-	// 2. Create the d-pi multi-agent + dispatch surfaces (and the HubChannel).
-	// We register them as two separate named extensions (plus the metadata one)
-	// so that diagnostics, tracing, and future optionality can target each concern
-	// independently. This is the decomposition of the old monolithic std extension.
-	const { factory: multiAgentFactory, channel } = createMultiAgentExtension({
-		mode: "worker",
-		agentName,
-		postToHub,
-	});
+	// 2. Create the HubChannel for multi-agent communication.
+	// Worker-side /agents and /sources commands are stubs (real implementations
+	// live in the client/connect TUI). They are registered below via registerCapabilities.
+	const channel = new HubChannelClass(agentName, postToHub);
 	hubChannel = channel;
 
 	// 3. Build the runtime factory (mirrors main.ts pattern)
@@ -407,7 +393,6 @@ async function runAgentWorker(): Promise<void> {
 		// sections from the live on-disk state.
 		const workspaceRoot = config.workspaceContext?.workspaceRoot;
 		const additionalSkillPaths = config.workspaceContext?.additionalSkillPaths ?? [];
-		const additionalExtensionPaths = [dPiClientExtensionPath];
 		// Keep the executable agent definition as the single source of truth.
 		// ResourceLoader overrides are synchronous, so this closure projects the
 		// definition loaded above instead of reparsing agent.ts from source.
@@ -426,35 +411,6 @@ async function runAgentWorker(): Promise<void> {
 			agentDir: opts.agentDir,
 			modelRegistry: modelRegistry!,
 			resourceLoaderOptions: {
-				extensionFactories: [
-					{
-						// d-pi multi-agent / orchestration surface.
-						// Provides non-tool UI/session support: the dual-registered
-						// /agents and /sources commands, d-pi custom message rendering,
-						// and the input / incoming-message routing
-						// that feeds connect-mode and source messages into the agent's session.
-						factory: multiAgentFactory,
-						name: "<d-pi-multi-agent>",
-					},
-					{
-						// Agent-local executable tools are the only LLM tool source.
-						// Built-in helpers in agent.ts are hydrated here with worker
-						// dependencies; custom defineTool() implementations are registered
-						// as-is. Uses getter functions so reload() re-reads the latest
-						// agent definition instead of capturing startup values.
-						factory: createAgentLocalToolsExtension({
-							getAgentTools: () => agentDefinition?.tools ?? [],
-							getAgentCommands: () => agentDefinition?.commands ?? [],
-							getAgentMiddlewares: () => agentDefinition?.middlewares ?? [],
-							channel,
-							cwd,
-							getReloadFn: () => (runtime?.session ? requestWorkspaceReload : undefined),
-							getResourceLoader: () => runtime?.session?.resourceLoader,
-							getModelRegistry: () => runtime?.session?.modelRegistry,
-						}),
-						name: "<d-pi-agent-local-tools>",
-					},
-				],
 				appendSystemPromptOverride: (base) => {
 					// `base` is what ResourceLoader itself discovered
 					// (e.g. ~/.pi/agent/APPEND_SYSTEM.md via
@@ -483,7 +439,6 @@ async function runAgentWorker(): Promise<void> {
 					};
 				},
 				additionalSkillPaths,
-				additionalExtensionPaths,
 			},
 		});
 
@@ -530,48 +485,44 @@ async function runAgentWorker(): Promise<void> {
 	});
 	proxy.setBanner(generateDPiBanner(runtime!.session));
 
-	const rebindSession = async (): Promise<void> => {
+	const rebindSession = (): void => {
 		const session = runtime!.session;
-		await session.bindExtensions({
-			commandContextActions: {
-				waitForIdle: () => session.agent.waitForIdle(),
-				newSession: async (options) => runtime!.newSession(options),
-				fork: async (entryId, options) => {
-					const result = await runtime!.fork(entryId, options);
-					return { cancelled: result.cancelled };
+		const capabilities = setupAgentLocalTools({
+			getAgentTools: () => agentDefinition?.tools ?? [],
+			getAgentCommands: () => [
+				{
+					name: "sources",
+					description: "List all registered sources",
+					execute: async () => {},
 				},
-				navigateTree: async (targetId, options) => {
-					const result = await session.navigateTree(targetId, options);
-					return { cancelled: result.cancelled };
+				{
+					name: "agents",
+					description: "Switch to a different agent in the team",
+					execute: async () => {},
 				},
-				switchSession: async (sessionPath, options) => {
-					return runtime!.switchSession(sessionPath, options);
-				},
-				reload: async () => {
-					await session.reload();
-				},
-			},
-			abortHandler: () => {
-				// No UI to reset in worker mode
-			},
-			onError: (err) => {
-				process.stderr.write(`[d-pi worker ${agentName}] Extension error (${err.extensionPath}): ${err.error}\n`);
-			},
+				...(agentDefinition?.commands ?? []),
+			],
+			getAgentMiddlewares: () => agentDefinition?.middlewares ?? [],
+			channel,
+			cwd,
+			getReloadFn: () => (runtime?.session ? requestWorkspaceReload : undefined),
+			getResourceLoader: () => runtime?.session?.resourceLoader,
+			getModelRegistry: () => runtime?.session?.modelRegistry,
 		});
+		session.registerCapabilities(capabilities);
 	};
 
 	runtime!.setBeforeSessionInvalidate(() => {
 		// No UI to reset
 	});
 
-	runtime!.setRebindSession(async (session: DPiWorkerSession, reason: "new" | "resume" | "fork") => {
+	runtime!.setRebindSession((session: DPiWorkerSession, reason: "new" | "resume" | "fork") => {
 		proxy!.resubscribe(reason);
-		await rebindSession();
+		rebindSession();
 		proxy!.setBanner(generateDPiBanner(session));
 	});
 
-	// Bind before creating DPiAgentRuntime so AgentHarness receives the real extension tools.
-	await rebindSession();
+	rebindSession();
 
 	if (remoteFirstRuntimeModel) {
 		const sessionStore = new DPiSessionStore({

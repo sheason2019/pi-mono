@@ -41,6 +41,7 @@
 - Removed the d-pi package dependency on the legacy interactive runtime package. Extension contracts, native tools, worker IPC/session shims, and tests now use d-pi-owned contracts or the upstream `@earendil-works/pi-*` packages directly.
 - Removed `DEFAULT_AGENT_PORT_START` constant and its test. Agent port-based mode was removed in a previous cleanup.
 - Removed dead exported helpers: `formatDPiInteractiveTokens`, `agentAgentsPath`, `agentAppendSystemPath`, `agentSkillsPath`, `buildDPiMetaContent`, `createRemoteMessageListComponent`, `createRemoteFooterComponent`. None of these had any call sites in the source tree.
+- Removed the extension mechanism entirely. Tool, command, middleware, and TUI component registration now happens directly via `defineTool`, `defineCommand`, `defineMiddleware`, and `defineTuiComponent` in agent definitions instead of going through `ExtensionAPI`. The `src/extension/` directory, `createDPiExtension` factory, `ExtensionAPI`, `ExtensionFactory`, and all extension-related worker/client factory paths have been removed. Supporting types have been relocated: `ToolDefinition` to `agent-definition.ts`, `ModelRegistry` to `runtime/model-registry.ts`, `ResourceLoader` to `context/resource-loader.ts`, and `MessageRenderer`/`ExtensionMessage` to `tui-components/tui-component-definition.ts`.
 
 ## [0.6.0-alpha.6] - 2026-06-12
 

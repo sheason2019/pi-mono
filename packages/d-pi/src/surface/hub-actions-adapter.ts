@@ -1,11 +1,11 @@
+import type { HubChannel } from "../multi-agent/hub-channel.ts";
 import type {
 	DPiCreateAgentActionResult,
 	DPiDispatchRemoteToolActionPayload,
 	DPiDispatchRemoteToolActionResult,
 	DPiHubActionsClient,
 	DPiTeamSnapshot,
-} from "../surface/index.ts";
-import type { HubChannel } from "./hub-channel.ts";
+} from "./index.ts";
 
 interface OkResult {
 	ok?: boolean;

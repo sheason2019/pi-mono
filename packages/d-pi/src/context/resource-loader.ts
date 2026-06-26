@@ -9,6 +9,18 @@ export interface DPiContextFile {
 	content: string;
 }
 
+export interface ResourceLoader {
+	getSkills(): { skills: Array<{ name: string; filePath?: string }>; diagnostics: unknown[] };
+	getSystemPrompt(): string | undefined;
+	getAppendSystemPrompt(): string[];
+	getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> };
+	getPrompts(): { prompts: unknown[]; diagnostics: unknown[] };
+	getThemes(): { themes: unknown[]; diagnostics: unknown[] };
+	getExtensions(): { extensions: unknown[]; errors: unknown[]; runtime: unknown };
+	extendResources(resources: unknown): void;
+	reload(): Promise<void>;
+}
+
 export function readTextFileIfExists(path: string): string | undefined {
 	const resolvedPath = resolve(path);
 	if (!existsSync(resolvedPath)) {

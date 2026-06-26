@@ -6,7 +6,6 @@ import { createAllowedUser } from "../src/auth/allowed-users.ts";
 import { AuthSessionManager } from "../src/auth/auth-session.ts";
 import { createLocalUser } from "../src/auth/local-users.ts";
 import { signChallenge } from "../src/auth/signing.ts";
-import type { ExtensionAPI, ExtensionCommandContext } from "../src/extension/contracts.ts";
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
 import { SourceManager } from "../src/hub/source-manager.ts";
@@ -114,12 +113,6 @@ interface ServeCommand {
 	source?: string;
 	argumentHint?: string;
 }
-
-// Placeholder — this block satisfies the type-only import checker.
-// The actual ExtensionAPI / ExtensionCommandContext types are used
-// only for type assertions in the original test, not at runtime.
-void (null as unknown as ExtensionAPI);
-void (null as unknown as ExtensionCommandContext);
 
 describe("d-pi hub gateway no longer rewrites /commands", () => {
 	beforeEach(() => {

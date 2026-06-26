@@ -1,9 +1,26 @@
 import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import type { Api, Model, Provider, ThinkingLevel } from "@earendil-works/pi-ai";
 import type { Static, TSchema } from "typebox";
-import type { ToolDefinition } from "./extension/contracts.ts";
+import type { ModelRegistry } from "./runtime/model-registry.ts";
 import type { SourceDefinition } from "./workspace-definition.ts";
+
+export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = unknown, TState = unknown> {
+	name: string;
+	label: string;
+	description: string;
+	parameters: TParams;
+	prepareArguments?: (args: unknown) => Static<TParams>;
+	executionMode?: "sequential" | "parallel";
+	execute: (
+		toolCallId: string,
+		params: Static<TParams>,
+		signal?: AbortSignal,
+		onUpdate?: AgentToolUpdateCallback<TDetails>,
+		ctx?: AgentToolExecutionContext & { modelRegistry: ModelRegistry },
+	) => Promise<AgentToolResult<TDetails> & { isError?: boolean; state?: TState }>;
+}
 
 export interface AgentToolExecutionContext {
 	cwd: string;
