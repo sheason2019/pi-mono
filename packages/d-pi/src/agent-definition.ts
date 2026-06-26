@@ -1,9 +1,26 @@
 import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import type { Api, Model, Provider, ThinkingLevel } from "@earendil-works/pi-ai";
 import type { Static, TSchema } from "typebox";
-import type { ToolDefinition } from "./extension/contracts.ts";
+import type { ModelRegistry } from "./runtime/model-registry.ts";
 import type { SourceDefinition } from "./workspace-definition.ts";
+
+export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = unknown, TState = unknown> {
+	name: string;
+	label: string;
+	description: string;
+	parameters: TParams;
+	prepareArguments?: (args: unknown) => Static<TParams>;
+	executionMode?: "sequential" | "parallel";
+	execute: (
+		toolCallId: string,
+		params: Static<TParams>,
+		signal?: AbortSignal,
+		onUpdate?: AgentToolUpdateCallback<TDetails>,
+		ctx?: AgentToolExecutionContext & { modelRegistry: ModelRegistry },
+	) => Promise<AgentToolResult<TDetails> & { isError?: boolean; state?: TState }>;
+}
 
 export interface AgentToolExecutionContext {
 	cwd: string;
@@ -74,6 +91,32 @@ export type AgentModelDefinition = AgentModelReferenceDefinition | AgentLocalMod
 
 export type AgentRoleDefinition = string;
 
+export interface AgentCommandContext {
+	cwd: string;
+	hasUI?: boolean;
+}
+
+export interface AgentCommandDefinition {
+	name: string;
+	description: string;
+	aliases?: string[];
+	execute: (args: string, ctx: AgentCommandContext) => Promise<void> | void;
+}
+
+export type AgentMiddlewareInputEventResult = { action: "continue" } | { action: "handled" };
+
+export interface AgentMiddlewareDefinition {
+	onInput?: (
+		event: {
+			type: "input";
+			text: string;
+			source: "interactive" | "paste" | "programmatic" | (string & {});
+			streamingBehavior?: "steer" | "followUp" | "next";
+		},
+		ctx: AgentCommandContext,
+	) => AgentMiddlewareInputEventResult | Promise<AgentMiddlewareInputEventResult>;
+}
+
 export interface AgentDefinitionInput {
 	/** Imported parent agent definition. This builds topology only; it does not imply inheritance. */
 	parent?: AgentDefinition;
@@ -84,6 +127,8 @@ export interface AgentDefinitionInput {
 	tools?: AgentToolDefinition[];
 	skills?: AgentSkillDefinition;
 	contextFiles?: AgentContextFileDefinition[];
+	commands?: AgentCommandDefinition[];
+	middlewares?: AgentMiddlewareDefinition[];
 	autoCompact?: boolean;
 }
 
@@ -97,6 +142,8 @@ export interface AgentDefinition {
 	tools: AgentToolDefinition[];
 	skills?: AgentSkillDefinition;
 	contextFiles: AgentContextFileDefinition[];
+	commands: AgentCommandDefinition[];
+	middlewares: AgentMiddlewareDefinition[];
 	autoCompact: boolean;
 }
 
@@ -279,6 +326,41 @@ export function defineRoles(...input: AgentRoleDefinition[]): AgentRoleDefinitio
 	return input.map(defineRole);
 }
 
+export function defineCommand(input: AgentCommandDefinition): AgentCommandDefinition {
+	if (typeof input.name !== "string" || input.name.trim().length === 0) {
+		throw new TypeError("defineCommand requires a non-empty name");
+	}
+	if (typeof input.description !== "string" || input.description.length === 0) {
+		throw new TypeError("defineCommand requires a non-empty description");
+	}
+	if (typeof input.execute !== "function") {
+		throw new TypeError("defineCommand requires an execute function");
+	}
+	return {
+		name: input.name,
+		description: input.description,
+		...(input.aliases === undefined ? {} : { aliases: [...input.aliases] }),
+		execute: input.execute,
+	};
+}
+
+export function defineCommands(...input: AgentCommandDefinition[]): AgentCommandDefinition[] {
+	return input.map(defineCommand);
+}
+
+export function defineMiddleware(input: AgentMiddlewareDefinition): AgentMiddlewareDefinition {
+	if (input.onInput !== undefined && typeof input.onInput !== "function") {
+		throw new TypeError("defineMiddleware onInput must be a function");
+	}
+	return {
+		...(input.onInput === undefined ? {} : { onInput: input.onInput }),
+	};
+}
+
+export function defineMiddlewares(...input: AgentMiddlewareDefinition[]): AgentMiddlewareDefinition[] {
+	return input.map(defineMiddleware);
+}
+
 export function defineAgent(input: AgentDefinitionInput): AgentDefinition {
 	const definition: AgentDefinition = {
 		...(input.parent === undefined ? {} : { parent: input.parent }),
@@ -289,6 +371,8 @@ export function defineAgent(input: AgentDefinitionInput): AgentDefinition {
 		tools: defineTools(...(input.tools ?? [])),
 		...(input.skills === undefined ? {} : { skills: defineSkill(input.skills) }),
 		contextFiles: defineContextFiles(...(input.contextFiles ?? [])),
+		commands: defineCommands(...(input.commands ?? [])),
+		middlewares: defineMiddlewares(...(input.middlewares ?? [])),
 		autoCompact: input.autoCompact ?? true,
 	};
 	const agentFilePath = inferCallingFilePath();

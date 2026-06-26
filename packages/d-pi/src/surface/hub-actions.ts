@@ -89,7 +89,7 @@ async function dispatchHubAction<TResult>(
 	return (await transport(request)) as TResult;
 }
 
-export function createDPiHubActionsClient(transport: DPiHubActionsTransport): DPiHubActionsClient {
+export function createHubActionsClient(transport: DPiHubActionsTransport): DPiHubActionsClient {
 	return {
 		createAgent(payload) {
 			return dispatchHubAction(transport, { action: "createAgent", payload });

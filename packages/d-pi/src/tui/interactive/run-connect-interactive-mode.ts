@@ -16,8 +16,8 @@ import {
 	Text,
 	TUI,
 } from "@earendil-works/pi-tui";
-import { AGENT_SWITCH_FILE } from "../../extension/multi-agent-extension.ts";
 import type { SourceInfo } from "../../hub/source-manager.ts";
+import { AGENT_SWITCH_FILE } from "../../multi-agent/multi-agent-extension.ts";
 import type { AgentStatus, TeamAgentEntry, TeamSnapshot } from "../../types.ts";
 import { DPiNativeCustomEditor } from "../native/components/custom-editor.ts";
 import { DPiNativeDynamicBorder } from "../native/components/dynamic-border.ts";

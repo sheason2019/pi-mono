@@ -3,15 +3,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
+import { defineCommand, defineTool } from "../src/agent-definition.ts";
 import {
-	createDPiHubActionsClient,
+	createHubActionsClient,
 	type DPiHubActionRequest,
 	type DPiHubActionsTransport,
 	type DPiRemoteToolRequest,
-	defineDPiCommand,
-	defineDPiRemoteExecutor,
-	defineDPiTool,
-	dPiToolTextResult,
+	defineRemoteExecutor,
+	toolTextResult,
 } from "../src/surface/index.ts";
 
 const surfaceDir = fileURLToPath(new URL("../src/surface", import.meta.url));
@@ -40,7 +39,6 @@ describe("d-pi surface contracts", () => {
 		expect(sources.map((file) => file.path)).toEqual(
 			expect.arrayContaining([
 				expect.stringContaining("tool-surface.ts"),
-				expect.stringContaining("command-surface.ts"),
 				expect.stringContaining("hub-actions.ts"),
 				expect.stringContaining("remote-executor.ts"),
 			]),
@@ -53,13 +51,14 @@ describe("d-pi surface contracts", () => {
 		}
 	});
 
-	it("defines AgentTool-compatible d-pi tools with a text result helper", async () => {
-		const tool = defineDPiTool({
+	it("defines tools with a text result helper using defineTool", async () => {
+		const tool = defineTool({
 			name: "echo",
 			label: "Echo",
 			description: "Echo text",
 			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => dPiToolTextResult(`echo:${params.text}`, { echoed: true }),
+			execute: async (_toolCallId, params) =>
+				toolTextResult(`echo:${(params as { text: string }).text}`, { echoed: true }),
 		});
 
 		const result = await tool.execute("call-1", { text: "hello" });
@@ -73,17 +72,21 @@ describe("d-pi surface contracts", () => {
 	});
 
 	it("keeps command contracts separate from tool contracts", async () => {
-		const command = defineDPiCommand({
+		let called = false;
+		const command = defineCommand({
 			name: "agent",
 			description: "Select an agent",
-			execute: ({ raw }) => ({ type: "showAgentSwitcher" as const, query: raw }),
+			execute: (raw, _ctx) => {
+				called = true;
+				expect(raw).toBe("child");
+			},
 		});
 
-		const action = await command.execute({ raw: "child", args: ["child"], cwd: "/repo" });
+		await command.execute("child", { cwd: "/repo" });
 
-		expect(action).toEqual({ type: "showAgentSwitcher", query: "child" });
+		expect(called).toBe(true);
 		expect("parameters" in command).toBe(false);
-		expect(command.execute.length).toBe(1);
+		expect(command.execute.length).toBe(2);
 	});
 
 	it("sends typed hub action requests through a transport-backed client", async () => {
@@ -92,7 +95,7 @@ describe("d-pi surface contracts", () => {
 			requests.push(request);
 			return request.action === "getTeam" ? { rootName: "root", agents: [], executors: [] } : { ok: true };
 		};
-		const client = createDPiHubActionsClient(transport);
+		const client = createHubActionsClient(transport);
 
 		await client.sendMessage({ fromAgentName: "root", toAgentName: "child", content: "hello", mode: "steer" });
 		await client.getTeam();
@@ -123,7 +126,7 @@ describe("d-pi surface contracts", () => {
 	});
 
 	it("defines a remote executor boundary for fake tool request/result handling", async () => {
-		const executor = defineDPiRemoteExecutor({
+		const executor = defineRemoteExecutor({
 			executeRemoteTool: async (request: DPiRemoteToolRequest) => ({
 				requestId: request.requestId,
 				ok: true,

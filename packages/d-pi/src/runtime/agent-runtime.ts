@@ -150,7 +150,6 @@ function loadContextInfo(contextManager: DPiContextManager): DPiRuntimeContextIn
 		systemPromptParts: contextManager.loadSystemPromptParts(),
 		contextFiles: contextManager.loadContextFiles(),
 		skills: contextManager.loadSkills(),
-		extensions: contextManager.loadExtensions(),
 	};
 }
 
@@ -558,7 +557,6 @@ export class DPiAgentRuntime {
 			systemPromptParts: [...this.context.systemPromptParts],
 			contextFiles: this.context.contextFiles.map((file) => ({ ...file })),
 			skills: [...this.context.skills],
-			extensions: [...this.context.extensions],
 		};
 	}
 

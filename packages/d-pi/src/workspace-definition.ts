@@ -17,14 +17,21 @@ export interface SourceDefinition {
 	readonly name?: string;
 }
 
+export interface TeamTemplateDefinition {
+	repo: string;
+	ref?: string;
+}
+
 export interface WorkspaceDefinitionInput {
 	models?: Record<string, AgentModelDefinition>;
 	sources?: Record<string, SourceDefinition>;
+	teamTemplate?: TeamTemplateDefinition;
 }
 
 export interface WorkspaceDefinition {
 	models: Record<string, AgentModelDefinition>;
 	sources: Record<string, SourceDefinition>;
+	teamTemplate?: TeamTemplateDefinition;
 }
 
 const WORKSPACE_TS_FILE = "d-pi.ts";
@@ -42,11 +49,23 @@ export function defineSource(input: SourceDefinition): SourceDefinition {
 export function defineWorkspace(input: WorkspaceDefinitionInput): WorkspaceDefinition {
 	const models = input.models ?? {};
 	const sources = input.sources ?? {};
+	const teamTemplate = input.teamTemplate;
 	if (Array.isArray(models)) {
 		throw new TypeError("Workspace models must be an object");
 	}
 	if (Array.isArray(sources)) {
 		throw new TypeError("Workspace sources must be an object");
+	}
+	if (teamTemplate !== undefined) {
+		if (typeof teamTemplate !== "object" || teamTemplate === null || Array.isArray(teamTemplate)) {
+			throw new TypeError("Workspace teamTemplate must be an object");
+		}
+		if (typeof teamTemplate.repo !== "string" || !teamTemplate.repo.trim()) {
+			throw new TypeError("Workspace teamTemplate.repo must be a non-empty string");
+		}
+		if (teamTemplate.ref !== undefined && typeof teamTemplate.ref !== "string") {
+			throw new TypeError("Workspace teamTemplate.ref must be a string");
+		}
 	}
 	for (const key of Object.keys(models)) {
 		if (!key.includes("/")) {
@@ -66,7 +85,11 @@ export function defineWorkspace(input: WorkspaceDefinitionInput): WorkspaceDefin
 		});
 		normalizedSources[key] = normalized;
 	}
-	return { models: { ...models }, sources: normalizedSources };
+	return {
+		models: { ...models },
+		sources: normalizedSources,
+		...(teamTemplate === undefined ? {} : { teamTemplate }),
+	};
 }
 
 function isWorkspaceDefinition(value: unknown): value is WorkspaceDefinitionInput {

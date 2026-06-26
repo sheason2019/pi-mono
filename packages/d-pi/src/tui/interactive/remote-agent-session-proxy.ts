@@ -1,7 +1,6 @@
 import type {
 	DPiInteractiveAgentSessionEvent,
 	DPiInteractiveAgentSessionProxy,
-	DPiInteractiveClientExtensionData,
 	DPiInteractiveModelItemData,
 	DPiInteractiveProxyPromptOptions,
 	DPiInteractiveSessionItemData,
@@ -179,12 +178,6 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 		return this.getJson("models");
 	}
 	getModels(): DPiInteractiveModelItemData[] {
-		return [];
-	}
-	async fetchClientExtensions(): Promise<DPiInteractiveClientExtensionData[]> {
-		return this.getJson("client-extensions");
-	}
-	getClientExtensions(): DPiInteractiveClientExtensionData[] {
 		return [];
 	}
 	getSnapshot(): DPiInteractiveSessionStateSnapshot {

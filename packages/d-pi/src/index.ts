@@ -5,11 +5,15 @@ export {
 	loadAgentRuntimeSystemPromptBlocks,
 } from "./agent-context.ts";
 export {
+	type AgentCommandContext,
+	type AgentCommandDefinition,
 	type AgentContextFileDefinition,
 	type AgentDefinition,
 	type AgentDefinitionInput,
 	type AgentDefinitionMetadata,
 	type AgentLocalModelDefinition,
+	type AgentMiddlewareDefinition,
+	type AgentMiddlewareInputEventResult,
 	type AgentModelDefinition,
 	type AgentModelReferenceDefinition,
 	type AgentProviderDefinition,
@@ -19,8 +23,12 @@ export {
 	type AgentToolDefinitionInput,
 	defineAgent,
 	defineAnthropicProvider,
+	defineCommand,
+	defineCommands,
 	defineContextFile,
 	defineContextFiles,
+	defineMiddleware,
+	defineMiddlewares,
 	defineModel,
 	defineOpenAIProvider,
 	defineProvider,
@@ -38,17 +46,19 @@ export {
 } from "./agent-loader.ts";
 export { DPiContextManager, type DPiContextManagerOptions } from "./context/context-manager.ts";
 export type { DPiContextFile } from "./context/resource-loader.ts";
-export {
-	AGENT_SWITCH_FILE,
-	createDPiExtension,
-	type DPiClientConfig,
-	type DPiExtensionConfig,
-	type DPiWorkerConfig,
-	HubChannel,
-} from "./extension/index.ts";
 export { Hub } from "./hub/hub.ts";
 export { SourceManager } from "./hub/source-manager.ts";
 export { extractDPiMeta, formatDPiMetaMessage } from "./message-meta.ts";
+export {
+	AGENT_SWITCH_FILE,
+	buildAgentSelectOptions,
+	fetchSources,
+	fetchTeamSnapshot,
+	formatAgentEntry,
+	HubChannel,
+	parseAgentName,
+	switchAgent,
+} from "./multi-agent/index.ts";
 export {
 	type DPiAgentHarness,
 	type DPiAgentHarnessEvent,

@@ -140,7 +140,7 @@ describe("remote-first TUI message list", () => {
 					event: "state",
 					data: {
 						agent: { sessionId: "d-pi-session-1", status: "ready" },
-						extensions: { tools: [{ name: "send_message", description: "internal tool definition" }] },
+						capabilities: { tools: [{ name: "send_message", description: "internal tool definition" }] },
 					},
 				},
 				{ type: "snapshot", snapshot: snapshot({ messages: [] }) },

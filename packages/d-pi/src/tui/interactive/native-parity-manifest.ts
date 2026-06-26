@@ -39,7 +39,6 @@ export const DPI_NATIVE_CONNECT_PROTOCOL_QUERIES = [
 	"user-messages",
 	"sessions",
 	"commands",
-	"client-extensions",
 ] as const;
 
 export const DPI_NATIVE_CONNECT_PROTOCOL_ACTIONS = [

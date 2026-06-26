@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
-import { AGENT_SWITCH_FILE } from "../extension/index.ts";
+import { AGENT_SWITCH_FILE } from "../multi-agent/index.ts";
 import type { TeamSnapshot } from "../types.ts";
 import { createConnectSession } from "./connect-auth.ts";
 

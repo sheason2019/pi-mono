@@ -64,7 +64,6 @@ describe("d-pi surface dispatch tools", () => {
 		const sourcePath = fileURLToPath(new URL("../src/surface/dispatch-tools.ts", import.meta.url));
 		const source = await readFile(sourcePath, "utf8");
 
-		expect(source).not.toContain("defineTool");
 		expect(source).not.toContain("HubChannel");
 		expect(source).not.toContain("ExtensionAPI");
 	});

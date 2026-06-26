@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { createHubActionsClientFromHubChannel } from "../src/extension/hub-actions-adapter.ts";
-import type { HubChannel } from "../src/extension/hub-channel.ts";
+import type { HubChannel } from "../src/multi-agent/hub-channel.ts";
 import { type DPiBuiltinContext, setBuiltinContext } from "../src/surface/builtin-context.ts";
+import { createHubActionsClientFromHubChannel } from "../src/surface/hub-actions-adapter.ts";
 import type {
 	DPiCreateAgentActionPayload,
 	DPiCreateAgentActionResult,
@@ -95,7 +95,6 @@ describe("d-pi surface orchestration tools", () => {
 		const sourcePath = fileURLToPath(new URL("../src/surface/orchestration-tools.ts", import.meta.url));
 		const source = await readFile(sourcePath, "utf8");
 
-		expect(source).not.toContain("defineTool");
 		expect(source).not.toContain("HubChannel");
 		expect(source).not.toContain("ExtensionAPI");
 	});

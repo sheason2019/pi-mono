@@ -6,7 +6,6 @@ import { createAllowedUser } from "../src/auth/allowed-users.ts";
 import { AuthSessionManager } from "../src/auth/auth-session.ts";
 import { createLocalUser } from "../src/auth/local-users.ts";
 import { signChallenge } from "../src/auth/signing.ts";
-import type { ExtensionAPI, ExtensionCommandContext } from "../src/extension/contracts.ts";
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
 import { SourceManager } from "../src/hub/source-manager.ts";
@@ -115,12 +114,6 @@ interface ServeCommand {
 	argumentHint?: string;
 }
 
-// Placeholder — this block satisfies the type-only import checker.
-// The actual ExtensionAPI / ExtensionCommandContext types are used
-// only for type assertions in the original test, not at runtime.
-void (null as unknown as ExtensionAPI);
-void (null as unknown as ExtensionCommandContext);
-
 describe("d-pi hub gateway no longer rewrites /commands", () => {
 	beforeEach(() => {
 		createTempDir("d-pi-cmds-unified-");
@@ -136,8 +129,8 @@ describe("d-pi hub gateway no longer rewrites /commands", () => {
 		const fakeCommands: ServeCommand[] = [
 			{ name: "settings", description: "Open settings menu", source: "builtin" },
 			{ name: "model", description: "Select model", source: "builtin" },
-			{ name: "sources", description: "List all registered sources", source: "extension" },
-			{ name: "agents", description: "Switch to a different agent in the network", source: "extension" },
+			{ name: "sources", description: "List all registered sources", source: "agent" },
+			{ name: "agents", description: "Switch to a different agent in the network", source: "agent" },
 		];
 		const hub = await startHub(tempDir!, fakeCommands);
 		try {
@@ -153,7 +146,7 @@ describe("d-pi hub gateway no longer rewrites /commands", () => {
 			expect(names.filter((n) => n === "sources")).toHaveLength(1);
 			const agentsEntry = body.find((c) => c.name === "agents");
 			expect(agentsEntry?.description).toBe("Switch to a different agent in the network");
-			expect(agentsEntry?.source).toBe("extension");
+			expect(agentsEntry?.source).toBe("agent");
 		} finally {
 			await hub.gateway.stop();
 		}
@@ -167,8 +160,8 @@ describe("d-pi hub gateway no longer rewrites /commands", () => {
 			{ name: "clone", description: "Duplicate the current session at the current position", source: "builtin" },
 			{ name: "new", description: "Start a new session", source: "builtin" },
 			{ name: "tree", description: "Navigate session tree (switch branches)", source: "builtin" },
-			{ name: "agents", description: "Switch to a different agent in the network", source: "extension" },
-			{ name: "sources", description: "List all registered sources", source: "extension" },
+			{ name: "agents", description: "Switch to a different agent in the network", source: "agent" },
+			{ name: "sources", description: "List all registered sources", source: "agent" },
 		];
 		const hub = await startHub(tempDir!, fakeCommands);
 		try {
@@ -187,7 +180,7 @@ describe("d-pi hub gateway no longer rewrites /commands", () => {
 	it("regression: if the agent omits /agents, the hub does NOT inject it", async () => {
 		const fakeCommands: ServeCommand[] = [
 			{ name: "settings", description: "Open settings menu", source: "builtin" },
-			{ name: "sources", description: "List all registered sources", source: "extension" },
+			{ name: "sources", description: "List all registered sources", source: "agent" },
 		];
 		const hub = await startHub(tempDir!, fakeCommands);
 		try {

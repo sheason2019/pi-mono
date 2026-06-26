@@ -2,14 +2,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createHubActionsClientFromHubChannel } from "../src/extension/hub-actions-adapter.ts";
-import { HubChannel } from "../src/extension/hub-channel.ts";
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { ExecutorRegistry } from "../src/hub/executor-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
 import { Hub } from "../src/hub/hub.ts";
 import { SourceManager } from "../src/hub/source-manager.ts";
+import { HubChannel } from "../src/multi-agent/hub-channel.ts";
 import { setBuiltinContext } from "../src/surface/builtin-context.ts";
+import { createHubActionsClientFromHubChannel } from "../src/surface/hub-actions-adapter.ts";
 import { createSendMessageTool } from "../src/surface/orchestration-tools.ts";
 import type { HubToWorkerMessage, WorkerToHubMessage } from "../src/types.ts";
 
@@ -103,7 +103,7 @@ describe('remote tool dispatch via IPC (case "dispatch" in _handleToolCall)', ()
 			port: 0,
 			cwd: tempDir!,
 			workspaceRoot: tempDir!,
-			workspaceContext: { workspaceRoot: tempDir!, additionalSkillPaths: [], additionalExtensionPaths: [] },
+			workspaceContext: { workspaceRoot: tempDir!, additionalSkillPaths: [] },
 		});
 		// Replace the hub's internal references with our test instances
 		// so _handleToolCall uses the same executorRegistry / gateway
@@ -243,7 +243,7 @@ describe('send_message via IPC (case "send_message" in _handleToolCall)', () => 
 			port: 0,
 			cwd: tempDir!,
 			workspaceRoot: tempDir!,
-			workspaceContext: { workspaceRoot: tempDir!, additionalSkillPaths: [], additionalExtensionPaths: [] },
+			workspaceContext: { workspaceRoot: tempDir!, additionalSkillPaths: [] },
 		});
 		(hub as unknown as { _gateway: HubGateway })._gateway = gateway;
 		(hub as unknown as { _executorRegistry: ExecutorRegistry })._executorRegistry = executorRegistry;

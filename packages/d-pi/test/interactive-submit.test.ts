@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Container, setKeybindings, type Terminal, TUI } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
-import { AGENT_SWITCH_FILE } from "../src/extension/multi-agent-extension.ts";
+import { AGENT_SWITCH_FILE } from "../src/multi-agent/multi-agent-extension.ts";
 import type {
 	DPiInteractiveAgentSessionEvent,
 	DPiInteractiveAgentSessionProxy,
@@ -617,7 +617,7 @@ describe("d-pi interactive editor submit", () => {
 		const provider = createDPiConnectAutocompleteProvider(
 			[
 				{ name: "reload", description: "Reload resources", source: "builtin" },
-				{ name: "agents", description: "Switch agent", source: "extension" },
+				{ name: "agents", description: "Switch agent", source: "agent" },
 			],
 			"/tmp/workspace",
 		);

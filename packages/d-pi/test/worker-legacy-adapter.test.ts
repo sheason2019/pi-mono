@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it, vi } from "vitest";
+import type { AgentCommandDefinition, ToolDefinition } from "../src/agent-definition.ts";
 import type { LoadedAgentDefinition } from "../src/agent-loader.ts";
-import type { ExtensionAPI } from "../src/extension/contracts.ts";
 import {
 	appendSteeringMessage,
 	clearSteeringMessagesSync,
@@ -143,32 +143,6 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 	}
 }
 
-function isExtensionInputMessage(data: unknown): boolean {
-	if (typeof data !== "object" || data === null || !("customType" in data) || !("content" in data)) {
-		return false;
-	}
-	const message = data as {
-		customType?: unknown;
-		content?: unknown;
-		details?: unknown;
-	};
-	return (
-		message.customType === "extension-input" &&
-		Array.isArray(message.content) &&
-		message.content.some(
-			(part) =>
-				typeof part === "object" &&
-				part !== null &&
-				"text" in part &&
-				part.text === "extension handled: ping extension",
-		) &&
-		typeof message.details === "object" &&
-		message.details !== null &&
-		"source" in message.details &&
-		message.details.source === "programmatic"
-	);
-}
-
 async function queryIpc(harness: IpcHarness, requestId: string, query: string): Promise<CapturedHttpResponse> {
 	harness.transport.emit({ type: "http_query", requestId, query });
 	await waitFor(() => harness.responses.some((response) => response.requestId === requestId));
@@ -194,21 +168,6 @@ async function requestIpc(
 	return response;
 }
 
-function makeBindOptions(): Parameters<DPiWorkerSession["bindExtensions"]>[0] {
-	return {
-		commandContextActions: {
-			waitForIdle: async () => {},
-			newSession: async (options?: unknown) => options,
-			fork: async () => ({ cancelled: false }),
-			navigateTree: async () => ({ cancelled: false }),
-			switchSession: async (sessionPath: string, options?: unknown) => ({ sessionPath, options }),
-			reload: async () => {},
-		},
-		abortHandler: () => {},
-		onError: () => {},
-	};
-}
-
 function createTestSession(testSessionId: string, overrides: Partial<TestSession> = {}): TestSession {
 	const resourceLoader = {
 		getSkills: () => ({ skills: [], diagnostics: [] }),
@@ -217,8 +176,6 @@ function createTestSession(testSessionId: string, overrides: Partial<TestSession
 		getAgentsFiles: () => ({ agentsFiles: [] }),
 		getPrompts: () => ({ prompts: [], diagnostics: [] }),
 		getThemes: () => ({ themes: [], diagnostics: [] }),
-		getExtensions: () => ({ extensions: [], errors: [], runtime: {} }),
-		extendResources: () => {},
 		reload: vi.fn(async () => {}),
 		...overrides.resourceLoader,
 	};
@@ -239,7 +196,7 @@ function createTestSession(testSessionId: string, overrides: Partial<TestSession
 		reload: vi.fn(async () => {
 			await resourceLoader.reload();
 		}),
-		bindExtensions: vi.fn(async () => {}),
+		registerCapabilities: vi.fn(() => {}),
 		navigateTree: vi.fn(async () => ({ cancelled: false })),
 		...overrides,
 		resourceLoader,
@@ -370,6 +327,8 @@ describe("worker runtime adapter", () => {
 			tools: [],
 			skills: { dir: "./skills" },
 			contextFiles: [],
+			commands: [],
+			middlewares: [],
 			autoCompact: true,
 		};
 
@@ -521,6 +480,8 @@ describe("worker runtime adapter", () => {
 				tools: [],
 				skills: { dir: "./skills" },
 				contextFiles: [],
+				commands: [],
+				middlewares: [],
 				autoCompact: true,
 			},
 		});
@@ -545,36 +506,35 @@ describe("worker runtime adapter", () => {
 		expect(registry.getAll).not.toHaveBeenCalled();
 	});
 
-	it("binds extension factories and exposes registered commands and tools in session state", async () => {
-		const factory = vi.fn((pi: ExtensionAPI) => {
-			pi.registerTool({
-				name: "sample_tool",
-				label: "Sample Tool",
-				description: "A tool registered by a d-pi extension.",
-				parameters: Type.Object({}),
-				execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
-			});
-			pi.registerCommand("sample", {
-				description: "A command registered by a d-pi extension.",
-				handler: () => {},
-			});
-		});
+	it("registers capabilities and exposes commands and tools in session state", async () => {
+		const sampleTool: ToolDefinition = {
+			name: "sample_tool",
+			label: "Sample Tool",
+			description: "A tool registered via capabilities.",
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+		};
+		const sampleCommand: AgentCommandDefinition = {
+			name: "sample",
+			description: "A command registered via capabilities.",
+			execute: async () => {},
+		};
 		const services = await createDPiAgentSessionServices({
-			cwd: "/tmp/d-pi-extension-bind",
-			agentDir: "/tmp/d-pi-extension-bind",
+			cwd: "/tmp/d-pi-register-capabilities",
+			agentDir: "/tmp/d-pi-register-capabilities",
 			modelRegistry: asWorkerModelRegistry(makeModelRegistry({})),
-			resourceLoaderOptions: {
-				extensionFactories: [{ name: "sample-extension", factory }],
-			},
 		});
 		const { session } = await createDPiAgentSessionFromServices({
 			services,
-			sessionManager: createDPiSessionManager("/tmp/d-pi-extension-bind"),
+			sessionManager: createDPiSessionManager("/tmp/d-pi-register-capabilities"),
 		});
 
-		await session.bindExtensions(makeBindOptions());
+		session.registerCapabilities({
+			tools: [sampleTool],
+			commands: [sampleCommand],
+			middlewares: [],
+		});
 
-		expect(factory).toHaveBeenCalledOnce();
 		const harness = createIpcHarness(new DPiLocalAgentSessionProxy(createTestRuntime(session)));
 		try {
 			const commands = await queryIpc(harness, "commands-1", "commands");
@@ -582,14 +542,14 @@ describe("worker runtime adapter", () => {
 			expect(commands.body).toContainEqual({ name: "settings", source: "builtin" });
 			expect(commands.body).toContainEqual({
 				name: "sample",
-				description: "A command registered by a d-pi extension.",
-				source: "extension",
+				description: "A command registered via capabilities.",
+				source: "agent",
 			});
 
 			const state = await queryIpc(harness, "state-1", "state");
 			expect(state.status).toBe(200);
 			expect(state.body).toMatchObject({
-				extensions: {
+				capabilities: {
 					tools: [expect.objectContaining({ name: "sample_tool", label: "Sample Tool" })],
 					commands: [expect.objectContaining({ name: "sample" })],
 				},
@@ -599,47 +559,46 @@ describe("worker runtime adapter", () => {
 		}
 	});
 
-	it("exposes bound extension tool definitions for the remote-first AgentHarness", async () => {
-		const factory = vi.fn((pi: ExtensionAPI) => {
-			pi.registerTool({
-				name: "dispatch_bash",
-				label: "Dispatch bash",
-				description: "Run bash through dispatch",
-				parameters: Type.Object({
-					command: Type.String(),
-				}),
-				execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
-			});
-		});
+	it("exposes registered tool definitions for the remote-first AgentHarness", async () => {
+		const dispatchTool: ToolDefinition = {
+			name: "dispatch_bash",
+			label: "Dispatch bash",
+			description: "Run bash through dispatch",
+			parameters: Type.Object({
+				command: Type.String(),
+			}),
+			execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+		};
 		const services = await createDPiAgentSessionServices({
 			cwd: "/tmp/d-pi-harness-tools",
 			agentDir: "/tmp/d-pi-harness-tools",
 			modelRegistry: asWorkerModelRegistry(makeModelRegistry({})),
-			resourceLoaderOptions: {
-				extensionFactories: [{ name: "dispatch-extension", factory }],
-			},
 		});
 		const { session } = await createDPiAgentSessionFromServices({
 			services,
 			sessionManager: createDPiSessionManager("/tmp/d-pi-harness-tools"),
 		});
 
-		await session.bindExtensions(makeBindOptions());
+		session.registerCapabilities({
+			tools: [dispatchTool],
+			commands: [],
+			middlewares: [],
+		});
 
 		expect(session.getToolDefinitions().map((tool) => tool.name)).toEqual(["dispatch_bash"]);
 	});
 
-	it("binds extensions before constructing DPiAgentRuntime with registered tools", async () => {
+	it("registers capabilities before constructing DPiAgentRuntime with registered tools", async () => {
 		const source = await readFile(new URL("../src/worker/agent-worker.ts", import.meta.url), "utf8");
-		const bindIndex = source.indexOf("await rebindSession();");
+		const rebindIndex = source.indexOf("rebindSession();");
 		const runtimeIndex = source.indexOf("agentRuntime = new DPiAgentRuntime");
 
-		expect(bindIndex).toBeGreaterThan(0);
-		expect(runtimeIndex).toBeGreaterThan(bindIndex);
+		expect(rebindIndex).toBeGreaterThan(0);
+		expect(runtimeIndex).toBeGreaterThan(rebindIndex);
 		expect(source).toContain("tools: runtime!.session.getToolDefinitions()");
 		expect(source).toContain("activeToolNames: agentToolNames");
-		expect(source).toContain("createAgentLocalToolsExtension");
-		expect(source).toContain("agentTools: agentDefinition?.tools ?? []");
+		expect(source).toContain("setupAgentLocalTools");
+		expect(source).toContain("getAgentTools: () => agentDefinition?.tools");
 	});
 
 	it("routes hub-delivered agent messages into the runtime turn, not just the display channel", async () => {
@@ -921,89 +880,47 @@ describe("worker runtime adapter", () => {
 		}
 	});
 
-	it("routes extension input handler sendMessage output into proxy state and SSE", async () => {
-		const factory = vi.fn((pi: ExtensionAPI) => {
-			pi.on("input", (event) => {
-				pi.sendMessage(
-					{
-						role: "custom",
-						customType: "extension-input",
-						content: [{ type: "text", text: `extension handled: ${event.text}` }],
-						display: true,
-						details: {
-							source: event.source,
-							streamingBehavior: event.streamingBehavior,
-							marker: "extension-details-visible",
-						},
-					},
-					{ triggerTurn: true, deliverAs: "next" },
-				);
-				return { action: "handled" };
-			});
-		});
+	it("routes input through middleware onInput handlers", async () => {
+		const handler = vi.fn(async () => ({ action: "handled" as const }));
 		const services = await createDPiAgentSessionServices({
-			cwd: "/tmp/d-pi-extension-input",
-			agentDir: "/tmp/d-pi-extension-input",
+			cwd: "/tmp/d-pi-middleware-input",
+			agentDir: "/tmp/d-pi-middleware-input",
 			modelRegistry: asWorkerModelRegistry(makeModelRegistry({})),
-			resourceLoaderOptions: {
-				extensionFactories: [{ name: "input-extension", factory }],
-			},
 		});
 		const { session } = await createDPiAgentSessionFromServices({
 			services,
-			sessionManager: createDPiSessionManager("/tmp/d-pi-extension-input"),
+			sessionManager: createDPiSessionManager("/tmp/d-pi-middleware-input"),
 		});
 
-		await session.bindExtensions(makeBindOptions());
+		session.registerCapabilities({
+			tools: [],
+			commands: [],
+			middlewares: [
+				{
+					onInput: handler,
+				},
+			],
+		});
 
 		const harness = createIpcHarness(new DPiLocalAgentSessionProxy(createTestRuntime(session)));
 		try {
-			harness.transport.emit({ type: "sse_subscribe", subscriberId: "sub-extension" });
+			harness.transport.emit({ type: "sse_subscribe", subscriberId: "sub-middleware" });
 			await waitFor(() =>
-				harness.events.some((event) => event.subscriberId === "sub-extension" && event.event === "status"),
+				harness.events.some((event) => event.subscriberId === "sub-middleware" && event.event === "status"),
 			);
 
-			const prompt = await requestIpc(harness, "prompt-extension", "prompt", { text: "ping extension" });
+			const prompt = await requestIpc(harness, "prompt-middleware", "prompt", { text: "ping middleware" });
 			expect(prompt).toMatchObject({ status: 200, body: { ok: true } });
 
-			await waitFor(() =>
-				harness.events.some(
-					(event) =>
-						event.subscriberId === "sub-extension" &&
-						event.event === "message" &&
-						isExtensionInputMessage(event.data),
-				),
-			);
-
-			const state = await queryIpc(harness, "state-extension", "state");
-			expect(state.status).toBe(200);
-			expect(state.body).toMatchObject({
-				messages: expect.arrayContaining([
-					expect.objectContaining({
-						role: "custom",
-						customType: "extension-input",
-						content: [{ type: "text", text: "extension handled: ping extension" }],
-						details: expect.objectContaining({
-							source: "programmatic",
-							marker: "extension-details-visible",
-						}),
-					}),
-				]),
-			});
-			expect(harness.events).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({
-						subscriberId: "sub-extension",
-						event: "realtime",
-						data: expect.objectContaining({
-							type: "upsert",
-							message: expect.objectContaining({
-								customType: "extension-input",
-								details: expect.objectContaining({ marker: "extension-details-visible" }),
-							}),
-						}),
-					}),
-				]),
+			expect(handler).toHaveBeenCalledWith(
+				expect.objectContaining({
+					text: "ping middleware",
+					source: "programmatic",
+					streamingBehavior: "next",
+				}),
+				expect.objectContaining({
+					cwd: "/tmp/d-pi-middleware-input",
+				}),
 			);
 		} finally {
 			harness.server.stop();

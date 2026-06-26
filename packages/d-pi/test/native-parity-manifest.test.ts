@@ -42,7 +42,6 @@ describe("native coding-agent connect parity manifest", () => {
 			"user-messages",
 			"sessions",
 			"commands",
-			"client-extensions",
 		]);
 		expect(DPI_NATIVE_CONNECT_PROTOCOL_ACTIONS).toEqual([
 			"prompt",

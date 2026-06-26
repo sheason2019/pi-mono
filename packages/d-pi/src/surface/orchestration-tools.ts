@@ -1,11 +1,12 @@
 import { Type } from "typebox";
+import type { AgentToolDefinition } from "../agent-definition.ts";
+import { defineTool } from "../agent-definition.ts";
 import { getBuiltinContext } from "./builtin-context.ts";
 import type { DPiCreateAgentActionPayload, DPiHubMessageMode, DPiTeamSnapshot } from "./hub-actions.ts";
-import type { DPiTool, DPiToolDetails } from "./tool-surface.ts";
-import { defineDPiTool, dPiToolJsonDetails, dPiToolTextResult } from "./tool-surface.ts";
+import { toolJsonDetails, toolTextResult } from "./tool-surface.ts";
 
-export function createSendMessageTool(): DPiTool {
-	return defineDPiTool({
+export function createSendMessageTool(): AgentToolDefinition {
+	return defineTool({
 		name: "send_message",
 		label: "Send Message",
 		description:
@@ -38,7 +39,7 @@ export function createSendMessageTool(): DPiTool {
 				if (actionError) {
 					return errorTextResult(`Failed to send message: ${actionError}`);
 				}
-				return dPiToolTextResult(
+				return toolTextResult(
 					`Message sent to agent ${targetAgentName} (mode=${mode}). Result: ${JSON.stringify(result)}`,
 				);
 			} catch (err) {
@@ -48,8 +49,8 @@ export function createSendMessageTool(): DPiTool {
 	});
 }
 
-export function createCreateAgentTool(): DPiTool {
-	return defineDPiTool({
+export function createCreateAgentTool(): AgentToolDefinition {
+	return defineTool({
 		name: "create_agent",
 		label: "Create Agent",
 		description:
@@ -68,9 +69,9 @@ export function createCreateAgentTool(): DPiTool {
 					cwd: params.cwd,
 				};
 				const result = await ctx.hubClient.createAgent(payload);
-				return dPiToolTextResult(
+				return toolTextResult(
 					`Created agent "${result.agentName}"`,
-					dPiToolJsonDetails({ agentName: result.agentName }),
+					toolJsonDetails({ agentName: result.agentName }),
 				);
 			} catch (err) {
 				return errorTextResult(`Failed to create agent: ${errorMessage(err)}`);
@@ -79,8 +80,8 @@ export function createCreateAgentTool(): DPiTool {
 	});
 }
 
-export function createDestroyAgentTool(): DPiTool {
-	return defineDPiTool({
+export function createDestroyAgentTool(): AgentToolDefinition {
+	return defineTool({
 		name: "destroy_agent",
 		label: "Destroy Agent",
 		description:
@@ -96,7 +97,7 @@ export function createDestroyAgentTool(): DPiTool {
 				if (actionError) {
 					return errorTextResult(`Failed to destroy agent: ${actionError}`);
 				}
-				return dPiToolTextResult(`Agent "${params.agent_name}" destroyed`);
+				return toolTextResult(`Agent "${params.agent_name}" destroyed`);
 			} catch (err) {
 				return errorTextResult(`Failed to destroy agent: ${errorMessage(err)}`);
 			}
@@ -104,8 +105,8 @@ export function createDestroyAgentTool(): DPiTool {
 	});
 }
 
-export function createTeamTool(): DPiTool {
-	return defineDPiTool({
+export function createTeamTool(): AgentToolDefinition {
+	return defineTool({
 		name: "team",
 		label: "Team",
 		description:
@@ -127,7 +128,7 @@ export function createTeamTool(): DPiTool {
 				});
 				const rootName = snapshot.agents.find((agent) => agent.name === "root")?.name;
 				const text = `Team:\nAgents:\n${agentLines.join("\n")}\n\nExecutors:\n${executorLines.length > 0 ? executorLines.join("\n") : "(none)"}\n\nUse agent names (e.g. "${rootName}") for destroy_agent and send_message.`;
-				return dPiToolTextResult(text, teamDetails(snapshot));
+				return toolTextResult(text, teamDetails(snapshot));
 			} catch (err) {
 				return errorTextResult(`Failed to get team: ${errorMessage(err)}`);
 			}
@@ -135,8 +136,8 @@ export function createTeamTool(): DPiTool {
 	});
 }
 
-export function createReloadTool(): DPiTool {
-	return defineDPiTool({
+export function createReloadTool(): AgentToolDefinition {
+	return defineTool({
 		name: "reload",
 		label: "Reload Workspace",
 		description:
@@ -194,6 +195,6 @@ function getDepth(snapshot: { agents: Array<{ name: string; parentName?: string 
 	return depth;
 }
 
-function teamDetails(snapshot: DPiTeamSnapshot): DPiToolDetails {
-	return dPiToolJsonDetails({ agents: snapshot.agents, executors: snapshot.executors });
+function teamDetails(snapshot: DPiTeamSnapshot) {
+	return toolJsonDetails({ agents: snapshot.agents, executors: snapshot.executors });
 }

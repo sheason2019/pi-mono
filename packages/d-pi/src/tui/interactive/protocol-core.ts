@@ -52,8 +52,6 @@ export async function handleDPiInteractiveProtocolQuery(
 			return ok(await proxy.getSessions());
 		case "commands":
 			return ok(await proxy.fetchCommands());
-		case "client-extensions":
-			return ok(await proxy.fetchClientExtensions());
 		default:
 			return { status: 404, body: { error: `Unknown query: ${query}` } };
 	}
