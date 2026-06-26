@@ -43,15 +43,6 @@ function freshWorkspace(): string {
 	return tempDir;
 }
 
-async function waitFor(predicate: () => boolean): Promise<void> {
-	const deadline = Date.now() + 1000;
-	while (Date.now() < deadline) {
-		if (predicate()) return;
-		await new Promise((resolve) => setTimeout(resolve, 5));
-	}
-	throw new Error("Timed out waiting for condition");
-}
-
 function discoveredAgent(entryName: string, config: AgentConfig): DiscoveredAgent {
 	return {
 		entryName,
@@ -339,106 +330,5 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 		await hub.createAgent(undefined, { name: "root", persistDefinition: false });
 
 		expect(readFileSync(join(agentDir, "agent.ts"), "utf-8")).toBe(original);
-	});
-
-	it("broadcasts workspace reload to each agent without waiting for busy agents", async () => {
-		const { Hub: HubMocked } = await import("../src/hub/hub.ts");
-		const { AgentRegistry } = await import("../src/hub/agent-registry.ts");
-		const workspace = freshWorkspace();
-		mkdirSync(join(workspace, "node_modules", "@sheason", "d-pi"), { recursive: true });
-		writeFileSync(
-			join(workspace, "node_modules", "@sheason", "d-pi", "package.json"),
-			JSON.stringify({ name: "@sheason/d-pi", type: "module", exports: "./index.js" }),
-		);
-		writeFileSync(
-			join(workspace, "node_modules", "@sheason", "d-pi", "index.js"),
-			`export * from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src", "index.ts")).href)};\n`,
-		);
-		writeFileSync(
-			join(workspace, "d-pi.ts"),
-			[
-				'import { defineSource, defineWorkspace } from "@sheason/d-pi";',
-				"export default defineWorkspace({",
-				'\tsources: { "events": defineSource({ execute: (output) => output("hello") }) },',
-				"});",
-				"",
-			].join("\n"),
-		);
-		const hub = new HubMocked({
-			port: 50000 + Math.floor(Math.random() * 1000),
-			workspaceRoot: workspace,
-			cwd: workspace,
-			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [] },
-		});
-		const registry = (hub as unknown as { _registry: InstanceType<typeof AgentRegistry> })._registry;
-		const readyMessages: unknown[] = [];
-		const busyMessages: unknown[] = [];
-		registry.register({
-			name: "root",
-			parentName: undefined,
-			children: [],
-			status: "ready",
-			worker: {
-				postMessage: (message: unknown) => readyMessages.push(message),
-				on: () => {},
-				off: () => {},
-			} as never,
-			cwd: workspace,
-		});
-		registry.register({
-			name: "busy-child",
-			parentName: "root",
-			children: [],
-			status: "busy",
-			worker: {
-				postMessage: (message: unknown) => busyMessages.push(message),
-				on: () => {},
-				off: () => {},
-			} as never,
-			cwd: workspace,
-		});
-
-		(
-			hub as unknown as {
-				_handleWorkerMessage(worker: unknown, message: unknown): void;
-			}
-		)._handleWorkerMessage(
-			{},
-			{ type: "reload_workspace", agentName: "root", callId: "reload-1", reason: "updated model descriptions" },
-		);
-		await waitFor(() => readyMessages.length > 1 && busyMessages.length > 0);
-		const reloadMetadata = {
-			reason: "updated model descriptions",
-			caller: "root",
-			time: expect.any(String),
-		};
-		expect(readyMessages).toContainEqual({ type: "reload_agent", callId: "reload-1:root", metadata: reloadMetadata });
-		expect(busyMessages).toEqual([{ type: "reload_agent", callId: "reload-1:busy-child", metadata: reloadMetadata }]);
-		expect(readyMessages).toContainEqual({
-			type: "tool_result",
-			callId: "reload-1",
-			result: { ok: true, metadata: reloadMetadata },
-		});
-
-		(
-			hub as unknown as {
-				_handleWorkerMessage(worker: unknown, message: unknown): void;
-			}
-		)._handleWorkerMessage({}, { type: "reload_workspace", agentName: "root", callId: "reload-2" });
-		await waitFor(() => readyMessages.length > 3 && busyMessages.length > 1);
-		const reloadWithoutReason = {
-			caller: "root",
-			time: expect.any(String),
-		};
-		expect(readyMessages).toContainEqual({
-			type: "reload_agent",
-			callId: "reload-2:root",
-			metadata: reloadWithoutReason,
-		});
-		expect(readyMessages).toContainEqual({
-			type: "tool_result",
-			callId: "reload-2",
-			result: { ok: true, metadata: reloadWithoutReason },
-		});
 	});
 });

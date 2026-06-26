@@ -406,6 +406,19 @@ describe("d-pi runtime foundation", () => {
 					timestamp: 123,
 				},
 			},
+			{
+				type: "snapshot_update",
+				snapshot: expect.objectContaining({
+					agentName: "root",
+					messages: [
+						{
+							role: "user",
+							content: [{ type: "text", text: "queued user input" }],
+							timestamp: 123,
+						},
+					],
+				}),
+			},
 		]);
 		expect(runtime.getSnapshot().messages).toEqual([
 			{
@@ -428,7 +441,16 @@ describe("d-pi runtime foundation", () => {
 
 		await fakeHarness.emit({ type: "error", error });
 
-		expect(events).toEqual([{ type: "error", agentName: "root", error }]);
+		expect(events).toEqual([
+			{ type: "error", agentName: "root", error },
+			{
+				type: "snapshot_update",
+				snapshot: expect.objectContaining({
+					agentName: "root",
+					transcriptItems: expect.arrayContaining([expect.objectContaining({ type: "notice", level: "error" })]),
+				}),
+			},
+		]);
 	});
 
 	it("emits native-style turn stats at agent end from all assistant messages in the run", async () => {
@@ -441,7 +463,10 @@ describe("d-pi runtime foundation", () => {
 		});
 
 		await fakeHarness.emit({ type: "agent_start" });
-		expect(events.at(-1)).toMatchObject({ type: "agent_start", agentName: "root" });
+		expect(events.find((event) => event.type === "agent_start")).toMatchObject({
+			type: "agent_start",
+			agentName: "root",
+		});
 		await fakeHarness.emit({
 			type: "message_end",
 			message: {
