@@ -188,51 +188,8 @@ export class Hub {
 		this._sourceManager.syncSources(workspace.sources, subscribersBySource, this._config.workspaceRoot);
 	}
 
-	private async _reloadWorkspaceSources(): Promise<void> {
-		this._workspaceDefinition = await readWorkspaceDefinitionFromTs(this._config.workspaceRoot);
-		await this._syncTeamTemplate(this._workspaceDefinition?.teamTemplate);
-		this._syncWorkspaceSources(orderAgentsForRestore(await discoverPersistedAgents(this._config.workspaceRoot)));
-	}
-
 	private async _syncTeamTemplate(declared: { repo: string; ref?: string } | undefined): Promise<void> {
 		await syncTeamTemplate(this._config.workspaceRoot, declared);
-	}
-
-	private async _requestWorkspaceReload(
-		requesterAgentName: string,
-		callId: string,
-		reason: string | undefined,
-	): Promise<void> {
-		const requester = this._registry.get(requesterAgentName);
-		if (!requester) return;
-		const metadata = {
-			...(reason === undefined ? {} : { reason }),
-			caller: requesterAgentName,
-			time: new Date().toISOString(),
-		};
-		try {
-			await this._reloadWorkspaceSources();
-		} catch (err) {
-			requester.worker.postMessage({
-				type: "tool_result",
-				callId,
-				result: { ok: false, metadata, error: err instanceof Error ? err.message : String(err) },
-			} satisfies HubToWorkerMessage);
-			return;
-		}
-		const agents = Array.from(this._registry.getAll()).filter((record) => record.status !== "destroyed");
-		for (const record of agents) {
-			record.worker.postMessage({
-				type: "reload_agent",
-				callId: `${callId}:${record.name}`,
-				metadata,
-			} satisfies HubToWorkerMessage);
-		}
-		requester.worker.postMessage({
-			type: "tool_result",
-			callId,
-			result: { ok: true, metadata },
-		} satisfies HubToWorkerMessage);
 	}
 
 	async createAgent(
@@ -443,10 +400,6 @@ export class Hub {
 
 			case "status_update":
 				this._registry.updateStatus(message.agentName, message.status);
-				break;
-
-			case "reload_workspace":
-				void this._requestWorkspaceReload(message.agentName, message.callId, message.reason);
 				break;
 
 			case "tool_call":

@@ -22,6 +22,7 @@ import {
 	SessionError,
 } from "@earendil-works/pi-agent-core/node";
 import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
+import type { LoadedAgentDefinition } from "../agent-loader.ts";
 import type { DPiContextManager } from "../context/context-manager.ts";
 import { createDPiRuntimeError, isDPiRuntimeError } from "./errors.ts";
 import type { DPiRuntimeEvent } from "./events.ts";
@@ -417,7 +418,10 @@ export class DPiAgentRuntime {
 		await this.emit({ type: "agent_end", agentName: this.agentName });
 	}
 
-	async reloadContext(): Promise<void> {
+	async reloadContext(agentDefinition?: LoadedAgentDefinition): Promise<void> {
+		if (agentDefinition !== undefined) {
+			this.contextManager.updateAgentDefinition(agentDefinition);
+		}
 		this.contextManager.reload();
 		this.context = loadContextInfo(this.contextManager);
 		await this.harness.setResources?.({ skills: [], promptTemplates: [] });
@@ -592,13 +596,16 @@ export class DPiAgentRuntime {
 		if (event.type === "agent_start") {
 			this.turnStartedAt = Date.now();
 			await this.emit({ type: "agent_start", agentName: this.agentName });
+			await this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
 			return;
 		}
 		if (event.type === "agent_end") {
+			this.activeTurn = false;
 			await this.emit({ type: "agent_end", agentName: this.agentName });
 			if ("messages" in event) {
 				await this.emitTurnStats(event.messages as DPiAgentMessage[]);
 			}
+			await this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
 			return;
 		}
 		const runtimeEvent = this.normalizeHarnessEvent(event);
@@ -630,12 +637,15 @@ export class DPiAgentRuntime {
 						: Date.now(),
 			});
 		} else if (runtimeEvent.type === "error") {
+			this.activeTurn = false;
 			await this.appendTranscriptNotice("error", runtimeEvent.error.message);
 			await this.emit(runtimeEvent);
+			await this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
 			return;
 		}
 		await this.appendTranscriptEvent(runtimeEvent);
 		await this.emit(runtimeEvent);
+		await this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
 	}
 
 	private async emitTurnStats(messages: DPiAgentMessage[]): Promise<void> {

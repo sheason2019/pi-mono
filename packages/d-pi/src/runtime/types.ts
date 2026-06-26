@@ -84,6 +84,7 @@ export interface DPiModelInfo {
 	provider?: Provider;
 	displayName?: string;
 	contextWindow?: number;
+	reasoning?: boolean;
 }
 
 export interface DPiContextUsage {

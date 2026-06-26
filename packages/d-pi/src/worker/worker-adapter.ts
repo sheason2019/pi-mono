@@ -22,7 +22,7 @@ import {
 	readSteeringMessagesSync,
 } from "../runtime/steering-jsonl-queue.ts";
 import type { DPiTranscriptItem } from "../runtime/transcript/projector.ts";
-import type { DPiAgentMessage } from "../runtime/types.ts";
+import type { DPiAgentMessage, DPiRuntimeSnapshot } from "../runtime/types.ts";
 import type {
 	DPiInteractiveBannerData,
 	DPiInteractiveModelItemData,
@@ -128,6 +128,7 @@ export interface DPiAgentSessionRuntime {
 	setRebindSession(
 		handler: (session: DPiWorkerSession, reason: "new" | "resume" | "fork") => void | Promise<void>,
 	): void;
+	getRuntimeSnapshot?(): DPiRuntimeSnapshot;
 }
 
 export type DPiCreateSessionRuntimeFactory = (options: {
@@ -847,6 +848,7 @@ export class DPiLocalAgentSessionProxy {
 		usingSubscription: false,
 	};
 	private unsubscribeSessionMessages: (() => void) | undefined;
+	private reloadHandler: (() => Promise<void>) | undefined;
 	private messageDispatcher:
 		| {
 				prompt?: (
@@ -895,23 +897,39 @@ export class DPiLocalAgentSessionProxy {
 	getState(): DPiLocalAgentState {
 		const metadata = getSessionMetadata(this.runtime.session);
 		const capabilityState = getSessionCapabilitySnapshot(this.runtime.session);
-		const model = metadata.model;
+		const runtimeSnapshot = this.runtime.getRuntimeSnapshot?.();
+		const model = runtimeSnapshot?.model;
 		const remoteSettings = {
 			...createDefaultRemoteSettings(),
 			...this.remoteSettingsOverrides,
 		};
 		const contextWindow = model?.contextWindow ?? 0;
-		const contextEstimate = estimateContextTokens(this.messages as AgentMessage[]);
+		const contextEstimate = runtimeSnapshot
+			? estimateContextTokens(runtimeSnapshot.messages)
+			: estimateContextTokens(this.messages as AgentMessage[]);
 		const tokens = contextEstimate.tokens;
 		const percent = contextWindow > 0 ? (tokens / contextWindow) * 100 : 0;
+		const snapshotTokenUsage = runtimeSnapshot?.tokenUsage;
+		const tokenUsage = snapshotTokenUsage
+			? {
+					input: snapshotTokenUsage.input,
+					output: snapshotTokenUsage.output,
+					cacheRead: snapshotTokenUsage.cacheRead,
+					cacheWrite: snapshotTokenUsage.cacheWrite,
+					cost: snapshotTokenUsage.cost,
+					usingSubscription: false,
+				}
+			: this.tokenUsage;
+		const isStreaming = runtimeSnapshot ? runtimeSnapshot.streaming.active : this.streaming;
+		const isCompacting = runtimeSnapshot ? runtimeSnapshot.compaction.status !== "idle" : this.compacting;
 		return {
 			model: model?.id ?? "",
-			isStreaming: this.streaming,
-			isCompacting: this.compacting,
+			isStreaming,
+			isCompacting,
 			steeringMessages: this.steeringQueueItems().map((item) => item.text),
-			sessionFile: metadata.path,
+			sessionFile: runtimeSnapshot?.session.path ?? metadata.path,
 			sessionName: this.sessionName,
-			tokenUsage: this.tokenUsage,
+			tokenUsage,
 			contextUsage: {
 				tokens,
 				contextWindow,
@@ -924,21 +942,25 @@ export class DPiLocalAgentSessionProxy {
 				contextWindow: model?.contextWindow ?? 0,
 			},
 			autoCompactEnabled: this.agentDefinition?.autoCompact ?? true,
-			cwd: metadata.cwd ?? "",
+			cwd: runtimeSnapshot?.cwd ?? metadata.cwd ?? "",
 			availableProviderCount: this.runtime.session.modelRegistry.getAll().length,
 			remoteSettings,
 			agent: {
-				sessionId: metadata.id,
-				status: this.streaming ? "busy" : "ready",
+				sessionId: runtimeSnapshot?.session.id ?? metadata.id,
+				status: isStreaming ? "busy" : "ready",
 			},
 			session: {
-				id: metadata.id,
-				...(metadata.path ? { path: metadata.path } : {}),
+				id: runtimeSnapshot?.session.id ?? metadata.id,
+				...(runtimeSnapshot?.session.path
+					? { path: runtimeSnapshot.session.path }
+					: metadata.path
+						? { path: metadata.path }
+						: {}),
 			},
 			banner: this.banner,
-			messages: [...this.messages],
-			transcriptItems: [...this.transcriptItems],
-			streaming: this.streaming,
+			messages: runtimeSnapshot ? (runtimeSnapshot.messages as DPiLocalAgentMessage[]) : [...this.messages],
+			transcriptItems: runtimeSnapshot?.transcriptItems ?? [...this.transcriptItems],
+			streaming: isStreaming,
 			queued: this.steeringQueueItems(),
 			capabilities: capabilityState,
 		};
@@ -1092,8 +1114,16 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	async reload(): Promise<void> {
-		await this.runtime.session.reload();
+		if (this.reloadHandler) {
+			await this.reloadHandler();
+		} else {
+			await this.runtime.session.reload();
+		}
 		this.emitState();
+	}
+
+	setReloadHandler(handler: () => Promise<void>): void {
+		this.reloadHandler = handler;
 	}
 
 	updateSettings(updates: Record<string, unknown>): void {
@@ -1107,6 +1137,10 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	applyRuntimeEvent(event: DPiRuntimeEvent): void {
+		if (event.type === "snapshot_update") {
+			this.emitState();
+			return;
+		}
 		if (event.type === "agent_start") {
 			this.streaming = true;
 			this.streamingAssistantMessageId = undefined;
@@ -1125,7 +1159,6 @@ export class DPiLocalAgentSessionProxy {
 				this.streaming = true;
 			}
 			if (event.done && event.message) {
-				this.updateTokenUsage(event);
 				this.upsertStreamingAssistantMessage(event.message, true);
 			} else {
 				if (event.message) {
@@ -1224,7 +1257,6 @@ export class DPiLocalAgentSessionProxy {
 			return;
 		}
 		if (event.type === "state_update") {
-			this.emitState();
 			return;
 		}
 		if (event.type === "session_replaced") {
@@ -1238,7 +1270,6 @@ export class DPiLocalAgentSessionProxy {
 			}
 			this.emitRealtimeSnapshot();
 			this.emit({ type: "resume", data: this.getState() });
-			this.emitState();
 			return;
 		}
 		if (event.type === "error") {
@@ -1253,29 +1284,6 @@ export class DPiLocalAgentSessionProxy {
 				true,
 			);
 		}
-	}
-
-	private updateTokenUsage(event: Extract<DPiRuntimeEvent, { type: "assistant_stream" }>): void {
-		const usage = event.message && "usage" in event.message ? event.message.usage : undefined;
-		if (!usage) {
-			return;
-		}
-		const input = numberField(usage, "input");
-		const output = numberField(usage, "output");
-		const cacheRead = numberField(usage, "cacheRead");
-		const cacheWrite = numberField(usage, "cacheWrite");
-		const costRecord = objectField(usage, "cost");
-		this.tokenUsage = {
-			input,
-			output,
-			cacheRead,
-			cacheWrite,
-			cost: costRecord ? numberField(costRecord, "total") : 0,
-			usingSubscription: false,
-			...(cacheRead + cacheWrite > 0
-				? { latestCacheHitRate: (cacheRead / Math.max(1, input + cacheRead + cacheWrite)) * 100 }
-				: {}),
-		};
 	}
 
 	async prompt(text: string, options?: { images?: Array<{ url: string; mediaType?: string }> }): Promise<void> {
@@ -2082,24 +2090,6 @@ function errorMessage(error: unknown): string {
 		}
 	}
 	return String(error);
-}
-
-function objectField(value: unknown, key: string): Record<string, unknown> | undefined {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) {
-		return undefined;
-	}
-	const field = (value as Record<string, unknown>)[key];
-	return typeof field === "object" && field !== null && !Array.isArray(field)
-		? (field as Record<string, unknown>)
-		: undefined;
-}
-
-function numberField(value: unknown, key: string): number {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) {
-		return 0;
-	}
-	const field = (value as Record<string, unknown>)[key];
-	return typeof field === "number" ? field : 0;
 }
 
 function isString(value: unknown): value is string {
