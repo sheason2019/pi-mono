@@ -370,6 +370,8 @@ describe("worker runtime adapter", () => {
 			tools: [],
 			skills: { dir: "./skills" },
 			contextFiles: [],
+			commands: [],
+			middlewares: [],
 			autoCompact: true,
 		};
 
@@ -521,6 +523,8 @@ describe("worker runtime adapter", () => {
 				tools: [],
 				skills: { dir: "./skills" },
 				contextFiles: [],
+				commands: [],
+				middlewares: [],
 				autoCompact: true,
 			},
 		});

@@ -128,7 +128,6 @@ export interface DPiRuntimeContextInfo {
 	systemPromptParts: string[];
 	contextFiles: DPiContextFile[];
 	skills: string[];
-	extensions: string[];
 }
 
 export interface DPiRuntimeSnapshot {

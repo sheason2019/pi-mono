@@ -10,7 +10,7 @@ import { parentPort, workerData } from "node:worker_threads";
 import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { TSchema } from "typebox";
-import type { AgentToolDefinition } from "../agent-definition.ts";
+import type { AgentCommandDefinition, AgentMiddlewareDefinition, AgentToolDefinition } from "../agent-definition.ts";
 import { type LoadedAgentDefinition, readLoadedAgentDefinitionFromTs } from "../agent-loader.ts";
 import { DPiContextManager } from "../context/context-manager.ts";
 import { DPI_META_PROMPT } from "../dpi-meta.ts";
@@ -177,7 +177,9 @@ function toPromptImages(images: Array<{ url: string; mediaType?: string }> | und
 }
 
 interface AgentLocalToolsExtensionOptions {
-	agentTools: AgentToolDefinition[];
+	getAgentTools: () => AgentToolDefinition[];
+	getAgentCommands: () => AgentCommandDefinition[];
+	getAgentMiddlewares: () => AgentMiddlewareDefinition[];
 	channel: HubChannel;
 	cwd: string;
 	getReloadFn: () => ((reason?: string) => Promise<void>) | undefined;
@@ -188,8 +190,24 @@ interface AgentLocalToolsExtensionOptions {
 function createAgentLocalToolsExtension(options: AgentLocalToolsExtensionOptions): ExtensionFactory {
 	return (pi) => {
 		setupBuiltinContext(options);
-		for (const tool of options.agentTools) {
+		for (const tool of options.getAgentTools()) {
 			pi.registerTool(tool as ToolDefinition);
+		}
+		for (const command of options.getAgentCommands()) {
+			pi.registerCommand(command.name, {
+				description: command.description,
+				async handler(args: string, ctx): Promise<void> {
+					await command.execute(args, { cwd: ctx.cwd, hasUI: true });
+				},
+			});
+		}
+		for (const middleware of options.getAgentMiddlewares()) {
+			if (middleware.onInput) {
+				pi.on("input", async (event, ctx) => {
+					const result = await middleware.onInput!(event, { cwd: ctx.cwd, hasUI: false });
+					return result ?? { action: "continue" };
+				});
+			}
 		}
 	};
 }
@@ -389,10 +407,7 @@ async function runAgentWorker(): Promise<void> {
 		// sections from the live on-disk state.
 		const workspaceRoot = config.workspaceContext?.workspaceRoot;
 		const additionalSkillPaths = config.workspaceContext?.additionalSkillPaths ?? [];
-		const additionalExtensionPaths = [
-			dPiClientExtensionPath,
-			...(config.workspaceContext?.additionalExtensionPaths ?? []),
-		];
+		const additionalExtensionPaths = [dPiClientExtensionPath];
 		// Keep the executable agent definition as the single source of truth.
 		// ResourceLoader overrides are synchronous, so this closure projects the
 		// definition loaded above instead of reparsing agent.ts from source.
@@ -425,9 +440,12 @@ async function runAgentWorker(): Promise<void> {
 						// Agent-local executable tools are the only LLM tool source.
 						// Built-in helpers in agent.ts are hydrated here with worker
 						// dependencies; custom defineTool() implementations are registered
-						// as-is.
+						// as-is. Uses getter functions so reload() re-reads the latest
+						// agent definition instead of capturing startup values.
 						factory: createAgentLocalToolsExtension({
-							agentTools: agentDefinition?.tools ?? [],
+							getAgentTools: () => agentDefinition?.tools ?? [],
+							getAgentCommands: () => agentDefinition?.commands ?? [],
+							getAgentMiddlewares: () => agentDefinition?.middlewares ?? [],
 							channel,
 							cwd,
 							getReloadFn: () => (runtime?.session ? requestWorkspaceReload : undefined),

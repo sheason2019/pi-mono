@@ -219,6 +219,40 @@ function assertAgentDefinition(value: unknown): asserts value is AgentDefinition
 	if (value.autoCompact !== undefined && typeof value.autoCompact !== "boolean") {
 		throw new TypeError("Agent definition autoCompact must be a boolean");
 	}
+	if (value.commands !== undefined) {
+		if (!Array.isArray(value.commands)) {
+			throw new TypeError("Agent definition commands must be an array");
+		}
+		for (let index = 0; index < value.commands.length; index++) {
+			const command = value.commands[index];
+			if (!isRecord(command)) {
+				throw new TypeError(`Agent definition commands[${index}] must be an object`);
+			}
+			if (typeof command.name !== "string" || command.name.trim().length === 0) {
+				throw new TypeError(`Agent definition commands[${index}].name must be a non-empty string`);
+			}
+			if (typeof command.description !== "string" || command.description.length === 0) {
+				throw new TypeError(`Agent definition commands[${index}].description must be a non-empty string`);
+			}
+			if (typeof command.execute !== "function") {
+				throw new TypeError(`Agent definition commands[${index}].execute must be a function`);
+			}
+		}
+	}
+	if (value.middlewares !== undefined) {
+		if (!Array.isArray(value.middlewares)) {
+			throw new TypeError("Agent definition middlewares must be an array");
+		}
+		for (let index = 0; index < value.middlewares.length; index++) {
+			const middleware = value.middlewares[index];
+			if (!isRecord(middleware)) {
+				throw new TypeError(`Agent definition middlewares[${index}] must be an object`);
+			}
+			if (middleware.onInput !== undefined && typeof middleware.onInput !== "function") {
+				throw new TypeError(`Agent definition middlewares[${index}].onInput must be a function`);
+			}
+		}
+	}
 }
 
 export function normalizeLoadedAgentDefinition(agentFilePath: string, definition: unknown): LoadedAgentDefinition {
@@ -230,6 +264,8 @@ export function normalizeLoadedAgentDefinition(agentFilePath: string, definition
 	const loaded: LoadedAgentDefinition = {
 		...definition,
 		autoCompact: definition.autoCompact ?? true,
+		commands: definition.commands ?? [],
+		middlewares: definition.middlewares ?? [],
 		name,
 		agentDir,
 		agentFilePath: resolvedAgentFilePath,

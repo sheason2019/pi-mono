@@ -6,6 +6,7 @@ import { AGENT_SESSION_DIR, AGENT_TS_FILE, writeAgentTsConfig } from "../agent-c
 import { AuthSessionManager } from "../auth/auth-session.ts";
 import { DEFAULT_HUB_PORT } from "../defaults.ts";
 import { formatDPiMetaMessage } from "../message-meta.ts";
+import { syncTeamTemplate } from "../team-template-sync.ts";
 import type {
 	AgentConfig,
 	CreateAgentResult,
@@ -83,6 +84,9 @@ export class Hub {
 		// 1. Start gateway
 		await this._gateway.start(hubPort);
 		this._workspaceDefinition = await readWorkspaceDefinitionFromTs(this._config.workspaceRoot);
+
+		// 1b. Sync team-template from d-pi.ts declaration
+		await this._syncTeamTemplate(this._workspaceDefinition?.teamTemplate);
 
 		// 2. Discover and start persisted agents from agents/ directory
 		const restoredAgents = await this._restorePersistedAgents();
@@ -186,7 +190,12 @@ export class Hub {
 
 	private async _reloadWorkspaceSources(): Promise<void> {
 		this._workspaceDefinition = await readWorkspaceDefinitionFromTs(this._config.workspaceRoot);
+		await this._syncTeamTemplate(this._workspaceDefinition?.teamTemplate);
 		this._syncWorkspaceSources(orderAgentsForRestore(await discoverPersistedAgents(this._config.workspaceRoot)));
+	}
+
+	private async _syncTeamTemplate(declared: { repo: string; ref?: string } | undefined): Promise<void> {
+		await syncTeamTemplate(this._config.workspaceRoot, declared);
 	}
 
 	private async _requestWorkspaceReload(

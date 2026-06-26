@@ -34,7 +34,6 @@ export interface WorkspaceContext {
 	appendSystemPrompt?: string;
 	additionalAgentsFiles?: Array<{ path: string; content: string }>;
 	additionalSkillPaths: string[];
-	additionalExtensionPaths: string[];
 }
 
 // === Worker Configuration (passed via workerData) ===
