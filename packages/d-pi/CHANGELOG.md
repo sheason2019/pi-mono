@@ -13,6 +13,7 @@
 - Rebuilt the d-pi connect path around a d-pi-owned remote-first service API and TUI client. The hub now exposes stable snapshot, SSE event, and prompt action routes under `/api/agents/:name/*`; `d-pi connect` routes its child TUI through the new remote client/controller, while executor registration continues to use per-session `connectId` values and hub routing uses decoded agent names.
 - Rewrote the d-pi CLI to use Commander.js instead of manual argument parsing. Command structure, help output, and option validation are now declaratively defined; the `runDPiCli(args, runtime?)` function signature and `DPiCliRuntime` injection interface remain unchanged.
 - Migrated the executor client from `node:http` to native `fetch` + Web Streams API. The SSE event loop now reads from a `ReadableStreamDefaultReader` instead of `IncomingMessage`, and all hub API calls go through a single `fetch`-based helper. The public `ExecutorClient` API is unchanged.
+- Simplified the release workflow from three jobs (test / publish / github-release) to a single job, removing the redundant matrix strategy, duplicate builds, duplicate system dependency installs, and cross-job artifact upload/download. The release is now faster and easier to maintain while retaining all capabilities (test + check + build gate, npm provenance publish, GitHub Release, dist-tag resolution).
 
 ### Fixed
 
