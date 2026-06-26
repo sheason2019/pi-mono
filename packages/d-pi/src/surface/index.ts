@@ -27,6 +27,7 @@ export {
 	type DPiTeamExecutorEntry,
 	type DPiTeamSnapshot,
 } from "./hub-actions.ts";
+export { createHubActionsClientFromHubChannel } from "./hub-actions-adapter.ts";
 export {
 	createCreateAgentTool,
 	createDestroyAgentTool,

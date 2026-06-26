@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { MessageRenderer } from "../../extension/contracts.ts";
+import type { MessageRenderer } from "../../tui-components/tui-component-definition.ts";
 import { isAgentTuiComponentDefinition } from "../../tui-components/tui-component-discovery.ts";
 
 export type DPiMessageRendererRegistry = Record<string, MessageRenderer<unknown>>;

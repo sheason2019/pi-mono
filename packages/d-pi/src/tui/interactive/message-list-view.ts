@@ -1,9 +1,9 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
 import { type Component, Container, Markdown, Spacer, Text, TruncatedText } from "@earendil-works/pi-tui";
-import type { ExtensionMessage, MessageRenderer } from "../../extension/contracts.ts";
 import { extractDPiMeta } from "../../message-meta.ts";
 import type { DPiTranscriptItem } from "../../runtime/transcript/projector.ts";
+import type { ExtensionMessage, MessageRenderer } from "../../tui-components/tui-component-definition.ts";
 import { DPiNativeAssistantMessageComponent } from "../native/components/assistant-message.ts";
 import { DPiNativeDynamicBorder } from "../native/components/dynamic-border.ts";
 import { DPiNativeToolExecutionComponent } from "../native/components/tool-execution.ts";

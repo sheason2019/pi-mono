@@ -186,6 +186,8 @@ describe("agent definition helpers", () => {
 			description: "minimal",
 			tools: [],
 			contextFiles: [],
+			commands: [],
+			middlewares: [],
 			autoCompact: true,
 		});
 	});

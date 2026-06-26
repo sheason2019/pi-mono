@@ -1,4 +1,30 @@
-import type { MessageRenderer } from "../extension/contracts.ts";
+import type { Component } from "@earendil-works/pi-tui";
+
+export type ExtensionMessageContentPart =
+	| { type: "text"; text: string }
+	| { type: "image"; data?: string; url?: string; mediaType?: string };
+
+export interface ExtensionMessage {
+	role?: string;
+	customType?: string;
+	content: string | ExtensionMessageContentPart[];
+	display?: boolean;
+	details?: unknown;
+	timestamp?: number;
+}
+
+export interface MessageRenderOptions {
+	expanded: boolean;
+}
+
+export type MessageRenderer<TDetails = unknown> = (
+	message: ExtensionMessage & { details?: TDetails },
+	options: MessageRenderOptions,
+	theme: {
+		bg(name: string, text: string): string;
+		fg(name: string, text: string): string;
+	},
+) => Component | undefined;
 
 export interface AgentTuiComponentDefinition<TDetails = unknown> {
 	customType: string;

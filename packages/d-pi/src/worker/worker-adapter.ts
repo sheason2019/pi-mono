@@ -3,22 +3,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AgentMessage, estimateContextTokens } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { AgentLocalModelDefinition, AgentModelDefinition, AgentProviderDefinition } from "../agent-definition.ts";
-import type { LoadedAgentDefinition } from "../agent-loader.ts";
 import type {
-	ExtensionAPI,
-	ExtensionFactory,
-	ExtensionHandler,
-	ExtensionMessage,
-	InputEvent,
-	InputEventResult,
-	MessageRenderer,
-	ModelRegistry,
-	ResourceLoader,
+	AgentCommandDefinition,
+	AgentLocalModelDefinition,
+	AgentMiddlewareDefinition,
+	AgentModelDefinition,
+	AgentProviderDefinition,
 	ToolDefinition,
-} from "../extension/contracts.ts";
+} from "../agent-definition.ts";
+import type { LoadedAgentDefinition } from "../agent-loader.ts";
+import type { ResourceLoader } from "../context/resource-loader.ts";
 import { extractDPiMeta } from "../message-meta.ts";
 import type { DPiRuntimeEvent } from "../runtime/events.ts";
+import type { ModelRegistry } from "../runtime/model-registry.ts";
 import {
 	appendSteeringMessage,
 	clearSteeringMessagesSync,
@@ -45,6 +42,7 @@ import type {
 	DPiInteractiveStatusState,
 } from "../tui/interactive/view-model.ts";
 import { createDPiInteractiveRealtimePage } from "../tui/interactive/view-model.ts";
+import type { MessageRenderer } from "../tui-components/tui-component-definition.ts";
 
 export interface DPiRequestAuth {
 	apiKey: string;
@@ -79,21 +77,14 @@ export interface DPiWorkerSession {
 	modelRegistry: DPiWorkerModelRegistry;
 	getToolDefinitions(): ToolDefinition[];
 	reload(): Promise<void>;
-	bindExtensions(options: DPiBindExtensionsOptions): Promise<void>;
+	registerCapabilities(options: DPiRegisterCapabilitiesOptions): void;
 	navigateTree(targetId: string, options?: unknown): Promise<{ cancelled: boolean }>;
 }
 
-export interface DPiBindExtensionsOptions {
-	commandContextActions: {
-		waitForIdle(): Promise<void>;
-		newSession(options?: unknown): Promise<unknown>;
-		fork(entryId: string, options?: unknown): Promise<{ cancelled: boolean }>;
-		navigateTree(targetId: string, options?: unknown): Promise<{ cancelled: boolean }>;
-		switchSession(sessionPath: string, options?: unknown): Promise<unknown>;
-		reload(): Promise<void>;
-	};
-	abortHandler(): void;
-	onError(error: { extensionPath: string; error: unknown }): void;
+export interface DPiRegisterCapabilitiesOptions {
+	tools: ToolDefinition[];
+	commands: AgentCommandDefinition[];
+	middlewares: AgentMiddlewareDefinition[];
 }
 
 export interface DPiAgentSessionServices {
@@ -101,13 +92,11 @@ export interface DPiAgentSessionServices {
 	cwd?: string;
 	modelRegistry?: DPiWorkerModelRegistry;
 	resourceLoaderOptions?: {
-		extensionFactories?: Array<{ factory: ExtensionFactory; name: string }>;
 		appendSystemPromptOverride?: (base: string[]) => string[];
 		agentsFilesOverride?: (base: { agentsFiles: Array<{ path: string; content: string }> }) => {
 			agentsFiles: Array<{ path: string; content: string }>;
 		};
 		additionalSkillPaths?: string[];
-		additionalExtensionPaths?: string[];
 	};
 }
 
@@ -137,7 +126,9 @@ export interface DPiAgentSessionRuntime {
 	fork(entryId: string, options?: unknown): Promise<{ cancelled: boolean }>;
 	switchSession(sessionPath: string, options?: unknown): Promise<unknown>;
 	setBeforeSessionInvalidate(handler: () => void): void;
-	setRebindSession(handler: (session: DPiWorkerSession, reason: "new" | "resume" | "fork") => Promise<void>): void;
+	setRebindSession(
+		handler: (session: DPiWorkerSession, reason: "new" | "resume" | "fork") => void | Promise<void>,
+	): void;
 }
 
 export type DPiCreateSessionRuntimeFactory = (options: {
@@ -216,7 +207,7 @@ export async function createDPiAgentSessionRuntime(
 ): Promise<DPiAgentSessionRuntime> {
 	let current = await factory(options);
 	let beforeInvalidate: (() => void) | undefined;
-	let rebind: ((session: DPiWorkerSession, reason: "new" | "resume" | "fork") => Promise<void>) | undefined;
+	let rebind: ((session: DPiWorkerSession, reason: "new" | "resume" | "fork") => void | Promise<void>) | undefined;
 	let localSessionSequence = 0;
 
 	const recreateSession = async (
@@ -261,7 +252,9 @@ export async function createDPiAgentSessionRuntime(
 		setBeforeSessionInvalidate(handler: () => void): void {
 			beforeInvalidate = handler;
 		},
-		setRebindSession(handler: (session: DPiWorkerSession, reason: "new" | "resume" | "fork") => Promise<void>): void {
+		setRebindSession(
+			handler: (session: DPiWorkerSession, reason: "new" | "resume" | "fork") => void | Promise<void>,
+		): void {
 			rebind = handler;
 		},
 	};
@@ -489,7 +482,7 @@ export interface DPiLocalAgentMessage {
 	content: unknown;
 	customType?: string;
 	display?: boolean;
-	details?: ExtensionMessage["details"];
+	details?: unknown;
 	images?: Array<{ url: string; mediaType?: string }>;
 	toolCallId?: string;
 	toolName?: string;
@@ -599,16 +592,12 @@ export interface DPiSessionExtensionSnapshot {
 	eventHandlers: string[];
 }
 
-interface DPiSessionExtensionState extends DPiSessionExtensionSnapshot {
+interface DPiSessionRegistryState extends DPiSessionExtensionSnapshot {
 	toolDefinitions: ToolDefinition[];
-	commandDefinitions: Array<{
-		name: string;
-		description: string;
-		handler: Parameters<ExtensionAPI["registerCommand"]>[1]["handler"];
-	}>;
+	commandDefinitions: AgentCommandDefinition[];
 	messageRenderers: Array<{ customType: string; renderer: MessageRenderer<unknown> }>;
-	inputHandlerDefinitions: Array<ExtensionHandler<InputEvent, InputEventResult>>;
-	eventHandlerDefinitions: Array<{ event: string; handler: ExtensionHandler }>;
+	inputHandlerDefinitions: Array<NonNullable<AgentMiddlewareDefinition["onInput"]>>;
+	eventHandlerDefinitions: Array<{ event: string; handler: () => void }>;
 }
 
 interface DPiSessionMetadata {
@@ -623,7 +612,7 @@ interface DPiSessionMessageState {
 	listeners: Set<(message: DPiLocalAgentMessage) => void>;
 }
 
-const sessionExtensionStates = new WeakMap<DPiWorkerSession, DPiSessionExtensionState>();
+const sessionRegistryStates = new WeakMap<DPiWorkerSession, DPiSessionRegistryState>();
 const sessionMetadata = new WeakMap<DPiWorkerSession, DPiSessionMetadata>();
 const sessionMessageStates = new WeakMap<DPiWorkerSession, DPiSessionMessageState>();
 let generatedSessionSequence = 0;
@@ -1644,8 +1633,7 @@ function createPlaceholderSession(
 ): DPiWorkerSession {
 	const resourceLoader = createEmptyResourceLoader(services.resourceLoaderOptions);
 	const modelRegistry = services.modelRegistry ?? createEmptyModelRegistry();
-	const extensionState = createEmptyExtensionState();
-	let lastBindOptions: DPiBindExtensionsOptions | undefined;
+	const registryState = createEmptyRegistryState();
 	const session: DPiWorkerSession = {
 		agent: {
 			waitForIdle: async () => {},
@@ -1653,27 +1641,37 @@ function createPlaceholderSession(
 		},
 		resourceLoader,
 		modelRegistry,
-		getToolDefinitions: () => getSessionExtensionState(session).toolDefinitions.map((tool) => ({ ...tool })),
+		getToolDefinitions: () => getSessionRegistryState(session).toolDefinitions.map((tool) => ({ ...tool })),
 		reload: async () => {
 			await resourceLoader.reload();
-			if (lastBindOptions) {
-				await session.bindExtensions(lastBindOptions);
-			}
 		},
-		bindExtensions: async (bindOptions) => {
-			lastBindOptions = bindOptions;
-			resetExtensionState(extensionState);
-			for (const extension of services.resourceLoaderOptions?.extensionFactories ?? []) {
-				try {
-					extension.factory(createExtensionApi(extensionState, getSessionMessageState(session)));
-				} catch (error) {
-					bindOptions.onError({ extensionPath: extension.name, error });
+		registerCapabilities: (options) => {
+			resetRegistryState(registryState);
+			for (const tool of options.tools) {
+				registryState.toolDefinitions.push(tool);
+				registryState.tools.push({
+					name: tool.name,
+					label: (tool as { label?: string }).label ?? tool.name,
+					description: tool.description,
+				});
+			}
+			for (const command of options.commands) {
+				registryState.commandDefinitions.push(command);
+				registryState.commands.push({
+					name: command.name,
+					description: command.description,
+				});
+			}
+			for (const middleware of options.middlewares) {
+				if (middleware.onInput) {
+					registryState.inputHandlerDefinitions.push(middleware.onInput);
 				}
 			}
+			registryState.inputHandlers = registryState.inputHandlerDefinitions.length;
 		},
 		navigateTree: async () => ({ cancelled: false }),
 	};
-	sessionExtensionStates.set(session, extensionState);
+	sessionRegistryStates.set(session, registryState);
 	sessionMetadata.set(session, {
 		id: nextGeneratedId("session"),
 		...(services.cwd ? { cwd: services.cwd } : {}),
@@ -1854,7 +1852,7 @@ function createEmptyResourceLoader(options?: DPiAgentSessionServices["resourceLo
 	};
 }
 
-function createEmptyExtensionState(): DPiSessionExtensionState {
+function createEmptyRegistryState(): DPiSessionRegistryState {
 	return {
 		tools: [],
 		commands: [],
@@ -1869,7 +1867,7 @@ function createEmptyExtensionState(): DPiSessionExtensionState {
 	};
 }
 
-function resetExtensionState(state: DPiSessionExtensionState): void {
+function resetRegistryState(state: DPiSessionRegistryState): void {
 	state.tools = [];
 	state.commands = [];
 	state.renderers = [];
@@ -1882,61 +1880,25 @@ function resetExtensionState(state: DPiSessionExtensionState): void {
 	state.eventHandlerDefinitions = [];
 }
 
-function createExtensionApi(state: DPiSessionExtensionState, messages: DPiSessionMessageState): ExtensionAPI {
-	const registerExtensionHandler = ((event: string, handler: ExtensionHandler): void => {
-		if (event === "input") {
-			state.inputHandlerDefinitions.push(handler as ExtensionHandler<InputEvent, InputEventResult>);
-			state.inputHandlers = state.inputHandlerDefinitions.length;
-			return;
-		}
-		state.eventHandlerDefinitions.push({ event, handler });
-		state.eventHandlers = state.eventHandlerDefinitions.map((candidate) => candidate.event);
-	}) as ExtensionAPI["on"];
-
-	return {
-		registerTool(tool) {
-			state.toolDefinitions.push(tool);
-			state.tools.push({
-				name: tool.name,
-				label: tool.label,
-				description: tool.description,
-			});
-		},
-		registerCommand(name, command) {
-			state.commandDefinitions.push({ name, description: command.description, handler: command.handler });
-			state.commands.push({ name, description: command.description });
-		},
-		registerMessageRenderer(customType, renderer) {
-			state.messageRenderers.push({ customType, renderer: renderer as MessageRenderer<unknown> });
-			state.renderers.push(customType);
-		},
-		on: registerExtensionHandler,
-		sendMessage(message) {
-			appendSessionMessage(messages, toLocalAgentMessage(message));
-		},
-	};
-}
-
 async function dispatchSessionInputHandlers(
 	session: DPiWorkerSession,
 	text: string,
-	streamingBehavior: InputEvent["streamingBehavior"],
+	streamingBehavior: "steer" | "followUp" | "next",
 ): Promise<boolean> {
-	const state = getSessionExtensionState(session);
+	const state = getSessionRegistryState(session);
 	if (state.inputHandlerDefinitions.length === 0) {
 		return false;
 	}
 	const metadata = getSessionMetadata(session);
-	const event: InputEvent = {
-		type: "input",
+	const event = {
+		type: "input" as const,
 		text,
-		source: "programmatic",
-		...(streamingBehavior ? { streamingBehavior } : {}),
+		source: "programmatic" as const,
+		streamingBehavior,
 	};
 	const context = {
 		cwd: metadata.cwd ?? metadata.path ?? "",
 		hasUI: false,
-		modelRegistry: session.modelRegistry,
 	};
 	for (const handler of state.inputHandlerDefinitions) {
 		const result = await handler(event, context);
@@ -1967,25 +1929,6 @@ function subscribeSessionMessages(
 	const state = getSessionMessageState(session);
 	state.listeners.add(listener);
 	return () => state.listeners.delete(listener);
-}
-
-function appendSessionMessage(state: DPiSessionMessageState, message: DPiLocalAgentMessage): void {
-	state.messages.push(message);
-	for (const listener of state.listeners) {
-		listener(message);
-	}
-}
-
-function toLocalAgentMessage(message: ExtensionMessage): DPiLocalAgentMessage {
-	return {
-		id: nextGeneratedId("message"),
-		role: toLocalAgentMessageRole(message),
-		content: message.content,
-		...(message.customType ? { customType: message.customType } : {}),
-		...(message.display === undefined ? {} : { display: message.display }),
-		...(message.details === undefined ? {} : { details: message.details }),
-		timestamp: message.timestamp ?? Date.now(),
-	};
 }
 
 function runtimeMessageToLocalMessage(message: DPiAgentMessage): DPiLocalAgentMessage {
@@ -2304,25 +2247,18 @@ function remoteSettingsUpdates(updates: Record<string, unknown>): Partial<DPiInt
 	return result;
 }
 
-function toLocalAgentMessageRole(message: ExtensionMessage): DPiLocalAgentMessage["role"] {
-	if (message.role === "assistant" || message.role === "custom" || message.role === "user") {
-		return message.role;
-	}
-	return message.customType ? "custom" : "assistant";
-}
-
-function getSessionExtensionState(session: DPiWorkerSession): DPiSessionExtensionState {
-	const existing = sessionExtensionStates.get(session);
+function getSessionRegistryState(session: DPiWorkerSession): DPiSessionRegistryState {
+	const existing = sessionRegistryStates.get(session);
 	if (existing) {
 		return existing;
 	}
-	const state = createEmptyExtensionState();
-	sessionExtensionStates.set(session, state);
+	const state = createEmptyRegistryState();
+	sessionRegistryStates.set(session, state);
 	return state;
 }
 
 function getSessionExtensionSnapshot(session: DPiWorkerSession): DPiSessionExtensionSnapshot {
-	const state = getSessionExtensionState(session);
+	const state = getSessionRegistryState(session);
 	return {
 		tools: state.tools.map((tool) => ({ ...tool })),
 		commands: state.commands.map((command) => ({ ...command })),
