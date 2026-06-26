@@ -5,7 +5,8 @@
 ### Added
 
 - Added `autoCompact` option to `defineAgent()` for declarative control over automatic context compaction. Defaults to `true`.
-- Added `d-pi doctor` command that diagnoses workspace health: workspace validity, d-pi.ts configuration, agent definitions, and serve readiness, with a plain-text report consumable by humans and agents.
+- Added `d-pi doctor` command that diagnoses workspace health: workspace validity, d-pi.ts configuration, agent definitions, model reachability, skill counts, recent session inputs, and serve readiness. Output is streamed per-check with a TTY spinner and colored status tags (OK/WARN/ERROR/INFO), and falls back to plain text in non-TTY environments so agents get clean consumable output.
+- Model verification in `d-pi doctor` now uses `streamSimple` from `@earendil-works/pi-ai`, supporting all API types (openai-responses, anthropic-messages, google-generative-ai, etc.) with a 5-second timeout per model.
 
 ### Changed
 
