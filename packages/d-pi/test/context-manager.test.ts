@@ -153,13 +153,11 @@ describe("DPiContextManager", () => {
 		]);
 	});
 
-	it("surfaces workspace and team-template skills and extensions without a coding-agent resource loader", () => {
+	it("surfaces workspace and team-template skills without a coding-agent resource loader", () => {
 		const workspaceRoot = createWorkspace();
 		const agentDir = createAgent(workspaceRoot, "root", "Root agent identity.");
 		mkdirSync(join(workspaceRoot, "team-template", "skills"), { recursive: true });
 		mkdirSync(join(workspaceRoot, "skills"), { recursive: true });
-		write(join(workspaceRoot, "team-template", "extensions", "team.js"), "export default function team() {}");
-		write(join(workspaceRoot, "extensions", "workspace.ts"), "export default function workspace() {}");
 
 		const manager = new DPiContextManager({
 			workspaceRoot,
@@ -172,10 +170,6 @@ describe("DPiContextManager", () => {
 		expect(manager.loadSkills()).toEqual([
 			join(workspaceRoot, "team-template", "skills"),
 			join(workspaceRoot, "skills"),
-		]);
-		expect(manager.loadExtensions()).toEqual([
-			join(workspaceRoot, "team-template", "extensions", "team.js"),
-			join(workspaceRoot, "extensions", "workspace.ts"),
 		]);
 	});
 

@@ -27,7 +27,6 @@ interface DPiContextSnapshot {
 	systemPromptParts: string[];
 	contextFiles: DPiContextFile[];
 	skills: string[];
-	extensions: string[];
 }
 
 function createDefaultAgentDefinition(agentDir: string): LoadedAgentDefinition {
@@ -83,10 +82,6 @@ export class DPiContextManager {
 		return [...this._getSnapshot().skills];
 	}
 
-	loadExtensions(): string[] {
-		return [...this._getSnapshot().extensions];
-	}
-
 	getAgentDir(): string {
 		return this._agentDir;
 	}
@@ -131,7 +126,6 @@ export class DPiContextManager {
 			systemPromptParts,
 			contextFiles,
 			skills,
-			extensions: uniqueStrings(workspaceContext.additionalExtensionPaths),
 		};
 	}
 }

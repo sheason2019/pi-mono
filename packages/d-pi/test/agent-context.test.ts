@@ -27,6 +27,8 @@ function createLoadedAgentDefinition(agentDir: string): LoadedAgentDefinition {
 			{ type: "append_system", path: "./.pi/MISSING_APPEND.md" },
 			{ type: "append_system", path: "./notes/system.txt" },
 		],
+		commands: [],
+		middlewares: [],
 		autoCompact: true,
 	};
 }

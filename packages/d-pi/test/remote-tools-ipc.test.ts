@@ -103,7 +103,7 @@ describe('remote tool dispatch via IPC (case "dispatch" in _handleToolCall)', ()
 			port: 0,
 			cwd: tempDir!,
 			workspaceRoot: tempDir!,
-			workspaceContext: { workspaceRoot: tempDir!, additionalSkillPaths: [], additionalExtensionPaths: [] },
+			workspaceContext: { workspaceRoot: tempDir!, additionalSkillPaths: [] },
 		});
 		// Replace the hub's internal references with our test instances
 		// so _handleToolCall uses the same executorRegistry / gateway
@@ -243,7 +243,7 @@ describe('send_message via IPC (case "send_message" in _handleToolCall)', () => 
 			port: 0,
 			cwd: tempDir!,
 			workspaceRoot: tempDir!,
-			workspaceContext: { workspaceRoot: tempDir!, additionalSkillPaths: [], additionalExtensionPaths: [] },
+			workspaceContext: { workspaceRoot: tempDir!, additionalSkillPaths: [] },
 		});
 		(hub as unknown as { _gateway: HubGateway })._gateway = gateway;
 		(hub as unknown as { _executorRegistry: ExecutorRegistry })._executorRegistry = executorRegistry;

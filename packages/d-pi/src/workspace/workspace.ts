@@ -1,14 +1,4 @@
-import {
-	existsSync,
-	lstatSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	readlinkSync,
-	statSync,
-	symlinkSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildAgentTsSource } from "../agent-config.ts";
@@ -19,7 +9,6 @@ const CONFIG_FILE = "config.json";
 const AGENTS_DIR = "agents";
 const TEAM_TEMPLATE_DIR = "team-template";
 const SKILLS_DIR = "skills";
-const EXTENSIONS_DIR = "extensions";
 const TUI_COMPONENTS_DIR = "tui-components";
 const APPEND_SYSTEM_MD = "APPEND_SYSTEM.md";
 const AGENTS_MD = "AGENTS.md";
@@ -115,18 +104,15 @@ export function loadWorkspaceContext(
 
 	const additionalAgentsFiles: Array<{ path: string; content: string }> = [];
 	const additionalSkillPaths: string[] = [];
-	const additionalExtensionPaths: string[] = [];
 
-	collectTeamTemplateContext(resolved, options, additionalAgentsFiles, additionalSkillPaths, additionalExtensionPaths);
+	collectTeamTemplateContext(resolved, options, additionalAgentsFiles, additionalSkillPaths);
 	pushIfExists(additionalSkillPaths, join(resolved, SKILLS_DIR));
-	pushExtensionEntriesIfExists(additionalExtensionPaths, join(resolved, EXTENSIONS_DIR));
 
 	return {
 		workspaceRoot: resolved,
 		appendSystemPrompt,
 		additionalAgentsFiles,
 		additionalSkillPaths,
-		additionalExtensionPaths,
 	};
 }
 
@@ -135,7 +121,6 @@ function collectTeamTemplateContext(
 	_options: LoadWorkspaceContextOptions,
 	additionalAgentsFiles: Array<{ path: string; content: string }>,
 	additionalSkillPaths: string[],
-	additionalExtensionPaths: string[],
 ): void {
 	const architectureDir = join(workspaceRoot, TEAM_TEMPLATE_DIR);
 	if (!existsSync(architectureDir)) {
@@ -143,67 +128,12 @@ function collectTeamTemplateContext(
 	}
 	pushAgentsFileIfExists(additionalAgentsFiles, join(architectureDir, AGENTS_MD));
 	pushIfExists(additionalSkillPaths, join(architectureDir, SKILLS_DIR));
-	pushExtensionEntriesIfExists(additionalExtensionPaths, join(architectureDir, EXTENSIONS_DIR));
 }
 
 function pushIfExists(target: string[], path: string): void {
 	if (existsSync(path)) {
 		target.push(path);
 	}
-}
-
-function pushExtensionEntriesIfExists(target: string[], path: string): void {
-	if (!existsSync(path)) {
-		return;
-	}
-	for (const entry of discoverExtensionEntries(path)) {
-		target.push(entry);
-	}
-}
-
-function discoverExtensionEntries(path: string): string[] {
-	const stats = statSync(path);
-	if (!stats.isDirectory()) {
-		return [path];
-	}
-	const manifestEntries = readPiExtensionManifest(path);
-	if (manifestEntries.length > 0) {
-		return manifestEntries;
-	}
-	const indexTs = join(path, "index.ts");
-	if (existsSync(indexTs)) {
-		return [indexTs];
-	}
-	const indexJs = join(path, "index.js");
-	if (existsSync(indexJs)) {
-		return [indexJs];
-	}
-
-	const entries: string[] = [];
-	for (const entry of readdirSync(path, { withFileTypes: true })) {
-		const entryPath = join(path, entry.name);
-		if ((entry.isFile() || entry.isSymbolicLink()) && isExtensionFile(entry.name)) {
-			entries.push(entryPath);
-			continue;
-		}
-		if (entry.isDirectory() || entry.isSymbolicLink()) {
-			entries.push(...discoverExtensionEntries(entryPath));
-		}
-	}
-	return entries;
-}
-
-function readPiExtensionManifest(dir: string): string[] {
-	const packageJsonPath = join(dir, "package.json");
-	if (!existsSync(packageJsonPath)) {
-		return [];
-	}
-	const parsed = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as { pi?: { extensions?: string[] } };
-	return (parsed.pi?.extensions ?? []).map((entry) => join(dir, entry)).filter((entry) => existsSync(entry));
-}
-
-function isExtensionFile(filename: string): boolean {
-	return filename.endsWith(".ts") || filename.endsWith(".js");
 }
 
 function pushAgentsFileIfExists(target: Array<{ path: string; content: string }>, path: string): void {

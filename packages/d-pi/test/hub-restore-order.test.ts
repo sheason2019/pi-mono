@@ -60,6 +60,8 @@ function discoveredAgent(entryName: string, config: AgentConfig): DiscoveredAgen
 			...config,
 			tools: [],
 			contextFiles: [],
+			commands: [],
+			middlewares: [],
 			agentDir: `/tmp/${entryName}`,
 			agentFilePath: `/tmp/${entryName}/agent.ts`,
 			autoCompact: true,
@@ -271,7 +273,7 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			port: 50000 + Math.floor(Math.random() * 1000),
 			workspaceRoot: workspace,
 			cwd: workspace,
-			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
+			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [] },
 		});
 		await expect(hub.createAgent("nonexistent-name-xxx", { name: "child" })).rejects.toThrow(
 			/parent agent "nonexistent-name-xxx" not found/,
@@ -286,7 +288,7 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			port: 50000 + Math.floor(Math.random() * 1000),
 			workspaceRoot: workspace,
 			cwd: workspace,
-			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
+			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [] },
 		});
 		// Skip the restore pass — we just want the createAgent defensive
 		// check in isolation. Inject a root record directly via the registry.
@@ -331,7 +333,7 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			port: 50000 + Math.floor(Math.random() * 1000),
 			workspaceRoot: workspace,
 			cwd: workspace,
-			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
+			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [] },
 		});
 
 		await hub.createAgent(undefined, { name: "root", persistDefinition: false });
@@ -366,7 +368,7 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			port: 50000 + Math.floor(Math.random() * 1000),
 			workspaceRoot: workspace,
 			cwd: workspace,
-			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [], additionalExtensionPaths: [] },
+			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [] },
 		});
 		const registry = (hub as unknown as { _registry: InstanceType<typeof AgentRegistry> })._registry;
 		const readyMessages: unknown[] = [];

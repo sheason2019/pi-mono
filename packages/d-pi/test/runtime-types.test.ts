@@ -28,7 +28,6 @@ const snapshot = {
 		systemPromptParts: ["workspace append", "## Agent identity\nRoot agent."],
 		contextFiles: [{ path: "/workspace/project/AGENTS.md", content: "project context" }],
 		skills: ["/workspace/project/skills"],
-		extensions: ["/workspace/project/extensions/team.js"],
 	},
 	messages: [
 		{
