@@ -1,6 +1,6 @@
 {
 	"name": "@sheason/d-pi",
-	"version": "0.6.0-alpha.10",
+	"version": "0.6.0-alpha.11",
 	"description": "Multi-agent tree orchestrator built on pi serve mode",
 	"repository": {
 		"type": "git",
