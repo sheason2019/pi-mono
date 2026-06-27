@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,28 +13,12 @@ function freshWorkspace(): string {
 	return tmpRoot;
 }
 
-describe("init template: strict-JSON output", () => {
+describe("init template: convention-based layout", () => {
 	afterEach(() => {
 		if (tmpRoot) {
 			rmSync(tmpRoot, { recursive: true, force: true });
 			tmpRoot = undefined;
 		}
-	});
-
-	it("writes .dpi/config.json that JSON.parse accepts (no JS comments)", () => {
-		const workspace = freshWorkspace();
-		initWorkspace(workspace);
-
-		const configPath = join(workspace, ".dpi", "config.json");
-		expect(existsSync(configPath)).toBe(true);
-
-		const raw = readFileSync(configPath, "utf-8");
-		// Sanity: no JS-style line comments and no trailing commas
-		expect(raw).not.toMatch(/\/\//);
-		expect(raw).not.toMatch(/,[\s\n]*[}\]]/);
-
-		// The point of the regression: strict JSON.parse must accept the file.
-		JSON.parse(raw);
 	});
 
 	it("writes agents/root/agent.ts in the convention-based minimal schema", () => {
@@ -85,36 +69,11 @@ describe("init template: strict-JSON output", () => {
 		expect(realpathSync(linkedPackagePath)).toBe(realpathSync(packageRoot));
 	});
 
-	it("isWorkspaceRoot accepts the freshly-init config", () => {
+	it("isWorkspaceRoot accepts the freshly-init workspace", () => {
 		const workspace = freshWorkspace();
 		initWorkspace(workspace);
 
-		// isWorkspaceRoot checks for the .dpi directory — the init template
-		// must be canonical JSON on its own.
 		expect(isWorkspaceRoot(workspace)).toBe(true);
-	});
-
-	it("JSON.parse rejects a hand-written config that still uses JS comments", () => {
-		// Regression guard for the workaround removal: previously
-		// validateWorkspace did `raw.replace(/\/\/.*$/gm, "")` before
-		// JSON.parse, which silently masked hand-written `//` comments
-		// (and the resulting trailing-comma SyntaxError). With the
-		// workaround gone, a hand-written comment must surface as
-		// a SyntaxError from JSON.parse.
-		const workspace = freshWorkspace();
-		initWorkspace(workspace);
-
-		const configPath = join(workspace, ".dpi", "config.json");
-		writeFileSync(
-			configPath,
-			`{
-	// "someFutureField": "example"
-}
-`,
-		);
-
-		const raw = readFileSync(configPath, "utf-8");
-		expect(() => JSON.parse(raw)).toThrowError(SyntaxError);
 	});
 
 	it("AGENTS.md template documents convention-based workspace and agent config", () => {

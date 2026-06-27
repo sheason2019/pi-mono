@@ -742,15 +742,9 @@ function readRecentUserInputs(sessionDir: string, max: number): string[] {
 function checkServeReadiness(root: string, checks: DoctorCheck[]): void {
 	const issues: string[] = [];
 
-	const configPath = join(root, ".dpi", "config.json");
-	if (!existsSync(configPath)) {
-		issues.push(".dpi/config.json missing");
-	} else {
-		try {
-			JSON.parse(readFileSync(configPath, "utf-8"));
-		} catch {
-			issues.push(".dpi/config.json is not valid JSON");
-		}
+	const dpiDir = join(root, ".dpi");
+	if (!existsSync(dpiDir)) {
+		issues.push(".dpi/ directory missing");
 	}
 
 	const pkgJsonPath = join(root, "package.json");

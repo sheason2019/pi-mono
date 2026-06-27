@@ -123,7 +123,6 @@ describe("doctor", () => {
 	it("detects workspace with no agents directory", async () => {
 		const dir = freshDir();
 		mkdirSync(join(dir, ".dpi"));
-		writeFileSync(join(dir, ".dpi", "config.json"), "{}");
 		writeFileSync(join(dir, "package.json"), '{"name":"test"}');
 		const report = await runDoctor(dir);
 		const agentsCheck = report.checks.find((c) => c.name === "agents");

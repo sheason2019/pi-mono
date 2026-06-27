@@ -12,7 +12,6 @@ import {
 } from "./workspace-resources.ts";
 
 const DPI_DIR = ".dpi";
-const CONFIG_FILE = "config.json";
 const AGENTS_DIR = "agents";
 const SKILLS_DIR = "skills";
 const TUI_COMPONENTS_DIR = "tui-components";
@@ -139,8 +138,6 @@ export function initWorkspace(dir: string): void {
 
 	const dpiDir = join(resolved, DPI_DIR);
 	mkdirSync(dpiDir, { recursive: true });
-
-	writeFileSync(join(dpiDir, CONFIG_FILE), "{}\n");
 
 	const agentsDir = join(resolved, AGENTS_DIR);
 	const rootAgentDir = join(agentsDir, "root");
