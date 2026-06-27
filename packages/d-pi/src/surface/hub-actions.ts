@@ -7,6 +7,30 @@ export interface DPiTeamAgentEntry {
 	parentName: string | undefined;
 	status: DPiAgentStatus;
 	children: string[];
+	cwd: string;
+	description?: string;
+	model?: string;
+	sources?: string[];
+	toolCount?: number;
+	customToolCount?: number;
+	commandCount?: number;
+	contextFileCount?: number;
+	hasSkillsDir?: boolean;
+	hasToolsDir?: boolean;
+	hasCommandsDir?: boolean;
+	disableDefaultTools?: boolean;
+	error?: string;
+}
+
+export interface DPiTeamSourceEntry {
+	name: string;
+	running: boolean;
+	subscribers: string[];
+	command: string;
+	description?: string;
+	filePath: string;
+	messageCount: number;
+	lastMessageTime: number | undefined;
 }
 
 export interface DPiTeamExecutorEntry {
@@ -18,6 +42,7 @@ export interface DPiTeamExecutorEntry {
 
 export interface DPiTeamSnapshot {
 	agents: DPiTeamAgentEntry[];
+	sources: DPiTeamSourceEntry[];
 	executors: DPiTeamExecutorEntry[];
 	rootName: string;
 }

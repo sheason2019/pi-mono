@@ -27,7 +27,7 @@ class RecordingHubActionsClient implements DPiHubActionsClient {
 	readonly sendMessageCalls: DPiSendMessageActionPayload[] = [];
 
 	createAgentResult: DPiCreateAgentActionResult = { agentName: "child" };
-	teamSnapshot: DPiTeamSnapshot = { rootName: "root", agents: [], executors: [] };
+	teamSnapshot: DPiTeamSnapshot = { rootName: "root", agents: [], sources: [], executors: [] };
 
 	async createAgent(payload: DPiCreateAgentActionPayload): Promise<DPiCreateAgentActionResult> {
 		this.createAgentCalls.push(payload);
@@ -139,10 +139,11 @@ describe("d-pi surface orchestration tools", () => {
 		client.teamSnapshot = {
 			rootName: "root",
 			agents: [
-				{ name: "root", parentName: undefined, status: "ready", children: ["child"] },
-				{ name: "child", parentName: "root", status: "busy", children: ["grandchild"] },
-				{ name: "grandchild", parentName: "child", status: "starting", children: [] },
+				{ name: "root", parentName: undefined, status: "ready", children: ["child"], cwd: "/fake" },
+				{ name: "child", parentName: "root", status: "busy", children: ["grandchild"], cwd: "/fake" },
+				{ name: "grandchild", parentName: "child", status: "starting", children: [], cwd: "/fake" },
 			],
+			sources: [],
 			executors: [
 				{ connectId: "exec-1", cwd: "/repo", attached: true, boundAgentName: "child" },
 				{ connectId: "exec-2", cwd: "/tmp", attached: false, boundAgentName: undefined },
@@ -153,23 +154,17 @@ describe("d-pi surface orchestration tools", () => {
 
 		const result = asTextToolResult(await tool.execute("call-3", {}));
 
-		expect(textOf(result)).toContain("root [ready] -> [child]");
-		expect(textOf(result)).toContain("  child [busy] -> [grandchild]");
-		expect(textOf(result)).toContain("    grandchild [starting]");
-		expect(textOf(result)).toContain("exec-1 [attached] cwd=/repo bound=child");
-		expect(textOf(result)).toContain("exec-2 [registered] cwd=/tmp bound=(none)");
+		expect(textOf(result)).toContain("root [ready]");
+		expect(textOf(result)).toContain("  -> child [busy]");
+		expect(textOf(result)).toContain("    -> grandchild [starting]");
+		expect(textOf(result)).toContain("exec-1 [attached] cwd=/repo bound to: child");
+		expect(textOf(result)).toContain("exec-2 [registered] cwd=/tmp unbound");
 		expectNoUndefined(result.details);
 		expect(JSON.parse(JSON.stringify(result.details))).toEqual(result.details);
 		expect(result.details).toEqual({
-			agents: [
-				{ name: "root", status: "ready", children: ["child"] },
-				{ name: "child", parentName: "root", status: "busy", children: ["grandchild"] },
-				{ name: "grandchild", parentName: "child", status: "starting", children: [] },
-			],
-			executors: [
-				{ connectId: "exec-1", cwd: "/repo", attached: true, boundAgentName: "child" },
-				{ connectId: "exec-2", cwd: "/tmp", attached: false },
-			],
+			agents: client.teamSnapshot.agents,
+			sources: [],
+			executors: client.teamSnapshot.executors,
 		});
 	});
 

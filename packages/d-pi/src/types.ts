@@ -82,6 +82,30 @@ export interface TeamAgentEntry {
 	parentName: string | undefined;
 	status: AgentStatus;
 	children: string[];
+	cwd: string;
+	description?: string;
+	model?: string;
+	sources?: string[];
+	toolCount?: number;
+	customToolCount?: number;
+	commandCount?: number;
+	contextFileCount?: number;
+	hasSkillsDir?: boolean;
+	hasToolsDir?: boolean;
+	hasCommandsDir?: boolean;
+	disableDefaultTools?: boolean;
+	error?: string;
+}
+
+export interface TeamSourceEntry {
+	name: string;
+	running: boolean;
+	subscribers: string[];
+	command: string;
+	description?: string;
+	filePath: string;
+	messageCount: number;
+	lastMessageTime: number | undefined;
 }
 
 export interface TeamExecutorEntry {
@@ -93,6 +117,7 @@ export interface TeamExecutorEntry {
 
 export interface TeamSnapshot {
 	agents: TeamAgentEntry[];
+	sources: TeamSourceEntry[];
 	executors: TeamExecutorEntry[];
 	rootName: string;
 }

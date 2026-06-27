@@ -2,8 +2,12 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
-import { AGENT_SESSION_DIR, AGENT_TS_FILE, writeAgentTsConfig } from "../agent-config.ts";
-import { ensureAgentConventionDirs } from "../agent-loader.ts";
+import { AGENT_SESSION_DIR, AGENT_TS_FILE, DEFAULT_BUILTIN_TOOL_NAMES, writeAgentTsConfig } from "../agent-config.ts";
+import {
+	discoverAgentConventionResources,
+	ensureAgentConventionDirs,
+	readLoadedAgentDefinitionFromTs,
+} from "../agent-loader.ts";
 import { AuthSessionManager } from "../auth/auth-session.ts";
 import { DEFAULT_HUB_PORT } from "../defaults.ts";
 import { formatDPiMetaMessage } from "../message-meta.ts";
@@ -466,13 +470,70 @@ export class Hub {
 				}
 
 				case "team": {
-					const snapshot = this._registry.getTeamSnapshot();
+					const baseSnapshot = this._registry.getTeamSnapshot();
+					const agents = await Promise.all(
+						baseSnapshot.agents.map(async (a) => {
+							try {
+								const def = await readLoadedAgentDefinitionFromTs(a.cwd);
+								if (!def) {
+									return {
+										...a,
+										sources: [],
+										toolCount: 0,
+										customToolCount: 0,
+										commandCount: 0,
+										contextFileCount: 0,
+										hasSkillsDir: false,
+										hasToolsDir: false,
+										hasCommandsDir: false,
+										disableDefaultTools: false,
+										error: "agent.ts not loadable",
+									};
+								}
+								const discovered = discoverAgentConventionResources(a.cwd);
+								const builtinNames: string[] = def.disableDefaultTools ? [] : [...DEFAULT_BUILTIN_TOOL_NAMES];
+								const customNames = def.tools.map((t) => t.name);
+								const allTools = [...builtinNames, ...customNames.filter((n) => !builtinNames.includes(n))];
+								const modelRef = typeof def.model === "string" ? def.model : def.model ? "(inline)" : undefined;
+								return {
+									...a,
+									description: def.description,
+									model: modelRef,
+									sources: def.sources ?? [],
+									toolCount: allTools.length,
+									customToolCount: def.tools.length,
+									commandCount: def.commands?.length ?? discovered.commandFiles.length,
+									contextFileCount: def.contextFiles?.length ?? discovered.contextFiles.length,
+									hasSkillsDir: discovered.hasSkillsDir,
+									hasToolsDir: discovered.hasToolsDir,
+									hasCommandsDir: discovered.hasCommandsDir,
+									disableDefaultTools: def.disableDefaultTools,
+								};
+							} catch (err) {
+								return {
+									...a,
+									sources: [],
+									toolCount: 0,
+									customToolCount: 0,
+									commandCount: 0,
+									contextFileCount: 0,
+									hasSkillsDir: false,
+									hasToolsDir: false,
+									hasCommandsDir: false,
+									disableDefaultTools: false,
+									error: err instanceof Error ? err.message : String(err),
+								};
+							}
+						}),
+					);
 					result = {
-						...snapshot,
+						agents,
+						sources: this._sourceManager.getStatuses(),
 						executors: this._executorRegistry.list().map((executor) => ({
 							...executor,
 							boundAgentName: this._gateway.getBoundAgentName(executor.connectId),
 						})),
+						rootName: baseSnapshot.rootName,
 					} satisfies TeamSnapshot;
 					break;
 				}

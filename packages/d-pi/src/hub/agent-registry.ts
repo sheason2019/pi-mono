@@ -84,9 +84,10 @@ export class AgentRegistry {
 				parentName: a.parentName,
 				status: a.status,
 				children: [...a.children],
+				cwd: a.cwd,
 			};
 		});
-		return { agents, executors: [], rootName };
+		return { agents, sources: [], executors: [], rootName };
 	}
 
 	getDescendants(agentName: string): string[] {

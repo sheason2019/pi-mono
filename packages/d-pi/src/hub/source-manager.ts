@@ -21,6 +21,8 @@ interface SourceHandle {
 	restartTimer: ReturnType<typeof setTimeout> | undefined;
 	shutdown: boolean;
 	buffer: string;
+	messageCount: number;
+	lastMessageTime: number | undefined;
 }
 
 export interface SourceReloadResult {
@@ -37,6 +39,17 @@ export type SourceMessageHandler = (
 	sourceName: string,
 	mode: "next" | "steer",
 ) => void;
+
+export interface SourceStatus {
+	name: string;
+	running: boolean;
+	subscribers: string[];
+	command: string;
+	description?: string;
+	filePath: string;
+	messageCount: number;
+	lastMessageTime: number | undefined;
+}
 
 export class SourceManager {
 	private readonly workspaceRoot: string;
@@ -158,6 +171,19 @@ export class SourceManager {
 		this.sources.clear();
 	}
 
+	getStatuses(): SourceStatus[] {
+		return Array.from(this.sources.values()).map((handle) => ({
+			name: handle.name,
+			running: handle.process !== undefined,
+			subscribers: [...handle.subscribers].sort(),
+			command: handle.definition.command,
+			filePath: handle.filePath,
+			messageCount: handle.messageCount,
+			lastMessageTime: handle.lastMessageTime,
+			...(handle.definition.description === undefined ? {} : { description: handle.definition.description }),
+		}));
+	}
+
 	private async ensureSource(name: string): Promise<void> {
 		if (this.sources.has(name)) return;
 		const filePath = this.sourcePaths[name] ?? resolveWorkspaceSourcePath(this.workspaceRoot, name);
@@ -184,6 +210,8 @@ export class SourceManager {
 				restartTimer: undefined,
 				shutdown: false,
 				buffer: "",
+				messageCount: 0,
+				lastMessageTime: undefined,
 			});
 			process.stderr.write(`[d-pi source] Loaded source "${name}" (command: ${definition.command})\n`);
 		} catch (err) {
@@ -268,6 +296,8 @@ export class SourceManager {
 	}
 
 	private broadcast(handle: SourceHandle, content: string, mode: "next" | "steer"): void {
+		handle.messageCount++;
+		handle.lastMessageTime = Date.now();
 		if (!this.onMessage) return;
 		for (const agentName of handle.subscribers) {
 			try {

@@ -109,25 +109,102 @@ export function createTeamTool(): AgentToolDefinition {
 		name: "team",
 		label: "Team",
 		description:
-			"List the current team snapshot - agents, their parent/child relationships, and connection status. Use agent names when calling destroy_agent or send_message.",
+			"Show a detailed snapshot of the running team: each agent's runtime status, model, sources, tools, commands, and context files; all workspace sources with their running state and subscribers; and connected executors. Use agent names when calling destroy_agent or send_message.",
 		parameters: Type.Object({}),
 		async execute() {
 			const ctx = getBuiltinContext();
 			try {
 				const snapshot = await ctx.hubClient.getTeam();
-				const agentLines = snapshot.agents.map((agent) => {
-					const depth = getDepth(snapshot, agent.name);
+				const lines: string[] = [];
+
+				lines.push(`Agents (${snapshot.agents.length}):`);
+				const agentMap = new Map(snapshot.agents.map((a) => [a.name, a]));
+
+				function getDepth(name: string, visited = new Set<string>()): number {
+					if (visited.has(name)) return 0;
+					visited.add(name);
+					const agent = agentMap.get(name);
+					if (!agent?.parentName) return 0;
+					return 1 + getDepth(agent.parentName, visited);
+				}
+
+				const sorted = [...snapshot.agents].sort((a, b) => {
+					const da = getDepth(a.name);
+					const db = getDepth(b.name);
+					if (da !== db) return da - db;
+					return a.name.localeCompare(b.name);
+				});
+
+				for (const agent of sorted) {
+					const depth = getDepth(agent.name);
 					const indent = "  ".repeat(depth);
-					const children = agent.children.length > 0 ? ` -> [${agent.children.join(", ")}]` : "";
-					return `${indent}${agent.name} [${agent.status}]${children}`;
-				});
-				const executorLines = snapshot.executors.map((executor) => {
-					const status = executor.attached ? "attached" : "registered";
-					return `${executor.connectId} [${status}] cwd=${executor.cwd} bound=${executor.boundAgentName ?? "(none)"}`;
-				});
-				const rootName = snapshot.agents.find((agent) => agent.name === "root")?.name;
-				const text = `Team:\nAgents:\n${agentLines.join("\n")}\n\nExecutors:\n${executorLines.length > 0 ? executorLines.join("\n") : "(none)"}\n\nUse agent names (e.g. "${rootName}") for destroy_agent and send_message.`;
-				return toolTextResult(text, teamDetails(snapshot));
+					const statusTag = agent.error ? `[error:${agent.error}]` : `[${agent.status}]`;
+					const treePrefix = depth === 0 ? "" : "-> ";
+					lines.push(`${indent}${treePrefix}${agent.name} ${statusTag}`);
+
+					const sources = agent.sources ?? [];
+					const toolCount = agent.toolCount ?? 0;
+					const customToolCount = agent.customToolCount ?? 0;
+					const commandCount = agent.commandCount ?? 0;
+					const contextFileCount = agent.contextFileCount ?? 0;
+					const disableDefaults = agent.disableDefaultTools ?? false;
+
+					const details: string[] = [];
+					if (agent.description) details.push(`desc: ${agent.description}`);
+					if (agent.model) details.push(`model: ${agent.model}`);
+					else details.push("model: (unset)");
+
+					const parts: string[] = [];
+					parts.push(`tools:${toolCount}${disableDefaults ? " (no defaults)" : ""}`);
+					if (customToolCount > 0) parts.push(`${customToolCount} custom`);
+					if (commandCount > 0) parts.push(`cmds:${commandCount}`);
+					if (contextFileCount > 0) parts.push(`ctx:${contextFileCount}`);
+					if (agent.hasSkillsDir) parts.push("skills/");
+					if (agent.hasToolsDir) parts.push("tools/");
+					if (agent.hasCommandsDir) parts.push("cmds/");
+					details.push(parts.join(", "));
+
+					if (sources.length > 0) {
+						details.push(`sources: ${sources.join(", ")}`);
+					} else {
+						details.push("sources: (none)");
+					}
+
+					for (const d of details) {
+						lines.push(`${indent}    ${d}`);
+					}
+				}
+
+				lines.push("");
+				if (snapshot.sources.length > 0) {
+					lines.push(`Sources (${snapshot.sources.length}):`);
+					for (const src of snapshot.sources) {
+						const state = src.running ? "running" : "stopped";
+						const subs =
+							src.subscribers.length > 0 ? `subscribers: ${src.subscribers.join(", ")}` : "no subscribers";
+						const msgs = src.messageCount > 0 ? `${src.messageCount} msgs` : "no msgs yet";
+						const lastMsg = src.lastMessageTime ? formatTimeAgo(src.lastMessageTime) : "never";
+						lines.push(`  ${src.name} [${state}] cmd: ${src.command}`);
+						lines.push(`    path: ${src.filePath}`);
+						lines.push(`    ${subs}; ${msgs}; last: ${lastMsg}`);
+					}
+				} else {
+					lines.push("Sources: (none)");
+				}
+
+				lines.push("");
+				if (snapshot.executors.length > 0) {
+					lines.push(`Executors (${snapshot.executors.length}):`);
+					for (const exec of snapshot.executors) {
+						const state = exec.attached ? "attached" : "registered";
+						const bound = exec.boundAgentName ? `bound to: ${exec.boundAgentName}` : "unbound";
+						lines.push(`  ${exec.connectId} [${state}] cwd=${exec.cwd} ${bound}`);
+					}
+				} else {
+					lines.push("Executors: (none)");
+				}
+
+				return toolTextResult(lines.join("\n"), teamDetails(snapshot));
 			} catch (err) {
 				return errorTextResult(`Failed to get team: ${errorMessage(err)}`);
 			}
@@ -220,17 +297,15 @@ function okActionError(result: { ok: boolean; error?: string }): string | undefi
 	return result.ok ? undefined : "action returned ok=false";
 }
 
-function getDepth(snapshot: { agents: Array<{ name: string; parentName?: string }> }, agentName: string): number {
-	const agentMap = new Map(snapshot.agents.map((agent) => [agent.name, agent]));
-	let depth = 0;
-	let current = agentMap.get(agentName);
-	while (current?.parentName) {
-		depth++;
-		current = agentMap.get(current.parentName);
-	}
-	return depth;
+function teamDetails(snapshot: DPiTeamSnapshot) {
+	return toolJsonDetails({ agents: snapshot.agents, sources: snapshot.sources, executors: snapshot.executors });
 }
 
-function teamDetails(snapshot: DPiTeamSnapshot) {
-	return toolJsonDetails({ agents: snapshot.agents, executors: snapshot.executors });
+function formatTimeAgo(timestamp: number): string {
+	const diff = Date.now() - timestamp;
+	if (diff < 1000) return "just now";
+	if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
+	if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+	if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+	return `${Math.floor(diff / 86_400_000)}d ago`;
 }
