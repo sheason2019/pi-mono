@@ -1,3 +1,4 @@
+import { isRecord } from "../../shared/schemas.ts";
 import type { DPiInteractiveAgentSessionProxy } from "./agent-session-proxy.ts";
 
 export interface DPiInteractiveProtocolResult {
@@ -16,10 +17,6 @@ function ok(body?: unknown): DPiInteractiveProtocolResult {
 
 function bad(message: string): DPiInteractiveProtocolResult {
 	return { status: 400, body: { error: message } };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function textBody(data: unknown): { text: string; options?: unknown; images?: unknown } | undefined {

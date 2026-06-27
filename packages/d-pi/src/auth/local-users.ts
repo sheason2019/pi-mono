@@ -1,19 +1,22 @@
 import { generateKeyPairSync } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { z } from "zod";
+import { safeIdentifier } from "../shared/schemas.ts";
 import {
 	assertFileDoesNotExist,
-	assertValidName,
 	nowIso,
 	readJsonFile,
-	type StoredIdentity,
+	storedIdentitySchema,
 	userFile,
 	writeJsonFile,
 } from "./common.ts";
 
-export interface LocalUser extends StoredIdentity {
-	privateKey: string;
-}
+const localUserSchema = storedIdentitySchema.extend({
+	privateKey: z.string(),
+});
+
+export type LocalUser = z.infer<typeof localUserSchema>;
 
 export interface CreateLocalUserOptions {
 	name: string;
@@ -34,7 +37,7 @@ export function listLocalUsers(root: string): LocalUser[] {
 	return readdirSync(dir)
 		.filter((entry) => entry.endsWith(".json"))
 		.sort()
-		.map((entry) => readJsonFile<LocalUser>(join(dir, entry)));
+		.map((entry) => readJsonFile(join(dir, entry), localUserSchema));
 }
 
 export function findLocalUserByName(root: string, name: string): LocalUser | undefined {
@@ -42,7 +45,7 @@ export function findLocalUserByName(root: string, name: string): LocalUser | und
 }
 
 export function createLocalUser(root: string, options: CreateLocalUserOptions): LocalUser {
-	assertValidName(options.name);
+	safeIdentifier.parse(options.name);
 	mkdirSync(usersDir(root), { recursive: true });
 	assertFileDoesNotExist(userFile(usersDir(root), options.name), `Local user "${options.name}" already exists`);
 

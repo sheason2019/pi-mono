@@ -24,6 +24,7 @@ import {
 } from "../runtime/steering-jsonl-queue.ts";
 import type { DPiTranscriptItem } from "../runtime/transcript/projector.ts";
 import type { DPiAgentMessage, DPiRuntimeSnapshot } from "../runtime/types.ts";
+import { isRecord } from "../shared/schemas.ts";
 import type {
 	DPiInteractiveBannerData,
 	DPiInteractiveModelItemData,
@@ -2359,8 +2360,4 @@ function extractImages(input: unknown): Array<{ url: string; mediaType?: string 
 		];
 	});
 	return images.length > 0 ? images : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

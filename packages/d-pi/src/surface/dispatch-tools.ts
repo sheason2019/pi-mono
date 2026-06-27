@@ -2,6 +2,7 @@ import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/p
 import { type Static, type TSchema, Type } from "typebox";
 import type { AgentToolDefinition } from "../agent-definition.ts";
 import { defineTool } from "../agent-definition.ts";
+import { isRecord } from "../shared/schemas.ts";
 import { getBuiltinContext } from "./builtin-context.ts";
 import type { DPiToolDetails } from "./tool-surface.ts";
 
@@ -134,8 +135,4 @@ function errorTextResult(text: string) {
 
 function errorMessage(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

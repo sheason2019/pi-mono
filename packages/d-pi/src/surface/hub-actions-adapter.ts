@@ -1,4 +1,5 @@
 import type { HubChannel } from "../multi-agent/hub-channel.ts";
+import { isRecord } from "../shared/schemas.ts";
 import type {
 	DPiCreateAgentActionResult,
 	DPiDispatchRemoteToolActionPayload,
@@ -70,10 +71,6 @@ function asOkResult(value: unknown): OkResult {
 		ok: typeof ok === "boolean" ? ok : undefined,
 		error: stringField(value, "error"),
 	};
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {
