@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +17,6 @@ function createTempDir(prefix: string): string {
 function createWorkspace(): string {
 	const workspaceRoot = createTempDir("d-pi-cli-auth-");
 	mkdirSync(join(workspaceRoot, ".dpi"), { recursive: true });
-	writeFileSync(join(workspaceRoot, ".dpi", "config.json"), JSON.stringify({ version: 1 }, null, "\t"));
 	return workspaceRoot;
 }
 

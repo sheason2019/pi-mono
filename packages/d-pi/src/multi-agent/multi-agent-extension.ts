@@ -1,7 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SourceInfo } from "../hub/source-manager.ts";
 import type { AgentStatus, TeamAgentEntry, TeamSnapshot } from "../types.ts";
 
 export const AGENT_SWITCH_FILE = join(tmpdir(), "d-pi-agent-switch.txt");
@@ -48,18 +47,6 @@ export async function fetchTeamSnapshot(hubUrl: string, authToken?: string): Pro
 		throw new Error(`Failed to fetch team: ${response.status}`);
 	}
 	return (await response.json()) as TeamSnapshot;
-}
-
-export async function fetchSources(hubUrl: string, authToken?: string): Promise<SourceInfo[]> {
-	const headers: Record<string, string> = {};
-	if (authToken) {
-		headers.Authorization = `Bearer ${authToken}`;
-	}
-	const response = await fetch(`${hubUrl}/_hub/sources`, { headers });
-	if (!response.ok) {
-		throw new Error(`Failed to fetch sources: ${response.status}`);
-	}
-	return (await response.json()) as SourceInfo[];
 }
 
 export function buildAgentSelectOptions(network: TeamSnapshot, currentAgentName?: string): string[] {

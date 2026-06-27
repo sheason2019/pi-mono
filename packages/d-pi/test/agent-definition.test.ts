@@ -10,19 +10,13 @@ import {
 	createTeamTool,
 	defineAgent,
 	defineAnthropicProvider,
-	defineContextFile,
-	defineContextFiles,
 	defineModel,
 	defineOpenAIProvider,
 	defineProvider,
-	defineRole,
-	defineRoles,
 	defineSkill,
-	defineSource,
 	defineTool,
 	defineTools,
 	defineTuiComponent,
-	defineWorkspace,
 } from "../src/index.ts";
 
 function testTool(name: string) {
@@ -158,23 +152,14 @@ describe("agent definition helpers", () => {
 	it("composes associated resource helpers into an agent definition", () => {
 		const agent = defineAgent({
 			description: "resource-rich",
-			roles: defineRoles(defineRole("planner"), defineRole("reviewer")),
 			model: defineModel({ provider: "anthropic", name: "claude-sonnet-4" }),
 			skills: defineSkill({ dir: "./skills" }),
 			tools: defineTools(testTool("dispatch_read"), testTool("team")),
-			contextFiles: defineContextFiles(
-				defineContextFile({ type: "context", path: "./AGENTS.md" }),
-				defineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" }),
-			),
 		});
 
-		expect(agent.roles).toEqual(["planner", "reviewer"]);
 		expect(agent.model).toEqual({ provider: "anthropic", name: "claude-sonnet-4" });
 		expect(agent.tools.map((tool) => tool.name)).toEqual(["dispatch_read", "team"]);
-		expect(agent.contextFiles).toEqual([
-			{ type: "context", path: "./AGENTS.md" },
-			{ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" },
-		]);
+		expect(agent.skills).toEqual({ dir: "./skills" });
 	});
 
 	it("does not add legacy resource defaults when fields are omitted", () => {
@@ -185,10 +170,11 @@ describe("agent definition helpers", () => {
 		expect(agent).toEqual({
 			description: "minimal",
 			tools: [],
-			contextFiles: [],
 			commands: [],
 			middlewares: [],
+			sources: [],
 			autoCompact: true,
+			disableDefaultTools: false,
 		});
 	});
 
@@ -211,88 +197,38 @@ describe("agent definition helpers", () => {
 		expect(() => defineTuiComponent({ customType: "broken", render: undefined as never })).toThrow(/render/i);
 	});
 
-	it("defines workspace-level models and executable sources for agent references", () => {
-		const model = defineModel({ provider: "anthropic", name: "claude-sonnet-4" });
-		const source = defineSource({
-			description: "Lark message source",
-			execute(output) {
-				output("hello");
-			},
-		});
-		const workspace = defineWorkspace({
-			models: { "anthropic/claude-sonnet-4": model },
-			sources: { "lark-bot": source },
-		});
-		const agent = defineAgent({
-			model: workspace.models["anthropic/claude-sonnet-4"],
-			sources: { "lark-bot": workspace.sources["lark-bot"]! },
-		});
-
-		expect(workspace.models["anthropic/claude-sonnet-4"]).toBe(model);
-		expect(workspace.sources["lark-bot"]?.execute).toBe(source.execute);
-		expect(workspace.sources["lark-bot"]?.description).toBe("Lark message source");
-		expect(workspace.sources["lark-bot"]?.name).toBe("lark-bot");
-		expect(Object.keys(workspace.sources["lark-bot"] ?? {})).not.toContain("name");
-		expect(agent.model).toEqual(model);
-		expect(agent.sources).toEqual({ "lark-bot": workspace.sources["lark-bot"] });
-		expect(() => defineWorkspace({ models: { invalid: model } })).toThrow(/provider\/model/);
-		expect(() => defineWorkspace({ models: [model] as never })).toThrow(/models must be an object/);
-		expect(() => defineWorkspace({ sources: [source] as never })).toThrow(/sources must be an object/);
-		expect(() => defineSource({ execute: undefined as never })).toThrow(/execute/i);
-	});
-
 	it("copies arrays and nested definitions so caller mutation cannot change the definition", () => {
-		const roles = ["reviewer"];
 		const tools = [testTool("dispatch_read")];
-		const contextFiles = [defineContextFile({ type: "context", path: "./AGENTS.md" })];
 		const agent = defineAgent({
-			roles,
 			tools,
-			contextFiles,
 			skills: defineSkill({ dir: "./skills" }),
 		});
 
-		roles.push("mutated");
 		tools.push(testTool("dispatch_write"));
-		contextFiles[0] = defineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" });
 
-		expect(agent.roles).toEqual(["reviewer"]);
 		expect(agent.tools.map((tool) => tool.name)).toEqual(["dispatch_read"]);
-		expect(agent.contextFiles).toEqual([{ type: "context", path: "./AGENTS.md" }]);
 	});
 
 	it("builds a normalized agent definition without a stored name", () => {
 		const parent = defineAgent({
 			description: "root",
-			roles: [],
 			model: defineModel({ provider: "anthropic", name: "claude-sonnet-4" }),
 			skills: defineSkill({ dir: "./skills" }),
 			tools: [testTool("team")],
-			contextFiles: [],
 		});
 		const agent = defineAgent({
 			parent,
 			description: "reviewer",
-			roles: ["reviewer"],
 			model: defineModel({ provider: "anthropic", name: "claude-sonnet-4" }),
 			skills: defineSkill({ dir: "./skills" }),
 			tools: [testTool("dispatch_read"), testTool("team")],
-			contextFiles: [
-				defineContextFile({ type: "context", path: "./AGENTS.md" }),
-				defineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" }),
-			],
 		});
 
 		expect(agent.description).toBe("reviewer");
-		expect(agent.roles).toEqual(["reviewer"]);
 		expect(agent.parent).toBe(parent);
 		expect(agent.model).toEqual({ provider: "anthropic", name: "claude-sonnet-4" });
 		expect(agent.tools.map((tool) => tool.name)).toEqual(["dispatch_read", "team"]);
 		expect(agent.skills).toEqual({ dir: "./skills" });
-		expect(agent.contextFiles).toEqual([
-			{ type: "context", path: "./AGENTS.md" },
-			{ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" },
-		]);
 		expect("name" in agent).toBe(false);
 	});
 });

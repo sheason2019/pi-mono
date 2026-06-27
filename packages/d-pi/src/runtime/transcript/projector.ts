@@ -180,10 +180,7 @@ export function projectDPiTranscript(entries: readonly SessionTreeEntry[]): DPiT
 	const boundaryIndex = latestBoundaryIndex(entries);
 	const projectedEntries = boundaryIndex >= 0 ? entries.slice(boundaryIndex) : entries;
 	const boundaryEntry = boundaryIndex >= 0 ? transcriptBoundaryFromEntry(entries[boundaryIndex]!) : undefined;
-	const items = projectedEntries.flatMap((entry) => {
-		const item = transcriptEntryToItem(entry);
-		return item ? [item] : [];
-	});
+	const items = projectEntriesToItems(projectedEntries);
 	const steeringQueue = createDPiTranscriptSteeringQueueEntry({ revision: 0, items: [], timestamp: 0 });
 	const page: DPiTranscriptPage = {
 		id: boundaryEntry ? `page-${boundaryEntry.reason}-${entryId(entries[boundaryIndex]!)}` : "page-initial",
@@ -201,6 +198,29 @@ export function projectDPiTranscript(entries: readonly SessionTreeEntry[]): DPiT
 		}),
 		steeringQueue,
 	};
+}
+
+function projectEntriesToItems(entries: readonly SessionTreeEntry[]): DPiTranscriptItem[] {
+	const items: DPiTranscriptItem[] = [];
+	const toolStateEntryIndexByCallId = new Map<string, number>();
+	for (const entry of entries) {
+		const item = transcriptEntryToItem(entry);
+		if (!item) {
+			continue;
+		}
+		if (item.type === "tool_state") {
+			const existingIndex = toolStateEntryIndexByCallId.get(item.toolCallId);
+			if (existingIndex !== undefined) {
+				items[existingIndex] = item;
+			} else {
+				toolStateEntryIndexByCallId.set(item.toolCallId, items.length);
+				items.push(item);
+			}
+		} else {
+			items.push(item);
+		}
+	}
+	return items;
 }
 
 function latestBoundaryIndex(entries: readonly SessionTreeEntry[]): number {

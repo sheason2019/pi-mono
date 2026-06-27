@@ -1,9 +1,8 @@
 /**
  * Agent Worker — runs inside a Worker thread.
  *
- * Creates a full pi agent instance (AgentSessionRuntime + AgentHttpServer)
- * following the same pattern as serve-mode.ts. Communicates with the Hub
- * via parentPort for tool calls and incoming messages.
+ * Creates a full pi agent instance (AgentSessionRuntime + DPiAgentIpcServer).
+ * Communicates with the Hub via parentPort for tool calls and incoming messages.
  */
 import { join } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
@@ -34,6 +33,14 @@ import { projectDPiTranscript } from "../runtime/transcript/projector.ts";
 import type { DPiPromptImage } from "../runtime/types.ts";
 import { createHubActionsClientFromHubChannel } from "../surface/hub-actions-adapter.ts";
 import {
+	createCreateAgentTool,
+	createDestroyAgentTool,
+	createDispatchBashTool,
+	createDispatchReadTool,
+	createReloadTool,
+	createReloadWorkspaceTool,
+	createSendMessageTool,
+	createTeamTool,
 	type DPiLocalToolExecutor,
 	type DPiRemoteExecutor,
 	type DPiRemoteToolResult,
@@ -91,28 +98,27 @@ async function reloadAgentResources(): Promise<void> {
 	agentConfig = agentDefinitionToConfig(newAgentDefinition);
 	agentToolNames = newAgentDefinition.tools.map((tool) => tool.name);
 
+	modelRegistry.clearWorkspaceModels?.();
 	modelRegistry.updateAgentDefinition(newAgentDefinition);
 
 	const resolvedModel = await resolveDPiInitialModel({
 		modelRegistry,
 		agentDefinition: newAgentDefinition,
+		workspaceRoot: config.workspaceContext?.workspaceRoot,
 	});
 	if (!resolvedModel) {
 		throw new Error(`Agent "${config.agentName}" must define a loadable model in agent.ts`);
 	}
 	remoteFirstRuntimeModel = resolvedModel;
 	const thinkingLevel =
-		newAgentDefinition.model && "id" in newAgentDefinition.model ? newAgentDefinition.model.thinkingLevel : undefined;
+		newAgentDefinition.model && typeof newAgentDefinition.model !== "string" && "id" in newAgentDefinition.model
+			? newAgentDefinition.model.thinkingLevel
+			: undefined;
 	await agentRuntime.updateModel(resolvedModel, thinkingLevel);
 
 	const capabilities = setupAgentLocalTools({
 		getAgentTools: () => newAgentDefinition.tools,
 		getAgentCommands: () => [
-			defineCommand({
-				name: "sources",
-				description: "List all registered sources",
-				execute: async () => {},
-			}),
 			defineCommand({
 				name: "agents",
 				description: "Switch to a different agent in the team",
@@ -126,13 +132,21 @@ async function reloadAgentResources(): Promise<void> {
 		getReloadFn: () => (agentRuntime ? triggerAgentReload : undefined),
 		getResourceLoader: () => runtime?.session?.resourceLoader,
 		getModelRegistry: () => runtime?.session?.modelRegistry,
+		getDisableDefaultTools: () => newAgentDefinition.disableDefaultTools,
 	});
 	runtime.session.registerCapabilities(capabilities);
+	agentToolNames = capabilities.tools.map((t) => t.name);
 
 	await agentRuntime.reloadContext(newAgentDefinition);
 	await agentRuntime.updateTools(runtime.session.getToolDefinitions() as AgentTool[], agentToolNames);
 
 	proxy.updateAgentDefinition(newAgentDefinition);
+
+	postToHub({
+		type: "subscribe_sources",
+		agentName: config.agentName,
+		sources: [...(newAgentDefinition.sources ?? [])],
+	});
 
 	await runtime.session.reload();
 	proxy.setBanner(generateDPiBanner(runtime.session));
@@ -161,6 +175,20 @@ interface AgentLocalToolsSetupOptions {
 	getReloadFn: () => ((reason?: string) => Promise<void>) | undefined;
 	getResourceLoader: () => ResourceLoader | undefined;
 	getModelRegistry: () => ModelRegistry | undefined;
+	getDisableDefaultTools: () => boolean;
+}
+
+function getDefaultBuiltinTools(): AgentToolDefinition[] {
+	return [
+		createDispatchBashTool(),
+		createDispatchReadTool(),
+		createSendMessageTool(),
+		createCreateAgentTool(),
+		createDestroyAgentTool(),
+		createTeamTool(),
+		createReloadTool(),
+		createReloadWorkspaceTool(),
+	];
 }
 
 function setupAgentLocalTools(options: AgentLocalToolsSetupOptions): {
@@ -169,8 +197,20 @@ function setupAgentLocalTools(options: AgentLocalToolsSetupOptions): {
 	middlewares: AgentMiddlewareDefinition[];
 } {
 	setupBuiltinContext(options);
+	const agentTools = options.getAgentTools();
+	const disableDefaultTools = options.getDisableDefaultTools();
+	const toolMap = new Map<string, AgentToolDefinition>();
+	if (!disableDefaultTools) {
+		const defaultTools = getDefaultBuiltinTools();
+		for (const tool of defaultTools) {
+			toolMap.set(tool.name, tool);
+		}
+	}
+	for (const tool of agentTools) {
+		toolMap.set(tool.name, tool);
+	}
 	return {
-		tools: options.getAgentTools() as ToolDefinition[],
+		tools: [...toolMap.values()] as ToolDefinition[],
 		commands: options.getAgentCommands(),
 		middlewares: options.getAgentMiddlewares(),
 	};
@@ -322,17 +362,16 @@ async function runAgentWorker(): Promise<void> {
 	process.stderr.write(`[d-pi worker ${agentName}] Infrastructure created\n`);
 
 	// 2. Create the HubChannel for multi-agent communication.
-	// Worker-side /agents and /sources commands are stubs (real implementations
-	// live in the client/connect TUI). They are registered below via registerCapabilities.
+	// Worker-side /agents command is a stub (real implementation
+	// lives in the client/connect TUI). It is registered below via registerCapabilities.
 	const channel = new HubChannelClass(agentName, postToHub);
 	hubChannel = channel;
 
 	// 3. Build the runtime factory (mirrors main.ts pattern)
 	const createRuntime = async (opts: { cwd: string; agentDir: string; sessionManager: DPiWorkerSessionManager }) => {
 		// Build resourceLoaderOptions from workspace context.
-		// APPEND_SYSTEM.md workspace content, the agent's own
-		// agent.ts identity (rendered as "## Agent identity"), and d-pi
-		// meta are concatenated into the same
+		// Workspace context/*.md, the agent's own AGENTS.md identity,
+		// and d-pi meta are concatenated into the same
 		// ResourceLoader.appendSystemPrompt array — the same path
 		// used by ResourceLoader for every other source-level
 		// system-prompt block. d-pi meta is in-source (dpi-meta.ts)
@@ -340,7 +379,7 @@ async function runAgentWorker(): Promise<void> {
 		// package and is regenerated per build via
 		// scripts/inject-build-meta.mjs.
 		//
-		// Order is workspace append → per-agent identity → d-pi
+		// Order is workspace context → per-agent identity → d-pi
 		// runtime meta. The d-pi meta goes LAST so it lands just
 		// before the tool list / build stamp at the very end of
 		// the system prompt — a stable position across agents that
@@ -348,12 +387,11 @@ async function runAgentWorker(): Promise<void> {
 		//
 		// Bug fix (previously): the appendSystemPrompt array and the
 		// agentsFilesOverride closure both captured a snapshot of
-		// agent.ts identity + APPEND_SYSTEM.md at session-start, so
-		// session.reload() re-ran resourceLoader.reload() but the
-		// d-pi-injected content stayed frozen at startup. Editing
-		// agent.ts (description, roles, model name, tool allow/deny)
-		// or APPEND_SYSTEM.md and calling `reload` would NOT refresh
-		// the system prompt.
+		// agent.ts identity at session-start, so session.reload()
+		// re-ran resourceLoader.reload() but the d-pi-injected
+		// content stayed frozen at startup. Editing agent.ts
+		// (description, model) and calling `reload` would NOT
+		// refresh the system prompt.
 		//
 		// Fix: pass `appendSystemPromptOverride` and
 		// `agentsFilesOverride` as closures that re-read
@@ -367,10 +405,7 @@ async function runAgentWorker(): Promise<void> {
 		// ResourceLoader overrides are synchronous, so this closure projects the
 		// definition loaded above instead of reparsing agent.ts from source.
 		const readFreshDPiContext = () => {
-			const roles = agentConfig?.roles;
-			const freshWorkspaceContext = workspaceRoot
-				? loadWorkspaceContext(workspaceRoot, { agentName, roles })
-				: undefined;
+			const freshWorkspaceContext = workspaceRoot ? loadWorkspaceContext(workspaceRoot) : undefined;
 			return { freshAgentConfig: agentConfig, freshWorkspaceContext };
 		};
 
@@ -383,8 +418,7 @@ async function runAgentWorker(): Promise<void> {
 			resourceLoaderOptions: {
 				appendSystemPromptOverride: (base) => {
 					// `base` is what ResourceLoader itself discovered
-					// (e.g. ~/.pi/agent/APPEND_SYSTEM.md via
-					// discoverAppendSystemPromptFile). Keep it at the
+					// (e.g. agent-level context/*.md). Keep it at the
 					// end so it stays in the same position relative
 					// to the d-pi-injected sections as before this fix.
 					const { freshAgentConfig, freshWorkspaceContext } = readFreshDPiContext();
@@ -396,10 +430,9 @@ async function runAgentWorker(): Promise<void> {
 					].filter((s): s is string => Boolean(s));
 				},
 				agentsFilesOverride: (base) => {
-					// Re-read the workspace-level AGENTS.md / team-template
-					// AGENTS.md on every call so role / architecture edits
-					// surface without a hub restart. `base` is what
-					// ResourceLoader discovered itself (project-level
+					// Re-read the workspace-level AGENTS.md on every call so
+					// architecture edits surface without a hub restart. `base`
+					// is what ResourceLoader discovered itself (project-level
 					// AGENTS.md / CLAUDE.md via loadProjectContextFiles);
 					// keep it after the d-pi-injected files so user-level
 					// files win on conflicts.
@@ -417,23 +450,19 @@ async function runAgentWorker(): Promise<void> {
 		const resolvedModel = await resolveDPiInitialModel({
 			modelRegistry: modelRegistry!,
 			agentDefinition,
+			workspaceRoot: config.workspaceContext?.workspaceRoot,
 		});
 		remoteFirstRuntimeModel = resolvedModel;
 		if (!remoteFirstRuntimeModel) {
 			throw new Error(`Agent "${agentName}" must define a loadable model in agent.ts`);
 		}
 
-		process.stderr.write(`[d-pi worker ${agentName}] Model resolved: ${resolvedModel?.id ?? "unknown"}\n`);
-
 		const created = await createDPiAgentSessionFromServices({
 			services,
 			sessionManager: opts.sessionManager,
 			model: resolvedModel,
 			tools: agentToolNames,
-			excludeTools: ["bash", "read"],
 		});
-
-		process.stderr.write(`[d-pi worker ${agentName}] Session created from services\n`);
 
 		return { ...created, services, diagnostics: services.diagnostics };
 	};
@@ -448,23 +477,19 @@ async function runAgentWorker(): Promise<void> {
 		sessionManager,
 	});
 
-	// 6. Create proxy and HTTP server (same pattern as serve-mode.ts)
+	// 6. Create proxy
 	proxy = new DPiLocalAgentSessionProxy(runtime!, {
 		steeringQueuePath: join(agentDir, "steering.jsonl"),
 		agentDefinition: agentDefinition,
 	});
 	proxy.setBanner(generateDPiBanner(runtime!.session));
 
+	// 7. Bind session tools, event handlers, and message dispatch
 	const rebindSession = (): void => {
 		const session = runtime!.session;
 		const capabilities = setupAgentLocalTools({
 			getAgentTools: () => agentDefinition?.tools ?? [],
 			getAgentCommands: () => [
-				defineCommand({
-					name: "sources",
-					description: "List all registered sources",
-					execute: async () => {},
-				}),
 				defineCommand({
 					name: "agents",
 					description: "Switch to a different agent in the team",
@@ -478,8 +503,10 @@ async function runAgentWorker(): Promise<void> {
 			getReloadFn: () => (agentRuntime ? triggerAgentReload : undefined),
 			getResourceLoader: () => runtime?.session?.resourceLoader,
 			getModelRegistry: () => runtime?.session?.modelRegistry,
+			getDisableDefaultTools: () => agentDefinition?.disableDefaultTools ?? false,
 		});
 		session.registerCapabilities(capabilities);
+		agentToolNames = capabilities.tools.map((t) => t.name);
 	};
 
 	runtime!.setBeforeSessionInvalidate(() => {
@@ -506,7 +533,9 @@ async function runAgentWorker(): Promise<void> {
 		const initialMessages =
 			initialCurrentPageMessages.length > 0 ? initialCurrentPageMessages : initialSessionContext.messages;
 		const modelThinkingLevel =
-			agentDefinition?.model && "id" in agentDefinition.model ? agentDefinition.model.thinkingLevel : undefined;
+			agentDefinition?.model && typeof agentDefinition.model !== "string" && "id" in agentDefinition.model
+				? agentDefinition.model.thinkingLevel
+				: undefined;
 		agentRuntime = new DPiAgentRuntime({
 			agentName,
 			cwd,
@@ -584,11 +613,9 @@ async function runAgentWorker(): Promise<void> {
 
 	proxy.setReloadHandler(triggerAgentReload);
 
-	// (AgentHttpServer removed — IPC server is created later)
-
-	// 8. Start IPC server (replaces AgentHttpServer)
+	// 8. Start IPC server
 	// The IPC server listens for http_request / http_query / sse_subscribe
-	// messages from the hub and responds via IPC. No HTTP port needed.
+	// messages from the hub and responds via IPC.
 	ipcServer = new DPiAgentIpcServer(
 		proxy!,
 		{
@@ -618,10 +645,11 @@ async function runAgentWorker(): Promise<void> {
 	});
 
 	// 9. Signal ready to Hub
+	postToHub({ type: "subscribe_sources", agentName, sources: [...(agentDefinition?.sources ?? [])] });
 	postToHub({ type: "ready", agentName });
 	postToHub({ type: "status_update", agentName, status: "ready" });
 
-	process.stderr.write(`[d-pi worker] Agent "${agentName}" ready (IPC mode, no HTTP port)\n`);
+	process.stderr.write(`[d-pi worker] Agent "${agentName}" ready (IPC mode)\n`);
 
 	// Keep alive
 	return new Promise(() => {});

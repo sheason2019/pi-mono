@@ -1,23 +1,43 @@
-import { existsSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
+	AgentCommandDefinition,
 	AgentContextFileDefinition,
 	AgentDefinition,
-	AgentModelDefinition,
+	AgentModelSpec,
 	AgentProviderDefinition,
 	AgentSkillDefinition,
 	AgentToolDefinition,
 } from "./agent-definition.ts";
 import { setAgentDefinitionMetadata } from "./agent-definition.ts";
-import { defineSource, type SourceDefinition } from "./workspace-definition.ts";
 
 const AGENT_TS_FILE = "agent.ts";
+const AGENTS_MD_FILE = "AGENTS.md";
+const SKILLS_DIR = "skills";
+const CONTEXT_DIR = "context";
+const TOOLS_DIR = "tools";
+const COMMANDS_DIR = "commands";
+
+const RESOURCE_EXTENSIONS = [".ts", ".js", ".mjs"];
+const MARKDOWN_EXTENSION = ".md";
 
 export interface LoadedAgentDefinition extends AgentDefinition {
 	name: string;
 	agentDir: string;
 	agentFilePath: string;
+	contextFiles: AgentContextFileDefinition[];
+}
+
+export interface DiscoveredAgentResources {
+	skills?: AgentSkillDefinition;
+	contextFiles: AgentContextFileDefinition[];
+	toolFiles: string[];
+	commandFiles: string[];
+	hasAgentsMd: boolean;
+	hasSkillsDir: boolean;
+	hasToolsDir: boolean;
+	hasCommandsDir: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -51,21 +71,15 @@ function assertSkill(value: unknown): asserts value is AgentSkillDefinition {
 	}
 }
 
-function assertContextFile(value: unknown, index: number): asserts value is AgentContextFileDefinition {
+function assertModel(value: unknown): asserts value is AgentModelSpec {
+	if (typeof value === "string") {
+		if (value.trim().length === 0) {
+			throw new TypeError("Agent definition model string reference must not be empty");
+		}
+		return;
+	}
 	if (!isRecord(value)) {
-		throw new TypeError(`Agent definition contextFiles[${index}] must be an object`);
-	}
-	if (value.type !== "context" && value.type !== "append_system") {
-		throw new TypeError(`Agent definition contextFiles[${index}].type must be context or append_system`);
-	}
-	if (typeof value.path !== "string") {
-		throw new TypeError(`Agent definition contextFiles[${index}].path must be a string`);
-	}
-}
-
-function assertModel(value: unknown): asserts value is AgentModelDefinition {
-	if (!isRecord(value)) {
-		throw new TypeError("Agent definition model must be an object");
+		throw new TypeError("Agent definition model must be a string path reference or a defineModel({...}) object");
 	}
 	if ("id" in value) {
 		assertLocalModel(value, "model");
@@ -156,68 +170,46 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 	return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
 }
 
-function assertSources(value: unknown): asserts value is Record<string, SourceDefinition> {
-	if (!isRecord(value) || Array.isArray(value)) {
-		throw new TypeError("Agent definition sources must be an object");
-	}
-	for (const [key, source] of Object.entries(value)) {
-		if (!key.trim()) {
-			throw new TypeError("Agent definition sources keys must be non-empty");
-		}
-		try {
-			defineSource(source as SourceDefinition);
-		} catch (err) {
-			throw new TypeError(
-				`Agent definition sources.${key} must be a source definition: ${
-					err instanceof Error ? err.message : String(err)
-				}`,
-			);
-		}
-	}
-}
-
 function assertAgentDefinition(value: unknown): asserts value is AgentDefinition {
 	if (!isRecord(value)) {
 		throw new TypeError("Agent file must default export an object definition");
 	}
-	if (!Array.isArray(value.tools)) {
-		throw new TypeError("Agent definition tools must be an array");
-	}
-	for (let index = 0; index < value.tools.length; index++) {
-		assertTool(value.tools[index], index);
+	if (value.tools !== undefined) {
+		if (!Array.isArray(value.tools)) {
+			throw new TypeError("Agent definition tools must be an array");
+		}
+		for (let index = 0; index < value.tools.length; index++) {
+			assertTool(value.tools[index], index);
+		}
 	}
 	if (value.skills !== undefined) {
 		assertSkill(value.skills);
 	}
-	if (!Array.isArray(value.contextFiles)) {
-		throw new TypeError("Agent definition contextFiles must be an array");
-	}
-	for (let index = 0; index < value.contextFiles.length; index++) {
-		assertContextFile(value.contextFiles[index], index);
+	if (value.contextFiles !== undefined) {
+		throw new TypeError(
+			"Agent definition contextFiles is not supported; place markdown files in the context/ directory instead",
+		);
 	}
 
 	if (value.description !== undefined && typeof value.description !== "string") {
 		throw new TypeError("Agent definition description must be a string");
 	}
-	if (value.roles !== undefined) {
-		if (!Array.isArray(value.roles) || value.roles.some((role) => typeof role !== "string")) {
-			throw new TypeError("Agent definition roles must be an array of strings");
-		}
-	}
 	if (value.model !== undefined) {
 		assertModel(value.model);
 	}
-	if (value.models !== undefined) {
-		throw new TypeError("Agent definition models is not supported; define shared models in workspace d-pi.ts");
-	}
 	if (value.sources !== undefined) {
-		assertSources(value.sources);
+		if (!Array.isArray(value.sources) || !value.sources.every((s: unknown) => typeof s === "string")) {
+			throw new TypeError("Agent definition sources must be an array of string path references");
+		}
 	}
 	if (value.parent !== undefined) {
 		assertAgentDefinition(value.parent);
 	}
 	if (value.autoCompact !== undefined && typeof value.autoCompact !== "boolean") {
 		throw new TypeError("Agent definition autoCompact must be a boolean");
+	}
+	if (value.disableDefaultTools !== undefined && typeof value.disableDefaultTools !== "boolean") {
+		throw new TypeError("Agent definition disableDefaultTools must be a boolean");
 	}
 	if (value.commands !== undefined) {
 		if (!Array.isArray(value.commands)) {
@@ -255,16 +247,140 @@ function assertAgentDefinition(value: unknown): asserts value is AgentDefinition
 	}
 }
 
-export function normalizeLoadedAgentDefinition(agentFilePath: string, definition: unknown): LoadedAgentDefinition {
+function scanResourceFiles(dir: string): string[] {
+	if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+		return [];
+	}
+	const files: string[] = [];
+	const entries = readdirSync(dir, { withFileTypes: true });
+	for (const entry of entries) {
+		if (!entry.isFile()) continue;
+		const ext = extname(entry.name);
+		if (!RESOURCE_EXTENSIONS.includes(ext)) continue;
+		files.push(join(dir, entry.name));
+	}
+	files.sort();
+	return files;
+}
+
+function scanContextMarkdownFiles(dir: string): string[] {
+	if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+		return [];
+	}
+	const files: string[] = [];
+	const entries = readdirSync(dir, { withFileTypes: true });
+	for (const entry of entries) {
+		if (!entry.isFile()) continue;
+		if (extname(entry.name) !== MARKDOWN_EXTENSION) continue;
+		files.push(join(dir, entry.name));
+	}
+	files.sort();
+	return files;
+}
+
+export function discoverAgentConventionResources(agentDir: string): DiscoveredAgentResources {
+	const resolvedDir = resolve(agentDir);
+	const skillsDir = join(resolvedDir, SKILLS_DIR);
+	const contextDir = join(resolvedDir, CONTEXT_DIR);
+	const toolsDir = join(resolvedDir, TOOLS_DIR);
+	const commandsDir = join(resolvedDir, COMMANDS_DIR);
+	const agentsMdPath = join(resolvedDir, AGENTS_MD_FILE);
+
+	const hasSkillsDir = existsSync(skillsDir) && statSync(skillsDir).isDirectory();
+	const hasToolsDir = existsSync(toolsDir) && statSync(toolsDir).isDirectory();
+	const hasCommandsDir = existsSync(commandsDir) && statSync(commandsDir).isDirectory();
+	const hasAgentsMd = existsSync(agentsMdPath) && statSync(agentsMdPath).isFile();
+
+	const contextFiles: AgentContextFileDefinition[] = [];
+	if (hasAgentsMd) {
+		contextFiles.push({ type: "context", path: `./${AGENTS_MD_FILE}` });
+	}
+	for (const mdFile of scanContextMarkdownFiles(contextDir)) {
+		const fileName = basename(mdFile);
+		contextFiles.push({ type: "append_system", path: `./${CONTEXT_DIR}/${fileName}` });
+	}
+
+	return {
+		skills: hasSkillsDir ? { dir: `./${SKILLS_DIR}` } : undefined,
+		contextFiles,
+		toolFiles: scanResourceFiles(toolsDir),
+		commandFiles: scanResourceFiles(commandsDir),
+		hasAgentsMd,
+		hasSkillsDir,
+		hasToolsDir,
+		hasCommandsDir,
+	};
+}
+
+async function loadToolFile(filePath: string): Promise<AgentToolDefinition> {
+	const resolved = resolve(filePath);
+	const fileUrl = pathToFileURL(resolved);
+	fileUrl.searchParams.set("mtime", String(Math.trunc(statSync(resolved).mtimeMs)));
+	const mod = (await import(/* @vite-ignore */ fileUrl.href)) as { default?: unknown };
+	if (!mod.default || typeof mod.default !== "object") {
+		throw new Error(`Tool file ${filePath} must export default defineTool({...})`);
+	}
+	return mod.default as AgentToolDefinition;
+}
+
+async function loadCommandFile(filePath: string): Promise<AgentCommandDefinition> {
+	const resolved = resolve(filePath);
+	const fileUrl = pathToFileURL(resolved);
+	fileUrl.searchParams.set("mtime", String(Math.trunc(statSync(resolved).mtimeMs)));
+	const mod = (await import(/* @vite-ignore */ fileUrl.href)) as { default?: unknown };
+	if (!mod.default || typeof mod.default !== "object") {
+		throw new Error(`Command file ${filePath} must export default defineCommand({...})`);
+	}
+	return mod.default as AgentCommandDefinition;
+}
+
+export async function normalizeLoadedAgentDefinition(
+	agentFilePath: string,
+	definition: unknown,
+): Promise<LoadedAgentDefinition> {
 	assertAgentDefinition(definition);
 
 	const resolvedAgentFilePath = resolve(agentFilePath);
 	const agentDir = dirname(resolvedAgentFilePath);
 	const name = basename(agentDir);
+
+	const discovered = discoverAgentConventionResources(agentDir);
+
+	const tools = [...(definition.tools ?? [])];
+	if (discovered.toolFiles.length > 0) {
+		const loadedTools = await Promise.all(discovered.toolFiles.map(loadToolFile));
+		const existingToolNames = new Set(tools.map((t) => t.name));
+		for (const tool of loadedTools) {
+			if (!existingToolNames.has(tool.name)) {
+				tools.push(tool);
+			}
+		}
+	}
+
+	const commands = [...(definition.commands ?? [])];
+	if (discovered.commandFiles.length > 0) {
+		const loadedCommands = await Promise.all(discovered.commandFiles.map(loadCommandFile));
+		const existingCommandNames = new Set(commands.map((c) => c.name));
+		for (const cmd of loadedCommands) {
+			if (!existingCommandNames.has(cmd.name)) {
+				commands.push(cmd);
+			}
+		}
+	}
+
+	const contextFiles = discovered.contextFiles;
+
+	const skills = definition.skills ?? discovered.skills;
+
 	const loaded: LoadedAgentDefinition = {
 		...definition,
+		tools,
+		commands,
+		contextFiles,
+		...(skills ? { skills } : {}),
 		autoCompact: definition.autoCompact ?? true,
-		commands: definition.commands ?? [],
+		disableDefaultTools: definition.disableDefaultTools ?? false,
+		sources: definition.sources ?? [],
 		middlewares: definition.middlewares ?? [],
 		name,
 		agentDir,
@@ -292,4 +408,19 @@ export async function readLoadedAgentDefinitionFromTs(agentDir: string): Promise
 		return undefined;
 	}
 	return loadAgentDefinitionFromFile(agentFilePath);
+}
+
+export function ensureAgentConventionDirs(agentDir: string): void {
+	const resolved = resolve(agentDir);
+	const dirs = [
+		join(resolved, SKILLS_DIR),
+		join(resolved, CONTEXT_DIR),
+		join(resolved, TOOLS_DIR),
+		join(resolved, COMMANDS_DIR),
+	];
+	for (const dir of dirs) {
+		if (!existsSync(dir)) {
+			mkdirSync(dir, { recursive: true });
+		}
+	}
 }

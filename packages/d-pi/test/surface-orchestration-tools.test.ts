@@ -2,13 +2,14 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { HubChannel } from "../src/multi-agent/hub-channel.ts";
-import { type DPiBuiltinContext, setBuiltinContext } from "../src/surface/builtin-context.ts";
+import { setBuiltinContext } from "../src/surface/builtin-context.ts";
 import { createHubActionsClientFromHubChannel } from "../src/surface/hub-actions-adapter.ts";
 import type {
 	DPiCreateAgentActionPayload,
 	DPiCreateAgentActionResult,
 	DPiDestroyAgentActionPayload,
 	DPiHubActionsClient,
+	DPiReloadWorkspaceResult,
 	DPiSendMessageActionPayload,
 	DPiTeamSnapshot,
 } from "../src/surface/index.ts";
@@ -26,7 +27,7 @@ class RecordingHubActionsClient implements DPiHubActionsClient {
 	readonly sendMessageCalls: DPiSendMessageActionPayload[] = [];
 
 	createAgentResult: DPiCreateAgentActionResult = { agentName: "child" };
-	teamSnapshot: DPiTeamSnapshot = { rootName: "root", agents: [], executors: [] };
+	teamSnapshot: DPiTeamSnapshot = { rootName: "root", agents: [], sources: [], executors: [] };
 
 	async createAgent(payload: DPiCreateAgentActionPayload): Promise<DPiCreateAgentActionResult> {
 		this.createAgentCalls.push(payload);
@@ -50,6 +51,10 @@ class RecordingHubActionsClient implements DPiHubActionsClient {
 	async dispatchRemoteTool(): Promise<never> {
 		throw new Error("dispatchRemoteTool should not be used by orchestration tools");
 	}
+
+	async reloadWorkspace(): Promise<DPiReloadWorkspaceResult> {
+		return { models: [], contextFiles: [], sources: { added: [], removed: [], changed: [], total: 0 } };
+	}
 }
 
 function setupContext(client: RecordingHubActionsClient, agentName = "root"): void {
@@ -64,7 +69,7 @@ function setupContext(client: RecordingHubActionsClient, agentName = "root"): vo
 		},
 		getReloadFn: () => undefined,
 		getReloadDetails: () => ({}),
-	} as DPiBuiltinContext);
+	});
 }
 
 function asTextToolResult(result: unknown): TextToolResult {
@@ -134,10 +139,11 @@ describe("d-pi surface orchestration tools", () => {
 		client.teamSnapshot = {
 			rootName: "root",
 			agents: [
-				{ name: "root", parentName: undefined, status: "ready", children: ["child"] },
-				{ name: "child", parentName: "root", status: "busy", children: ["grandchild"] },
-				{ name: "grandchild", parentName: "child", status: "starting", children: [] },
+				{ name: "root", parentName: undefined, status: "ready", children: ["child"], cwd: "/fake" },
+				{ name: "child", parentName: "root", status: "busy", children: ["grandchild"], cwd: "/fake" },
+				{ name: "grandchild", parentName: "child", status: "starting", children: [], cwd: "/fake" },
 			],
+			sources: [],
 			executors: [
 				{ connectId: "exec-1", cwd: "/repo", attached: true, boundAgentName: "child" },
 				{ connectId: "exec-2", cwd: "/tmp", attached: false, boundAgentName: undefined },
@@ -148,23 +154,17 @@ describe("d-pi surface orchestration tools", () => {
 
 		const result = asTextToolResult(await tool.execute("call-3", {}));
 
-		expect(textOf(result)).toContain("root [ready] -> [child]");
-		expect(textOf(result)).toContain("  child [busy] -> [grandchild]");
-		expect(textOf(result)).toContain("    grandchild [starting]");
-		expect(textOf(result)).toContain("exec-1 [attached] cwd=/repo bound=child");
-		expect(textOf(result)).toContain("exec-2 [registered] cwd=/tmp bound=(none)");
+		expect(textOf(result)).toContain("root [ready]");
+		expect(textOf(result)).toContain("  -> child [busy]");
+		expect(textOf(result)).toContain("    -> grandchild [starting]");
+		expect(textOf(result)).toContain("exec-1 [attached] cwd=/repo bound to: child");
+		expect(textOf(result)).toContain("exec-2 [registered] cwd=/tmp unbound");
 		expectNoUndefined(result.details);
 		expect(JSON.parse(JSON.stringify(result.details))).toEqual(result.details);
 		expect(result.details).toEqual({
-			agents: [
-				{ name: "root", status: "ready", children: ["child"] },
-				{ name: "child", parentName: "root", status: "busy", children: ["grandchild"] },
-				{ name: "grandchild", parentName: "child", status: "starting", children: [] },
-			],
-			executors: [
-				{ connectId: "exec-1", cwd: "/repo", attached: true, boundAgentName: "child" },
-				{ connectId: "exec-2", cwd: "/tmp", attached: false },
-			],
+			agents: client.teamSnapshot.agents,
+			sources: [],
+			executors: client.teamSnapshot.executors,
 		});
 	});
 

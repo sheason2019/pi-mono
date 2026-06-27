@@ -721,16 +721,6 @@ export class DPiAgentRuntime {
 				...(event.tool.args === undefined ? {} : { args: event.tool.args }),
 				timestamp: event.tool.startedAt,
 			};
-			await this.session.appendCustomEntry(
-				DPiTranscriptCustomTypes.toolState,
-				createDPiTranscriptToolStateEntry({
-					toolCallId: item.toolCallId,
-					toolName: item.toolName,
-					status: item.status,
-					...(item.args === undefined ? {} : { args: item.args }),
-					timestamp: item.timestamp,
-				}),
-			);
 			this.upsertTranscriptItem(item);
 			return;
 		}

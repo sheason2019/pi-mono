@@ -9,7 +9,6 @@ import { signChallenge } from "../src/auth/signing.ts";
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { ExecutorRegistry } from "../src/hub/executor-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
-import { SourceManager } from "../src/hub/source-manager.ts";
 
 let tempDir: string | undefined;
 
@@ -34,11 +33,9 @@ async function startHubWithAuth(workspaceRoot: string): Promise<StartedHub> {
 		publicKey: localUser.publicKey,
 	});
 	const registry = new AgentRegistry();
-	const sourceManager = new SourceManager(() => {});
 	const executorRegistry = new ExecutorRegistry();
 	const gateway = new HubGateway(
 		registry,
-		sourceManager,
 		async () => ({ agentName: "created" }),
 		async () => {},
 		new AuthSessionManager(workspaceRoot),

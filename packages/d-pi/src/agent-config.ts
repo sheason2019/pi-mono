@@ -1,11 +1,11 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentModelDefinition, AgentProviderDefinition } from "./agent-definition.ts";
+import type { AgentModelDefinition } from "./agent-definition.ts";
 
 export const AGENT_TS_FILE = "agent.ts";
 export const AGENT_SESSION_DIR = "session";
 
-export const DEFAULT_AGENT_TOOL_NAMES = [
+export const DEFAULT_BUILTIN_TOOL_NAMES = [
 	"dispatch_bash",
 	"dispatch_read",
 	"send_message",
@@ -13,17 +13,17 @@ export const DEFAULT_AGENT_TOOL_NAMES = [
 	"destroy_agent",
 	"team",
 	"reload",
+	"reload_workspace",
 ] as const;
 
-const TOOL_HELPER_NAMES: Record<(typeof DEFAULT_AGENT_TOOL_NAMES)[number], string> = {
-	dispatch_bash: "createDispatchBashTool",
-	dispatch_read: "createDispatchReadTool",
-	send_message: "createSendMessageTool",
-	create_agent: "createCreateAgentTool",
-	destroy_agent: "createDestroyAgentTool",
-	team: "createTeamTool",
-	reload: "createReloadTool",
-};
+export interface AgentTsSourceConfig {
+	name: string;
+	parentName?: string;
+	description?: string;
+	modelDefinition?: AgentModelDefinition;
+	modelRef?: string;
+	sources?: string[];
+}
 
 function formatArrayLiteral(values: string[]): string {
 	return `[${values.map((value) => JSON.stringify(value)).join(", ")}]`;
@@ -41,18 +41,34 @@ function formatJsonValue(value: unknown): string {
 	return JSON.stringify(value);
 }
 
-function formatProviderExpression(provider: AgentProviderDefinition): string {
-	const helper = providerHelper(provider);
-	if (helper) {
+function formatProviderExpression(provider: {
+	provider: string;
+	api: string;
+	baseUrl: string;
+	apiKey?: string;
+	authHeader?: boolean;
+	headers?: Record<string, string>;
+	compat?: unknown;
+}): string {
+	if (provider.provider === "openai") {
 		const fields: string[] = [];
-		if (provider.provider !== helper.defaultProvider) fields.push(`provider: ${JSON.stringify(provider.provider)}`);
-		if (provider.api !== helper.defaultApi) fields.push(`api: ${JSON.stringify(provider.api)}`);
-		if (provider.baseUrl !== helper.defaultBaseUrl) fields.push(`baseUrl: ${JSON.stringify(provider.baseUrl)}`);
+		if (provider.api !== "openai-responses") fields.push(`api: ${JSON.stringify(provider.api)}`);
+		if (provider.baseUrl !== "https://api.openai.com/v1") fields.push(`baseUrl: ${JSON.stringify(provider.baseUrl)}`);
 		if (provider.apiKey !== undefined) fields.push(`apiKey: ${JSON.stringify(provider.apiKey)}`);
 		if (provider.authHeader !== undefined) fields.push(`authHeader: ${JSON.stringify(provider.authHeader)}`);
 		if (provider.headers !== undefined) fields.push(`headers: ${formatStringRecord(provider.headers)}`);
 		if (provider.compat !== undefined) fields.push(`compat: ${formatJsonValue(provider.compat)}`);
-		return fields.length === 0 ? `${helper.name}()` : `${helper.name}({ ${fields.join(", ")} })`;
+		return fields.length === 0 ? "defineOpenAIProvider()" : `defineOpenAIProvider({ ${fields.join(", ")} })`;
+	}
+	if (provider.provider === "anthropic") {
+		const fields: string[] = [];
+		if (provider.api !== "anthropic-messages") fields.push(`api: ${JSON.stringify(provider.api)}`);
+		if (provider.baseUrl !== "https://api.anthropic.com") fields.push(`baseUrl: ${JSON.stringify(provider.baseUrl)}`);
+		if (provider.apiKey !== undefined) fields.push(`apiKey: ${JSON.stringify(provider.apiKey)}`);
+		if (provider.authHeader !== undefined) fields.push(`authHeader: ${JSON.stringify(provider.authHeader)}`);
+		if (provider.headers !== undefined) fields.push(`headers: ${formatStringRecord(provider.headers)}`);
+		if (provider.compat !== undefined) fields.push(`compat: ${formatJsonValue(provider.compat)}`);
+		return fields.length === 0 ? "defineAnthropicProvider()" : `defineAnthropicProvider({ ${fields.join(", ")} })`;
 	}
 	const fields = [
 		`provider: ${JSON.stringify(provider.provider)}`,
@@ -64,33 +80,6 @@ function formatProviderExpression(provider: AgentProviderDefinition): string {
 	if (provider.headers !== undefined) fields.push(`headers: ${formatStringRecord(provider.headers)}`);
 	if (provider.compat !== undefined) fields.push(`compat: ${formatJsonValue(provider.compat)}`);
 	return `defineProvider({ ${fields.join(", ")} })`;
-}
-
-function providerHelper(provider: AgentProviderDefinition):
-	| {
-			name: "defineOpenAIProvider" | "defineAnthropicProvider";
-			defaultProvider: string;
-			defaultApi: string;
-			defaultBaseUrl: string;
-	  }
-	| undefined {
-	if (provider.provider === "openai") {
-		return {
-			name: "defineOpenAIProvider",
-			defaultProvider: "openai",
-			defaultApi: "openai-responses",
-			defaultBaseUrl: "https://api.openai.com/v1",
-		};
-	}
-	if (provider.provider === "anthropic") {
-		return {
-			name: "defineAnthropicProvider",
-			defaultProvider: "anthropic",
-			defaultApi: "anthropic-messages",
-			defaultBaseUrl: "https://api.anthropic.com",
-		};
-	}
-	return undefined;
 }
 
 function formatModelExpression(model: AgentModelDefinition, indent: string): string {
@@ -127,53 +116,50 @@ function formatModelExpression(model: AgentModelDefinition, indent: string): str
 	return lines.join("\n");
 }
 
-function formatToolExpressions(toolNames: string[]): string[] {
-	const expressions: string[] = [];
-	for (const toolName of toolNames) {
-		const helperName = TOOL_HELPER_NAMES[toolName as (typeof DEFAULT_AGENT_TOOL_NAMES)[number]];
-		if (!helperName) {
-			throw new Error(`Cannot emit agent.ts: unknown tool helper for ${toolName}`);
-		}
-		expressions.push(`${helperName}()`);
-	}
-	return expressions;
-}
-
-export function assertKnownToolNames(
-	agentName: string,
-	fieldName: "includeTools" | "excludeTools" | "toolNames",
-	toolNames: string[],
-): void {
-	const knownNames = new Set<string>(DEFAULT_AGENT_TOOL_NAMES);
-	for (const toolName of toolNames) {
-		if (!knownNames.has(toolName)) {
-			throw new Error(
-				`Invalid agent "${agentName}": unknown tool name "${toolName}" in ${fieldName}. ` +
-					`Known tools: ${DEFAULT_AGENT_TOOL_NAMES.join(", ")}`,
-			);
-		}
-	}
-}
-
-export interface AgentTsSourceConfig {
-	name: string;
-	parentName?: string;
-	description?: string;
-	roles?: string[];
-	modelDefinition?: AgentModelDefinition;
-	toolNames?: string[];
-}
-
 export function buildAgentTsSource(config: AgentTsSourceConfig): string {
-	const toolNames = config.toolNames ?? [...DEFAULT_AGENT_TOOL_NAMES];
-	assertKnownToolNames(config.name, "toolNames", toolNames);
-	const lines = [
-		'import { createCreateAgentTool, createDestroyAgentTool, createDispatchBashTool, createDispatchReadTool, createReloadTool, createSendMessageTool, createTeamTool, defineAgent, defineAnthropicProvider, defineContextFile, defineModel, defineOpenAIProvider, defineProvider, defineSkill } from "@sheason/d-pi";',
-	];
+	const lines: string[] = [];
+
+	const imports = new Set<string>(["defineAgent"]);
 	if (config.parentName) {
 		lines.push(`import parentAgent from "../${config.parentName}/agent.ts";`);
+		lines.push("");
 	}
+
+	if (config.modelDefinition) {
+		if ("id" in config.modelDefinition && typeof config.modelDefinition.provider !== "string") {
+			const p = config.modelDefinition.provider;
+			if (p.provider === "openai") imports.add("defineOpenAIProvider");
+			else if (p.provider === "anthropic") imports.add("defineAnthropicProvider");
+			else imports.add("defineProvider");
+			imports.add("defineModel");
+		} else if (!("id" in config.modelDefinition)) {
+			imports.add("defineModel");
+		}
+	}
+
+	const importExpr = [...imports].sort().join(", ");
+	if (lines.length > 0 && lines[0].startsWith("import ")) {
+		lines.unshift(`import { ${importExpr} } from "@sheason/d-pi";`);
+	} else {
+		lines.unshift(`import { ${importExpr} } from "@sheason/d-pi";`);
+		if (lines.length > 1) lines.splice(1, 0, "");
+	}
+
+	lines.push("// Convention-based agent configuration:");
+	lines.push("// - AGENTS.md          → agent identity (auto-loaded as system context)");
+	lines.push("// - skills/            → agent skills (auto-discovered SKILL.md files)");
+	lines.push("// - context/*.md       → extra context (auto-appended to system prompt)");
+	lines.push("// - tools/*.ts         → custom tools (export default defineTool({...}))");
+	lines.push("// - commands/*.ts      → custom commands (export default defineCommand({...}))");
+	lines.push("//");
+	lines.push("// Workspace resources (referenced by path string):");
+	lines.push('// - model: "openai/gpt-4o"  → references models/openai/gpt-4o.ts');
+	lines.push('// - sources: ["lark-bridge"] → subscribes to sources/lark-bridge');
+	lines.push("//");
+	lines.push("// Built-in tools (dispatch_bash, dispatch_read, send_message, create_agent,");
+	lines.push("// destroy_agent, team, reload, reload_workspace) are always available.");
 	lines.push("");
+
 	lines.push("export default defineAgent({");
 	if (config.parentName) {
 		lines.push("\tparent: parentAgent,");
@@ -181,22 +167,14 @@ export function buildAgentTsSource(config: AgentTsSourceConfig): string {
 	if (config.description !== undefined) {
 		lines.push(`\tdescription: ${JSON.stringify(config.description)},`);
 	}
-	if (config.roles && config.roles.length > 0) {
-		lines.push(`\troles: ${formatArrayLiteral(config.roles)},`);
-	}
-	if (config.modelDefinition) {
+	if (config.modelRef) {
+		lines.push(`\tmodel: ${JSON.stringify(config.modelRef)},`);
+	} else if (config.modelDefinition) {
 		lines.push(`\tmodel: ${formatModelExpression(config.modelDefinition, "\t")},`);
 	}
-	lines.push('\tskills: defineSkill({ dir: "./skills" }),');
-	lines.push("\ttools: [");
-	for (const expression of formatToolExpressions(toolNames)) {
-		lines.push(`\t\t${expression},`);
+	if (config.sources && config.sources.length > 0) {
+		lines.push(`\tsources: ${formatArrayLiteral(config.sources)},`);
 	}
-	lines.push("\t],");
-	lines.push("\tcontextFiles: [");
-	lines.push('\t\tdefineContextFile({ type: "context", path: "./AGENTS.md" }),');
-	lines.push('\t\tdefineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" }),');
-	lines.push("\t],");
 	lines.push("});");
 	lines.push("");
 	return lines.join("\n");

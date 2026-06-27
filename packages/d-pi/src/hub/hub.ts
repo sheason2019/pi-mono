@@ -2,11 +2,15 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
-import { AGENT_SESSION_DIR, AGENT_TS_FILE, writeAgentTsConfig } from "../agent-config.ts";
+import { AGENT_SESSION_DIR, AGENT_TS_FILE, DEFAULT_BUILTIN_TOOL_NAMES, writeAgentTsConfig } from "../agent-config.ts";
+import {
+	discoverAgentConventionResources,
+	ensureAgentConventionDirs,
+	readLoadedAgentDefinitionFromTs,
+} from "../agent-loader.ts";
 import { AuthSessionManager } from "../auth/auth-session.ts";
 import { DEFAULT_HUB_PORT } from "../defaults.ts";
 import { formatDPiMetaMessage } from "../message-meta.ts";
-import { syncTeamTemplate } from "../team-template-sync.ts";
 import type {
 	AgentConfig,
 	CreateAgentResult,
@@ -18,7 +22,7 @@ import type {
 	WorkerToHubMessage,
 } from "../types.ts";
 import { loadWorkspaceContext } from "../workspace/workspace.ts";
-import { readWorkspaceDefinitionFromTs, type WorkspaceDefinition } from "../workspace-definition.ts";
+import { discoverWorkspaceContextFiles, discoverWorkspaceModelPaths } from "../workspace/workspace-resources.ts";
 import { AgentRegistry } from "./agent-registry.ts";
 import { ExecutorRegistry } from "./executor-registry.ts";
 import { HubGateway } from "./gateway.ts";
@@ -28,10 +32,9 @@ import { SourceManager } from "./source-manager.ts";
 export class Hub {
 	private readonly _registry: AgentRegistry;
 	private readonly _gateway: HubGateway;
-	private readonly _sourceManager: SourceManager;
 	private readonly _executorRegistry: ExecutorRegistry;
+	private readonly _sourceManager: SourceManager;
 	private readonly _config: HubConfig;
-	private _workspaceDefinition: WorkspaceDefinition | undefined;
 	/**
 	 * Max time to wait for an executor result before failing the
 	 * dispatch. Mirrors HubGateway's `remoteCallTimeoutMs` so the IPC
@@ -45,27 +48,23 @@ export class Hub {
 		this._remoteCallTimeoutMs = config.remoteCallTimeoutMs ?? 60_000;
 		this._registry = new AgentRegistry();
 
-		this._sourceManager = new SourceManager((sourceName, content, subscriberNames) => {
-			const metaContent = formatDPiMetaMessage({ sourceType: "source", sourceName }, content);
-			for (const agentName of subscriberNames) {
-				const record = this._registry.get(agentName);
-				if (record) {
-					record.worker.postMessage({
-						type: "message",
-						fromAgentName: `source:${sourceName}`,
-						content: metaContent,
-						sourceName,
-						mode: "steer",
-					} satisfies HubToWorkerMessage);
-				}
-			}
-		});
-
 		this._executorRegistry = new ExecutorRegistry();
+
+		this._sourceManager = new SourceManager(config.workspaceRoot, config.workspaceContext.workspaceSourcePaths);
+		this._sourceManager.setMessageHandler((agentName, content, sourceName, mode) => {
+			const record = this._registry.getByName(agentName);
+			if (!record) return;
+			record.worker.postMessage({
+				type: "message",
+				fromAgentName: "source",
+				content: formatDPiMetaMessage({ sourceType: "source", sourceName }, content),
+				sourceName,
+				mode,
+			});
+		});
 
 		this._gateway = new HubGateway(
 			this._registry,
-			this._sourceManager,
 			(parentName, options) => this.createAgent(parentName, options),
 			(agentName) => this.destroyAgent(agentName),
 			new AuthSessionManager(config.workspaceRoot),
@@ -75,7 +74,27 @@ export class Hub {
 	}
 
 	async stop(): Promise<void> {
-		this._sourceManager.stopAll();
+		await this._sourceManager.stop();
+	}
+
+	async reloadWorkspace(): Promise<{
+		models: string[];
+		contextFiles: string[];
+		sources: { added: string[]; removed: string[]; changed: string[]; total: number };
+	}> {
+		const modelPaths = discoverWorkspaceModelPaths(this._config.workspaceRoot);
+		const contextFiles = discoverWorkspaceContextFiles(this._config.workspaceRoot);
+		const sourceResult = await this._sourceManager.reload();
+		return {
+			models: Object.keys(modelPaths).sort(),
+			contextFiles: contextFiles.map((f) => f.key).sort(),
+			sources: {
+				added: sourceResult.added,
+				removed: sourceResult.removed,
+				changed: sourceResult.changed,
+				total: sourceResult.total,
+			},
+		};
 	}
 
 	async start(): Promise<void> {
@@ -83,22 +102,19 @@ export class Hub {
 
 		// 1. Start gateway
 		await this._gateway.start(hubPort);
-		this._workspaceDefinition = await readWorkspaceDefinitionFromTs(this._config.workspaceRoot);
 
-		// 1b. Sync team-template from d-pi.ts declaration
-		await this._syncTeamTemplate(this._workspaceDefinition?.teamTemplate);
+		// 2. Discover sources before agents so subscribe_sources during agent init can find them
+		await this._sourceManager.reload();
 
-		// 2. Discover and start persisted agents from agents/ directory
-		const restoredAgents = await this._restorePersistedAgents();
+		// 3. Discover and start persisted agents from agents/ directory
+		await this._restorePersistedAgents();
 
-		// 3. Ensure root agent exists
+		// 4. Ensure root agent exists
 		if (!this._registry.getByName("root")) {
 			await this.createAgent(undefined, {
 				name: "root",
 			});
 		}
-
-		this._syncWorkspaceSources(restoredAgents);
 
 		process.stderr.write(`[d-pi hub] Workspace: ${this._config.workspaceRoot}\n`);
 		process.stderr.write(`[d-pi hub] Listening on port ${hubPort}\n`);
@@ -129,7 +145,7 @@ export class Hub {
 	 * logged. This matches the spirit of the strict-JSON `//` comment handling:
 	 * surface corruption rather than paper over it.
 	 */
-	private async _restorePersistedAgents(): Promise<ReturnType<typeof orderAgentsForRestore>> {
+	private async _restorePersistedAgents(): Promise<void> {
 		const discovered = await discoverPersistedAgents(this._config.workspaceRoot);
 		const ordered = orderAgentsForRestore(discovered);
 
@@ -158,7 +174,6 @@ export class Hub {
 				await this.createAgent(parentNameForCreate, {
 					name: d.config.name,
 					description: d.config.description,
-					roles: d.config.roles,
 					persistDefinition: false,
 				});
 			} catch (err) {
@@ -167,29 +182,6 @@ export class Hub {
 				);
 			}
 		}
-		return ordered;
-	}
-
-	private _syncWorkspaceSources(agents: ReturnType<typeof orderAgentsForRestore>): void {
-		const workspace = this._workspaceDefinition;
-		if (!workspace) {
-			this._sourceManager.syncSources({}, new Map(), this._config.workspaceRoot);
-			return;
-		}
-		const subscribersBySource = new Map<string, Set<string>>();
-		for (const entry of agents) {
-			for (const sourceName of Object.keys(entry.definition.sources ?? {})) {
-				if (!workspace.sources[sourceName]) continue;
-				const subscribers = subscribersBySource.get(sourceName) ?? new Set<string>();
-				subscribers.add(entry.config.name);
-				subscribersBySource.set(sourceName, subscribers);
-			}
-		}
-		this._sourceManager.syncSources(workspace.sources, subscribersBySource, this._config.workspaceRoot);
-	}
-
-	private async _syncTeamTemplate(declared: { repo: string; ref?: string } | undefined): Promise<void> {
-		await syncTeamTemplate(this._config.workspaceRoot, declared);
 	}
 
 	async createAgent(
@@ -198,7 +190,6 @@ export class Hub {
 			name: string;
 			cwd?: string;
 			description?: string;
-			roles?: string[];
 			persistDefinition?: boolean;
 		},
 	): Promise<CreateAgentResult> {
@@ -231,17 +222,14 @@ export class Hub {
 		// Agent cwd: workspaceRoot/agents/<name>/ (create if needed)
 		const agentDir = options.cwd ?? join(this._config.workspaceRoot, "agents", options.name);
 		mkdirSync(agentDir, { recursive: true });
+		ensureAgentConventionDirs(agentDir);
 
-		const workspaceContext = loadWorkspaceContext(this._config.workspaceRoot, {
-			agentName: options.name,
-			roles: options.roles,
-		});
+		const workspaceContext = loadWorkspaceContext(this._config.workspaceRoot);
 
 		const agentConfig: AgentConfig = {
 			name: options.name,
 			parentName,
 			description: options.description,
-			roles: options.roles,
 		};
 		if (options.persistDefinition !== false) {
 			writeAgentTsConfig(agentDir, agentConfig);
@@ -342,6 +330,7 @@ export class Hub {
 		}
 
 		// Unregister (no descendants since children check passed)
+		this._sourceManager.unsubscribeAgent(agentName);
 		this._registry.unregister(agentName);
 
 		// Remove agent.ts and directory for all destroyed agents
@@ -408,6 +397,10 @@ export class Hub {
 
 			case "tool_call_timeout":
 				process.stderr.write(`[d-pi hub] Tool call ${message.callId} from agent ${message.agentName} timed out\n`);
+				break;
+
+			case "subscribe_sources":
+				void this._sourceManager.subscribeAgent(message.agentName, message.sources);
 				break;
 		}
 	}
@@ -477,13 +470,70 @@ export class Hub {
 				}
 
 				case "team": {
-					const snapshot = this._registry.getTeamSnapshot();
+					const baseSnapshot = this._registry.getTeamSnapshot();
+					const agents = await Promise.all(
+						baseSnapshot.agents.map(async (a) => {
+							try {
+								const def = await readLoadedAgentDefinitionFromTs(a.cwd);
+								if (!def) {
+									return {
+										...a,
+										sources: [],
+										toolCount: 0,
+										customToolCount: 0,
+										commandCount: 0,
+										contextFileCount: 0,
+										hasSkillsDir: false,
+										hasToolsDir: false,
+										hasCommandsDir: false,
+										disableDefaultTools: false,
+										error: "agent.ts not loadable",
+									};
+								}
+								const discovered = discoverAgentConventionResources(a.cwd);
+								const builtinNames: string[] = def.disableDefaultTools ? [] : [...DEFAULT_BUILTIN_TOOL_NAMES];
+								const customNames = def.tools.map((t) => t.name);
+								const allTools = [...builtinNames, ...customNames.filter((n) => !builtinNames.includes(n))];
+								const modelRef = typeof def.model === "string" ? def.model : def.model ? "(inline)" : undefined;
+								return {
+									...a,
+									description: def.description,
+									model: modelRef,
+									sources: def.sources ?? [],
+									toolCount: allTools.length,
+									customToolCount: def.tools.length,
+									commandCount: def.commands?.length ?? discovered.commandFiles.length,
+									contextFileCount: def.contextFiles?.length ?? discovered.contextFiles.length,
+									hasSkillsDir: discovered.hasSkillsDir,
+									hasToolsDir: discovered.hasToolsDir,
+									hasCommandsDir: discovered.hasCommandsDir,
+									disableDefaultTools: def.disableDefaultTools,
+								};
+							} catch (err) {
+								return {
+									...a,
+									sources: [],
+									toolCount: 0,
+									customToolCount: 0,
+									commandCount: 0,
+									contextFileCount: 0,
+									hasSkillsDir: false,
+									hasToolsDir: false,
+									hasCommandsDir: false,
+									disableDefaultTools: false,
+									error: err instanceof Error ? err.message : String(err),
+								};
+							}
+						}),
+					);
 					result = {
-						...snapshot,
+						agents,
+						sources: this._sourceManager.getStatuses(),
 						executors: this._executorRegistry.list().map((executor) => ({
 							...executor,
 							boundAgentName: this._gateway.getBoundAgentName(executor.connectId),
 						})),
+						rootName: baseSnapshot.rootName,
 					} satisfies TeamSnapshot;
 					break;
 				}
@@ -546,6 +596,17 @@ export class Hub {
 							params: p.params,
 						});
 					});
+					break;
+				}
+
+				case "reload_workspace": {
+					try {
+						result = await this.reloadWorkspace();
+					} catch (err) {
+						result = {
+							error: err instanceof Error ? err.message : String(err),
+						};
+					}
 					break;
 				}
 

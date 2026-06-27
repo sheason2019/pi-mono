@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -37,7 +36,6 @@ export interface DPiCliRuntime {
 	write?: (text: string) => void;
 	isTTY?: boolean;
 	createHub?: (config: HubConfig) => { start(): Promise<void> };
-	cloneTeamTemplate?: (repo: string, targetDir: string) => Promise<void>;
 	runRemoteTui?: (options: RunDPiRemoteTuiOptions) => Promise<unknown>;
 	runConnectInteractiveMode?: (options: RunDPiConnectInteractiveModeOptions) => Promise<unknown>;
 }
@@ -57,19 +55,6 @@ function localUsersRoot(runtime: DPiCliRuntime): string {
 	return join(runtime.homeDir, ".d-pi");
 }
 
-function defaultCloneTeamTemplate(repo: string, targetDir: string): Promise<void> {
-	return new Promise((resolve, reject) => {
-		execFile("git", ["clone", repo, targetDir], (error, _stdout, stderr) => {
-			if (error) {
-				const suffix = stderr.trim() ? `: ${stderr.trim()}` : "";
-				reject(new Error(`Failed to clone team template${suffix}`));
-				return;
-			}
-			resolve();
-		});
-	});
-}
-
 function buildProgram(runtime: DPiCliRuntime): Command {
 	const program = new Command();
 
@@ -87,22 +72,19 @@ function buildProgram(runtime: DPiCliRuntime): Command {
 	program
 		.command("init")
 		.description("Initialize a workspace in the current directory")
-		.option("--team-template <git-repo>", "Clone a team template repository")
-		.action(async (options: { teamTemplate?: string }) => {
+		.action(async () => {
 			initWorkspace(runtime.cwd);
-			if (options.teamTemplate) {
-				const targetDir = join(runtime.cwd, "team-template");
-				const cloneTeamTemplate = runtime.cloneTeamTemplate ?? defaultCloneTeamTemplate;
-				await cloneTeamTemplate(options.teamTemplate, targetDir);
-				runtime.stdout(`[d-pi] Cloned team template from ${options.teamTemplate} into team-template/`);
-			}
 			runtime.stdout("[d-pi] Workspace initialized in current directory");
 			runtime.stdout("[d-pi]   AGENTS.md               — shared context for all agents");
-			runtime.stdout("[d-pi]   APPEND_SYSTEM.md        — shared system prompt for all agents");
+			runtime.stdout("[d-pi]   context/*.md            — shared system prompt for all agents");
+			runtime.stdout("[d-pi]   models/                 — model definitions");
+			runtime.stdout("[d-pi]   sources/                — external data sources");
 			runtime.stdout("[d-pi]   agents/root/            — root agent working directory");
 			runtime.stdout("[d-pi]   agents/root/agent.ts    — root agent definition");
-			runtime.stdout("[d-pi]   agents/root/AGENTS.md   — root agent specific context");
-			runtime.stdout("[d-pi]   agents/root/.pi/APPEND_SYSTEM.md — root agent system prompt");
+			runtime.stdout("[d-pi]   agents/root/AGENTS.md   — root agent identity");
+			runtime.stdout("[d-pi]   agents/root/skills/     — root agent skills");
+			runtime.stdout("[d-pi]   agents/root/context/    — root agent extra context");
+			runtime.stdout("[d-pi]   agents/root/tools/      — root agent custom tools");
 			runtime.stdout("[d-pi] Run 'd-pi serve' to start the hub.");
 		});
 
@@ -130,7 +112,7 @@ function buildProgram(runtime: DPiCliRuntime): Command {
 		.command("connect")
 		.description("Connect to a running d-pi hub")
 		.argument("[target]", "Target URL or user@url", `http://localhost:${DEFAULT_HUB_PORT}`)
-		.option("--agent <id|name>", "Connect to a specific agent")
+		.option("--agent <name>", "Connect to a specific agent")
 		.action(async (target: string, options: { agent?: string }) => {
 			const url = target;
 			await runDPiConnectMode({ url, agent: options.agent });

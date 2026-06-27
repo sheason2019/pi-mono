@@ -99,6 +99,7 @@ describe("d-pi session transcript projector", () => {
 				toolCallId: "tool-1",
 				toolName: "ls",
 				status: "succeeded",
+				args: { path: "." },
 				result: { content: [{ type: "text", text: "agent.ts" }] },
 				timestamp: 3,
 			}),
@@ -131,9 +132,23 @@ describe("d-pi session transcript projector", () => {
 
 		expect(transcript.items).toEqual([
 			expect.objectContaining({ type: "message", message: expect.objectContaining({ content: "run ls" }) }),
-			expect.objectContaining({ type: "tool_state", toolCallId: "tool-1", status: "running" }),
-			expect.objectContaining({ type: "tool_state", toolCallId: "tool-1", status: "succeeded" }),
-			expect.objectContaining({ type: "turn_stats", output: 4, total: 19 }),
+			expect.objectContaining({
+				type: "tool_state",
+				toolCallId: "tool-1",
+				toolName: "ls",
+				status: "succeeded",
+				args: { path: "." },
+			}),
+			expect.objectContaining({
+				type: "turn_stats",
+				output: 4,
+				input: 10,
+				cacheRead: 5,
+				cacheWrite: 0,
+				total: 19,
+				duration: 0.4,
+				tps: 12.3,
+			}),
 			expect.objectContaining({ type: "notice", level: "error", text: "Runtime failed" }),
 		]);
 		expect(transcript.messages).toEqual([expect.objectContaining({ content: "run ls" })]);

@@ -490,20 +490,17 @@ describe("d-pi interactive editor submit", () => {
 		expect(proxy.prompt).not.toHaveBeenCalled();
 	});
 
-	it("handles /sources locally instead of sending it as a prompt", async () => {
+	it("does not handle /sources (command removed)", async () => {
 		const proxy = createProxy();
-		const showSourcesSelector = vi.fn(async () => {});
 
 		await expect(
 			handleDPiConnectSlashCommand("/sources", {
 				proxy,
 				showStatus: vi.fn(),
-				showSourcesSelector,
 				stop: vi.fn(async () => {}),
 			}),
-		).resolves.toBe(true);
+		).resolves.toBe(false);
 
-		expect(showSourcesSelector).toHaveBeenCalled();
 		expect(proxy.prompt).not.toHaveBeenCalled();
 	});
 
@@ -517,9 +514,11 @@ describe("d-pi interactive editor submit", () => {
 						parentName: undefined,
 						status: "ready",
 						children: ["helper"],
+						cwd: "/fake",
 					},
-					{ name: "helper", parentName: "root", status: "busy", children: [] },
+					{ name: "helper", parentName: "root", status: "busy", children: [], cwd: "/fake" },
 				],
+				sources: [],
 				executors: [],
 			},
 			"helper",

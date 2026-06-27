@@ -6,7 +6,6 @@ import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { ExecutorRegistry } from "../src/hub/executor-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
 import { Hub } from "../src/hub/hub.ts";
-import { SourceManager } from "../src/hub/source-manager.ts";
 import { HubChannel } from "../src/multi-agent/hub-channel.ts";
 import { setBuiltinContext } from "../src/surface/builtin-context.ts";
 import { createHubActionsClientFromHubChannel } from "../src/surface/hub-actions-adapter.ts";
@@ -93,7 +92,6 @@ describe('remote tool dispatch via IPC (case "dispatch" in _handleToolCall)', ()
 		executorRegistry = new ExecutorRegistry();
 		gateway = new HubGateway(
 			new AgentRegistry(),
-			new SourceManager(() => {}),
 			async () => ({ agentName: "created" }),
 			async () => {},
 			undefined, // no auth — internal IPC path doesn't need it
@@ -103,7 +101,13 @@ describe('remote tool dispatch via IPC (case "dispatch" in _handleToolCall)', ()
 			port: 0,
 			cwd: tempDir!,
 			workspaceRoot: tempDir!,
-			workspaceContext: { workspaceRoot: tempDir!, additionalSkillPaths: [] },
+			workspaceContext: {
+				workspaceRoot: tempDir!,
+				additionalSkillPaths: [],
+				workspaceModelPaths: {},
+				workspaceContextFiles: [],
+				workspaceSourcePaths: {},
+			},
 		});
 		// Replace the hub's internal references with our test instances
 		// so _handleToolCall uses the same executorRegistry / gateway
@@ -233,7 +237,6 @@ describe('send_message via IPC (case "send_message" in _handleToolCall)', () => 
 		executorRegistry = new ExecutorRegistry();
 		gateway = new HubGateway(
 			new AgentRegistry(),
-			new SourceManager(() => {}),
 			async () => ({ agentName: "created" }),
 			async () => {},
 			undefined,
@@ -243,7 +246,13 @@ describe('send_message via IPC (case "send_message" in _handleToolCall)', () => 
 			port: 0,
 			cwd: tempDir!,
 			workspaceRoot: tempDir!,
-			workspaceContext: { workspaceRoot: tempDir!, additionalSkillPaths: [] },
+			workspaceContext: {
+				workspaceRoot: tempDir!,
+				additionalSkillPaths: [],
+				workspaceModelPaths: {},
+				workspaceContextFiles: [],
+				workspaceSourcePaths: {},
+			},
 		});
 		(hub as unknown as { _gateway: HubGateway })._gateway = gateway;
 		(hub as unknown as { _executorRegistry: ExecutorRegistry })._executorRegistry = executorRegistry;

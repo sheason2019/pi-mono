@@ -654,9 +654,15 @@ describe("d-pi runtime foundation", () => {
 
 		expect(transcript.items).toEqual(
 			expect.arrayContaining([
-				expect.objectContaining({ type: "tool_state", toolCallId: "tool-1", toolName: "ls", status: "running" }),
 				expect.objectContaining({ type: "tool_state", toolCallId: "tool-1", toolName: "ls", status: "succeeded" }),
-				expect.objectContaining({ type: "turn_stats", output: 4, input: 10, cacheRead: 5, total: 19 }),
+				expect.objectContaining({
+					type: "turn_stats",
+					output: 4,
+					input: 10,
+					cacheRead: 5,
+					cacheWrite: 0,
+					total: 19,
+				}),
 				expect.objectContaining({ type: "notice", level: "error", text: "Runtime failed" }),
 			]),
 		);

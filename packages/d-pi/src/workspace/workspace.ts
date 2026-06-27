@@ -2,16 +2,19 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSy
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildAgentTsSource } from "../agent-config.ts";
+import { ensureAgentConventionDirs } from "../agent-loader.ts";
 import type { WorkspaceContext } from "../types.ts";
+import {
+	discoverWorkspaceContextFiles,
+	discoverWorkspaceModelPaths,
+	discoverWorkspaceSourcePaths,
+	ensureWorkspaceResourceDirs,
+} from "./workspace-resources.ts";
 
 const DPI_DIR = ".dpi";
-const CONFIG_FILE = "config.json";
 const AGENTS_DIR = "agents";
-const TEAM_TEMPLATE_DIR = "team-template";
 const SKILLS_DIR = "skills";
 const TUI_COMPONENTS_DIR = "tui-components";
-const APPEND_SYSTEM_MD = "APPEND_SYSTEM.md";
-const AGENTS_MD = "AGENTS.md";
 const D_PI_PACKAGE_NAME = "@sheason/d-pi";
 
 function dPiPackageRoot(): string {
@@ -81,64 +84,44 @@ function linkDPiPackageIntoWorkspace(workspaceRoot: string): void {
 	symlinkSync(packageRoot, linkPath, "dir");
 }
 
-export interface LoadWorkspaceContextOptions {
-	agentName?: string;
-	roles?: string[];
-}
-
 export function isWorkspaceRoot(dir: string): boolean {
 	return existsSync(join(resolve(dir), DPI_DIR));
 }
 
-export function loadWorkspaceContext(
-	workspaceRoot: string,
-	options: LoadWorkspaceContextOptions = {},
-): WorkspaceContext {
+export function loadWorkspaceContext(workspaceRoot: string): WorkspaceContext {
 	const resolved = resolve(workspaceRoot);
 
-	const appendSystemPath = join(resolved, APPEND_SYSTEM_MD);
-	let appendSystemPrompt: string | undefined;
-	if (existsSync(appendSystemPath)) {
-		appendSystemPrompt = readFileSync(appendSystemPath, "utf-8");
-	}
+	const appendSystemParts: string[] = [];
 
 	const additionalAgentsFiles: Array<{ path: string; content: string }> = [];
 	const additionalSkillPaths: string[] = [];
 
-	collectTeamTemplateContext(resolved, options, additionalAgentsFiles, additionalSkillPaths);
 	pushIfExists(additionalSkillPaths, join(resolved, SKILLS_DIR));
+
+	const workspaceContextFiles = discoverWorkspaceContextFiles(resolved);
+	for (const cf of workspaceContextFiles) {
+		appendSystemParts.push(`## ${cf.key}\n\n${cf.content}`);
+	}
+
+	const appendSystemPrompt = appendSystemParts.length > 0 ? appendSystemParts.join("\n\n") : undefined;
+
+	const workspaceModelPaths = discoverWorkspaceModelPaths(resolved);
+	const workspaceSourcePaths = discoverWorkspaceSourcePaths(resolved);
 
 	return {
 		workspaceRoot: resolved,
 		appendSystemPrompt,
 		additionalAgentsFiles,
 		additionalSkillPaths,
+		workspaceContextFiles,
+		workspaceModelPaths,
+		workspaceSourcePaths,
 	};
-}
-
-function collectTeamTemplateContext(
-	workspaceRoot: string,
-	_options: LoadWorkspaceContextOptions,
-	additionalAgentsFiles: Array<{ path: string; content: string }>,
-	additionalSkillPaths: string[],
-): void {
-	const architectureDir = join(workspaceRoot, TEAM_TEMPLATE_DIR);
-	if (!existsSync(architectureDir)) {
-		return;
-	}
-	pushAgentsFileIfExists(additionalAgentsFiles, join(architectureDir, AGENTS_MD));
-	pushIfExists(additionalSkillPaths, join(architectureDir, SKILLS_DIR));
 }
 
 function pushIfExists(target: string[], path: string): void {
 	if (existsSync(path)) {
 		target.push(path);
-	}
-}
-
-function pushAgentsFileIfExists(target: Array<{ path: string; content: string }>, path: string): void {
-	if (existsSync(path)) {
-		target.push({ path, content: readFileSync(path, "utf-8") });
 	}
 }
 
@@ -156,13 +139,14 @@ export function initWorkspace(dir: string): void {
 	const dpiDir = join(resolved, DPI_DIR);
 	mkdirSync(dpiDir, { recursive: true });
 
-	writeFileSync(join(dpiDir, CONFIG_FILE), "{}\n");
-
 	const agentsDir = join(resolved, AGENTS_DIR);
 	const rootAgentDir = join(agentsDir, "root");
 	mkdirSync(rootAgentDir, { recursive: true });
+	ensureAgentConventionDirs(rootAgentDir);
 	const tuiComponentsDir = join(resolved, TUI_COMPONENTS_DIR);
 	mkdirSync(tuiComponentsDir, { recursive: true });
+
+	ensureWorkspaceResourceDirs(resolved);
 
 	writeFileSync(
 		join(rootAgentDir, "agent.ts"),
@@ -182,32 +166,26 @@ export function initWorkspace(dir: string): void {
 This file is shared across all agents in the workspace.
 Add project-specific instructions, conventions, and guidelines here.
 
-## Workspace Configuration (\`.dpi/config.json\`)
+## Workspace Resources (convention-based)
 
-Strict JSON — no comments, no trailing commas.
+- \`models/**/*.ts\` — model definitions (\`export default defineModel({...})\`), referenced by path (e.g. "openai/gpt-4o")
+- \`context/*.md\` — shared context, injected as \`## <filename>\` sections in every agent's system prompt
+- \`sources/<name>/source.ts\` — external data sources (subprocesses that push messages to subscribed agents)
+- \`skills/*\` — workspace-level skills, available to all agents
 
 ## Agent Configuration (\`agents/<name>/agent.ts\`)
 
-Each agent exports a standard definition:
+Each agent is defined by its directory. Convention-based discovery:
 
-- \`export default defineAgent({ ... })\`
-- \`parent\` (optional): imported parent definition. The directory name is the agent identity; root omits \`parent\`.
-- \`description\` (optional): free-form prose about what this agent is, who it serves,
-  and when to delegate to it. Injected into the agent's system prompt as the
-  "## Agent identity" section so the LLM has a self-description to refer to
-  during multi-agent coordination. Recommended: a few sentences in plain
-  English, no formatting.
-- \`model\` (optional): \`defineModel({ provider, name })\` for a model declared in this
-  agent's \`models\` array, or
-  \`defineModel({ id, provider: defineOpenAIProvider(...), contextWindow, thinkingLevel, ... })\`
-  for an agent-local model. Custom providers must use \`defineProvider(...)\`.
-- \`roles\` (optional): array of role names — see \`team-template/roles/\`.
-- \`skills\` (optional): use \`defineSkill({ dir: "./skills" })\` for agent-local skills.
-- \`tools\` (required): executable tool definitions, usually explicit built-in helpers such as
-  \`createDispatchBashTool()\`, \`createDispatchReadTool()\`, \`createTeamTool()\`, and custom \`defineTool({ name, description, parameters, execute })\`.
-  This is the effective tool set for the agent.
-- \`contextFiles\` (optional): explicitly include \`./AGENTS.md\` as \`context\` and
-  \`./.pi/APPEND_SYSTEM.md\` as \`append_system\` when this agent needs local context.
+- \`agent.ts\` — minimal definition: \`model\` (path string), \`sources\` (string array), optional \`parent\`/\`description\`
+- \`AGENTS.md\` — agent identity (auto-loaded as system context)
+- \`skills/\` — agent-local skills (SKILL.md files auto-discovered)
+- \`context/*.md\` — extra agent context (auto-appended to system prompt)
+- \`tools/*.ts\` — custom tools (\`export default defineTool({...})\`)
+- \`commands/*.ts\` — custom slash commands (\`export default defineCommand({...})\`)
+
+Built-in tools (dispatch_bash, dispatch_read, send_message, create_agent,
+destroy_agent, team, reload, reload_workspace) are always available.
 `,
 		);
 	}
@@ -221,42 +199,14 @@ Each agent exports a standard definition:
 		);
 	}
 
-	const appendSystemMdPath = join(resolved, APPEND_SYSTEM_MD);
-	if (!existsSync(appendSystemMdPath)) {
-		writeFileSync(
-			appendSystemMdPath,
-			`# Workspace System Prompt (Append)
-
-Content here is appended to every agent's system prompt.
-Use this for shared rules, safety guidelines, or conventions
-that all agents should follow.
-`,
-		);
-	}
-
 	const rootAgentsMdPath = join(rootAgentDir, "AGENTS.md");
 	if (!existsSync(rootAgentsMdPath)) {
 		writeFileSync(
 			rootAgentsMdPath,
-			`# Root Agent Context
+			`# Root Agent
 
-This file is specific to the root agent.
-Workspace-level context from AGENTS.md in the workspace root
-is also loaded automatically.
-`,
-		);
-	}
-
-	const rootPiDir = join(rootAgentDir, ".pi");
-	mkdirSync(rootPiDir, { recursive: true });
-	const rootAppendSystemPath = join(rootPiDir, APPEND_SYSTEM_MD);
-	if (!existsSync(rootAppendSystemPath)) {
-		writeFileSync(
-			rootAppendSystemPath,
-			`# Root Agent System Prompt (Append)
-
-Content here is appended to the root agent's system prompt,
-in addition to the workspace-level APPEND_SYSTEM.md.
+You are the root agent, the user's primary assistant in this workspace.
+Workspace-level context from AGENTS.md in the workspace root is also loaded automatically.
 `,
 		);
 	}

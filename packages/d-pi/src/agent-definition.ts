@@ -4,7 +4,6 @@ import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/p
 import type { Api, Model, Provider, ThinkingLevel } from "@earendil-works/pi-ai";
 import type { Static, TSchema } from "typebox";
 import type { ModelRegistry } from "./runtime/model-registry.ts";
-import type { SourceDefinition } from "./workspace-definition.ts";
 
 export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = unknown, TState = unknown> {
 	name: string;
@@ -89,7 +88,19 @@ export interface AgentLocalModelDefinition {
 
 export type AgentModelDefinition = AgentModelReferenceDefinition | AgentLocalModelDefinition;
 
-export type AgentRoleDefinition = string;
+export type AgentModelSpec = string | AgentModelDefinition;
+
+export interface AgentSourceDefinition {
+	name: string;
+	description?: string;
+	command: string;
+	args?: string[];
+	cwd?: string;
+	env?: Record<string, string>;
+	mode?: "next" | "steer";
+}
+
+export type AgentSourceDefinitionInput = Omit<AgentSourceDefinition, "name"> & { name?: string };
 
 export interface AgentCommandContext {
 	cwd: string;
@@ -121,30 +132,30 @@ export interface AgentDefinitionInput {
 	/** Imported parent agent definition. This builds topology only; it does not imply inheritance. */
 	parent?: AgentDefinition;
 	description?: string;
-	roles?: AgentRoleDefinition[];
-	model?: AgentModelDefinition;
-	sources?: Record<string, SourceDefinition>;
+	model?: AgentModelSpec;
 	tools?: AgentToolDefinition[];
 	skills?: AgentSkillDefinition;
-	contextFiles?: AgentContextFileDefinition[];
+	sources?: string[];
 	commands?: AgentCommandDefinition[];
 	middlewares?: AgentMiddlewareDefinition[];
 	autoCompact?: boolean;
+	/** When true, disables the built-in default tool set (dispatch_bash, dispatch_read, etc.). Default: false. */
+	disableDefaultTools?: boolean;
 }
 
 export interface AgentDefinition {
 	/** Imported parent agent definition. This builds topology only; it does not imply inheritance. */
 	parent?: AgentDefinition;
 	description?: string;
-	roles?: AgentRoleDefinition[];
-	model?: AgentModelDefinition;
-	sources?: Record<string, SourceDefinition>;
+	model?: AgentModelSpec;
 	tools: AgentToolDefinition[];
 	skills?: AgentSkillDefinition;
-	contextFiles: AgentContextFileDefinition[];
+	sources: string[];
 	commands: AgentCommandDefinition[];
 	middlewares: AgentMiddlewareDefinition[];
 	autoCompact: boolean;
+	/** When true, disables the built-in default tool set. */
+	disableDefaultTools: boolean;
 }
 
 const AGENT_DEFINITION_METADATA = Symbol.for("@sheason/d-pi/agent-definition-metadata");
@@ -235,14 +246,6 @@ export function defineSkill(input: AgentSkillDefinition): AgentSkillDefinition {
 	return { dir: input.dir };
 }
 
-export function defineContextFile(input: AgentContextFileDefinition): AgentContextFileDefinition {
-	return { type: input.type, path: input.path };
-}
-
-export function defineContextFiles(...input: AgentContextFileDefinition[]): AgentContextFileDefinition[] {
-	return input.map(defineContextFile);
-}
-
 export function defineProvider(input: AgentProviderDefinition): AgentProviderDefinition {
 	return {
 		provider: input.provider,
@@ -318,12 +321,19 @@ export function defineModel(input: AgentModelDefinition): AgentModelDefinition {
 	};
 }
 
-export function defineRole(input: AgentRoleDefinition): AgentRoleDefinition {
-	return input;
-}
-
-export function defineRoles(...input: AgentRoleDefinition[]): AgentRoleDefinition[] {
-	return input.map(defineRole);
+export function defineSource(input: AgentSourceDefinitionInput): AgentSourceDefinition {
+	if (typeof input.command !== "string" || input.command.trim().length === 0) {
+		throw new TypeError("defineSource requires a non-empty command");
+	}
+	return {
+		name: input.name ?? "",
+		...(input.description === undefined ? {} : { description: input.description }),
+		command: input.command,
+		...(input.args === undefined ? {} : { args: [...input.args] }),
+		...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+		...(input.env === undefined ? {} : { env: { ...input.env } }),
+		...(input.mode === undefined ? {} : { mode: input.mode }),
+	};
 }
 
 export function defineCommand(input: AgentCommandDefinition): AgentCommandDefinition {
@@ -365,15 +375,16 @@ export function defineAgent(input: AgentDefinitionInput): AgentDefinition {
 	const definition: AgentDefinition = {
 		...(input.parent === undefined ? {} : { parent: input.parent }),
 		...(input.description === undefined ? {} : { description: input.description }),
-		...(input.roles === undefined ? {} : { roles: defineRoles(...input.roles) }),
-		...(input.model === undefined ? {} : { model: defineModel(input.model) }),
-		...(input.sources === undefined ? {} : { sources: { ...input.sources } }),
+		...(input.model === undefined
+			? {}
+			: { model: typeof input.model === "string" ? input.model : defineModel(input.model) }),
 		tools: defineTools(...(input.tools ?? [])),
 		...(input.skills === undefined ? {} : { skills: defineSkill(input.skills) }),
-		contextFiles: defineContextFiles(...(input.contextFiles ?? [])),
+		sources: input.sources ? [...input.sources] : [],
 		commands: defineCommands(...(input.commands ?? [])),
 		middlewares: defineMiddlewares(...(input.middlewares ?? [])),
 		autoCompact: input.autoCompact ?? true,
+		disableDefaultTools: input.disableDefaultTools ?? false,
 	};
 	const agentFilePath = inferCallingFilePath();
 	return setAgentDefinitionMetadata(definition, {

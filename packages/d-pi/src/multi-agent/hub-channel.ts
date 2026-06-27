@@ -40,6 +40,10 @@ export class HubChannel {
 		return this._callTool("dispatch", { tool, params, connect_id: connectId });
 	}
 
+	reloadWorkspace(): Promise<unknown> {
+		return this._callTool("reload_workspace", {});
+	}
+
 	resolveCall(callId: string, result: unknown): void {
 		const pending = this._pendingCalls.get(callId);
 		if (pending) {

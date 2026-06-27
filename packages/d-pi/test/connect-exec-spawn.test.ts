@@ -17,7 +17,6 @@ import {
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { ExecutorRegistry } from "../src/hub/executor-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
-import { SourceManager } from "../src/hub/source-manager.ts";
 
 const childProcessMocks = vi.hoisted(() => {
 	interface SpawnOptionsForTest {
@@ -87,14 +86,7 @@ afterEach(() => {
 	childProcessMocks.reset();
 });
 
-const DPI_ENV_KEYS = [
-	"DPI_AUTH_TOKEN",
-	"DPI_CONNECT_ID",
-	"DPI_CURRENT_AGENT_NAME",
-	"DPI_CURRENT_AGENT_ID",
-	"DPI_HUB_URL",
-	"DPI_CWD",
-] as const;
+const DPI_ENV_KEYS = ["DPI_AUTH_TOKEN", "DPI_CONNECT_ID", "DPI_CURRENT_AGENT_NAME", "DPI_HUB_URL", "DPI_CWD"] as const;
 
 type DPiEnvKey = (typeof DPI_ENV_KEYS)[number];
 
@@ -142,7 +134,6 @@ describe("bindAgentOnHub", () => {
 		const execReg = new ExecutorRegistry();
 		const gateway = new HubGateway(
 			new AgentRegistry(),
-			new SourceManager(() => {}),
 			async () => ({ agentName: "a" }),
 			async () => {},
 			new AuthSessionManager(tempDir!),
@@ -285,7 +276,6 @@ describe("runConnectSession", () => {
 			"http://hub",
 		]);
 		expect(tuiSpawn.options.env?.DPI_CURRENT_AGENT_NAME).toBe("root agent");
-		expect(tuiSpawn.options.env?.DPI_CURRENT_AGENT_ID).toBeUndefined();
 		expect(tuiSpawn.options.env?.DPI_CONNECT_ID).toBeUndefined();
 		expect(tuiSpawn.options.env?.DPI_AUTH_TOKEN).toBe("session-token");
 		expect(tuiSpawn.options.env?.DPI_HUB_URL).toBe("http://hub");
@@ -296,7 +286,6 @@ describe("runConnectSession", () => {
 			DPI_AUTH_TOKEN: "stale-token",
 			DPI_CONNECT_ID: "stale-connect",
 			DPI_CURRENT_AGENT_NAME: "stale-agent",
-			DPI_CURRENT_AGENT_ID: "stale-id",
 			DPI_HUB_URL: "http://stale-hub",
 			DPI_CWD: "/stale/cwd",
 		});
@@ -324,13 +313,11 @@ describe("runConnectSession", () => {
 			expect(executorEnv?.DPI_AUTH_TOKEN).toBeUndefined();
 			expect(executorEnv?.DPI_CONNECT_ID).toBe("connect-uuid");
 			expect(executorEnv?.DPI_CURRENT_AGENT_NAME).toBeUndefined();
-			expect(executorEnv?.DPI_CURRENT_AGENT_ID).toBeUndefined();
 			expect(executorEnv?.DPI_HUB_URL).toBe("http://hub");
 			expect(executorEnv?.DPI_CWD).toBe("/tmp/d-pi-workspace");
 			expect(tuiEnv?.DPI_AUTH_TOKEN).toBeUndefined();
 			expect(tuiEnv?.DPI_CONNECT_ID).toBeUndefined();
 			expect(tuiEnv?.DPI_CURRENT_AGENT_NAME).toBe("root agent");
-			expect(tuiEnv?.DPI_CURRENT_AGENT_ID).toBeUndefined();
 			expect(tuiEnv?.DPI_HUB_URL).toBe("http://hub");
 			expect(tuiEnv?.DPI_CWD).toBeUndefined();
 		} finally {

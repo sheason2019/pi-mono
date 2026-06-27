@@ -7,7 +7,6 @@ export {
 export {
 	type AgentCommandContext,
 	type AgentCommandDefinition,
-	type AgentContextFileDefinition,
 	type AgentDefinition,
 	type AgentDefinitionInput,
 	type AgentDefinitionMetadata,
@@ -16,25 +15,23 @@ export {
 	type AgentMiddlewareInputEventResult,
 	type AgentModelDefinition,
 	type AgentModelReferenceDefinition,
+	type AgentModelSpec,
 	type AgentProviderDefinition,
-	type AgentRoleDefinition,
 	type AgentSkillDefinition,
+	type AgentSourceDefinition,
 	type AgentToolDefinition,
 	type AgentToolDefinitionInput,
 	defineAgent,
 	defineAnthropicProvider,
 	defineCommand,
 	defineCommands,
-	defineContextFile,
-	defineContextFiles,
 	defineMiddleware,
 	defineMiddlewares,
 	defineModel,
 	defineOpenAIProvider,
 	defineProvider,
-	defineRole,
-	defineRoles,
 	defineSkill,
+	defineSource,
 	defineTool,
 	defineTools,
 } from "./agent-definition.ts";
@@ -47,12 +44,10 @@ export {
 export { DPiContextManager, type DPiContextManagerOptions } from "./context/context-manager.ts";
 export type { DPiContextFile } from "./context/resource-loader.ts";
 export { Hub } from "./hub/hub.ts";
-export { SourceManager } from "./hub/source-manager.ts";
 export { extractDPiMeta, formatDPiMetaMessage } from "./message-meta.ts";
 export {
 	AGENT_SWITCH_FILE,
 	buildAgentSelectOptions,
-	fetchSources,
 	fetchTeamSnapshot,
 	formatAgentEntry,
 	HubChannel,
@@ -134,12 +129,3 @@ export type {
 	TeamSnapshot,
 	WorkerToHubMessage,
 } from "./types.ts";
-export {
-	defineSource,
-	defineWorkspace,
-	type SourceContext,
-	type SourceDefinition,
-	type SourceOutput,
-	type WorkspaceDefinition,
-	type WorkspaceDefinitionInput,
-} from "./workspace-definition.ts";

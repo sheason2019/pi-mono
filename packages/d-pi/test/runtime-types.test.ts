@@ -103,8 +103,10 @@ const snapshot = {
 				parentName: undefined,
 				status: "busy",
 				children: ["child"],
+				cwd: "/fake",
 			},
 		],
+		sources: [],
 		executors: [
 			{
 				connectId: "connect-1",

@@ -58,17 +58,22 @@ afterEach(() => {
 });
 
 describe("normalizeLoadedAgentDefinition", () => {
-	it("derives the agent name from the parent directory and returns file metadata", () => {
-		const parent = { description: "root", roles: [], tools: [], skills: { dir: "./skills" }, contextFiles: [] };
+	it("derives the agent name from the parent directory and returns file metadata", async () => {
+		const parent = {
+			description: "root",
+			tools: [],
+			sources: [],
+			commands: [],
+			middlewares: [],
+			autoCompact: true,
+		} as const;
 		const agentFilePath = "/tmp/workspace/agents/reviewer/agent.ts";
 
-		const loaded = normalizeLoadedAgentDefinition(agentFilePath, {
+		const loaded = await normalizeLoadedAgentDefinition(agentFilePath, {
 			parent,
 			description: "reviewer",
-			roles: ["reviewer"],
 			tools: [executableTool("dispatch_read")],
 			skills: { dir: "./skills" },
-			contextFiles: [{ type: "context", path: "./AGENTS.md" }],
 		});
 
 		expect(loaded.name).toBe("reviewer");
@@ -76,54 +81,61 @@ describe("normalizeLoadedAgentDefinition", () => {
 		expect(loaded.agentFilePath).toBe("/tmp/workspace/agents/reviewer/agent.ts");
 		expect(loaded.description).toBe("reviewer");
 		expect(loaded.parent).toBe(parent);
+		expect(loaded.contextFiles).toEqual([]);
 	});
 
-	it("throws when the loaded definition is missing", () => {
-		expect(() => normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", undefined)).toThrow(
-			/default export.*object/i,
-		);
+	it("fills in defaults when definition is empty", async () => {
+		const agentFilePath = "/tmp/workspace/agents/minimal/agent.ts";
+		const loaded = await normalizeLoadedAgentDefinition(agentFilePath, {});
+		expect(loaded.name).toBe("minimal");
+		expect(loaded.tools).toEqual([]);
+		expect(loaded.contextFiles).toEqual([]);
+		expect(loaded.commands).toEqual([]);
+		expect(loaded.sources).toEqual([]);
+		expect(loaded.middlewares).toEqual([]);
+		expect(loaded.autoCompact).toBe(true);
 	});
 
-	it("throws when the loaded definition is not an object", () => {
-		expect(() => normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", "reviewer")).toThrow(
-			/default export.*object/i,
-		);
+	it("throws when the loaded definition is missing", async () => {
+		await expect(
+			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", undefined),
+		).rejects.toThrow(/default export.*object/i);
 	});
 
-	it("throws when required fields are missing", () => {
-		expect(() => normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {})).toThrow(
-			/tools must be an array/i,
-		);
+	it("throws when the loaded definition is not an object", async () => {
+		await expect(
+			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", "reviewer"),
+		).rejects.toThrow(/default export.*object/i);
 	});
 
-	it("throws when nested fields have invalid shapes", () => {
-		expect(() =>
+	it("throws when contextFiles is provided in the definition", async () => {
+		await expect(
+			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
+				tools: [executableTool("dispatch_read")],
+				skills: { dir: "./skills" },
+				contextFiles: [{ type: "context", path: "./AGENTS.md" }],
+			}),
+		).rejects.toThrow(/contextFiles is not supported/);
+	});
+
+	it("throws when nested fields have invalid shapes", async () => {
+		await expect(
 			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
 				tools: [executableTool("dispatch_read")],
 				skills: null,
-				contextFiles: [],
 			}),
-		).toThrow(/skills.dir must be a string/i);
+		).rejects.toThrow(/skills.dir must be a string/i);
 
-		expect(() =>
-			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
-				tools: [executableTool("dispatch_read")],
-				skills: { dir: "./skills" },
-				contextFiles: [{ type: "invalid", path: "./AGENTS.md" }],
-			}),
-		).toThrow(/contextFiles.*type/i);
-
-		expect(() =>
+		await expect(
 			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
 				tools: [{ name: "dispatch_read" }],
 				skills: { dir: "./skills" },
-				contextFiles: [],
 			}),
-		).toThrow(/tools\[0\]\.label/i);
+		).rejects.toThrow(/tools\[0\]\.label/i);
 	});
 
-	it("accepts one model definition and rejects invalid rich model shapes", () => {
-		const rich = normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
+	it("accepts one model definition and rejects invalid rich model shapes", async () => {
+		const rich = await normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
 			model: {
 				id: "gpt-test",
 				provider: {
@@ -137,7 +149,6 @@ describe("normalizeLoadedAgentDefinition", () => {
 			},
 			tools: [executableTool("dispatch_read")],
 			skills: { dir: "./skills" },
-			contextFiles: [],
 		});
 
 		expect(rich.model).toMatchObject({
@@ -146,73 +157,29 @@ describe("normalizeLoadedAgentDefinition", () => {
 			contextWindow: 200_000,
 		});
 		expect("models" in rich).toBe(false);
-		expect(() =>
-			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
-				models: [{ id: "claude-test", provider: "anthropic", contextWindow: 100_000 }],
-				tools: [executableTool("dispatch_read")],
-				skills: { dir: "./skills" },
-				contextFiles: [],
-			}),
-		).toThrow(/models is not supported/);
-
-		expect(() =>
+		await expect(
 			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
 				model: { id: "bad", provider: "openai" },
 				tools: [],
 				skills: { dir: "./skills" },
-				contextFiles: [],
 			}),
-		).toThrow(/model.contextWindow must be a number/i);
+		).rejects.toThrow(/model.contextWindow must be a number/i);
 
-		expect(() =>
+		await expect(
 			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
 				model: { id: "bad", provider: { provider: "openai", api: "openai-responses" }, contextWindow: 1 },
 				tools: [],
 				skills: { dir: "./skills" },
-				contextFiles: [],
 			}),
-		).toThrow(/model.provider.baseUrl must be a string/i);
+		).rejects.toThrow(/model.provider.baseUrl must be a string/i);
 
-		expect(() =>
+		await expect(
 			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
 				model: { id: "bad", provider: "stepfun", contextWindow: 1 },
 				tools: [],
 				skills: { dir: "./skills" },
-				contextFiles: [],
 			}),
-		).toThrow(/model.provider must be openai or anthropic when passed as a string/i);
-	});
-
-	it("accepts source definitions referenced from workspace d-pi.ts", () => {
-		const source = {
-			execute(output: (data: string) => void) {
-				output("hello");
-			},
-		};
-		const loaded = normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
-			tools: [executableTool("dispatch_read")],
-			skills: { dir: "./skills" },
-			contextFiles: [],
-			sources: { "lark-bot": source },
-		});
-
-		expect(loaded.sources).toEqual({ "lark-bot": source });
-		expect(() =>
-			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
-				tools: [executableTool("dispatch_read")],
-				skills: { dir: "./skills" },
-				contextFiles: [],
-				sources: [{ execute: "not-a-function" }],
-			}),
-		).toThrow(/sources must be an object/);
-		expect(() =>
-			normalizeLoadedAgentDefinition("/tmp/workspace/agents/reviewer/agent.ts", {
-				tools: [executableTool("dispatch_read")],
-				skills: { dir: "./skills" },
-				contextFiles: [],
-				sources: { "lark-bot": { execute: "not-a-function" } },
-			}),
-		).toThrow(/sources\.lark-bot/);
+		).rejects.toThrow(/model.provider must be openai or anthropic when passed as a string/i);
 	});
 });
 
@@ -225,15 +192,16 @@ describe("loadAgentDefinitionFromFile", () => {
 			[
 				"const parent = {",
 				'  description: "root",',
-				"  roles: [],",
 				"  tools: [],",
 				'  skills: { dir: "./skills" },',
-				"  contextFiles: [],",
+				"  sources: [],",
+				"  commands: [],",
+				"  middlewares: [],",
+				"  autoCompact: true,",
 				"};",
 				"export default {",
 				"  parent,",
 				'  description: "reviewer",',
-				'  roles: ["reviewer"],',
 				'  model: { provider: "anthropic", name: "claude-sonnet-4" },',
 				"  tools: [",
 				"    {",
@@ -247,7 +215,6 @@ describe("loadAgentDefinitionFromFile", () => {
 				"    },",
 				"  ],",
 				'  skills: { dir: "./skills" },',
-				'  contextFiles: [{ type: "context", path: "./AGENTS.md" }],',
 				"};",
 			].join("\n"),
 		);
@@ -258,12 +225,10 @@ describe("loadAgentDefinitionFromFile", () => {
 		expect(loaded.agentDir).toBe(join(workspaceRoot, "agents", "reviewer"));
 		expect(loaded.agentFilePath).toBe(agentFilePath);
 		expect(loaded.model).toEqual({ provider: "anthropic", name: "claude-sonnet-4" });
-		expect(loaded.parent).toEqual({
+		expect(loaded.parent).toMatchObject({
 			description: "root",
-			roles: [],
 			tools: [],
 			skills: { dir: "./skills" },
-			contextFiles: [],
 		});
 	});
 });
@@ -282,19 +247,16 @@ describe("readLoadedAgentDefinitionFromTs", () => {
 		);
 		writeFileSync(join(dPiPackageDir, "index.js"), `export * from ${JSON.stringify(dPiDefinitionUrl)};\n`);
 		mkdirSync(agentDir, { recursive: true });
+		mkdirSync(join(agentDir, "skills"), { recursive: true });
 		writeFileSync(
 			join(agentDir, "agent.ts"),
 			[
-				'import { defineAgent, defineContextFile, defineSkill, defineTool } from "@sheason/d-pi";',
+				'import { defineAgent, defineSkill, defineTool } from "@sheason/d-pi";',
 				"",
 				"export default defineAgent({",
 				'\tdescription: "External workspace root",',
 				'\tskills: defineSkill({ dir: "./skills" }),',
 				`\ttools: [${executableToolSource("dispatch_read")}],`,
-				"\tcontextFiles: [",
-				'\t\tdefineContextFile({ type: "context", path: "./AGENTS.md" }),',
-				'\t\tdefineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" }),',
-				"\t],",
 				"});",
 				"",
 			].join("\n"),
@@ -327,14 +289,14 @@ describe("readLoadedAgentDefinitionFromTs", () => {
 		const agentDir = join(workspaceRoot, "agents", "reviewer");
 		const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "agent-definition.ts")).href;
 		mkdirSync(agentDir, { recursive: true });
+		mkdirSync(join(agentDir, "skills"), { recursive: true });
 		writeFileSync(
 			join(agentDir, "agent.ts"),
 			[
-				`import { defineAgent, defineContextFile, defineModel, defineOpenAIProvider, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
+				`import { defineAgent, defineModel, defineOpenAIProvider, defineSkill, defineTool } from ${JSON.stringify(dPiDefinitionUrl)};`,
 				"",
 				"export default defineAgent({",
 				'\tdescription: "Executable reviewer",',
-				'\troles: ["reviewer"],',
 				"\tmodel: defineModel({",
 				'\t\tid: "gpt-test",',
 				'\t\tprovider: defineOpenAIProvider({ apiKey: "test-key" }),',
@@ -342,7 +304,6 @@ describe("readLoadedAgentDefinitionFromTs", () => {
 				"\t}),",
 				'\tskills: defineSkill({ dir: "./skills" }),',
 				`\ttools: [${executableToolSource("dispatch_read")}],`,
-				'\tcontextFiles: [defineContextFile({ type: "context", path: "./AGENTS.md" })],',
 				"});",
 				"",
 			].join("\n"),
@@ -354,7 +315,6 @@ describe("readLoadedAgentDefinitionFromTs", () => {
 			name: "reviewer",
 			agentDir,
 			description: "Executable reviewer",
-			roles: ["reviewer"],
 			model: {
 				id: "gpt-test",
 				provider: {
@@ -367,7 +327,6 @@ describe("readLoadedAgentDefinitionFromTs", () => {
 			},
 			tools: [{ name: "dispatch_read" }],
 			skills: { dir: "./skills" },
-			contextFiles: [{ type: "context", path: "./AGENTS.md" }],
 		});
 	});
 });

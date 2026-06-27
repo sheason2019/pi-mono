@@ -68,11 +68,6 @@ describe("doctor", () => {
 		expect(agentsCheck?.message).toContain("1 agent");
 		expect(agentsCheck?.details?.some((d) => d.includes("root"))).toBe(true);
 
-		const dpiTsCheck = report.checks.find((c) => c.name === "d-pi.ts");
-		expect(dpiTsCheck).toBeDefined();
-		expect(dpiTsCheck?.status).toBe("warn");
-		expect(dpiTsCheck?.message).toContain("No d-pi.ts");
-
 		const modelsCheck = report.checks.find((c) => c.name === "models");
 		expect(modelsCheck).toBeDefined();
 		expect(modelsCheck?.status).toBe("warn");
@@ -128,7 +123,6 @@ describe("doctor", () => {
 	it("detects workspace with no agents directory", async () => {
 		const dir = freshDir();
 		mkdirSync(join(dir, ".dpi"));
-		writeFileSync(join(dir, ".dpi", "config.json"), "{}");
 		writeFileSync(join(dir, "package.json"), '{"name":"test"}');
 		const report = await runDoctor(dir);
 		const agentsCheck = report.checks.find((c) => c.name === "agents");
@@ -184,34 +178,31 @@ describe("doctor", () => {
 		expect(recentCheck?.details?.some((d) => d.includes("first input"))).toBe(true);
 	});
 
-	it("lists models from workspace config and verifies reachable ones", async () => {
+	it("lists models from agent configs without verification", async () => {
 		const dir = freshDir();
 		initWorkspace(dir);
 
-		const dpiTsContent = `
-import { defineWorkspace, defineModel, defineOpenAIProvider } from "@sheason/d-pi";
+		const agentTsContent = `
+import { defineAgent, defineModel, defineOpenAIProvider } from "@sheason/d-pi";
 
-export default defineWorkspace({
-  models: {
-    "openai/gpt-4o": defineModel({
-      provider: defineOpenAIProvider({ apiKey: "test-key" }),
-      name: "gpt-4o",
-      id: "openai/gpt-4o",
-    }),
-  },
-  sources: {},
+export default defineAgent({
+  description: "Root agent",
+  model: defineModel({
+    provider: defineOpenAIProvider({ apiKey: "test-key" }),
+    name: "gpt-4o",
+    id: "openai/gpt-4o",
+    contextWindow: 128000,
+  }),
+  tools: [],
 });
 `;
-		writeFileSync(join(dir, "d-pi.ts"), dpiTsContent);
+		writeFileSync(join(dir, "agents", "root", "agent.ts"), agentTsContent);
 
-		const report = await runDoctor(dir, {
-			verifyModels: true,
-			modelVerifyTimeoutMs: 1000,
-		});
+		const report = await runDoctor(dir, { verifyModels: false });
 		const modelsCheck = report.checks.find((c) => c.name === "models");
 		expect(modelsCheck).toBeDefined();
 		expect(modelsCheck?.message).toContain("1 model");
-		expect(modelsCheck?.message).toContain("1 reachable");
+		expect(modelsCheck?.message).toContain("verification skipped");
 		expect(modelsCheck?.details?.some((d) => d.includes("gpt-4o"))).toBe(true);
 	});
 });
