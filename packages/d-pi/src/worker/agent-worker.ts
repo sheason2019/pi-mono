@@ -455,16 +455,12 @@ async function runAgentWorker(): Promise<void> {
 			throw new Error(`Agent "${agentName}" must define a loadable model in agent.ts`);
 		}
 
-		process.stderr.write(`[d-pi worker ${agentName}] Model resolved: ${resolvedModel?.id ?? "unknown"}\n`);
-
 		const created = await createDPiAgentSessionFromServices({
 			services,
 			sessionManager: opts.sessionManager,
 			model: resolvedModel,
 			tools: agentToolNames,
 		});
-
-		process.stderr.write(`[d-pi worker ${agentName}] Session created from services\n`);
 
 		return { ...created, services, diagnostics: services.diagnostics };
 	};

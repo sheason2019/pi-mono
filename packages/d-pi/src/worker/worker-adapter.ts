@@ -54,7 +54,7 @@ export interface DPiWorkerModelRegistry extends ModelRegistry {
 	getApiKeyAndHeaders?(model: Model<Api>): Promise<DPiRequestAuth | undefined> | DPiRequestAuth | undefined;
 	updateAgentDefinition(agentDefinition: LoadedAgentDefinition | undefined): void;
 	findWorkspaceModel?(modelRef: string): Model<Api> | undefined;
-	registerWorkspaceModel?(model: Model<Api>, provider: AgentProviderDefinition): void;
+	registerWorkspaceModel?(model: Model<Api>, provider: AgentProviderDefinition, registrationKey?: string): void;
 	clearWorkspaceModels?(): void;
 }
 
@@ -212,8 +212,8 @@ async function resolveWorkspaceModelRef(
 		if (!provider) {
 			return undefined;
 		}
-		const model = agentLocalModelToPiModel({ ...definition, id: modelRef }, provider);
-		modelRegistry.registerWorkspaceModel?.(model, provider);
+		const model = agentLocalModelToPiModel(definition, provider);
+		modelRegistry.registerWorkspaceModel?.(model, provider, modelRef);
 		return model;
 	} catch {
 		return undefined;
@@ -757,17 +757,29 @@ export class DPiAgentIpcServer {
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
 				void this.proxy
 					.prompt(text, { images: extractImages(payload.options) ?? extractImages(payload) })
-					.catch(() => {});
+					.catch((err) => {
+						process.stderr.write(
+							`[d-pi worker ipc] proxy.prompt error: ${err instanceof Error ? err.stack : String(err)}\n`,
+						);
+					});
 				return;
 			}
 			if (action === "steer") {
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
-				void this.proxy.steer(text, extractImages(payload) ?? extractImages(payload.options)).catch(() => {});
+				void this.proxy.steer(text, extractImages(payload) ?? extractImages(payload.options)).catch((err) => {
+					process.stderr.write(
+						`[d-pi worker ipc] proxy.steer error: ${err instanceof Error ? err.stack : String(err)}\n`,
+					);
+				});
 				return;
 			}
 			if (action === "follow-up") {
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
-				void this.proxy.followUp(text, extractImages(payload) ?? extractImages(payload.options)).catch(() => {});
+				void this.proxy.followUp(text, extractImages(payload) ?? extractImages(payload.options)).catch((err) => {
+					process.stderr.write(
+						`[d-pi worker ipc] proxy.followUp error: ${err instanceof Error ? err.stack : String(err)}\n`,
+					);
+				});
 				return;
 			}
 			if (action === "abort") {
@@ -1742,8 +1754,8 @@ function createBuiltInModelRegistry(initialAgentDefinition?: LoadedAgentDefiniti
 		findWorkspaceModel: (modelRef: string) => {
 			return workspaceModels.get(modelRef)?.model;
 		},
-		registerWorkspaceModel: (model: Model<Api>, provider: AgentProviderDefinition) => {
-			workspaceModels.set(model.id, { model, provider });
+		registerWorkspaceModel: (model: Model<Api>, provider: AgentProviderDefinition, registrationKey?: string) => {
+			workspaceModels.set(registrationKey ?? model.id, { model, provider });
 			registry = loadAvailableModels(currentAgentDefinition, workspaceModels);
 		},
 		clearWorkspaceModels: () => {
