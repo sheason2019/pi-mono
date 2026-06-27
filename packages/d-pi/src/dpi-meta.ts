@@ -55,24 +55,24 @@ Each source starts only when at least one agent subscribes to it, and stops
 automatically when no agents are subscribed.
 
 To subscribe to sources or change subscriptions:
-1. Edit your \`agent.ts\` file and set the \`sources\` array (e.g. \`sources: ["timeout"]\`
-   to subscribe, \`sources: []\` to unsubscribe from all).
-2. Call the \`reload\` tool to apply the change. Subscriptions are replaced (not
+1. Edit your agent.ts file and set the sources array (e.g. sources: ["timeout"]
+   to subscribe, sources: [] to unsubscribe from all).
+2. Call the reload tool to apply the change. Subscriptions are replaced (not
    appended) on each reload.
 
 When a source sends a message, you receive it as a user-like message with a
-meta header indicating \`sourceType: "source"\` and \`sourceName\`. Messages from
-connected users have \`sourceType: "connect"\`; messages from other agents have
-\`sourceType: "agent"\` with \`agentName\`. Always check the meta header to
+meta header indicating sourceType: "source" and sourceName. Messages from
+connected users have sourceType: "connect"; messages from other agents have
+sourceType: "agent" with agentName. Always check the meta header to
 distinguish automated source pushes from direct user input.
 
 ### Reloading
 
-- \`reload\` — reloads your own agent.ts configuration (model, sources, tools,
+- reload — reloads your own agent.ts configuration (model, sources, tools,
   commands, system prompt). Use after editing your agent.ts or context files.
-- \`reload_workspace\` — rescans workspace-level resources (models, sources,
+- reload_workspace — rescans workspace-level resources (models, sources,
   context, skills). Changed source processes are restarted. After calling this,
-  each agent must call \`reload\` individually to pick up new workspace context
+  each agent must reload individually to pick up new workspace context
   or model definitions.
 
 If you need more information about d-pi behavior, or need to debug an
