@@ -50,7 +50,13 @@ export class Hub {
 		this._sourceManager.setMessageHandler((agentName, content, sourceName, mode) => {
 			const record = this._registry.getByName(agentName);
 			if (!record) return;
-			record.worker.postMessage({ type: "message", fromAgentName: "source", content, sourceName, mode });
+			record.worker.postMessage({
+				type: "message",
+				fromAgentName: "source",
+				content: formatDPiMetaMessage({ sourceType: "source", sourceName }, content),
+				sourceName,
+				mode,
+			});
 		});
 
 		this._gateway = new HubGateway(
@@ -93,10 +99,13 @@ export class Hub {
 		// 1. Start gateway
 		await this._gateway.start(hubPort);
 
-		// 2. Discover and start persisted agents from agents/ directory
+		// 2. Discover sources before agents so subscribe_sources during agent init can find them
+		await this._sourceManager.reload();
+
+		// 3. Discover and start persisted agents from agents/ directory
 		await this._restorePersistedAgents();
 
-		// 3. Ensure root agent exists
+		// 4. Ensure root agent exists
 		if (!this._registry.getByName("root")) {
 			await this.createAgent(undefined, {
 				name: "root",

@@ -54,6 +54,7 @@ export class SourceManager {
 	}
 
 	async subscribeAgent(agentName: string, sourceNames: string[]): Promise<void> {
+		this.unsubscribeAgent(agentName);
 		for (const name of sourceNames) {
 			await this.ensureSource(name);
 			const handle = this.sources.get(name);
@@ -118,6 +119,7 @@ export class SourceManager {
 			if (existing.filePath !== filePath || existing.fileMtime !== mtime) {
 				try {
 					const newDef = await loadWorkspaceSourceDefinition(filePath);
+					newDef.name = name;
 					const defChanged = sourceDefinitionChanged(existing.definition, newDef);
 					existing.definition = newDef;
 					existing.filePath = filePath;
@@ -165,6 +167,7 @@ export class SourceManager {
 		}
 		try {
 			const definition = await loadWorkspaceSourceDefinition(filePath);
+			definition.name = name;
 			let mtime = 0;
 			try {
 				mtime = statSync(filePath).mtimeMs;

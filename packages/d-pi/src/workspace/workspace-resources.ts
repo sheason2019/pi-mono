@@ -6,7 +6,7 @@ import type { AgentLocalModelDefinition, AgentSourceDefinition } from "../agent-
 const MODELS_DIR = "models";
 const CONTEXT_DIR = "context";
 const SOURCES_DIR = "sources";
-const SOURCE_FILE = "source";
+const SOURCE_ENTRY = "source.ts";
 
 const MODEL_EXTENSIONS = [".ts", ".js", ".mjs"];
 
@@ -55,12 +55,9 @@ function scanSourceDirs(dir: string): Record<string, string> {
 			continue;
 		}
 		const sourceDir = join(dir, entry.name);
-		for (const ext of MODEL_EXTENSIONS) {
-			const sourceFile = join(sourceDir, `${SOURCE_FILE}${ext}`);
-			if (existsSync(sourceFile) && statSync(sourceFile).isFile()) {
-				result[entry.name] = sourceFile;
-				break;
-			}
+		const sourceFile = join(sourceDir, SOURCE_ENTRY);
+		if (existsSync(sourceFile) && statSync(sourceFile).isFile()) {
+			result[entry.name] = sourceFile;
 		}
 	}
 	return result;
@@ -109,15 +106,9 @@ export function resolveWorkspaceModelPath(workspaceRoot: string, modelRef: strin
 
 export function resolveWorkspaceSourcePath(workspaceRoot: string, sourceName: string): string | undefined {
 	const sourcesDir = join(resolve(workspaceRoot), SOURCES_DIR);
-	const sourceDir = join(sourcesDir, sourceName);
-	if (!existsSync(sourceDir)) {
-		return undefined;
-	}
-	for (const ext of MODEL_EXTENSIONS) {
-		const candidate = join(sourceDir, `${SOURCE_FILE}${ext}`);
-		if (existsSync(candidate) && statSync(candidate).isFile()) {
-			return candidate;
-		}
+	const sourceFile = join(sourcesDir, sourceName, SOURCE_ENTRY);
+	if (existsSync(sourceFile) && statSync(sourceFile).isFile()) {
+		return sourceFile;
 	}
 	return undefined;
 }

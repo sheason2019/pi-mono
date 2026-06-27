@@ -142,9 +142,11 @@ async function reloadAgentResources(): Promise<void> {
 
 	proxy.updateAgentDefinition(newAgentDefinition);
 
-	if (newAgentDefinition.sources && newAgentDefinition.sources.length > 0) {
-		postToHub({ type: "subscribe_sources", agentName: config.agentName, sources: [...newAgentDefinition.sources] });
-	}
+	postToHub({
+		type: "subscribe_sources",
+		agentName: config.agentName,
+		sources: [...(newAgentDefinition.sources ?? [])],
+	});
 
 	await runtime.session.reload();
 	proxy.setBanner(generateDPiBanner(runtime.session));
@@ -643,9 +645,7 @@ async function runAgentWorker(): Promise<void> {
 	});
 
 	// 9. Signal ready to Hub
-	if (agentDefinition?.sources && agentDefinition.sources.length > 0) {
-		postToHub({ type: "subscribe_sources", agentName, sources: [...agentDefinition.sources] });
-	}
+	postToHub({ type: "subscribe_sources", agentName, sources: [...(agentDefinition?.sources ?? [])] });
 	postToHub({ type: "ready", agentName });
 	postToHub({ type: "status_update", agentName, status: "ready" });
 

@@ -100,6 +100,8 @@ export interface AgentSourceDefinition {
 	mode?: "next" | "steer";
 }
 
+export type AgentSourceDefinitionInput = Omit<AgentSourceDefinition, "name"> & { name?: string };
+
 export interface AgentCommandContext {
 	cwd: string;
 	hasUI?: boolean;
@@ -319,15 +321,12 @@ export function defineModel(input: AgentModelDefinition): AgentModelDefinition {
 	};
 }
 
-export function defineSource(input: AgentSourceDefinition): AgentSourceDefinition {
-	if (typeof input.name !== "string" || input.name.trim().length === 0) {
-		throw new TypeError("defineSource requires a non-empty name");
-	}
+export function defineSource(input: AgentSourceDefinitionInput): AgentSourceDefinition {
 	if (typeof input.command !== "string" || input.command.trim().length === 0) {
 		throw new TypeError("defineSource requires a non-empty command");
 	}
 	return {
-		name: input.name,
+		name: input.name ?? "",
 		...(input.description === undefined ? {} : { description: input.description }),
 		command: input.command,
 		...(input.args === undefined ? {} : { args: [...input.args] }),
