@@ -8,7 +8,6 @@ export function agentDefinitionToConfig(agent: LoadedAgentDefinition): AgentConf
 		name: agent.name,
 		parentName,
 		description: agent.description,
-		roles: agent.roles,
 	};
 }
 
@@ -18,7 +17,7 @@ export function agentDefinitionToConfig(agent: LoadedAgentDefinition): AgentConf
  * parseable in the standard d-pi shape.
  *
  * Used by the worker at session-start to inject the agent's
- * identity (name, description, parent, roles) into the system prompt as the
+ * identity (name, description, parent) into the system prompt as the
  * "## Agent identity" section.
  */
 export async function loadAgentIdentity(agentDir: string): Promise<AgentConfig | undefined> {
@@ -40,7 +39,7 @@ export async function loadAgentIdentity(agentDir: string): Promise<AgentConfig |
  *
  * The format is intentionally flat and key-value, not nested,
  * because every key is meant to be a single fact the LLM can
- * scan: who am I, what's my parent, what role am I serving, etc.
+ * scan: who am I, what's my parent, etc.
  * We do not embed the entire JSON object
  * (which would be a maintenance liability if fields are renamed
  * or removed); we enumerate the known fields explicitly.
@@ -62,9 +61,6 @@ export function formatAgentIdentitySection(config: AgentConfig): string {
 
 	const meta: string[] = [];
 	if (config.parentName) meta.push(`parent: \`${config.parentName}\``);
-	if (config.roles && config.roles.length > 0) {
-		meta.push(`roles: ${config.roles.map((r) => `\`${r}\``).join(", ")}`);
-	}
 
 	if (meta.length > 0) {
 		lines.push("");

@@ -84,8 +84,7 @@ export function createDestroyAgentTool(): AgentToolDefinition {
 	return defineTool({
 		name: "destroy_agent",
 		label: "Destroy Agent",
-		description:
-			"Destroy an agent in the network. The agent must have no children and must not be the creator of any active source. Unsubscribe from all sources and destroy all child agents first.",
+		description: "Destroy an agent in the network. The agent must have no children. Destroy all child agents first.",
 		parameters: Type.Object({
 			agent_name: Type.String({ description: "Name of the agent to destroy" }),
 		}),
@@ -110,7 +109,7 @@ export function createTeamTool(): AgentToolDefinition {
 		name: "team",
 		label: "Team",
 		description:
-			"List the current team snapshot - agents, their parent/child relationships, roles, and connection status. Use agent names when calling destroy_agent or send_message.",
+			"List the current team snapshot - agents, their parent/child relationships, and connection status. Use agent names when calling destroy_agent or send_message.",
 		parameters: Type.Object({}),
 		async execute() {
 			const ctx = getBuiltinContext();
@@ -161,6 +160,43 @@ export function createReloadTool(): AgentToolDefinition {
 				content: [{ type: "text" as const, text: "Agent configuration reloaded." }],
 				details: ctx.getReloadDetails(),
 			};
+		},
+	});
+}
+
+export function createReloadWorkspaceTool(): AgentToolDefinition {
+	return defineTool({
+		name: "reload_workspace",
+		label: "Reload Workspace",
+		description:
+			"Reload workspace-level resources: models/, context/*.md, sources/, and skills/. This re-scans the workspace directories and restarts any changed source processes. It does NOT reload any agent's configuration or context - each agent must call 'reload' individually to pick up new workspace context, models, or skills.",
+		parameters: Type.Object({}),
+		async execute() {
+			const ctx = getBuiltinContext();
+			try {
+				const result = await ctx.hubClient.reloadWorkspace();
+				const lines: string[] = ["Workspace resources reloaded."];
+				if (result.models.length > 0) {
+					lines.push(`Models (${result.models.length}): ${result.models.join(", ")}`);
+				} else {
+					lines.push("Models: (none)");
+				}
+				if (result.contextFiles.length > 0) {
+					lines.push(`Context files (${result.contextFiles.length}): ${result.contextFiles.join(", ")}`);
+				} else {
+					lines.push("Context files: (none)");
+				}
+				lines.push(
+					`Sources: ${result.sources.total} total${result.sources.added.length > 0 ? `, ${result.sources.added.length} added (${result.sources.added.join(", ")})` : ""}${result.sources.changed.length > 0 ? `, ${result.sources.changed.length} changed (${result.sources.changed.join(", ")})` : ""}${result.sources.removed.length > 0 ? `, ${result.sources.removed.length} removed (${result.sources.removed.join(", ")})` : ""}`,
+				);
+				lines.push("Note: Agents must call 'reload' to pick up new workspace context or models.");
+				return {
+					content: [{ type: "text" as const, text: lines.join("\n") }],
+					details: toolJsonDetails(result),
+				};
+			} catch (err) {
+				return errorTextResult(`Failed to reload workspace: ${errorMessage(err)}`);
+			}
 		},
 	});
 }

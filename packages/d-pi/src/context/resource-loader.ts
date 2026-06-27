@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export const AGENTS_MD = "AGENTS.md";
-export const APPEND_SYSTEM_MD = "APPEND_SYSTEM.md";
 
 export interface DPiContextFile {
 	path: string;

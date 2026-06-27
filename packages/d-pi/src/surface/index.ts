@@ -19,8 +19,8 @@ export {
 	type DPiHubActionsClient,
 	type DPiHubActionsTransport,
 	type DPiHubMessageMode,
+	type DPiReloadWorkspaceResult,
 	type DPiSendMessageActionPayload,
-	type DPiSourceInfo,
 	type DPiTeamAgentEntry,
 	type DPiTeamExecutorEntry,
 	type DPiTeamSnapshot,
@@ -30,6 +30,7 @@ export {
 	createCreateAgentTool,
 	createDestroyAgentTool,
 	createReloadTool,
+	createReloadWorkspaceTool,
 	createSendMessageTool,
 	createTeamTool,
 } from "./orchestration-tools.ts";

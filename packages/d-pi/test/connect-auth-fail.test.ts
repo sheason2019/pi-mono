@@ -10,7 +10,6 @@ import { signChallenge } from "../src/auth/signing.ts";
 import { createConnectSession } from "../src/connect/connect-auth.ts";
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
-import { SourceManager } from "../src/hub/source-manager.ts";
 
 /**
  * Regression coverage for the auth-fail-does-not-hang bug.
@@ -57,7 +56,6 @@ describe("d-pi connect auth failure handling", () => {
 
 		const gateway = new HubGateway(
 			new AgentRegistry(),
-			new SourceManager(() => {}),
 			async () => ({ agentName: "a" }),
 			async () => {},
 			new AuthSessionManager(workspaceRoot),
@@ -95,7 +93,6 @@ describe("d-pi connect auth failure handling", () => {
 		// Hub's allow-user list is empty — baduser's publicKey is NOT allowed.
 		const gateway = new HubGateway(
 			new AgentRegistry(),
-			new SourceManager(() => {}),
 			async () => ({ agentName: "a" }),
 			async () => {},
 			new AuthSessionManager(workspaceRoot),
@@ -190,7 +187,6 @@ describe("d-pi connect auth failure handling", () => {
 
 		const gateway = new HubGateway(
 			new AgentRegistry(),
-			new SourceManager(() => {}),
 			async () => ({ agentName: "a" }),
 			async () => {},
 			new AuthSessionManager(workspaceRoot),
@@ -224,7 +220,6 @@ describe("d-pi connect auth failure handling", () => {
 
 		const gateway = new HubGateway(
 			new AgentRegistry(),
-			new SourceManager(() => {}),
 			async () => ({ agentName: "a" }),
 			async () => {},
 			new AuthSessionManager(workspaceRoot),

@@ -2,10 +2,16 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Api, Context, Model } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai";
-import type { AgentModelDefinition, AgentProviderDefinition } from "./agent-definition.ts";
-import { readLoadedAgentDefinitionFromTs } from "./agent-loader.ts";
+import { DEFAULT_BUILTIN_TOOL_NAMES } from "./agent-config.ts";
+import type { AgentModelDefinition, AgentModelSpec, AgentProviderDefinition } from "./agent-definition.ts";
+import { discoverAgentConventionResources, readLoadedAgentDefinitionFromTs } from "./agent-loader.ts";
 import { isWorkspaceRoot } from "./workspace/workspace.ts";
-import { readWorkspaceDefinitionFromTs } from "./workspace-definition.ts";
+import {
+	discoverWorkspaceContextFiles,
+	discoverWorkspaceModelPaths,
+	discoverWorkspaceSourcePaths,
+	loadWorkspaceModelDefinition,
+} from "./workspace/workspace-resources.ts";
 
 export type DoctorStatus = "ok" | "warn" | "error" | "info";
 
@@ -38,7 +44,6 @@ export interface DoctorOptions {
 }
 
 const AGENTS_DIR = "agents";
-const DPI_TS = "d-pi.ts";
 const SKILL_MD = "SKILL.md";
 const SESSION_DIR = "session";
 
@@ -48,7 +53,6 @@ export async function runDoctor(workspaceRoot: string, options: DoctorOptions = 
 
 	const { onCheckStart, onCheckComplete } = options;
 
-	// 1. Workspace root check
 	onCheckStart?.("workspace");
 	const isWorkspace = isWorkspaceRoot(root);
 	checks.push({
@@ -64,32 +68,30 @@ export async function runDoctor(workspaceRoot: string, options: DoctorOptions = 
 		return buildReport(root, false, checks);
 	}
 
-	// 2. d-pi.ts configuration
-	onCheckStart?.("d-pi.ts");
-	const workspaceDef = await checkDPiTs(root, checks);
-	onCheckComplete?.(checks[checks.length - 1]);
-
-	// 3. Agents
 	onCheckStart?.("agents");
 	const agentResults = await checkAgents(root, checks, options);
 	onCheckComplete?.(checks[checks.length - 1]);
 
-	// 4. Models (collect + verify)
 	onCheckStart?.("models");
-	await checkModels(root, checks, workspaceDef, agentResults, options);
+	await checkModels(root, checks, agentResults, options);
 	onCheckComplete?.(checks[checks.length - 1]);
 
-	// 5. Skills
 	onCheckStart?.("skills");
 	checkSkills(root, checks, agentResults);
 	onCheckComplete?.(checks[checks.length - 1]);
 
-	// 6. Recent session inputs per agent
+	onCheckStart?.("context");
+	checkWorkspaceContext(root, checks);
+	onCheckComplete?.(checks[checks.length - 1]);
+
+	onCheckStart?.("sources");
+	checkWorkspaceSources(root, checks, agentResults);
+	onCheckComplete?.(checks[checks.length - 1]);
+
 	onCheckStart?.("recent inputs");
 	checkRecentInputs(root, checks, agentResults, options.recentInputsPerAgent ?? 5);
 	onCheckComplete?.(checks[checks.length - 1]);
 
-	// 7. Serve readiness
 	onCheckStart?.("serve readiness");
 	checkServeReadiness(root, checks);
 	onCheckComplete?.(checks[checks.length - 1]);
@@ -105,75 +107,6 @@ function buildReport(workspaceRoot: string, isWorkspace: boolean, checks: Doctor
 	return { workspaceRoot, isWorkspace, checks, summary };
 }
 
-// ---------- d-pi.ts ----------
-
-async function checkDPiTs(
-	root: string,
-	checks: DoctorCheck[],
-): Promise<
-	| {
-			models: Record<string, AgentModelDefinition>;
-			sources: Record<string, unknown>;
-	  }
-	| undefined
-> {
-	const dpiTsPath = join(root, DPI_TS);
-	if (!existsSync(dpiTsPath)) {
-		checks.push({
-			name: "d-pi.ts",
-			status: "warn",
-			message: "No d-pi.ts found at workspace root.",
-			details: [
-				"d-pi.ts is optional but recommended for shared model and source definitions.",
-				"Create it with 'defineWorkspace({ models: {...}, sources: {...} })' to share config across agents.",
-			],
-		});
-		return undefined;
-	}
-
-	try {
-		const definition = await readWorkspaceDefinitionFromTs(root);
-		if (!definition) {
-			checks.push({
-				name: "d-pi.ts",
-				status: "warn",
-				message: "d-pi.ts exists but could not be loaded.",
-			});
-			return undefined;
-		}
-		const modelCount = Object.keys(definition.models).length;
-		const sourceCount = Object.keys(definition.sources).length;
-		const details: string[] = [];
-		if (modelCount > 0) {
-			details.push(`Shared models (${modelCount}): ${Object.keys(definition.models).join(", ")}`);
-		} else {
-			details.push("No shared models defined (agents must define their own).");
-		}
-		if (sourceCount > 0) {
-			details.push(`Sources (${sourceCount}): ${Object.keys(definition.sources).join(", ")}`);
-		} else {
-			details.push("No shared sources defined.");
-		}
-		checks.push({
-			name: "d-pi.ts",
-			status: modelCount > 0 ? "ok" : "warn",
-			message:
-				modelCount > 0
-					? `d-pi.ts loaded successfully (${modelCount} model${modelCount === 1 ? "" : "s"}, ${sourceCount} source${sourceCount === 1 ? "" : "s"})`
-					: `d-pi.ts loaded but has no shared models`,
-			details,
-		});
-		return { models: definition.models, sources: definition.sources };
-	} catch (err) {
-		checks.push({
-			name: "d-pi.ts",
-			status: "error",
-			message: `Failed to load d-pi.ts: ${err instanceof Error ? err.message : String(err)}`,
-		});
-		return undefined;
-	}
-}
-
 // ---------- Agents ----------
 
 interface AgentResult {
@@ -181,9 +114,19 @@ interface AgentResult {
 	agentDir: string;
 	loaded: boolean;
 	error?: string;
-	model?: AgentModelDefinition;
+	model?: AgentModelSpec;
 	hasSkills: boolean;
 	skillDir?: string;
+	hasToolsDir: boolean;
+	hasCommandsDir: boolean;
+	hasAgentsMd: boolean;
+	contextFileCount: number;
+	contextFileNames: string[];
+	customToolCount: number;
+	customCommandCount: number;
+	sources: string[];
+	disableDefaultTools: boolean;
+	availableToolNames: string[];
 }
 
 async function checkAgents(root: string, checks: DoctorCheck[], _options: DoctorOptions): Promise<AgentResult[]> {
@@ -221,7 +164,23 @@ async function checkAgents(root: string, checks: DoctorCheck[], _options: Doctor
 		const agentTsPath = join(agentDir, "agent.ts");
 		if (!existsSync(agentTsPath)) {
 			agentDetails.push(`- ${agentName}: missing agent.ts`);
-			results.push({ name: agentName, agentDir, loaded: false, error: "missing agent.ts", hasSkills: false });
+			results.push({
+				name: agentName,
+				agentDir,
+				loaded: false,
+				error: "missing agent.ts",
+				hasSkills: false,
+				hasToolsDir: false,
+				hasCommandsDir: false,
+				hasAgentsMd: false,
+				contextFileCount: 0,
+				contextFileNames: [],
+				customToolCount: 0,
+				customCommandCount: 0,
+				sources: [],
+				disableDefaultTools: false,
+				availableToolNames: [],
+			});
 			errorCount++;
 			continue;
 		}
@@ -229,18 +188,47 @@ async function checkAgents(root: string, checks: DoctorCheck[], _options: Doctor
 			const agent = await readLoadedAgentDefinitionFromTs(agentDir);
 			if (!agent) {
 				agentDetails.push(`- ${agentName}: agent.ts not loadable`);
-				results.push({ name: agentName, agentDir, loaded: false, error: "not loadable", hasSkills: false });
+				results.push({
+					name: agentName,
+					agentDir,
+					loaded: false,
+					error: "not loadable",
+					hasSkills: false,
+					hasToolsDir: false,
+					hasCommandsDir: false,
+					hasAgentsMd: false,
+					contextFileCount: 0,
+					contextFileNames: [],
+					customToolCount: 0,
+					customCommandCount: 0,
+					sources: [],
+					disableDefaultTools: false,
+					availableToolNames: [],
+				});
 				errorCount++;
 				continue;
 			}
 			hasRoot = hasRoot || agentName === "root";
+			const discovered = discoverAgentConventionResources(agentDir);
+			const customToolNames = agent.tools.map((t) => t.name);
+			const builtinNames: string[] = [...DEFAULT_BUILTIN_TOOL_NAMES];
+			const availableToolNames = agent.disableDefaultTools
+				? [...customToolNames]
+				: [...builtinNames, ...customToolNames.filter((n) => !builtinNames.includes(n))];
+			const contextFileNames = agent.contextFiles.map((cf) => cf.path);
 			const parts: string[] = [];
-			parts.push(`tools:${agent.tools.length}`);
-			parts.push(agent.model ? "model:set" : "model:unset");
-			parts.push(agent.skills ? "skills:yes" : "skills:no");
-			parts.push(`ctxFiles:${agent.contextFiles.length}`);
-			if (agent.sources) parts.push(`sources:${Object.keys(agent.sources).length}`);
+			parts.push(`model:${agent.model ? (typeof agent.model === "string" ? agent.model : "set") : "unset"}`);
+			parts.push(`skills:${discovered.hasSkillsDir ? "yes" : "no"}`);
+			parts.push(`ctx:${agent.contextFiles.length}`);
+			parts.push(`tools:${availableToolNames.length}${agent.disableDefaultTools ? " (no defaults)" : ""}`);
+			if (discovered.hasToolsDir) parts.push("tools/");
+			if (discovered.hasCommandsDir) parts.push("cmds/");
+			if (agent.sources.length > 0) parts.push(`sources:${agent.sources.length}`);
 			agentDetails.push(`- ${agentName}: ${parts.join(", ")}`);
+			agentDetails.push(`    tools: ${availableToolNames.join(", ")}`);
+			if (contextFileNames.length > 0) {
+				agentDetails.push(`    context: ${contextFileNames.join(", ")}`);
+			}
 			let skillDir: string | undefined;
 			if (agent.skills) {
 				const candidate = resolve(agentDir, agent.skills.dir);
@@ -253,11 +241,37 @@ async function checkAgents(root: string, checks: DoctorCheck[], _options: Doctor
 				model: agent.model,
 				hasSkills: !!agent.skills,
 				skillDir,
+				hasToolsDir: discovered.hasToolsDir,
+				hasCommandsDir: discovered.hasCommandsDir,
+				hasAgentsMd: discovered.hasAgentsMd,
+				contextFileCount: agent.contextFiles.length,
+				contextFileNames,
+				customToolCount: agent.tools.length,
+				customCommandCount: agent.commands.length,
+				sources: agent.sources ?? [],
+				disableDefaultTools: agent.disableDefaultTools,
+				availableToolNames,
 			});
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			agentDetails.push(`- ${agentName}: error - ${msg}`);
-			results.push({ name: agentName, agentDir, loaded: false, error: msg, hasSkills: false });
+			results.push({
+				name: agentName,
+				agentDir,
+				loaded: false,
+				error: msg,
+				hasSkills: false,
+				hasToolsDir: false,
+				hasCommandsDir: false,
+				hasAgentsMd: false,
+				contextFileCount: 0,
+				contextFileNames: [],
+				customToolCount: 0,
+				customCommandCount: 0,
+				sources: [],
+				disableDefaultTools: false,
+				availableToolNames: [],
+			});
 			errorCount++;
 		}
 	}
@@ -285,33 +299,52 @@ async function checkAgents(root: string, checks: DoctorCheck[], _options: Doctor
 
 interface ModelInfo {
 	key: string;
-	source: "workspace" | "agent";
 	agentName?: string;
 	definition: AgentModelDefinition;
+	source: "agent" | "workspace";
 }
 
 async function checkModels(
-	_root: string,
+	root: string,
 	checks: DoctorCheck[],
-	workspaceDef: { models: Record<string, AgentModelDefinition>; sources: Record<string, unknown> } | undefined,
 	agentResults: AgentResult[],
 	options: DoctorOptions,
 ): Promise<void> {
 	const models: ModelInfo[] = [];
 
-	if (workspaceDef) {
-		for (const [key, def] of Object.entries(workspaceDef.models)) {
-			models.push({ key, source: "workspace", definition: def });
+	const workspaceModelPaths = discoverWorkspaceModelPaths(root);
+	for (const [ref, filePath] of Object.entries(workspaceModelPaths)) {
+		try {
+			const def = await loadWorkspaceModelDefinition(filePath);
+			models.push({
+				key: ref,
+				definition: { ...def, id: def.id ?? ref },
+				source: "workspace",
+			});
+		} catch {
+			// skip unloadable workspace models
 		}
 	}
+
 	for (const agent of agentResults) {
 		if (agent.loaded && agent.model) {
-			models.push({
-				key: agent.model && "id" in agent.model ? agent.model.id : `${agent.name}-model`,
-				source: "agent",
-				agentName: agent.name,
-				definition: agent.model,
-			});
+			if (typeof agent.model === "string") {
+				if (!workspaceModelPaths[agent.model]) {
+					models.push({
+						key: agent.model,
+						agentName: agent.name,
+						definition: { provider: "unknown", name: agent.model } as unknown as AgentModelDefinition,
+						source: "agent",
+					});
+				}
+			} else {
+				models.push({
+					key: agent.model && "id" in agent.model ? agent.model.id : `${agent.name}-model`,
+					agentName: agent.name,
+					definition: agent.model,
+					source: "agent",
+				});
+			}
 		}
 	}
 
@@ -321,7 +354,7 @@ async function checkModels(
 			status: "warn",
 			message: "No models configured.",
 			details: [
-				"Define models in d-pi.ts (shared) or in individual agent.ts files.",
+				"Define models in workspace models/ directory or inline in each agent's agent.ts file.",
 				"Agents without a model cannot process requests.",
 			],
 		});
@@ -335,15 +368,25 @@ async function checkModels(
 	const details: string[] = [];
 	let okCount = 0;
 	let failCount = 0;
+	let skipCount = 0;
 
 	for (const model of models) {
 		const provider = getProviderFromModel(model.definition);
-		if (!provider) {
-			details.push(`- ${model.key}: provider not resolved (reference model)`);
-			continue;
+		const label = model.agentName ? `${model.agentName}/${model.key}` : `models/${model.key}`;
+
+		if (model.source === "workspace") {
+			if (!provider) {
+				details.push(`- ${label}: workspace model (reference, no verification)`);
+				skipCount++;
+				continue;
+			}
 		}
 
-		const label = model.source === "workspace" ? model.key : `${model.agentName}/${model.key}`;
+		if (!provider) {
+			details.push(`- ${label}: provider not resolved (reference model)`);
+			skipCount++;
+			continue;
+		}
 
 		if (!verify) {
 			details.push(`- ${label}: ${provider.provider} (${provider.baseUrl})`);
@@ -368,13 +411,14 @@ async function checkModels(
 
 	let status: DoctorStatus = "ok";
 	if (failCount > 0) status = "warn";
-	if (okCount === 0 && failCount === 0) status = "info"; // only reference models
+	if (okCount === 0 && failCount === 0) status = "info";
 
+	const wsCount = models.filter((m) => m.source === "workspace").length;
 	checks.push({
 		name: "models",
 		status,
 		message: verify
-			? `${models.length} model${models.length === 1 ? "" : "s"} configured (${okCount} reachable, ${failCount} unreachable)`
+			? `${models.length} model${models.length === 1 ? "" : "s"} (${wsCount} workspace, ${okCount} reachable, ${failCount} unreachable, ${skipCount} skipped)`
 			: `${models.length} model${models.length === 1 ? "" : "s"} configured (verification skipped)`,
 		details,
 	});
@@ -468,21 +512,12 @@ function toPiModel(provider: AgentProviderDefinition, model: AgentModelDefinitio
 function checkSkills(root: string, checks: DoctorCheck[], agentResults: AgentResult[]): void {
 	const skillDirs: Array<{ name: string; path: string; count: number }> = [];
 
-	// Workspace-level skills
 	const workspaceSkills = join(root, "skills");
 	if (existsSync(workspaceSkills)) {
 		const count = countSkillsInDir(workspaceSkills);
 		skillDirs.push({ name: "workspace", path: "skills/", count });
 	}
 
-	// Team template skills
-	const teamSkills = join(root, "team-template", "skills");
-	if (existsSync(teamSkills)) {
-		const count = countSkillsInDir(teamSkills);
-		skillDirs.push({ name: "team-template", path: "team-template/skills/", count });
-	}
-
-	// Agent-level skills
 	for (const agent of agentResults) {
 		if (agent.skillDir) {
 			const count = countSkillsInDir(agent.skillDir);
@@ -532,6 +567,71 @@ function countSkillsInDir(dir: string): number {
 	};
 	walk(dir);
 	return count;
+}
+
+// ---------- Workspace Context ----------
+
+function checkWorkspaceContext(root: string, checks: DoctorCheck[]): void {
+	const contextFiles = discoverWorkspaceContextFiles(root);
+	if (contextFiles.length === 0) {
+		checks.push({
+			name: "context",
+			status: "info",
+			message: "No workspace context files found.",
+			details: ["Add .md files under context/ to inject custom context into agent system prompts."],
+		});
+		return;
+	}
+	const details = contextFiles.map((cf) => `- ${cf.key} (${cf.content.length} bytes)`);
+	checks.push({
+		name: "context",
+		status: "ok",
+		message: `${contextFiles.length} context file${contextFiles.length === 1 ? "" : "s"} found in context/`,
+		details,
+	});
+}
+
+// ---------- Workspace Sources ----------
+
+function checkWorkspaceSources(root: string, checks: DoctorCheck[], agentResults: AgentResult[]): void {
+	const sourcePaths = discoverWorkspaceSourcePaths(root);
+	const sourceNames = Object.keys(sourcePaths);
+	const subscribedSources = new Set<string>();
+	for (const agent of agentResults) {
+		for (const s of agent.sources) subscribedSources.add(s);
+	}
+	if (sourceNames.length === 0) {
+		checks.push({
+			name: "sources",
+			status: "info",
+			message: "No workspace sources found.",
+			details: ["Add source definitions under sources/<name>/source.ts to create external data sources."],
+		});
+		return;
+	}
+	const details = sourceNames.map((name) => {
+		const subscribed = [...agentResults.filter((a) => a.sources.includes(name)).map((a) => a.name)];
+		return `- ${name}${subscribed.length > 0 ? ` (subscribed by: ${subscribed.join(", ")})` : " (no subscribers)"}`;
+	});
+	const missingSubscriptions = [...subscribedSources].filter((s) => !sourceNames.includes(s));
+	if (missingSubscriptions.length > 0) {
+		for (const name of missingSubscriptions) {
+			details.push(`- ${name}: NOT FOUND (referenced by agents but no source definition exists)`);
+		}
+		checks.push({
+			name: "sources",
+			status: "warn",
+			message: `${sourceNames.length} source${sourceNames.length === 1 ? "" : "s"} found, ${missingSubscriptions.length} missing`,
+			details,
+		});
+		return;
+	}
+	checks.push({
+		name: "sources",
+		status: "ok",
+		message: `${sourceNames.length} source${sourceNames.length === 1 ? "" : "s"} found in sources/`,
+		details,
+	});
 }
 
 // ---------- Recent inputs ----------
@@ -584,7 +684,6 @@ function checkRecentInputs(
 }
 
 function readRecentUserInputs(sessionDir: string, max: number): string[] {
-	// Find the most recent session JSONL file(s)
 	let sessionFiles: string[] = [];
 	try {
 		sessionFiles = readdirSync(sessionDir)
@@ -643,7 +742,6 @@ function readRecentUserInputs(sessionDir: string, max: number): string[] {
 function checkServeReadiness(root: string, checks: DoctorCheck[]): void {
 	const issues: string[] = [];
 
-	// Check that .dpi/config.json exists and is valid JSON
 	const configPath = join(root, ".dpi", "config.json");
 	if (!existsSync(configPath)) {
 		issues.push(".dpi/config.json missing");
@@ -655,13 +753,11 @@ function checkServeReadiness(root: string, checks: DoctorCheck[]): void {
 		}
 	}
 
-	// Check package.json exists (needed for TS imports of @sheason/d-pi)
 	const pkgJsonPath = join(root, "package.json");
 	if (!existsSync(pkgJsonPath)) {
 		issues.push("package.json missing");
 	}
 
-	// Check node_modules/@sheason/d-pi is linked
 	const dpiPkgPath = join(root, "node_modules", "@sheason", "d-pi");
 	if (!existsSync(dpiPkgPath)) {
 		issues.push("node_modules/@sheason/d-pi not found (run 'npm install')");

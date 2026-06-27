@@ -38,7 +38,7 @@ interface DPiConnectRuntimeOptions {
 export interface ConnectSessionSpawnOptions {
 	/** Path to the d-pi CLI entry (e.g. process.argv[1]). */
 	cliPath: string;
-	/** Resolved agent URL on the hub (e.g. http://hub/agents/<id>). */
+	/** Resolved agent URL on the hub (e.g. http://hub/agents/<name>). */
 	agentUrl: string;
 	/** Base hub URL. */
 	hubUrl: string;
@@ -61,12 +61,12 @@ export interface ConnectSessionSpawnOptions {
  * as child processes. Both children share auth and lifecycle: if either dies,
  * the other is killed. The TUI renders directly in the terminal via
  * stdio:inherit. When the user selects a different agent via /agents, the TUI
- * writes the target agent ID to AGENT_SWITCH_FILE and exits gracefully. The
+ * writes the target agent name to AGENT_SWITCH_FILE and exits gracefully. The
  * parent detects the switch by checking for the file, then respawns a new
  * session connected to the selected agent.
  *
  * Before each spawn, the parent registers the agent→connectId binding with
- * the hub via POST /_hub/agents/{id}/bind so /agents/{id}/remote-call can be
+ * the hub via POST /_hub/agents/{name}/bind so /agents/{name}/remote-call can be
  * dispatched to the executor.
  */
 export async function runDPiConnectMode(
@@ -117,7 +117,7 @@ export async function runDPiConnectMode(
 			// can connect to the same agent concurrently without
 			// colliding in the hub's ExecutorRegistry. The agent name
 			// is still used for routing (it goes in the URL path
-			// /agents/{id}/remote-call) and for the hub's
+			// /agents/{name}/remote-call) and for the hub's
 			// _agentBindings map, but the connectId — which is the
 			// key for the executor registry — is session-unique.
 			connectId: createConnectId(),
@@ -217,7 +217,6 @@ const DPI_CHILD_ENV_KEYS = [
 	"DPI_AUTH_TOKEN",
 	"DPI_CONNECT_ID",
 	"DPI_CURRENT_AGENT_NAME",
-	"DPI_CURRENT_AGENT_ID",
 	"DPI_HUB_URL",
 	"DPI_CWD",
 ] as const;
@@ -260,7 +259,7 @@ export function createConnectChildEnv(
 /**
  * Bind an agent to a connect id on the hub. Idempotent; throws on failure.
  *
- * Until this returns, the hub will reject any /agents/{id}/remote-call with
+ * Until this returns, the hub will reject any /agents/{name}/remote-call with
  * 409 ("Agent not in connect mode"). We call this before spawning the
  * executor so the first remote call from the TUI can find its target.
  */
@@ -370,7 +369,7 @@ export async function runConnectSession(opts: ConnectSessionSpawnOptions & { fet
 		});
 	});
 
-	// 3. Unbind so a future /agents/{id}/remote-call from a different session
+	// 3. Unbind so a future /agents/{name}/remote-call from a different session
 	// does not hit a stale binding. Bounded by a short timeout: the hub has
 	// its own GC of stale bindings on executor SSE close, so a slow unbind
 	// is not load-bearing. Without this bound, a half-open TCP socket to a

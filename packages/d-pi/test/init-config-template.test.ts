@@ -2,7 +2,7 @@ import { existsSync, lstatSync, readFileSync, realpathSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { runDPiCli } from "../src/cli-runner.ts";
 import { initWorkspace, isWorkspaceRoot } from "../src/workspace/workspace.ts";
 
@@ -37,7 +37,7 @@ describe("init template: strict-JSON output", () => {
 		JSON.parse(raw);
 	});
 
-	it("writes agents/root/agent.ts in the standard v3 schema", () => {
+	it("writes agents/root/agent.ts in the convention-based minimal schema", () => {
 		const workspace = freshWorkspace();
 		initWorkspace(workspace);
 
@@ -46,12 +46,12 @@ describe("init template: strict-JSON output", () => {
 		expect(existsSync(join(workspace, "agents", "root", "agent.json"))).toBe(false);
 
 		const raw = readFileSync(agentConfigPath, "utf-8");
-		expect(raw).toContain("defineOpenAIProvider");
-		expect(raw).toContain("defineProvider");
-		expect(raw).toContain("export default defineAgent(");
-		expect(raw).toContain('defineSkill({ dir: "./skills" })');
-		expect(raw).toContain('defineContextFile({ type: "context", path: "./AGENTS.md" })');
-		expect(raw).toContain('defineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" })');
+		expect(raw).toContain("defineAgent");
+		expect(raw).toContain("export default defineAgent({");
+		expect(raw).toContain("Convention-based agent configuration");
+		expect(raw).not.toContain("defineSkill(");
+		expect(raw).not.toContain("defineContextFile(");
+		expect(raw).not.toContain("createDispatchBashTool");
 		expect(raw).not.toContain("parent:");
 	});
 
@@ -117,45 +117,21 @@ describe("init template: strict-JSON output", () => {
 		expect(() => JSON.parse(raw)).toThrowError(SyntaxError);
 	});
 
-	it("AGENTS.md template documents the optional workspace and agent config keys", () => {
+	it("AGENTS.md template documents convention-based workspace and agent config", () => {
 		const workspace = freshWorkspace();
 		initWorkspace(workspace);
 
 		const agentsMd = readFileSync(join(workspace, "AGENTS.md"), "utf-8");
-		const workspaceSection = agentsMd.split("## Agent Configuration")[0];
-		expect(workspaceSection).not.toMatch(/includeTools/);
-		expect(workspaceSection).not.toMatch(/excludeTools/);
-		expect(workspaceSection).not.toMatch(/defaultModel/);
-		// Agent-level keys
-		expect(agentsMd).toMatch(/parent/);
-		expect(agentsMd).toMatch(/description/);
-		expect(agentsMd).toMatch(/defineOpenAIProvider/);
-		expect(agentsMd).toMatch(/defineProvider/);
-		expect(agentsMd).toMatch(/contextWindow/);
-		expect(agentsMd).toMatch(/thinkingLevel/);
+		expect(agentsMd).toMatch(/Workspace Resources/);
+		expect(agentsMd).toMatch(/convention-based/);
+		expect(agentsMd).toMatch(/AGENTS\.md/);
+		expect(agentsMd).toMatch(/skills\//);
+		expect(agentsMd).toMatch(/context\/\*\.md/);
+		expect(agentsMd).toMatch(/tools\/\*\.ts/);
+		expect(agentsMd).toMatch(/commands\/\*\.ts/);
+		expect(agentsMd).toMatch(/Built-in tools/);
 		expect(agentsMd).not.toMatch(/agent\.json/);
 		expect(agentsMd).not.toMatch(/sessionId/);
-	});
-
-	it("CLI init clones a git team template into team-template when requested", async () => {
-		const workspace = freshWorkspace();
-		const stdout: string[] = [];
-		const cloneTeamTemplate = vi.fn(async () => {});
-
-		await runDPiCli(["init", "--team-template", "https://example.com/team-template.git"], {
-			cwd: workspace,
-			homeDir: workspace,
-			stdout: (line) => stdout.push(line),
-			stderr: () => {},
-			cloneTeamTemplate,
-		});
-
-		expect(cloneTeamTemplate).toHaveBeenCalledWith(
-			"https://example.com/team-template.git",
-			join(workspace, "team-template"),
-		);
-		expect(stdout.join("\n")).toContain("Cloned team template from https://example.com/team-template.git");
-		expect(isWorkspaceRoot(workspace)).toBe(true);
 	});
 
 	it("CLI init output describes the root agent.ts layout", async () => {
@@ -173,18 +149,5 @@ describe("init template: strict-JSON output", () => {
 		expect(output).toContain("agents/root/            — root agent working directory");
 		expect(output).toContain("agents/root/agent.ts    — root agent definition");
 		expect(output).not.toContain("agent.json");
-	});
-
-	it("CLI init rejects --team-template without a repository", async () => {
-		const workspace = freshWorkspace();
-		await expect(
-			runDPiCli(["init", "--team-template"], {
-				cwd: workspace,
-				homeDir: workspace,
-				stdout: () => {},
-				stderr: () => {},
-			}),
-		).rejects.toThrow(/argument missing/);
-		expect(existsSync(join(workspace, ".dpi"))).toBe(false);
 	});
 });

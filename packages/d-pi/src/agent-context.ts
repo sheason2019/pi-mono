@@ -17,29 +17,12 @@ function resolveAgentResourcePath(agent: LoadedAgentDefinition, path: string, de
 	return resolvedPath;
 }
 
-export function resolveAgentContextFilePath(agent: LoadedAgentDefinition, entry: AgentContextFileDefinition): string {
+function resolveAgentContextFilePath(agent: LoadedAgentDefinition, entry: AgentContextFileDefinition): string {
 	return resolveAgentResourcePath(agent, entry.path, "Agent context file path");
 }
 
 export function resolveAgentSkillDir(agent: LoadedAgentDefinition, entry: AgentSkillDefinition): string {
 	return resolveAgentResourcePath(agent, entry.dir, "Agent skills dir");
-}
-
-export function uniqueAgentContextFileDefinitions(
-	agent: LoadedAgentDefinition,
-	entries: AgentContextFileDefinition[],
-): AgentContextFileDefinition[] {
-	const seen = new Set<string>();
-	const unique: AgentContextFileDefinition[] = [];
-	for (const entry of entries) {
-		const key = `${entry.type}:${resolveAgentContextFilePath(agent, entry)}`;
-		if (seen.has(key)) {
-			continue;
-		}
-		seen.add(key);
-		unique.push(entry);
-	}
-	return unique;
 }
 
 function readAgentContextFile(agent: LoadedAgentDefinition, entry: AgentContextFileDefinition): string | undefined {

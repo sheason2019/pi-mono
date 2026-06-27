@@ -43,13 +43,6 @@ export interface DPiSendMessageActionPayload {
 	sourceName?: string;
 }
 
-export interface DPiSourceInfo {
-	name: string;
-	status: "running" | "stopped" | "error";
-	subscribers: string[];
-	restartCount: number;
-}
-
 export interface DPiDispatchRemoteToolActionPayload {
 	requestId: string;
 	connectId: string;
@@ -65,11 +58,23 @@ export interface DPiDispatchRemoteToolActionResult {
 	error?: string;
 }
 
+export interface DPiReloadWorkspaceResult {
+	models: string[];
+	contextFiles: string[];
+	sources: {
+		added: string[];
+		removed: string[];
+		changed: string[];
+		total: number;
+	};
+}
+
 export type DPiHubActionRequest =
 	| { action: "createAgent"; payload: DPiCreateAgentActionPayload }
 	| { action: "destroyAgent"; payload: DPiDestroyAgentActionPayload }
 	| { action: "getTeam"; payload: Record<string, never> }
 	| { action: "sendMessage"; payload: DPiSendMessageActionPayload }
+	| { action: "reloadWorkspace"; payload: Record<string, never> }
 	| { action: "dispatchRemoteTool"; payload: DPiDispatchRemoteToolActionPayload };
 
 export type DPiHubActionsTransport = (request: DPiHubActionRequest) => Promise<unknown>;
@@ -79,6 +84,7 @@ export interface DPiHubActionsClient {
 	destroyAgent(payload: DPiDestroyAgentActionPayload): Promise<{ ok: boolean; error?: string }>;
 	getTeam(): Promise<DPiTeamSnapshot>;
 	sendMessage(payload: DPiSendMessageActionPayload): Promise<{ ok: boolean; error?: string }>;
+	reloadWorkspace(): Promise<DPiReloadWorkspaceResult>;
 	dispatchRemoteTool(payload: DPiDispatchRemoteToolActionPayload): Promise<DPiDispatchRemoteToolActionResult>;
 }
 
@@ -102,6 +108,9 @@ export function createHubActionsClient(transport: DPiHubActionsTransport): DPiHu
 		},
 		sendMessage(payload) {
 			return dispatchHubAction(transport, { action: "sendMessage", payload });
+		},
+		reloadWorkspace() {
+			return dispatchHubAction(transport, { action: "reloadWorkspace", payload: {} });
 		},
 		dispatchRemoteTool(payload) {
 			return dispatchHubAction(transport, { action: "dispatchRemoteTool", payload });

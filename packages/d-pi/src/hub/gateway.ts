@@ -19,7 +19,6 @@ import { discoverTuiComponentFiles, tuiComponentsDir } from "../tui-components/t
 import type { AgentRecord, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 import type { AgentRegistry } from "./agent-registry.ts";
 import type { ExecutorRegistry } from "./executor-registry.ts";
-import type { SourceManager } from "./source-manager.ts";
 
 type WorkerHttpResponse = Extract<WorkerToHubMessage, { type: "http_response" }>;
 interface WorkerHttpResponseWaitOptions {
@@ -36,9 +35,6 @@ interface WorkerHttpResponseWaitOptions {
  *   /_hub/agents       POST → create agent
  *   /_hub/agents/{id}  DELETE → destroy agent
  *   /_hub/team       GET  → team snapshot
- *   /_hub/sources      GET  → list all sources
- *   /_hub/sources      PUT/POST → set source
- *   /_hub/sources/{name} DELETE → destroy source
  *   /agents/{id}/*     → reverse proxy to agent's HTTP server
  *   /*                 → reverse proxy to root agent
  */
@@ -53,7 +49,6 @@ export interface HubGatewayOptions {
 export class HubGateway {
 	private _server: Server | undefined;
 	private readonly _registry: AgentRegistry;
-	private readonly _sourceManager: SourceManager;
 	private readonly _onCreateAgent: (
 		parentName: string | undefined,
 		options: { name: string; cwd?: string },
@@ -67,7 +62,6 @@ export class HubGateway {
 
 	constructor(
 		registry: AgentRegistry,
-		sourceManager: SourceManager,
 		onCreateAgent: HubGateway["_onCreateAgent"],
 		onDestroyAgent: HubGateway["_onDestroyAgent"],
 		auth?: AuthSessionManager,
@@ -75,7 +69,6 @@ export class HubGateway {
 		options?: HubGatewayOptions,
 	) {
 		this._registry = registry;
-		this._sourceManager = sourceManager;
 		this._onCreateAgent = onCreateAgent;
 		this._onDestroyAgent = onDestroyAgent;
 		this._auth = auth;
@@ -487,14 +480,6 @@ export class HubGateway {
 				})) ?? [];
 			res.writeHead(200, { "Content-Type": "application/json" });
 			res.end(JSON.stringify(snapshot));
-			return;
-		}
-
-		// GET /_hub/sources — list all sources
-		if (path === "/_hub/sources" && req.method === "GET") {
-			const sources = this._sourceManager.listSources();
-			res.writeHead(200, { "Content-Type": "application/json" });
-			res.end(JSON.stringify(sources));
 			return;
 		}
 

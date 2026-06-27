@@ -54,8 +54,6 @@ describe("buildAgentTsSource", () => {
 					name: "reviewer",
 					parentName: "root",
 					description: "Reviewer",
-					roles: ["reviewer"],
-					toolNames: ["dispatch_read", "team"],
 					modelDefinition: { provider: "anthropic", name: "claude-sonnet-4" },
 				}),
 			),
@@ -65,9 +63,8 @@ describe("buildAgentTsSource", () => {
 		expect(written).toMatchObject({
 			name: "reviewer",
 			description: "Reviewer",
-			roles: ["reviewer"],
 			model: { provider: "anthropic", name: "claude-sonnet-4" },
-			tools: [{ name: "dispatch_read" }, { name: "team" }],
+			tools: [],
 		});
 		const source = readFileSync(join(agentDir, "agent.ts"), "utf-8");
 		expect(source).toContain('import parentAgent from "../root/agent.ts";');
@@ -81,20 +78,13 @@ describe("buildAgentTsSource", () => {
 		writeAgentTs(
 			agentDir,
 			[
-				`import { createDispatchReadTool, createTeamTool, defineAgent, defineContextFile, defineModel, defineRole, defineSkill } from ${JSON.stringify(dPiDefinitionUrl())};`,
-				"",
-				'const role = defineRole("reviewer");',
+				`import { createDispatchReadTool, createTeamTool, defineAgent, defineModel, defineSkill } from ${JSON.stringify(dPiDefinitionUrl())};`,
 				"",
 				"export default defineAgent({",
 				"\tdescription: `Dynamic reviewer`,",
-				"\troles: [role],",
 				'\tmodel: defineModel({ provider: "unknown", name: "old-model" }),',
 				'\tskills: defineSkill({ dir: "./skills" }),',
 				"\ttools: [createDispatchReadTool(), createTeamTool()],",
-				"\tcontextFiles: [",
-				'\t\tdefineContextFile({ type: "context", path: "./AGENTS.md" }),',
-				'\t\tdefineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" }),',
-				"\t],",
 				"});",
 				"",
 			].join("\n"),
@@ -104,7 +94,6 @@ describe("buildAgentTsSource", () => {
 		expect(written).toMatchObject({
 			name: "dynamic",
 			description: "Dynamic reviewer",
-			roles: ["reviewer"],
 			model: { provider: "unknown", name: "old-model" },
 			tools: [{ name: "dispatch_read" }, { name: "team" }],
 		});

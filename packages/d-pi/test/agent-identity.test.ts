@@ -30,7 +30,7 @@ function writeAgentTs(workspace: string, entryName: string, config: AgentConfig,
 	const dir = join(workspace, "agents", entryName);
 	mkdirSync(dir, { recursive: true });
 	const lines = [
-		`import { createDispatchBashTool, createDispatchReadTool, defineAgent, defineContextFile, defineSkill } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src", "index.ts")).href)};`,
+		`import { createDispatchBashTool, createDispatchReadTool, defineAgent, defineSkill } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src", "index.ts")).href)};`,
 	];
 	if (parentImportName) {
 		lines.push(`import parentAgent from "../${parentImportName}/agent.ts";`);
@@ -43,17 +43,10 @@ function writeAgentTs(workspace: string, entryName: string, config: AgentConfig,
 	if (config.description !== undefined) {
 		lines.push(`\tdescription: ${JSON.stringify(config.description)},`);
 	}
-	if (config.roles && config.roles.length > 0) {
-		lines.push(`\troles: ${JSON.stringify(config.roles)},`);
-	}
 	lines.push('\tskills: defineSkill({ dir: "./skills" }),');
 	lines.push("\ttools: [");
 	lines.push("\t\tcreateDispatchReadTool(),");
 	lines.push("\t\tcreateDispatchBashTool(),");
-	lines.push("\t],");
-	lines.push("\tcontextFiles: [");
-	lines.push('\t\tdefineContextFile({ type: "context", path: "./AGENTS.md" }),');
-	lines.push('\t\tdefineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" }),');
 	lines.push("\t],");
 	lines.push("});");
 	lines.push("");
@@ -117,7 +110,6 @@ describe("loadAgentIdentity", () => {
 				name: "wrong-child",
 				parentName: "wrong-parent",
 				description: "A child agent.",
-				roles: ["writer", "reviewer"],
 			},
 			"root",
 		);
@@ -127,7 +119,6 @@ describe("loadAgentIdentity", () => {
 			name: "child",
 			parentName: "root",
 			description: "A child agent.",
-			roles: ["writer", "reviewer"],
 		});
 	});
 });
@@ -169,15 +160,13 @@ describe("formatAgentIdentitySection", () => {
 		expect(emptyBodyLines).toHaveLength(0);
 	});
 
-	it("emits parent and roles metadata when set", () => {
+	it("emits parent metadata when set", () => {
 		const section = formatAgentIdentitySection({
 			name: "child",
 			parentName: "root",
 			description: "A child agent.",
-			roles: ["writer", "reviewer"],
 		});
 		expect(section).toContain("parent: `root`");
-		expect(section).toContain("roles: `writer`, `reviewer`");
 		expect(section).not.toContain("model:");
 		expect(section).not.toContain("includeTools");
 		expect(section).not.toContain("excludeTools");
@@ -186,14 +175,5 @@ describe("formatAgentIdentitySection", () => {
 	it("omits parentName when null (root agent case)", () => {
 		const section = formatAgentIdentitySection({ name: "root", parentName: undefined });
 		expect(section).not.toMatch(/parent:/);
-	});
-
-	it("omits empty roles rather than rendering empty lists", () => {
-		const section = formatAgentIdentitySection({
-			name: "minimal",
-			parentName: undefined,
-			roles: [],
-		});
-		expect(section).not.toMatch(/roles:/);
 	});
 });

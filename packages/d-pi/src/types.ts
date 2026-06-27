@@ -16,10 +16,7 @@ export type AgentStatus = "starting" | "ready" | "busy" | "error" | "destroyed";
 export interface AgentConfig {
 	name: string;
 	parentName: string | undefined;
-	// Free-form prose about what this agent is, who it serves, and
-	// when to delegate to it. Intended for the LLM to read.
 	description?: string;
-	roles?: string[];
 }
 
 // === Workspace Context ===
@@ -28,6 +25,9 @@ export interface WorkspaceContext {
 	appendSystemPrompt?: string;
 	additionalAgentsFiles?: Array<{ path: string; content: string }>;
 	additionalSkillPaths: string[];
+	workspaceModelPaths: Record<string, string>;
+	workspaceContextFiles: Array<{ key: string; path: string; content: string }>;
+	workspaceSourcePaths: Record<string, string>;
 }
 
 // === Worker Configuration (passed via workerData) ===
@@ -57,7 +57,8 @@ export type WorkerToHubMessage =
 	| { type: "tool_call_timeout"; agentName: string; callId: string }
 	| { type: "status_update"; agentName: string; status: AgentStatus }
 	| { type: "http_response"; agentName: string; requestId: string; status: number; body: unknown }
-	| { type: "sse_event"; agentName: string; subscriberId: string; event: string; data: unknown };
+	| { type: "sse_event"; agentName: string; subscriberId: string; event: string; data: unknown }
+	| { type: "subscribe_sources"; agentName: string; sources: string[] };
 
 // === Hub → Worker IPC Messages ===
 export type HubToWorkerMessage =
@@ -150,7 +151,6 @@ export type {
 	AgentModelDefinition,
 	AgentModelReferenceDefinition,
 	AgentProviderDefinition,
-	AgentRoleDefinition,
 	AgentSkillDefinition,
 	AgentToolDefinition,
 	AgentToolDefinitionInput,

@@ -9,7 +9,6 @@ import { signChallenge } from "../src/auth/signing.ts";
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { ExecutorRegistry } from "../src/hub/executor-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
-import { SourceManager } from "../src/hub/source-manager.ts";
 
 let tempDir: string | undefined;
 function createTempDir(prefix: string): string {
@@ -34,7 +33,6 @@ async function startHub(workspaceRoot: string): Promise<StartedHub> {
 	const executorRegistry = new ExecutorRegistry();
 	const gateway = new HubGateway(
 		new AgentRegistry(),
-		new SourceManager(() => {}),
 		async () => ({ agentName: "created" }),
 		async () => {},
 		new AuthSessionManager(workspaceRoot),
@@ -62,7 +60,7 @@ async function startHub(workspaceRoot: string): Promise<StartedHub> {
 	return { url: gateway.url(), gateway, executorRegistry, sessionToken: session.token };
 }
 
-describe("hub endpoint POST /_hub/agents/{id}/bind", () => {
+describe("hub endpoint POST /_hub/agents/{name}/bind", () => {
 	beforeEach(() => {
 		createTempDir("d-pi-agent-bind-");
 	});
@@ -166,7 +164,6 @@ describe("hub endpoint POST /_hub/agents/{id}/bind", () => {
 		// inline a small new gateway to keep the assertion self-contained.)
 		const g = new HubGateway(
 			new AgentRegistry(),
-			new SourceManager(() => {}),
 			async () => ({ agentName: "x" }),
 			async () => {},
 		);
@@ -195,7 +192,6 @@ describe("hub endpoint POST /_hub/agents/{id}/bind", () => {
 		const execReg = new ExecutorRegistry();
 		const gw = new HubGateway(
 			new AR(),
-			new SourceManager(() => {}),
 			async () => ({ agentName: "x" }),
 			async () => {},
 			new AuthSessionManager(tempDir!),

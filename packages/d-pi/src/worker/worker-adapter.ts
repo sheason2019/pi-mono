@@ -8,6 +8,7 @@ import type {
 	AgentLocalModelDefinition,
 	AgentMiddlewareDefinition,
 	AgentModelDefinition,
+	AgentModelSpec,
 	AgentProviderDefinition,
 	ToolDefinition,
 } from "../agent-definition.ts";
@@ -42,6 +43,7 @@ import type {
 } from "../tui/interactive/view-model.ts";
 import { createDPiInteractiveRealtimePage } from "../tui/interactive/view-model.ts";
 import type { MessageRenderer } from "../tui-components/tui-component-definition.ts";
+import { loadWorkspaceModelDefinition } from "../workspace/workspace-resources.ts";
 
 export interface DPiRequestAuth {
 	apiKey: string;
@@ -51,6 +53,9 @@ export interface DPiRequestAuth {
 export interface DPiWorkerModelRegistry extends ModelRegistry {
 	getApiKeyAndHeaders?(model: Model<Api>): Promise<DPiRequestAuth | undefined> | DPiRequestAuth | undefined;
 	updateAgentDefinition(agentDefinition: LoadedAgentDefinition | undefined): void;
+	findWorkspaceModel?(modelRef: string): Model<Api> | undefined;
+	registerWorkspaceModel?(model: Model<Api>, provider: AgentProviderDefinition): void;
+	clearWorkspaceModels?(): void;
 }
 
 export interface DPiWorkerSessionManager {
@@ -65,6 +70,7 @@ export interface DPiWorkerInfrastructure {
 
 export interface DPiWorkerInfrastructureOptions {
 	agentDefinition?: LoadedAgentDefinition;
+	workspaceRoot?: string;
 }
 
 export interface DPiWorkerSession {
@@ -111,7 +117,6 @@ export interface DPiCreateSessionFromServicesOptions {
 	sessionManager: DPiWorkerSessionManager;
 	model?: Model<Api>;
 	tools?: string[];
-	excludeTools?: string[];
 }
 
 export interface DPiCreateSessionResult {
@@ -155,12 +160,13 @@ export function createDPiSessionManager(cwd: string, sessionDir?: string): DPiWo
 export async function resolveDPiInitialModel(options: {
 	modelRegistry: DPiWorkerModelRegistry;
 	agentDefinition?: LoadedAgentDefinition;
+	workspaceRoot?: string;
 }): Promise<Model<Api> | undefined> {
-	const { agentDefinition, modelRegistry } = options;
+	const { agentDefinition, modelRegistry, workspaceRoot } = options;
 	let resolvedModel: Model<Api> | undefined;
 
 	if (agentDefinition?.model) {
-		resolvedModel = resolveAgentDefinitionModel(modelRegistry, agentDefinition.model);
+		resolvedModel = await resolveAgentDefinitionModel(modelRegistry, agentDefinition.model, workspaceRoot);
 	}
 
 	if (resolvedModel) {
@@ -170,15 +176,60 @@ export async function resolveDPiInitialModel(options: {
 	return undefined;
 }
 
-function resolveAgentDefinitionModel(
+async function resolveAgentDefinitionModel(
 	modelRegistry: DPiWorkerModelRegistry,
-	modelDefinition: AgentModelDefinition,
-): Model<Api> | undefined {
-	if ("id" in modelDefinition) {
-		const provider = resolveAgentModelProvider(modelDefinition.provider);
-		return provider ? modelRegistry.find(provider.provider, modelDefinition.id) : undefined;
+	modelSpec: AgentModelSpec,
+	workspaceRoot?: string,
+): Promise<Model<Api> | undefined> {
+	if (typeof modelSpec === "string") {
+		if (!workspaceRoot) {
+			return undefined;
+		}
+		return resolveWorkspaceModelRef(modelRegistry, workspaceRoot, modelSpec);
 	}
-	return modelRegistry.find(modelDefinition.provider, modelDefinition.name);
+	if ("id" in modelSpec) {
+		const provider = resolveAgentModelProvider(modelSpec.provider);
+		return provider ? modelRegistry.find(provider.provider, modelSpec.id) : undefined;
+	}
+	return modelRegistry.find(modelSpec.provider, modelSpec.name);
+}
+
+async function resolveWorkspaceModelRef(
+	modelRegistry: DPiWorkerModelRegistry,
+	workspaceRoot: string,
+	modelRef: string,
+): Promise<Model<Api> | undefined> {
+	const existing = modelRegistry.findWorkspaceModel?.(modelRef);
+	if (existing) {
+		return existing;
+	}
+	try {
+		const definition = await loadWorkspaceModelDefinitionFromRef(workspaceRoot, modelRef);
+		if (!definition) {
+			return undefined;
+		}
+		const provider = resolveAgentModelProvider(definition.provider);
+		if (!provider) {
+			return undefined;
+		}
+		const model = agentLocalModelToPiModel({ ...definition, id: modelRef }, provider);
+		modelRegistry.registerWorkspaceModel?.(model, provider);
+		return model;
+	} catch {
+		return undefined;
+	}
+}
+
+async function loadWorkspaceModelDefinitionFromRef(
+	workspaceRoot: string,
+	modelRef: string,
+): Promise<AgentLocalModelDefinition | undefined> {
+	const { resolveWorkspaceModelPath } = await import("../workspace/workspace-resources.ts");
+	const filePath = resolveWorkspaceModelPath(workspaceRoot, modelRef);
+	if (!filePath) {
+		return undefined;
+	}
+	return loadWorkspaceModelDefinition(filePath);
 }
 
 export async function createDPiAgentSessionServices(
@@ -1645,12 +1696,29 @@ function createPlaceholderSession(
 
 function createBuiltInModelRegistry(initialAgentDefinition?: LoadedAgentDefinition): DPiWorkerModelRegistry {
 	let currentAgentDefinition = initialAgentDefinition;
-	let registry = loadAvailableModels(currentAgentDefinition);
+	const workspaceModels = new Map<string, { model: Model<Api>; provider: AgentProviderDefinition }>();
+	let registry = loadAvailableModels(currentAgentDefinition, workspaceModels);
 	return {
-		find: (provider, modelId) => findBuiltInModel(registry.models, provider, modelId),
+		find: (provider, modelId) => {
+			if (provider === "__workspace__") {
+				const entry = workspaceModels.get(modelId);
+				return entry?.model;
+			}
+			return findBuiltInModel(registry.models, provider, modelId);
+		},
 		getAll: () => [...registry.models],
 		getAvailable: async () => [...registry.models],
 		getApiKeyAndHeaders: (model) => {
+			const wsEntry = [...workspaceModels.values()].find((e) => e.model === model);
+			if (wsEntry) {
+				const p = wsEntry.provider;
+				if (!p.apiKey) return undefined;
+				const headers = {
+					...(p.authHeader && p.apiKey ? { Authorization: `Bearer ${p.apiKey}` } : {}),
+					...(p.headers ?? {}),
+				};
+				return { apiKey: p.apiKey, ...(Object.keys(headers).length > 0 ? { headers } : {}) };
+			}
 			const config = registry.providerAuth.get(model.provider);
 			if (!config?.apiKey) {
 				return undefined;
@@ -1665,11 +1733,22 @@ function createBuiltInModelRegistry(initialAgentDefinition?: LoadedAgentDefiniti
 			};
 		},
 		refresh: () => {
-			registry = loadAvailableModels(currentAgentDefinition);
+			registry = loadAvailableModels(currentAgentDefinition, workspaceModels);
 		},
 		updateAgentDefinition: (agentDefinition: LoadedAgentDefinition | undefined) => {
 			currentAgentDefinition = agentDefinition;
-			registry = loadAvailableModels(currentAgentDefinition);
+			registry = loadAvailableModels(currentAgentDefinition, workspaceModels);
+		},
+		findWorkspaceModel: (modelRef: string) => {
+			return workspaceModels.get(modelRef)?.model;
+		},
+		registerWorkspaceModel: (model: Model<Api>, provider: AgentProviderDefinition) => {
+			workspaceModels.set(model.id, { model, provider });
+			registry = loadAvailableModels(currentAgentDefinition, workspaceModels);
+		},
+		clearWorkspaceModels: () => {
+			workspaceModels.clear();
+			registry = loadAvailableModels(currentAgentDefinition, workspaceModels);
 		},
 	};
 }
@@ -1690,12 +1769,29 @@ interface DPiAvailableModels {
 	providerAuth: Map<string, DPiProviderAuthConfig>;
 }
 
-function loadAvailableModels(agentDefinition?: LoadedAgentDefinition): DPiAvailableModels {
+function loadAvailableModels(
+	agentDefinition: LoadedAgentDefinition | undefined,
+	workspaceModels?: Map<string, { model: Model<Api>; provider: AgentProviderDefinition }>,
+): DPiAvailableModels {
 	const agentLocal = loadAgentLocalModels(agentDefinition);
-	return {
-		models: agentLocal.models,
-		providerAuth: agentLocal.providerAuth,
-	};
+	if (!workspaceModels || workspaceModels.size === 0) {
+		return agentLocal;
+	}
+	const models = [...agentLocal.models];
+	const providerAuth = new Map(agentLocal.providerAuth);
+	for (const [, { model, provider }] of workspaceModels) {
+		if (!models.find((m) => m.id === model.id)) {
+			models.push(model);
+		}
+		if (provider.apiKey) {
+			providerAuth.set(model.provider, {
+				apiKey: provider.apiKey,
+				...(provider.authHeader === undefined ? {} : { authHeader: provider.authHeader }),
+				...(provider.headers === undefined ? {} : { headers: { ...provider.headers } }),
+			});
+		}
+	}
+	return { models, providerAuth };
 }
 
 function loadAgentLocalModels(agentDefinition: LoadedAgentDefinition | undefined): DPiAvailableModels {
@@ -1722,7 +1818,7 @@ function loadAgentLocalModels(agentDefinition: LoadedAgentDefinition | undefined
 function agentLocalModelDefinitions(agentDefinition: LoadedAgentDefinition): AgentLocalModelDefinition[] {
 	const definitions: AgentLocalModelDefinition[] = [];
 	for (const candidate of [agentDefinition.model]) {
-		if (candidate && isAgentLocalModelDefinition(candidate)) {
+		if (candidate && typeof candidate !== "string" && isAgentLocalModelDefinition(candidate)) {
 			definitions.push(candidate);
 		}
 	}

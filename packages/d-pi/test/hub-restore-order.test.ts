@@ -53,9 +53,11 @@ function discoveredAgent(entryName: string, config: AgentConfig): DiscoveredAgen
 			contextFiles: [],
 			commands: [],
 			middlewares: [],
+			sources: [],
 			agentDir: `/tmp/${entryName}`,
 			agentFilePath: `/tmp/${entryName}/agent.ts`,
 			autoCompact: true,
+			disableDefaultTools: false,
 		},
 	};
 }
@@ -71,7 +73,7 @@ function writeAgentTs(
 	mkdirSync(dir, { recursive: true });
 	const dPiDefinitionUrl = pathToFileURL(join(process.cwd(), "src", "index.ts")).href;
 	const lines = [
-		`import { createDispatchReadTool, createTeamTool, defineAgent, defineContextFile, defineSkill } from ${JSON.stringify(dPiDefinitionUrl)};`,
+		`import { createDispatchReadTool, createTeamTool, defineAgent, defineSkill } from ${JSON.stringify(dPiDefinitionUrl)};`,
 	];
 	if (parentImportName) {
 		lines.push(`import parentAgent from "../${parentImportName}/agent.ts";`);
@@ -86,18 +88,11 @@ function writeAgentTs(
 	} else if (config.description !== undefined) {
 		lines.push(`\tdescription: ${JSON.stringify(config.description)},`);
 	}
-	if (config.roles && config.roles.length > 0) {
-		lines.push(`\troles: ${JSON.stringify(config.roles)},`);
-	}
 	lines.push('\tskills: defineSkill({ dir: "./skills" }),');
 	lines.push("\ttools: [");
 	for (const toolName of config.toolNames ?? ["dispatch_read"]) {
 		lines.push(`\t\t${toolName === "team" ? "createTeamTool" : "createDispatchReadTool"}(),`);
 	}
-	lines.push("\t],");
-	lines.push("\tcontextFiles: [");
-	lines.push('\t\tdefineContextFile({ type: "context", path: "./AGENTS.md" }),');
-	lines.push('\t\tdefineContextFile({ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" }),');
 	lines.push("\t],");
 	lines.push("});");
 	lines.push("");
@@ -264,7 +259,13 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			port: 50000 + Math.floor(Math.random() * 1000),
 			workspaceRoot: workspace,
 			cwd: workspace,
-			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [] },
+			workspaceContext: {
+				workspaceRoot: workspace,
+				additionalSkillPaths: [],
+				workspaceModelPaths: {},
+				workspaceContextFiles: [],
+				workspaceSourcePaths: {},
+			},
 		});
 		await expect(hub.createAgent("nonexistent-name-xxx", { name: "child" })).rejects.toThrow(
 			/parent agent "nonexistent-name-xxx" not found/,
@@ -279,7 +280,13 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			port: 50000 + Math.floor(Math.random() * 1000),
 			workspaceRoot: workspace,
 			cwd: workspace,
-			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [] },
+			workspaceContext: {
+				workspaceRoot: workspace,
+				additionalSkillPaths: [],
+				workspaceModelPaths: {},
+				workspaceContextFiles: [],
+				workspaceSourcePaths: {},
+			},
 		});
 		// Skip the restore pass — we just want the createAgent defensive
 		// check in isolation. Inject a root record directly via the registry.
@@ -324,7 +331,13 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			port: 50000 + Math.floor(Math.random() * 1000),
 			workspaceRoot: workspace,
 			cwd: workspace,
-			workspaceContext: { workspaceRoot: workspace, additionalSkillPaths: [] },
+			workspaceContext: {
+				workspaceRoot: workspace,
+				additionalSkillPaths: [],
+				workspaceModelPaths: {},
+				workspaceContextFiles: [],
+				workspaceSourcePaths: {},
+			},
 		});
 
 		await hub.createAgent(undefined, { name: "root", persistDefinition: false });

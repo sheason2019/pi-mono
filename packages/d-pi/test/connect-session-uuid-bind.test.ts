@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { ExecutorRegistry } from "../src/hub/executor-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
-import { SourceManager } from "../src/hub/source-manager.ts";
 
 /**
  * Tests for the "connectId is per-session, not per-agent" change.
@@ -28,7 +27,6 @@ import { SourceManager } from "../src/hub/source-manager.ts";
  */
 describe("connectId is per-session (not per-agent)", () => {
 	let registry: AgentRegistry;
-	let sourceManager: SourceManager;
 	let executorRegistry: ExecutorRegistry;
 	let gateway: HubGateway;
 	let workspaceRoot: string;
@@ -42,13 +40,9 @@ describe("connectId is per-session (not per-agent)", () => {
 		// is a 0-arg helper that picks the next free port; the
 		// returned value is for the registry's internal tracking.
 		registry.updateStatus("root", "ready");
-		sourceManager = new SourceManager((_sourceName: string, _line: string, _subscriberIds: string[]) => {
-			/* no-op */
-		});
 		executorRegistry = new ExecutorRegistry();
 		gateway = new HubGateway(
 			registry,
-			sourceManager,
 			async () => {
 				throw new Error("createAgent should not be called in this test");
 			},

@@ -16,7 +16,6 @@ import {
 	Text,
 	TUI,
 } from "@earendil-works/pi-tui";
-import type { SourceInfo } from "../../hub/source-manager.ts";
 import { AGENT_SWITCH_FILE } from "../../multi-agent/multi-agent-extension.ts";
 import type { AgentStatus, TeamAgentEntry, TeamSnapshot } from "../../types.ts";
 import { DPiNativeCustomEditor } from "../native/components/custom-editor.ts";
@@ -121,7 +120,6 @@ export interface DPiConnectSlashCommandHandlers {
 	proxy: DPiInteractiveAgentSessionProxy;
 	showStatus(text: string): void;
 	showAgentSelector?(): Promise<void>;
-	showSourcesSelector?(): Promise<void>;
 	showSettingsSelector?(): Promise<void>;
 	showForkSelector?(): Promise<void>;
 	showTreeSelector?(): Promise<void>;
@@ -398,18 +396,6 @@ async function fetchDPiConnectTeam(
 	return (await response.json()) as TeamSnapshot;
 }
 
-async function fetchDPiConnectSources(
-	hubUrl: string,
-	headers: Readonly<Record<string, string>> | undefined,
-	fetchFn: typeof fetch,
-): Promise<SourceInfo[]> {
-	const response = await fetchFn(`${hubUrl.replace(/\/+$/, "")}/_hub/sources`, { headers });
-	if (!response.ok) {
-		throw new Error(`Failed to fetch sources: ${response.status}`);
-	}
-	return (await response.json()) as SourceInfo[];
-}
-
 export async function showDPiConnectAgentSelector(options: {
 	tui: TUI;
 	editor: DPiNativeCustomEditor;
@@ -454,52 +440,6 @@ export async function showDPiConnectAgentSelector(options: {
 			writeFileSync(AGENT_SWITCH_FILE, agentName, "utf-8");
 			restoreEditor();
 			void options.stop();
-		};
-	} catch (error) {
-		options.showStatus(error instanceof Error ? error.message : String(error));
-	}
-}
-
-export async function showDPiConnectSourcesSelector(options: {
-	tui: TUI;
-	editor: DPiNativeCustomEditor;
-	editorContainer: Container;
-	theme: DPiNativeTheme;
-	hubUrl: string;
-	authHeaders?: Readonly<Record<string, string>>;
-	fetch?: typeof fetch;
-	showStatus(text: string): void;
-}): Promise<void> {
-	try {
-		const sources = await fetchDPiConnectSources(options.hubUrl, options.authHeaders, options.fetch ?? fetch);
-		if (sources.length === 0) {
-			options.showStatus("No sources declared in d-pi.ts.");
-			return;
-		}
-		const items: SelectItem[] = sources.map((source) => ({
-			value: source.name,
-			label: `${source.name} [${source.status}]`,
-			description: `subscribers=${source.subscribers.join(",")}`,
-		}));
-		const list = new SelectList(items, 12, getDPiNativeSelectListTheme(options.theme), {
-			maxPrimaryColumnWidth: 40,
-		});
-		const selector = new DPiConnectSelectComponent(`Sources (${items.length})`, list, options.theme);
-		const restoreEditor = () => {
-			options.editorContainer.clear();
-			options.editorContainer.addChild(options.editor);
-			options.tui.setFocus(options.editor);
-			options.tui.requestRender();
-		};
-		options.editorContainer.clear();
-		options.editorContainer.addChild(selector);
-		options.tui.setFocus(selector);
-		options.tui.requestRender();
-		list.onCancel = () => {
-			restoreEditor();
-		};
-		list.onSelect = () => {
-			restoreEditor();
 		};
 	} catch (error) {
 		options.showStatus(error instanceof Error ? error.message : String(error));
@@ -717,7 +657,6 @@ export async function handleDPiConnectSlashCommand(
 		showResumeSelector,
 		showSessionInfo,
 		showSettingsSelector,
-		showSourcesSelector,
 		showStatus,
 		showTreeSelector,
 		stop,
@@ -749,13 +688,6 @@ export async function handleDPiConnectSlashCommand(
 					await showAgentSelector();
 				} else {
 					showStatus("Agent selector not available in d-pi connect");
-				}
-				return true;
-			case "/sources":
-				if (showSourcesSelector) {
-					await showSourcesSelector();
-				} else {
-					showStatus("Sources selector not available in d-pi connect");
 				}
 				return true;
 			case "/quit":
@@ -996,18 +928,6 @@ export async function runDPiConnectInteractiveMode(
 			stop: shutdown,
 		});
 	};
-	const showSourcesSelector = async (): Promise<void> => {
-		await showDPiConnectSourcesSelector({
-			tui,
-			editor,
-			editorContainer,
-			theme: nativeTheme,
-			hubUrl: options.hubUrl,
-			authHeaders: options.authHeaders,
-			fetch: options.fetch,
-			showStatus: showChatStatus,
-		});
-	};
 	const showSettingsSelector = async (): Promise<void> => {
 		showDPiConnectSettingsSelector({
 			tui,
@@ -1088,7 +1008,6 @@ export async function runDPiConnectInteractiveMode(
 			void handleDPiConnectSlashCommand(trimmed, {
 				proxy,
 				showAgentSelector,
-				showSourcesSelector,
 				showSettingsSelector,
 				showForkSelector,
 				showTreeSelector,

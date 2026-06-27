@@ -17,9 +17,9 @@ function createLoadedAgentDefinition(agentDir: string): LoadedAgentDefinition {
 		agentDir,
 		agentFilePath: join(agentDir, "agent.ts"),
 		description: "reviewer",
-		roles: ["reviewer"],
 		tools: [],
 		skills: { dir: "./skills" },
+		sources: [],
 		contextFiles: [
 			{ type: "context", path: "./docs/AGENTS.md" },
 			{ type: "append_system", path: "./.pi/APPEND_SYSTEM.md" },
@@ -30,6 +30,7 @@ function createLoadedAgentDefinition(agentDir: string): LoadedAgentDefinition {
 		commands: [],
 		middlewares: [],
 		autoCompact: true,
+		disableDefaultTools: false,
 	};
 }
 

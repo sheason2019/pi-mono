@@ -2,13 +2,14 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { HubChannel } from "../src/multi-agent/hub-channel.ts";
-import { type DPiBuiltinContext, setBuiltinContext } from "../src/surface/builtin-context.ts";
+import { setBuiltinContext } from "../src/surface/builtin-context.ts";
 import { createHubActionsClientFromHubChannel } from "../src/surface/hub-actions-adapter.ts";
 import type {
 	DPiCreateAgentActionPayload,
 	DPiCreateAgentActionResult,
 	DPiDestroyAgentActionPayload,
 	DPiHubActionsClient,
+	DPiReloadWorkspaceResult,
 	DPiSendMessageActionPayload,
 	DPiTeamSnapshot,
 } from "../src/surface/index.ts";
@@ -50,6 +51,10 @@ class RecordingHubActionsClient implements DPiHubActionsClient {
 	async dispatchRemoteTool(): Promise<never> {
 		throw new Error("dispatchRemoteTool should not be used by orchestration tools");
 	}
+
+	async reloadWorkspace(): Promise<DPiReloadWorkspaceResult> {
+		return { models: [], contextFiles: [], sources: { added: [], removed: [], changed: [], total: 0 } };
+	}
 }
 
 function setupContext(client: RecordingHubActionsClient, agentName = "root"): void {
@@ -64,7 +69,7 @@ function setupContext(client: RecordingHubActionsClient, agentName = "root"): vo
 		},
 		getReloadFn: () => undefined,
 		getReloadDetails: () => ({}),
-	} as DPiBuiltinContext);
+	});
 }
 
 function asTextToolResult(result: unknown): TextToolResult {

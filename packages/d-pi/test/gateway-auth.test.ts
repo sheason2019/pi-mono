@@ -8,7 +8,6 @@ import { createLocalUser } from "../src/auth/local-users.ts";
 import { signChallenge } from "../src/auth/signing.ts";
 import { AgentRegistry } from "../src/hub/agent-registry.ts";
 import { HubGateway } from "../src/hub/gateway.ts";
-import { SourceManager } from "../src/hub/source-manager.ts";
 import type { WorkerToHubMessage } from "../src/types.ts";
 
 let tempDir: string | undefined;
@@ -85,10 +84,8 @@ describe("d-pi gateway auth", () => {
 			publicKey: localUser.publicKey,
 		});
 		const registry = new AgentRegistry();
-		const sourceManager = new SourceManager(() => {});
 		const gateway = new HubGateway(
 			registry,
-			sourceManager,
 			async () => ({ agentName: "created" }),
 			async () => {},
 			new AuthSessionManager(workspaceRoot),
@@ -151,7 +148,6 @@ describe("d-pi gateway auth", () => {
 		});
 		const gateway = new HubGateway(
 			registry,
-			new SourceManager(() => {}),
 			async () => ({ agentName: "created" }),
 			async () => {},
 			new AuthSessionManager(workspaceRoot),

@@ -2,8 +2,8 @@ import { DPI_BUILD_COMMIT, DPI_BUILD_TIME } from "./dpi-meta.generated.ts";
 
 /**
  * The d-pi system-prompt meta block. Injected into every agent's system
- * prompt at session start via ResourceLoader.appendSystemPrompt, mirroring
- * the APPEND_SYSTEM.md mechanism.
+ * prompt at session start via ResourceLoader.appendSystemPrompt, alongside
+ * workspace context/*.md and agent AGENTS.md.
  *
  * Keep this lean: tool listings, parameters, and per-tool behavior live
  * in each tool's `description` and JSON schema (visible to the LLM via
