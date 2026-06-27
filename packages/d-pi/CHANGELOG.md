@@ -1,48 +1,85 @@
 # Changelog
 
-## [Unreleased]
+## [0.6.0-alpha.11] - 2026-06-27
+
+### Breaking Changes
+
+- Removed `defineWorkspace()`, `d-pi.ts`, `workspace-definition.ts`, and team template clone/sync logic entirely. All workspace and agent configuration is now convention-based via directory structure. Agents are auto-discovered from `agents/<name>/agent.ts`; no imperative workspace definition is required.
+- Models are now referenced by path string (e.g., `"stepfun/step-3.7-flash"`) instead of `defineModel()` inline definitions. Model files live in `models/<provider>/<model>.ts` and are auto-loaded.
+- Sources use `sources/<name>/source.ts` as the sole entry point; directory name becomes the source key. The previous imperative `defineSource()` registration and source-manager clone logic is removed.
+- Removed `defineContextFile` and `defineContextFiles` APIs. Context files are auto-loaded from `context/**/*.md` (workspace-level) and `agents/<name>/context/**/*.md` (agent-level).
+- Removed `includeTools`/`excludeTools` agent configuration. Tools are auto-discovered from the agent's `tools/` directory plus 8 built-in defaults. A `disableDefaultTools` flag (default `false`) opt-outs of the built-in set.
+- Removed the `role` field from agent configuration, loader, context injection, and doctor output. Agent identity is derived from directory name and `agent.ts` definition only.
+- Removed `.dpi/config.json` workspace marker. Workspace detection now uses `.dpi/` directory existence.
 
 ### Added
 
+- Added convention-based workspace resource discovery: sources, models, skills, context files, tools, and commands are auto-discovered from directory structure (`sources/<name>/source.ts`, `models/<provider>/<model>.ts`, `agents/<name>/{skills,tools,commands,context}/**`).
+- Added `create_source`, `subscribe_source`, `unsubscribe_source`, `destroy_source` built-in tools for runtime source lifecycle management.
+- Added source subprocess lifecycle management with auto-restart on crash, IPC message broadcast to subscribers, and message count / last-push-time tracking.
+- Source messages now carry `sourceType: "source"` and `sourceName` metadata in their meta header so agents can distinguish source pushes from user messages.
+- Added workspace-level context files (`context/**/*.md`) auto-injected as key-value pairs into every agent's system prompt.
+- Added agent convention-based resource discovery: `skills/`, `tools/`, `commands/`, `context/` subdirectories are auto-scanned; `agent.ts` no longer needs to manually list tools, skills, or context files.
+- Added 8 built-in tools supplied by default: `send_message`, `create_agent`, `destroy_agent`, `team`, `reload`, `create_source`, `subscribe_source`, `destroy_source`.
+- Added `disableDefaultTools` flag to agent definition (defaults to `false`).
 - Added `autoCompact` option to `defineAgent()` for declarative control over automatic context compaction. Defaults to `true`.
-- Added `d-pi doctor` command that diagnoses workspace health: workspace validity, d-pi.ts configuration, agent definitions, model reachability, skill counts, recent session inputs, and serve readiness. Output is streamed per-check with a TTY spinner and colored status tags (OK/WARN/ERROR/INFO), and falls back to plain text in non-TTY environments so agents get clean consumable output.
+- Added `d-pi doctor` command that diagnoses workspace health: workspace validity, agent definitions, model reachability, skill counts, recent session inputs, and serve readiness. Output is streamed per-check with a TTY spinner and colored status tags (OK/WARN/ERROR/INFO), and falls back to plain text in non-TTY environments.
 - Model verification in `d-pi doctor` now uses `streamSimple` from `@earendil-works/pi-ai`, supporting all API types (openai-responses, anthropic-messages, google-generative-ai, etc.) with a 5-second timeout per model.
+- Enhanced the `team` orchestration tool to doctor-level information density: agent model/path/tool-count/directory-status, source runtime stats (message count, last push time as relative timestamp), and executor bindings in a tree layout.
+- `DPI_META_PROMPT` now includes built-in guidance on convention-based configuration, source subscription semantics, and reload tool usage.
 
 ### Changed
 
 - Rebuilt the d-pi connect path around a d-pi-owned remote-first service API and TUI client. The hub now exposes stable snapshot, SSE event, and prompt action routes under `/api/agents/:name/*`; `d-pi connect` routes its child TUI through the new remote client/controller, while executor registration continues to use per-session `connectId` values and hub routing uses decoded agent names.
 - Rewrote the d-pi CLI to use Commander.js instead of manual argument parsing. Command structure, help output, and option validation are now declaratively defined; the `runDPiCli(args, runtime?)` function signature and `DPiCliRuntime` injection interface remain unchanged.
 - Migrated the executor client from `node:http` to native `fetch` + Web Streams API. The SSE event loop now reads from a `ReadableStreamDefaultReader` instead of `IncomingMessage`, and all hub API calls go through a single `fetch`-based helper. The public `ExecutorClient` API is unchanged.
-- Simplified the release workflow from three jobs (test / publish / github-release) to a single job, removing the redundant matrix strategy, duplicate builds, duplicate system dependency installs, and cross-job artifact upload/download. The release is now faster and easier to maintain while retaining all capabilities (test + check + build gate, npm provenance publish, GitHub Release, dist-tag resolution).
+- Simplified the release workflow from three jobs (test / publish / github-release) to a single job, removing the redundant matrix strategy, duplicate builds, duplicate system dependency installs, and cross-job artifact upload/download.
+- Hub startup order is now fixed: sources are loaded before agents are restored, preventing agents from subscribing to not-yet-loaded sources.
+- `subscribeAgent` now uses replace semantics (clear old subscriptions before adding new ones), fixing stale subscriptions after reload.
+- Tool running state (`tool_start`) is maintained in memory only and is no longer persisted to session storage; only terminal states (`tool_end` with succeeded/failed) are appended to the session tree, eliminating duplicate tool-call entries on reconnect.
+- Transcript projector now merges tool-state entries in a single pass, with terminal states replacing transient running states in place.
+- Agent reload is a per-agent operation that re-reads `agent.ts` directly in the worker thread, rebuilds the model registry, and refreshes tools/context; there is no longer any workspace-level reload cascade. The reload tool waits for completion before returning.
+- The reload tool is renamed from "Reload Workspace" to "Reload".
+- `turn_stats` transcript entries now include `cacheWrite`, `duration`, `tps`, `id`, and `timestamp` fields.
+- `notice` transcript entries now include `id` and `timestamp` fields.
 
 ### Fixed
 
-- Fixed the `reload` tool and `/reload` command not actually updating the runtime model, tools, and system prompt. Both user-initiated and AI-initiated reload now re-read `agent.ts` directly in the worker thread, rebuild the model registry, update the runtime model and thinking level, refresh tools and context, and wait for completion before returning.
-- Fixed remote worker IPC behavior after the runtime cutover: state queries, prompt/steer/follow-up actions, SSE subscribe/unsubscribe, extension-generated messages, and local native tool execution are now handled by d-pi-owned adapters instead of placeholder or timeout-prone bridges.
-- Fixed context usage percentage always showing 0% in the TUI footer. The worker adapter and runtime snapshot now compute context window usage via the upstream `estimateContextTokens` helper, which uses provider-reported usage data when available and falls back to a character-based heuristic otherwise.
-- Fixed `d-pi connect` hanging indefinitely when the hub is unreachable. Connect now has a 10-second timeout for hub API calls (team fetch, agent binding); the process exits cleanly on timeout instead of blocking forever.
+- Fixed workspace model ID being incorrectly overwritten with the file-path registration key, causing provider API 404 errors when using workspace-defined models (e.g., `stepfun/step-3.7-flash` sent as model name instead of the model's own `id`).
+- Fixed duplicate tool-call display in connect mode caused by `tool_start` and `tool_end` both producing persisted custom entries.
+- Fixed source unsubscribe not actually removing agent subscriptions because it used additive semantics.
+- Fixed agents not receiving `subscribe_sources` message on init/reload when the subscription list is empty (required for clearing stale subscriptions).
+- Fixed the `reload` tool and `/reload` command not actually updating the runtime model, tools, and system prompt.
+- Fixed remote worker IPC behavior after the runtime cutover: state queries, prompt/steer/follow-up actions, SSE subscribe/unsubscribe, and local native tool execution are now handled by d-pi-owned adapters.
+- Fixed context usage percentage always showing 0% in the TUI footer.
+- Fixed `d-pi connect` hanging indefinitely when the hub is unreachable; it now has a 10-second timeout for hub API calls.
 
 ### Removed
 
-- Removed workspace-level reload (`reload_workspace` hub message, `reload_agent` broadcast, `WorkspaceReloadMetadata`). Reload is now a per-agent operation that reads `agent.ts` directly. Team template updates and agent discovery remain hub-startup responsibilities; agent creation/deletion goes through `create_agent`/`destroy_agent` tools.
-- Removed the `session_info_changed` event type from `DPiInteractiveAgentSessionEvent`. Session info changes are delivered via `state_update` events, and d-pi does not currently expose session renaming controls.
-- Removed `turn_start` and `turn_end` event types from the local agent event bus. Agent busy/ready state is already tracked via `agent_start` / `agent_end` events from the runtime.
-- Removed the `reload_agent_result` worker-to-hub IPC message. Agent reload is a fire-and-forget signal; the hub does not wait for per-agent results.
-- Removed `doubleEscapeAction` from `DPiInteractiveRemoteSettings`. The double-escape shortcut is not currently supported in d-pi's session model.
+- Removed workspace-level reload (`reload_workspace` hub message, `reload_agent` broadcast, `WorkspaceReloadMetadata`).
+- Removed `defineContextFile` / `defineContextFiles` APIs and the `contextFiles` agent config field.
+- Removed `includeTools`/`excludeTools` agent configuration and the `assertKnownToolNames` validation.
+- Removed `APPEND_SYSTEM.md` loading logic; use the `context/**/*.md` convention instead.
+- Removed `role` field and role-based injection throughout the loader, context manager, and doctor.
+- Removed `WorkspaceConfig` interface, `validateWorkspace()` function, and `.dpi/config.json` workspace marker.
+- Removed team-template clone/sync logic and the source-manager template copy mechanism.
+- Removed the `session_info_changed` event type from `DPiInteractiveAgentSessionEvent`.
+- Removed `turn_start` and `turn_end` event types from the local agent event bus.
+- Removed the `reload_agent_result` worker-to-hub IPC message.
+- Removed `doubleEscapeAction` from `DPiInteractiveRemoteSettings`.
 - Removed the unused `runtimeModelSpecFromResolvedModel()` helper.
-- Removed `initTheme()` and `getMarkdownTheme()` stubs from the extension contracts module. d-pi delegates markdown styling to the TUI theme.
-- Removed the empty `WorkspaceConfig` interface and `validateWorkspace()` function. The legacy `.dpi/config.json` mechanism has been fully replaced by the `d-pi.ts` / `defineWorkspace()` configuration model.
-- Removed `abortBash()` from the agent session proxy and connect protocol. Bash execution is now handled at the agent tool level.
-- Removed `enableSkillCommands` and `transport` fields from `DPiInteractiveRemoteSettings`. These fields were always set to their default values (`true` and `"auto"`) and had no runtime effect.
-- Removed the `followUp` field from `queue_update` events and `clearQueue()` return values. The follow-up queue was never populated.
-- Replaced `thinkingLevelMap` with a single `thinkingLevel` field in `defineModel()`. The active thinking level is now determined entirely by the model definition instead of being runtime-configurable, and the empty `DPiWorkerSettingsManager` has been removed.
-- Removed imperative model and thinking level controls (`setModel`, `cycleModel`, `setThinkingLevel`, `cycleThinkingLevel`) from the session proxy, extension API, runtime hooks, and TUI keybindings. Model and thinking configuration is now exclusively declared in `agent.ts` and applied at runtime via the reload tool.
-- Removed imperative `setAutoCompactEnabled`, `setSteeringMode`, `setFollowUpMode`, `setScopedModels`, and `setEnabledModels` from the session proxy and protocol. Auto-compact is now configured declaratively via `defineAgent({ autoCompact })`; steering/follow-up mode and scoped model filters (which had no runtime effect) have been removed entirely.
-- Removed the non-d-pi workspace packages and converged repository build, check, test, release, and local smoke-test configuration around the single `@sheason/d-pi` package.
-- Removed the d-pi package dependency on the legacy interactive runtime package. Extension contracts, native tools, worker IPC/session shims, and tests now use d-pi-owned contracts or the upstream `@earendil-works/pi-*` packages directly.
-- Removed `DEFAULT_AGENT_PORT_START` constant and its test. Agent port-based mode was removed in a previous cleanup.
-- Removed dead exported helpers: `formatDPiInteractiveTokens`, `agentAgentsPath`, `agentAppendSystemPath`, `agentSkillsPath`, `buildDPiMetaContent`, `createRemoteMessageListComponent`, `createRemoteFooterComponent`. None of these had any call sites in the source tree.
-- Removed the extension mechanism entirely. Tool, command, middleware, and TUI component registration now happens directly via `defineTool`, `defineCommand`, `defineMiddleware`, and `defineTuiComponent` in agent definitions instead of going through `ExtensionAPI`. The `src/extension/` directory, `createDPiExtension` factory, `ExtensionAPI`, `ExtensionFactory`, and all extension-related worker/client factory paths have been removed. Supporting types have been relocated: `ToolDefinition` to `agent-definition.ts`, `ModelRegistry` to `runtime/model-registry.ts`, `ResourceLoader` to `context/resource-loader.ts`, and `MessageRenderer`/`ExtensionMessage` to `tui-components/tui-component-definition.ts`.
+- Removed `initTheme()` and `getMarkdownTheme()` stubs from the extension contracts module.
+- Removed `abortBash()` from the agent session proxy and connect protocol.
+- Removed `enableSkillCommands` and `transport` fields from `DPiInteractiveRemoteSettings`.
+- Removed the `followUp` field from `queue_update` events and `clearQueue()` return values.
+- Replaced `thinkingLevelMap` with a single `thinkingLevel` field in model definitions.
+- Removed imperative model and thinking level controls (`setModel`, `cycleModel`, `setThinkingLevel`, `cycleThinkingLevel`).
+- Removed imperative `setAutoCompactEnabled`, `setSteeringMode`, `setFollowUpMode`, `setScopedModels`, and `setEnabledModels` from the session proxy and protocol.
+- Removed the non-d-pi workspace packages and converged repository configuration around the single `@sheason/d-pi` package.
+- Removed the d-pi package dependency on the legacy interactive runtime package.
+- Removed `DEFAULT_AGENT_PORT_START` constant and its test.
+- Removed dead exported helpers: `formatDPiInteractiveTokens`, `agentAgentsPath`, `agentAppendSystemPath`, `agentSkillsPath`, `buildDPiMetaContent`, `createRemoteMessageListComponent`, `createRemoteFooterComponent`.
+- Removed the extension mechanism entirely (`createDPiExtension`, `ExtensionAPI`, `ExtensionFactory`, `src/extension/`). Tool/command/middleware/TUI registration happens directly via `defineTool`/`defineCommand`/`defineMiddleware`/`defineTuiComponent` in agent definitions.
 
 ## [0.6.0-alpha.6] - 2026-06-12
 
