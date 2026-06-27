@@ -1,5 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { z } from "zod";
+import { safeIdentifier } from "../shared/schemas.ts";
 
 export interface StoredIdentity {
 	name: string;
@@ -9,14 +11,21 @@ export interface StoredIdentity {
 	updatedAt: string;
 }
 
+export const storedIdentitySchema = z.object({
+	name: z.string(),
+	description: z.string(),
+	publicKey: z.string(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+});
+
 export function assertValidName(name: string): void {
-	if (!/^[A-Za-z0-9._-]+$/.test(name)) {
-		throw new Error("user name may only contain letters, numbers, dots, underscores, and dashes");
-	}
+	safeIdentifier.parse(name);
 }
 
-export function readJsonFile<T>(path: string): T {
-	return JSON.parse(readFileSync(path, "utf-8")) as T;
+export function readJsonFile<T>(path: string, schema: z.ZodType<T>): T {
+	const raw = JSON.parse(readFileSync(path, "utf-8")) as unknown;
+	return schema.parse(raw);
 }
 
 export function writeJsonFile(path: string, value: unknown): void {

@@ -1,24 +1,33 @@
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { z } from "zod";
+import { safeIdentifier } from "../shared/schemas.ts";
 import {
 	assertFileDoesNotExist,
-	assertValidName,
 	nowIso,
 	readJsonFile,
-	type StoredIdentity,
+	storedIdentitySchema,
 	userFile,
 	writeJsonFile,
 } from "./common.ts";
 
-export interface AllowedUser extends StoredIdentity {
-	disabled: boolean;
-}
+const allowedUserSchema = storedIdentitySchema.extend({
+	disabled: z.boolean(),
+});
+
+export type AllowedUser = z.infer<typeof allowedUserSchema>;
 
 export interface CreateAllowedUserOptions {
 	name: string;
 	description: string;
 	publicKey: string;
 }
+
+const createAllowedUserOptionsSchema = z.object({
+	name: safeIdentifier,
+	description: z.string(),
+	publicKey: z.string().min(1),
+});
 
 function secretsDir(workspaceRoot: string): string {
 	return join(workspaceRoot, "auths", "secrets");
@@ -30,7 +39,7 @@ export function listAllowedUsers(workspaceRoot: string): AllowedUser[] {
 	return readdirSync(dir)
 		.filter((entry) => entry.endsWith(".json"))
 		.sort()
-		.map((entry) => readJsonFile<AllowedUser>(join(dir, entry)));
+		.map((entry) => readJsonFile(join(dir, entry), allowedUserSchema));
 }
 
 export function findAllowedUserByPublicKey(workspaceRoot: string, publicKey: string): AllowedUser | undefined {
@@ -42,28 +51,25 @@ export function findAllowedUserByName(workspaceRoot: string, name: string): Allo
 }
 
 export function createAllowedUser(workspaceRoot: string, options: CreateAllowedUserOptions): AllowedUser {
-	assertValidName(options.name);
-	if (!options.publicKey.trim()) {
-		throw new Error("public key is required");
-	}
+	const parsed = createAllowedUserOptionsSchema.parse(options);
 	mkdirSync(secretsDir(workspaceRoot), { recursive: true });
 	assertFileDoesNotExist(
-		userFile(secretsDir(workspaceRoot), options.name),
-		`Allowed user "${options.name}" already exists`,
+		userFile(secretsDir(workspaceRoot), parsed.name),
+		`Allowed user "${parsed.name}" already exists`,
 	);
-	if (findAllowedUserByPublicKey(workspaceRoot, options.publicKey)) {
+	if (findAllowedUserByPublicKey(workspaceRoot, parsed.publicKey)) {
 		throw new Error("Allowed public key is already registered");
 	}
 	const createdAt = nowIso();
 	const user: AllowedUser = {
-		name: options.name,
-		description: options.description,
-		publicKey: options.publicKey,
+		name: parsed.name,
+		description: parsed.description,
+		publicKey: parsed.publicKey,
 		disabled: false,
 		createdAt,
 		updatedAt: createdAt,
 	};
-	writeJsonFile(userFile(secretsDir(workspaceRoot), options.name), user);
+	writeJsonFile(userFile(secretsDir(workspaceRoot), parsed.name), user);
 	return user;
 }
 

@@ -8,6 +8,7 @@ import {
 	isDPiServiceError,
 	isDPiServiceSnapshot,
 } from "../service/protocol.ts";
+import { isRecord } from "../shared/schemas.ts";
 
 export type DPiRemoteClientEventListener = (event: DPiServiceEvent) => void;
 export type DPiRemoteClientUnsubscribe = () => void;
@@ -345,8 +346,4 @@ function throwIfServiceError(value: unknown, status: number): asserts value is E
 		return;
 	}
 	throw new DPiRemoteClientError(value.error.code, value.error.message, status, value.error.details);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

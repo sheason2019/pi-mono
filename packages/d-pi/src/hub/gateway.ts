@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { basename, join, relative, resolve, sep } from "node:path";
+import { z } from "zod";
 import type { AuthSessionInfo, AuthSessionManager } from "../auth/auth-session.ts";
 import { formatDPiMetaMessage } from "../message-meta.ts";
 import {
@@ -10,6 +11,7 @@ import {
 	type DPiServiceActionRequest,
 	type DPiServiceEvent,
 	type DPiServiceSnapshot,
+	dPiServiceActionRequestSchema,
 	dPiServiceError,
 	toDPiJsonValue,
 } from "../service/protocol.ts";
@@ -44,6 +46,52 @@ export interface HubGatewayOptions {
 	 *  /agents/{id}/remote-call. Default 60_000. */
 	remoteCallTimeoutMs?: number;
 	workspaceRoot?: string;
+}
+
+const remoteCallSchema = z.object({
+	callId: z.string({ required_error: "callId is required" }).min(1, "callId is required"),
+	tool: z.string({ required_error: "tool is required" }).min(1, "tool is required"),
+	params: z.unknown().optional(),
+});
+
+const authChallengeSchema = z.object({
+	publicKey: z.string({ required_error: "publicKey is required" }).min(1, "publicKey is required"),
+});
+
+const authSessionSchema = z.object({
+	publicKey: z.string({ required_error: "publicKey is required" }).min(1, "publicKey is required"),
+	challengeId: z.string({ required_error: "challengeId is required" }).min(1, "challengeId is required"),
+	signature: z.string({ required_error: "signature is required" }).min(1, "signature is required"),
+});
+
+const createAgentSchema = z.object({
+	parentName: z.string().optional(),
+	name: z.string({ required_error: "name is required" }).min(1, "name is required"),
+	cwd: z.string().optional(),
+});
+
+const bindSchema = z.object({
+	connectId: z.string({ required_error: "connectId is required" }).min(1, "connectId is required"),
+});
+
+const executorResultSchema = z.object({
+	connectId: z.string({ required_error: "connectId is required" }).min(1, "connectId is required"),
+	callId: z.string({ required_error: "callId is required" }).min(1, "callId is required"),
+	ok: z.boolean({ required_error: "ok is required" }),
+	result: z.unknown().optional(),
+	error: z.string().optional(),
+});
+
+const executorRegisterSchema = z.object({
+	connectId: z.string({ required_error: "connectId is required" }).min(1, "connectId is required"),
+	cwd: z.string({ required_error: "cwd is required" }).min(1, "cwd is required"),
+});
+
+function zodErrorMessage(err: unknown): string {
+	if (err instanceof z.ZodError) {
+		return err.issues.map((i) => `${i.path.join(".") || "value"}: ${i.message}`).join("; ");
+	}
+	return err instanceof Error ? err.message : String(err);
 }
 
 export class HubGateway {
@@ -127,14 +175,7 @@ export class HubGateway {
 					}
 					try {
 						const body = await this._readBody(req);
-						const { callId, tool, params } = JSON.parse(body) as {
-							callId?: string;
-							tool?: string;
-							params?: unknown;
-						};
-						if (!callId || !tool) {
-							throw new Error("callId and tool are required");
-						}
+						const { callId, tool, params } = remoteCallSchema.parse(JSON.parse(body));
 						// I2: fail fast if the executor is pre-registered but has
 						// not yet attached its SSE channel. Without this, the
 						// call would be parked in pendingCalls and only resolve
@@ -165,7 +206,7 @@ export class HubGateway {
 						return;
 					} catch (err) {
 						res.writeHead(400, { "Content-Type": "application/json" });
-						res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+						res.end(JSON.stringify({ error: zodErrorMessage(err) }));
 						return;
 					}
 				}
@@ -302,13 +343,12 @@ export class HubGateway {
 			let challenge: { challengeId: string; challenge: string };
 			try {
 				const body = await this._readBody(req);
-				const params = JSON.parse(body) as { publicKey?: string };
-				if (!params.publicKey) throw new Error("publicKey is required");
-				challenge = this._auth.createChallenge(params.publicKey);
+				const { publicKey } = authChallengeSchema.parse(JSON.parse(body));
+				challenge = this._auth.createChallenge(publicKey);
 			} catch (err) {
 				if (!res.headersSent) {
 					res.writeHead(401, { "Content-Type": "application/json" });
-					res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+					res.end(JSON.stringify({ error: zodErrorMessage(err) }));
 				} else {
 					// Defensive: if some prior code path already flushed headers
 					// (e.g. a buggy proxy or write), tear down the socket so the
@@ -334,23 +374,16 @@ export class HubGateway {
 			let session: { token: string; auth: { name: string; description: string } };
 			try {
 				const body = await this._readBody(req);
-				const params = JSON.parse(body) as {
-					publicKey?: string;
-					challengeId?: string;
-					signature?: string;
-				};
-				if (!params.publicKey || !params.challengeId || !params.signature) {
-					throw new Error("publicKey, challengeId, and signature are required");
-				}
+				const { publicKey, challengeId, signature } = authSessionSchema.parse(JSON.parse(body));
 				session = this._auth.createSession({
-					publicKey: params.publicKey,
-					challengeId: params.challengeId,
-					signature: params.signature,
+					publicKey,
+					challengeId,
+					signature,
 				});
 			} catch (err) {
 				if (!res.headersSent) {
 					res.writeHead(401, { "Content-Type": "application/json" });
-					res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+					res.end(JSON.stringify({ error: zodErrorMessage(err) }));
 				} else {
 					res.destroy();
 				}
@@ -390,11 +423,7 @@ export class HubGateway {
 		// POST /_hub/agents — create agent
 		if (path === "/_hub/agents" && req.method === "POST") {
 			const body = await this._readBody(req);
-			const params = JSON.parse(body) as {
-				parentName?: string;
-				name: string;
-				cwd?: string;
-			};
+			const params = createAgentSchema.parse(JSON.parse(body));
 			try {
 				const result = await this._onCreateAgent(params.parentName, {
 					name: params.name,
@@ -404,7 +433,7 @@ export class HubGateway {
 				res.end(JSON.stringify(result));
 			} catch (err) {
 				res.writeHead(500, { "Content-Type": "application/json" });
-				res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+				res.end(JSON.stringify({ error: zodErrorMessage(err) }));
 			}
 			return;
 		}
@@ -419,7 +448,7 @@ export class HubGateway {
 				res.end(JSON.stringify({ ok: true }));
 			} catch (err) {
 				res.writeHead(500, { "Content-Type": "application/json" });
-				res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+				res.end(JSON.stringify({ error: zodErrorMessage(err) }));
 			}
 			return;
 		}
@@ -439,8 +468,7 @@ export class HubGateway {
 		if (bindMatch && req.method === "POST") {
 			try {
 				const body = await this._readBody(req);
-				const { connectId } = JSON.parse(body) as { connectId?: string };
-				if (!connectId) throw new Error("connectId is required");
+				const { connectId } = bindSchema.parse(JSON.parse(body));
 				const agentName = decodeURIComponent(bindMatch[1]!);
 				// Allow overwrite: unbind any previous session for this
 				// agent before installing the new one. The previous
@@ -455,7 +483,7 @@ export class HubGateway {
 				res.end(JSON.stringify({ ok: true }));
 			} catch (err) {
 				res.writeHead(400, { "Content-Type": "application/json" });
-				res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+				res.end(JSON.stringify({ error: zodErrorMessage(err) }));
 			}
 			return;
 		}
@@ -552,16 +580,7 @@ export class HubGateway {
 			}
 			try {
 				const body = await this._readBody(req);
-				const { connectId, callId, ok, result, error } = JSON.parse(body) as {
-					connectId?: string;
-					callId?: string;
-					ok?: boolean;
-					result?: unknown;
-					error?: string;
-				};
-				if (!connectId || !callId || typeof ok !== "boolean") {
-					throw new Error("connectId, callId, and ok are required");
-				}
+				const { connectId, callId, ok, result, error } = executorResultSchema.parse(JSON.parse(body));
 				const resolved = execReg.resolveOne(
 					connectId,
 					callId,
@@ -574,7 +593,7 @@ export class HubGateway {
 				res.end(JSON.stringify({ ok: true }));
 			} catch (err) {
 				res.writeHead(400, { "Content-Type": "application/json" });
-				res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+				res.end(JSON.stringify({ error: zodErrorMessage(err) }));
 			}
 			return;
 		}
@@ -587,15 +606,12 @@ export class HubGateway {
 			}
 			try {
 				const body = await this._readBody(req);
-				const { connectId, cwd } = JSON.parse(body) as { connectId?: string; cwd?: string };
-				if (!connectId || !cwd) {
-					throw new Error("connectId and cwd are required");
-				}
+				const { connectId, cwd } = executorRegisterSchema.parse(JSON.parse(body));
 				this._executorRegistry.preRegister(connectId, { cwd });
 				res.writeHead(200, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ ok: true }));
 			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
+				const msg = zodErrorMessage(err);
 				const status = /already registered/i.test(msg) ? 409 : 400;
 				res.writeHead(status, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ error: msg }));
@@ -844,17 +860,11 @@ export class HubGateway {
 	}
 
 	private _parseServiceActionRequest(value: unknown): DPiServiceActionRequest | undefined {
-		if (!this._isRecord(value)) {
+		const result = dPiServiceActionRequestSchema.safeParse(value);
+		if (!result.success) {
 			return undefined;
 		}
-		if (typeof value.text !== "string" || value.text.trim().length === 0) {
-			return undefined;
-		}
-		const options = value.options === undefined ? undefined : toDPiJsonValue(value.options);
-		return {
-			text: value.text,
-			...(options === undefined ? {} : { options }),
-		};
+		return result.data;
 	}
 
 	private _waitForWorkerHttpResponse(
@@ -924,7 +934,7 @@ export class HubGateway {
 	}
 
 	private _writeServiceSerializationError(res: ServerResponse, err: unknown): void {
-		if (!(err instanceof TypeError)) {
+		if (!(err instanceof TypeError) && !(err instanceof z.ZodError)) {
 			throw err;
 		}
 		this._writeServiceError(res, 502, "serialization_error", "Worker response is not JSON-safe");
@@ -932,7 +942,7 @@ export class HubGateway {
 
 	private _writeServiceSerializationSseEvent(res: ServerResponse, err: unknown): void {
 		try {
-			if (!(err instanceof TypeError)) {
+			if (!(err instanceof TypeError) && !(err instanceof z.ZodError)) {
 				throw err;
 			}
 			writeServiceSseEvent(res, {
@@ -943,10 +953,6 @@ export class HubGateway {
 		} catch {
 			// connection closed
 		}
-	}
-
-	private _isRecord(value: unknown): value is Record<string, unknown> {
-		return typeof value === "object" && value !== null && !Array.isArray(value);
 	}
 
 	private _handleTuiComponentsManifest(req: IncomingMessage, res: ServerResponse): void {
@@ -1169,12 +1175,16 @@ export class HubGateway {
 	}
 
 	private _withTrustedPromptAuth(body: unknown, session: AuthSessionInfo): unknown {
-		if (!this._isRecord(body) || typeof body.text !== "string") {
+		if (typeof body !== "object" || body === null || Array.isArray(body)) {
+			return body;
+		}
+		const record = body as Record<string, unknown>;
+		if (typeof record.text !== "string") {
 			return body;
 		}
 		return {
-			...body,
-			text: formatDPiMetaMessage({ sourceType: "connect", auth: session.auth }, body.text),
+			...record,
+			text: formatDPiMetaMessage({ sourceType: "connect", auth: session.auth }, record.text),
 			auth: session.auth,
 		};
 	}

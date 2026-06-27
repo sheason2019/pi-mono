@@ -1,16 +1,16 @@
 import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { z } from "zod";
 import type {
 	AgentCommandDefinition,
 	AgentContextFileDefinition,
 	AgentDefinition,
-	AgentModelSpec,
-	AgentProviderDefinition,
 	AgentSkillDefinition,
 	AgentToolDefinition,
 } from "./agent-definition.ts";
 import { setAgentDefinitionMetadata } from "./agent-definition.ts";
+import { isRecord } from "./shared/schemas.ts";
 
 const AGENT_TS_FILE = "agent.ts";
 const AGENTS_MD_FILE = "AGENTS.md";
@@ -40,210 +40,99 @@ export interface DiscoveredAgentResources {
 	hasCommandsDir: boolean;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
+const modelInputLiteralSchema = z.enum(["text", "image"]);
+const thinkingLevelSchema = z.enum(["minimal", "low", "medium", "high", "xhigh"]);
 
-function assertTool(value: unknown, index: number): asserts value is AgentToolDefinition {
-	if (!isRecord(value)) {
-		throw new TypeError(`Agent definition tools[${index}] must be an executable tool object`);
-	}
-	if (typeof value.name !== "string") {
-		throw new TypeError(`Agent definition tools[${index}].name must be a string`);
-	}
-	if (typeof value.label !== "string") {
-		throw new TypeError(`Agent definition tools[${index}].label must be a string`);
-	}
-	if (typeof value.description !== "string") {
-		throw new TypeError(`Agent definition tools[${index}].description must be a string`);
-	}
-	if (!isRecord(value.parameters)) {
-		throw new TypeError(`Agent definition tools[${index}].parameters must be an object`);
-	}
-	if (typeof value.execute !== "function") {
-		throw new TypeError(`Agent definition tools[${index}].execute must be a function`);
-	}
-}
+const costSchema = z.object({
+	input: z.number(),
+	output: z.number(),
+	cacheRead: z.number(),
+	cacheWrite: z.number(),
+});
 
-function assertSkill(value: unknown): asserts value is AgentSkillDefinition {
-	if (!isRecord(value) || typeof value.dir !== "string") {
-		throw new TypeError("Agent definition skills.dir must be a string");
-	}
-}
+const providerSchema = z.object({
+	provider: z.string(),
+	api: z.string(),
+	baseUrl: z.string(),
+	apiKey: z.string().optional(),
+	authHeader: z.boolean().optional(),
+	headers: z.record(z.string()).optional(),
+});
 
-function assertModel(value: unknown): asserts value is AgentModelSpec {
-	if (typeof value === "string") {
-		if (value.trim().length === 0) {
-			throw new TypeError("Agent definition model string reference must not be empty");
-		}
-		return;
-	}
-	if (!isRecord(value)) {
-		throw new TypeError("Agent definition model must be a string path reference or a defineModel({...}) object");
-	}
-	if ("id" in value) {
-		assertLocalModel(value, "model");
-		return;
-	}
-	if (typeof value.provider !== "string" || typeof value.name !== "string") {
-		throw new TypeError("Agent definition model.provider and model.name must be strings for model references");
-	}
-}
+const localModelSchema = z.object({
+	id: z.string(),
+	name: z.string().optional(),
+	description: z.string().optional(),
+	provider: z.union([z.enum(["openai", "anthropic"]), providerSchema]),
+	reasoning: z.boolean().optional(),
+	thinkingLevel: thinkingLevelSchema.optional(),
+	input: z.array(modelInputLiteralSchema).optional(),
+	cost: costSchema.optional(),
+	contextWindow: z.number(),
+	maxTokens: z.number().optional(),
+	headers: z.record(z.string()).optional(),
+});
 
-function assertProvider(value: unknown, context: string): asserts value is AgentProviderDefinition {
-	if (!isRecord(value)) {
-		throw new TypeError(`Agent definition ${context} must be an object or provider string`);
-	}
-	if (typeof value.provider !== "string") {
-		throw new TypeError(`Agent definition ${context}.provider must be a string`);
-	}
-	if (typeof value.api !== "string") {
-		throw new TypeError(`Agent definition ${context}.api must be a string`);
-	}
-	if (typeof value.baseUrl !== "string") {
-		throw new TypeError(`Agent definition ${context}.baseUrl must be a string`);
-	}
-	if (value.apiKey !== undefined && typeof value.apiKey !== "string") {
-		throw new TypeError(`Agent definition ${context}.apiKey must be a string`);
-	}
-	if (value.authHeader !== undefined && typeof value.authHeader !== "boolean") {
-		throw new TypeError(`Agent definition ${context}.authHeader must be a boolean`);
-	}
-	if (value.headers !== undefined && !isStringRecord(value.headers)) {
-		throw new TypeError(`Agent definition ${context}.headers must be a string record`);
-	}
-}
+const modelReferenceSchema = z.object({
+	provider: z.string(),
+	name: z.string(),
+	description: z.string().optional(),
+});
 
-function assertLocalModel(value: Record<string, unknown>, context: string): void {
-	if (typeof value.id !== "string") {
-		throw new TypeError(`Agent definition ${context}.id must be a string`);
-	}
-	if (value.name !== undefined && typeof value.name !== "string") {
-		throw new TypeError(`Agent definition ${context}.name must be a string`);
-	}
-	if (typeof value.provider === "string") {
-		if (value.provider !== "openai" && value.provider !== "anthropic") {
-			throw new TypeError(
-				`Agent definition ${context}.provider must be openai or anthropic when passed as a string; use defineProvider(...) for custom providers`,
-			);
-		}
-	} else {
-		assertProvider(value.provider, `${context}.provider`);
-	}
-	if (value.reasoning !== undefined && typeof value.reasoning !== "boolean") {
-		throw new TypeError(`Agent definition ${context}.reasoning must be a boolean`);
-	}
-	if (value.thinkingLevel !== undefined && typeof value.thinkingLevel !== "string") {
-		throw new TypeError(`Agent definition ${context}.thinkingLevel must be a string`);
-	}
-	if (value.input !== undefined) {
-		if (!Array.isArray(value.input) || value.input.some((item) => item !== "text" && item !== "image")) {
-			throw new TypeError(`Agent definition ${context}.input must contain text or image`);
-		}
-	}
-	if (value.cost !== undefined) {
-		assertCost(value.cost, `${context}.cost`);
-	}
-	if (typeof value.contextWindow !== "number") {
-		throw new TypeError(`Agent definition ${context}.contextWindow must be a number`);
-	}
-	if (value.maxTokens !== undefined && typeof value.maxTokens !== "number") {
-		throw new TypeError(`Agent definition ${context}.maxTokens must be a number`);
-	}
-	if (value.headers !== undefined && !isStringRecord(value.headers)) {
-		throw new TypeError(`Agent definition ${context}.headers must be a string record`);
-	}
-}
+const modelSchema = z.union([z.string().min(1), localModelSchema, modelReferenceSchema]);
 
-function assertCost(value: unknown, context: string): void {
-	if (!isRecord(value)) {
-		throw new TypeError(`Agent definition ${context} must be an object`);
-	}
-	for (const key of ["input", "output", "cacheRead", "cacheWrite"]) {
-		if (typeof value[key] !== "number") {
-			throw new TypeError(`Agent definition ${context}.${key} must be a number`);
-		}
-	}
-}
+const skillSchema = z.object({
+	dir: z.string(),
+});
 
-function isStringRecord(value: unknown): value is Record<string, string> {
-	return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
-}
+const toolSchema = z.object({
+	name: z.string(),
+	label: z.string(),
+	description: z.string(),
+	parameters: z.record(z.unknown()),
+	prepareArguments: z.function().optional(),
+	executionMode: z.enum(["sequential", "parallel"]).optional(),
+	execute: z.function(),
+});
+
+const commandSchema = z.object({
+	name: z.string().min(1),
+	description: z.string().min(1),
+	aliases: z.array(z.string()).optional(),
+	execute: z.function(),
+});
+
+const middlewareSchema = z.object({
+	onInput: z.function().optional(),
+});
+
+const agentDefinitionRawSchema = z.lazy(() =>
+	z.object({
+		parent: z.unknown().optional(),
+		description: z.string().optional(),
+		model: modelSchema.optional(),
+		tools: z.array(toolSchema).default([]),
+		skills: skillSchema.optional(),
+		sources: z.array(z.string()).default([]),
+		commands: z.array(commandSchema).default([]),
+		middlewares: z.array(middlewareSchema).default([]),
+		autoCompact: z.boolean().default(true),
+		disableDefaultTools: z.boolean().default(false),
+	}),
+);
+
+const BANNED_CONTEXT_FILES_FIELD = "contextFiles";
 
 function assertAgentDefinition(value: unknown): asserts value is AgentDefinition {
-	if (!isRecord(value)) {
-		throw new TypeError("Agent file must default export an object definition");
-	}
-	if (value.tools !== undefined) {
-		if (!Array.isArray(value.tools)) {
-			throw new TypeError("Agent definition tools must be an array");
-		}
-		for (let index = 0; index < value.tools.length; index++) {
-			assertTool(value.tools[index], index);
-		}
-	}
-	if (value.skills !== undefined) {
-		assertSkill(value.skills);
-	}
-	if (value.contextFiles !== undefined) {
+	if (isRecord(value) && BANNED_CONTEXT_FILES_FIELD in value) {
 		throw new TypeError(
 			"Agent definition contextFiles is not supported; place markdown files in the context/ directory instead",
 		);
 	}
-
-	if (value.description !== undefined && typeof value.description !== "string") {
-		throw new TypeError("Agent definition description must be a string");
-	}
-	if (value.model !== undefined) {
-		assertModel(value.model);
-	}
-	if (value.sources !== undefined) {
-		if (!Array.isArray(value.sources) || !value.sources.every((s: unknown) => typeof s === "string")) {
-			throw new TypeError("Agent definition sources must be an array of string path references");
-		}
-	}
-	if (value.parent !== undefined) {
-		assertAgentDefinition(value.parent);
-	}
-	if (value.autoCompact !== undefined && typeof value.autoCompact !== "boolean") {
-		throw new TypeError("Agent definition autoCompact must be a boolean");
-	}
-	if (value.disableDefaultTools !== undefined && typeof value.disableDefaultTools !== "boolean") {
-		throw new TypeError("Agent definition disableDefaultTools must be a boolean");
-	}
-	if (value.commands !== undefined) {
-		if (!Array.isArray(value.commands)) {
-			throw new TypeError("Agent definition commands must be an array");
-		}
-		for (let index = 0; index < value.commands.length; index++) {
-			const command = value.commands[index];
-			if (!isRecord(command)) {
-				throw new TypeError(`Agent definition commands[${index}] must be an object`);
-			}
-			if (typeof command.name !== "string" || command.name.trim().length === 0) {
-				throw new TypeError(`Agent definition commands[${index}].name must be a non-empty string`);
-			}
-			if (typeof command.description !== "string" || command.description.length === 0) {
-				throw new TypeError(`Agent definition commands[${index}].description must be a non-empty string`);
-			}
-			if (typeof command.execute !== "function") {
-				throw new TypeError(`Agent definition commands[${index}].execute must be a function`);
-			}
-		}
-	}
-	if (value.middlewares !== undefined) {
-		if (!Array.isArray(value.middlewares)) {
-			throw new TypeError("Agent definition middlewares must be an array");
-		}
-		for (let index = 0; index < value.middlewares.length; index++) {
-			const middleware = value.middlewares[index];
-			if (!isRecord(middleware)) {
-				throw new TypeError(`Agent definition middlewares[${index}] must be an object`);
-			}
-			if (middleware.onInput !== undefined && typeof middleware.onInput !== "function") {
-				throw new TypeError(`Agent definition middlewares[${index}].onInput must be a function`);
-			}
-		}
+	agentDefinitionRawSchema.parse(value);
+	const parent = (value as { parent?: unknown }).parent;
+	if (parent !== undefined && parent !== null) {
+		assertAgentDefinition(parent);
 	}
 }
 
@@ -320,6 +209,7 @@ async function loadToolFile(filePath: string): Promise<AgentToolDefinition> {
 	if (!mod.default || typeof mod.default !== "object") {
 		throw new Error(`Tool file ${filePath} must export default defineTool({...})`);
 	}
+	toolSchema.parse(mod.default);
 	return mod.default as AgentToolDefinition;
 }
 
@@ -331,6 +221,7 @@ async function loadCommandFile(filePath: string): Promise<AgentCommandDefinition
 	if (!mod.default || typeof mod.default !== "object") {
 		throw new Error(`Command file ${filePath} must export default defineCommand({...})`);
 	}
+	commandSchema.parse(mod.default);
 	return mod.default as AgentCommandDefinition;
 }
 
