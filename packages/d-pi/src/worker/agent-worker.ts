@@ -526,7 +526,7 @@ async function runAgentWorker(): Promise<void> {
 			cwd,
 			sessionsRoot: config.sessionDir ?? join(cwd, "session"),
 		});
-		const sessionHandle = (await sessionStore.openRecent({ cwd })) ?? (await sessionStore.create({ cwd }));
+		const sessionHandle = (await sessionStore.openRecent()) ?? (await sessionStore.create());
 		const initialSessionContext = await sessionHandle.session.buildContext();
 		const initialTranscript = projectDPiTranscript(await sessionHandle.session.getBranch());
 		const initialCurrentPageMessages = initialTranscript.messages;

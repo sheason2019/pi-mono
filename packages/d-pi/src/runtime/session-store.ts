@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { JsonlSessionMetadata, Session } from "@earendil-works/pi-agent-core/node";
-import { JsonlSessionRepo, NodeExecutionEnv, SessionError } from "@earendil-works/pi-agent-core/node";
+import { JsonlSessionRepo, NodeExecutionEnv, ok, SessionError } from "@earendil-works/pi-agent-core/node";
 import { createDPiRuntimeError } from "./errors.ts";
 import type { DPiRuntimeSessionInfo } from "./types.ts";
 
@@ -13,12 +13,7 @@ export interface DPiSessionStoreOptions {
 
 export interface DPiSessionCreateOptions {
 	id?: string;
-	cwd?: string;
 	parentSessionPath?: string;
-}
-
-export interface DPiSessionListOptions {
-	cwd?: string;
 }
 
 export interface DPiSessionStoreEntry {
@@ -45,13 +40,6 @@ function toEntry(metadata: JsonlSessionMetadata): DPiSessionStoreEntry {
 	};
 }
 
-function toRuntimeInfo(metadata: JsonlSessionMetadata): DPiRuntimeSessionInfo {
-	return {
-		id: metadata.id,
-		path: metadata.path,
-	};
-}
-
 function mapSessionError(error: unknown): never {
 	if (error instanceof SessionError) {
 		const code = error.code === "not_found" || error.code === "invalid_session" ? "invalid_session" : "unknown";
@@ -68,23 +56,30 @@ export class DPiSessionStore {
 
 	constructor(options: DPiSessionStoreOptions) {
 		this.cwd = resolve(options.cwd);
+		const sessionsRoot = resolve(options.sessionsRoot);
 		const env = options.env ?? new NodeExecutionEnv({ cwd: this.cwd });
-		this.repo = new JsonlSessionRepo({
-			fs: env,
-			sessionsRoot: options.sessionsRoot,
-		});
+
+		const originalJoinPath = env.joinPath.bind(env);
+		env.joinPath = async (parts: string[]) => {
+			if (parts[0] === sessionsRoot && typeof parts[1] === "string" && /^--.*--$/.test(parts[1])) {
+				return ok(join(sessionsRoot, ...parts.slice(2).map(String)));
+			}
+			return originalJoinPath(parts);
+		};
+
+		this.repo = new JsonlSessionRepo({ fs: env, sessionsRoot });
 	}
 
 	async create(options: DPiSessionCreateOptions = {}): Promise<DPiSessionHandle> {
 		try {
 			const session = await this.repo.create({
 				id: options.id,
-				cwd: resolve(options.cwd ?? this.cwd),
+				cwd: this.cwd,
 				parentSessionPath: options.parentSessionPath,
 			});
 			const metadata = await session.getMetadata();
 			mkdirSync(dirname(metadata.path), { recursive: true });
-			return { session, metadata, info: toRuntimeInfo(metadata) };
+			return { session, metadata, info: { id: metadata.id, path: metadata.path } };
 		} catch (error) {
 			mapSessionError(error);
 		}
@@ -92,37 +87,33 @@ export class DPiSessionStore {
 
 	async open(sessionId: string): Promise<DPiSessionHandle> {
 		try {
-			const metadata = (await this.repo.list()).find((candidate) => candidate.id === sessionId);
+			const metadata = (await this.repo.list({ cwd: this.cwd })).find((m) => m.id === sessionId);
 			if (!metadata) {
 				throw new SessionError("not_found", `Session not found: ${sessionId}`);
 			}
 			const session = await this.repo.open(metadata);
 			mkdirSync(dirname(metadata.path), { recursive: true });
-			return { session, metadata, info: toRuntimeInfo(metadata) };
+			return { session, metadata, info: { id: metadata.id, path: metadata.path } };
 		} catch (error) {
 			mapSessionError(error);
 		}
 	}
 
-	async openRecent(options: DPiSessionListOptions = {}): Promise<DPiSessionHandle | undefined> {
+	async openRecent(): Promise<DPiSessionHandle | undefined> {
 		try {
-			const cwd = options.cwd ? resolve(options.cwd) : this.cwd;
-			const [metadata] = await this.repo.list({ cwd });
-			if (!metadata) {
-				return undefined;
-			}
+			const [metadata] = await this.repo.list({ cwd: this.cwd });
+			if (!metadata) return undefined;
 			const session = await this.repo.open(metadata);
 			mkdirSync(dirname(metadata.path), { recursive: true });
-			return { session, metadata, info: toRuntimeInfo(metadata) };
+			return { session, metadata, info: { id: metadata.id, path: metadata.path } };
 		} catch (error) {
 			mapSessionError(error);
 		}
 	}
 
-	async list(options: DPiSessionListOptions = {}): Promise<DPiSessionStoreEntry[]> {
+	async list(): Promise<DPiSessionStoreEntry[]> {
 		try {
-			const cwd = options.cwd ? resolve(options.cwd) : undefined;
-			return (await this.repo.list({ cwd })).map(toEntry);
+			return (await this.repo.list({ cwd: this.cwd })).map(toEntry);
 		} catch (error) {
 			mapSessionError(error);
 		}

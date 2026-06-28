@@ -247,13 +247,13 @@ describe("d-pi runtime foundation", () => {
 			cwd: workspaceRoot,
 			sessionsRoot: join(workspaceRoot, ".pi", "sessions"),
 		});
-		await store.create({ cwd: workspaceRoot, id: "old-session" });
+		await store.create({ id: "old-session" });
 		await new Promise((resolve) => setTimeout(resolve, 5));
-		const recent = await store.create({ cwd: workspaceRoot, id: "recent-session" });
+		const recent = await store.create({ id: "recent-session" });
 		const timestamp = Date.now();
 		await recent.session.appendMessage({ role: "user", content: [{ type: "text", text: "restored" }], timestamp });
 
-		const restored = await store.openRecent({ cwd: workspaceRoot });
+		const restored = await store.openRecent();
 
 		expect(restored?.info.id).toBe("recent-session");
 		expect((await restored?.session.buildContext())?.messages).toEqual([
