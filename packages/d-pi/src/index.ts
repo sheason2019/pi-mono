@@ -83,7 +83,6 @@ export {
 export {
 	type DPiSessionCreateOptions,
 	type DPiSessionHandle,
-	type DPiSessionListOptions,
 	DPiSessionStore,
 	type DPiSessionStoreEntry,
 	type DPiSessionStoreOptions,

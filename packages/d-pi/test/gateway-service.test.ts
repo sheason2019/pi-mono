@@ -221,10 +221,10 @@ describe("d-pi service gateway API", () => {
 			writeFileSync(join(tempDir!, "tui-components", "d-pi-message.ts"), "export default 'component';\n");
 			writeFileSync(join(tempDir!, "secret.ts"), "export default 'secret';\n");
 
-			const unauthorized = await fetch(`${hub.url}/_hub/.public/tui-components`);
+			const unauthorized = await fetch(`${hub.url}/_hub/tui-components`);
 			expect(unauthorized.status).toBe(401);
 
-			const manifest = await fetch(`${hub.url}/_hub/.public/tui-components`, {
+			const manifest = await fetch(`${hub.url}/_hub/tui-components`, {
 				headers: serviceAuthHeaders(hub.sessionToken),
 			});
 			expect(manifest.status).toBe(200);
@@ -232,19 +232,19 @@ describe("d-pi service gateway API", () => {
 				components: [
 					{
 						name: "d-pi-message.ts",
-						url: `${hub.url}/_hub/.public/tui-components/d-pi-message.ts`,
+						url: `${hub.url}/_hub/tui-components/d-pi-message.ts`,
 					},
 				],
 			});
 
-			const component = await fetch(`${hub.url}/_hub/.public/tui-components/d-pi-message.ts`, {
+			const component = await fetch(`${hub.url}/_hub/tui-components/d-pi-message.ts`, {
 				headers: serviceAuthHeaders(hub.sessionToken),
 			});
 			expect(component.status).toBe(200);
 			expect(component.headers.get("content-type")).toContain("text/typescript");
 			await expect(component.text()).resolves.toBe("export default 'component';\n");
 
-			const traversal = await fetch(`${hub.url}/_hub/.public/tui-components/..%2Fsecret.ts`, {
+			const traversal = await fetch(`${hub.url}/_hub/tui-components/..%2Fsecret.ts`, {
 				headers: serviceAuthHeaders(hub.sessionToken),
 			});
 			expect(traversal.status).toBe(404);

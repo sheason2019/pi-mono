@@ -14,6 +14,8 @@
 - Rewrote the d-pi CLI to use Commander.js instead of manual argument parsing. Command structure, help output, and option validation are now declaratively defined; the `runDPiCli(args, runtime?)` function signature and `DPiCliRuntime` injection interface remain unchanged.
 - Migrated the executor client from `node:http` to native `fetch` + Web Streams API. The SSE event loop now reads from a `ReadableStreamDefaultReader` instead of `IncomingMessage`, and all hub API calls go through a single `fetch`-based helper. The public `ExecutorClient` API is unchanged.
 - Simplified the release workflow from three jobs (test / publish / github-release) to a single job, removing the redundant matrix strategy, duplicate builds, duplicate system dependency installs, and cross-job artifact upload/download. The release is now faster and easier to maintain while retaining all capabilities (test + check + build gate, npm provenance publish, GitHub Release, dist-tag resolution).
+- Tightened `workspaceRoot` types across the codebase. `AgentWorkerConfig.workspaceContext`, `DPiWorkerInfrastructureOptions.workspaceRoot`, and `HubGateway._workspaceRoot` are no longer optional, removing redundant undefined guards and optional chaining throughout the worker and hub layers.
+- Simplified TUI component serve URL from `/_hub/.public/tui-components` to `/_hub/tui-components` on both hub and connect sides.
 
 ### Fixed
 
@@ -21,6 +23,9 @@
 - Fixed remote worker IPC behavior after the runtime cutover: state queries, prompt/steer/follow-up actions, SSE subscribe/unsubscribe, extension-generated messages, and local native tool execution are now handled by d-pi-owned adapters instead of placeholder or timeout-prone bridges.
 - Fixed context usage percentage always showing 0% in the TUI footer. The worker adapter and runtime snapshot now compute context window usage via the upstream `estimateContextTokens` helper, which uses provider-reported usage data when available and falls back to a character-based heuristic otherwise.
 - Fixed `d-pi connect` hanging indefinitely when the hub is unreachable. Connect now has a 10-second timeout for hub API calls (team fetch, agent binding); the process exits cleanly on timeout instead of blocking forever.
+- Fixed `d-pi-message` custom component not rendering in connect mode. The d-pi connect client now bundles the built-in `d-pi-message` component directly instead of relying on workspace-side TUI component discovery, so custom message rendering works out of the box without requiring `tui-components/d-pi-message.ts` in the workspace.
+- Fixed `d-pi doctor` missing TUI component information. The doctor output now includes a `tui components` check that lists all discovered `.ts` component files, or shows an info note when none are present.
+- Fixed TUI component cache directory resolution in connect mode. The cache directory now resolves to the actual `@sheason/d-pi` package installation path (via `require.resolve` with upward fallback), ensuring downloaded TUI components can correctly resolve self-references and shared dependencies.
 
 ### Removed
 

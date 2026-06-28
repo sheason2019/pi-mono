@@ -41,7 +41,7 @@ export interface AgentWorkerConfig {
 	agentName: string;
 	parentName?: string;
 	cwd: string;
-	workspaceContext?: WorkspaceContext;
+	workspaceContext: WorkspaceContext;
 	sessionDir?: string;
 }
 

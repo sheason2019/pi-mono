@@ -5,6 +5,7 @@ import { streamSimple } from "@earendil-works/pi-ai";
 import { DEFAULT_BUILTIN_TOOL_NAMES } from "./agent-config.ts";
 import type { AgentModelDefinition, AgentModelSpec, AgentProviderDefinition } from "./agent-definition.ts";
 import { discoverAgentConventionResources, readLoadedAgentDefinitionFromTs } from "./agent-loader.ts";
+import { discoverTuiComponentFiles } from "./tui-components/tui-component-discovery.ts";
 import { isWorkspaceRoot } from "./workspace/workspace.ts";
 import {
 	discoverWorkspaceContextFiles,
@@ -86,6 +87,10 @@ export async function runDoctor(workspaceRoot: string, options: DoctorOptions = 
 
 	onCheckStart?.("sources");
 	checkWorkspaceSources(root, checks, agentResults);
+	onCheckComplete?.(checks[checks.length - 1]);
+
+	onCheckStart?.("tui components");
+	checkTuiComponents(root, checks);
 	onCheckComplete?.(checks[checks.length - 1]);
 
 	onCheckStart?.("recent inputs");
@@ -630,6 +635,28 @@ function checkWorkspaceSources(root: string, checks: DoctorCheck[], agentResults
 		name: "sources",
 		status: "ok",
 		message: `${sourceNames.length} source${sourceNames.length === 1 ? "" : "s"} found in sources/`,
+		details,
+	});
+}
+
+// ---------- TUI Components ----------
+
+function checkTuiComponents(root: string, checks: DoctorCheck[]): void {
+	const components = discoverTuiComponentFiles(root);
+	if (components.length === 0) {
+		checks.push({
+			name: "tui components",
+			status: "info",
+			message: "No workspace TUI components found.",
+			details: ["TUI components are optional. Add .ts files under tui-components/ to customize message rendering."],
+		});
+		return;
+	}
+	const details = components.map((c) => `- ${c.name}`);
+	checks.push({
+		name: "tui components",
+		status: "ok",
+		message: `${components.length} TUI component${components.length === 1 ? "" : "s"} found in tui-components/`,
 		details,
 	});
 }

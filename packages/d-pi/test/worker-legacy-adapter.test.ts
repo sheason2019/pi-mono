@@ -270,7 +270,9 @@ describe("worker runtime adapter", () => {
 		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 		process.env.PI_CODING_AGENT_DIR = agentDir;
 		try {
-			const infrastructure = createDPiWorkerInfrastructure("/tmp/d-pi-worker-infra");
+			const infrastructure = createDPiWorkerInfrastructure("/tmp/d-pi-worker-infra", {
+				workspaceRoot: "/tmp/d-pi-worker-infra",
+			});
 
 			expect("settingsManager" in infrastructure).toBe(false);
 			expect(infrastructure.modelRegistry.getAll()).toEqual([]);
@@ -335,7 +337,10 @@ describe("worker runtime adapter", () => {
 		};
 
 		try {
-			const infrastructure = createDPiWorkerInfrastructure("/tmp/d-pi-worker-infra", { agentDefinition });
+			const infrastructure = createDPiWorkerInfrastructure("/tmp/d-pi-worker-infra", {
+				agentDefinition,
+				workspaceRoot: "/tmp/d-pi-worker-infra",
+			});
 			const model = infrastructure.modelRegistry.find("stepfun", "step-3.7-flash");
 
 			expect(model).toMatchObject({
@@ -488,6 +493,7 @@ describe("worker runtime adapter", () => {
 				autoCompact: true,
 				disableDefaultTools: false,
 			},
+			workspaceRoot: "/tmp/root",
 		});
 
 		expect(result).toBe(local);
@@ -503,6 +509,7 @@ describe("worker runtime adapter", () => {
 
 		const result = await resolveDPiInitialModel({
 			modelRegistry: asWorkerModelRegistry(registry),
+			workspaceRoot: "/tmp/fallback-test",
 		});
 
 		expect(result).toBeUndefined();
