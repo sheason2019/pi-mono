@@ -13,6 +13,29 @@ import { createDPiNativeTheme, getDPiNativeMarkdownTheme } from "../native/theme
 import type { DPiInteractiveSessionStateSnapshot, DPiInteractiveTurnStats } from "./agent-session-proxy.ts";
 import { createDPiInteractiveStyle, type DPiInteractiveStyleOptions } from "./style.ts";
 
+const textPartSchema = z.object({ type: z.literal("text"), text: z.string().catch("") }).passthrough();
+const imagePartSchema = z.object({ type: z.literal("image"), mimeType: z.string().optional() }).passthrough();
+const contentArraySchema = z.array(
+	z.union([textPartSchema, imagePartSchema, z.object({ type: z.string() }).passthrough()]),
+);
+const toolResultSchema = z.object({ content: contentArraySchema.optional() }).passthrough();
+const compactDividerContentSchema = z.object({ label: z.string().optional() }).passthrough();
+const compactDividerDetailsSchema = z
+	.object({
+		summary: z.string().optional(),
+		result: z.object({ summary: z.string().optional() }).passthrough().optional(),
+	})
+	.passthrough();
+const transcriptMessageSchema = z.object({
+	role: z.string().optional(),
+	customType: z.string().optional(),
+	display: z.boolean().optional(),
+	details: z.unknown().optional(),
+	timestamp: z.number().optional(),
+	content: z.unknown().optional(),
+});
+const recordSchema = z.record(z.string(), z.unknown());
+
 export interface DPiInteractiveMessageListView {
 	text: string;
 }
@@ -93,7 +116,7 @@ function snapshotTranscriptItems(snapshot: DPiInteractiveSessionStateSnapshot): 
 			id: `message-${index}`,
 			type: "message" as const,
 			message,
-			timestamp: "timestamp" in message && typeof message.timestamp === "number" ? message.timestamp : Date.now(),
+			timestamp: transcriptMessageSchema.safeParse(message).data?.timestamp ?? Date.now(),
 		}))
 	);
 }
@@ -326,14 +349,16 @@ function customMessageComponent(
 }
 
 function toExtensionMessage(message: AgentMessage): ExtensionMessage {
-	const content = "content" in message && isExtensionMessageContent(message.content) ? message.content : "";
+	const meta = transcriptMessageSchema.safeParse(message).data;
+	const rawContent = meta?.content;
+	const content = isExtensionMessageContent(rawContent) ? rawContent : "";
 	return {
-		...("role" in message && typeof message.role === "string" ? { role: message.role } : {}),
-		...("customType" in message && typeof message.customType === "string" ? { customType: message.customType } : {}),
+		...(meta?.role !== undefined ? { role: meta.role } : {}),
+		...(meta?.customType !== undefined ? { customType: meta.customType } : {}),
 		content,
-		...("display" in message && typeof message.display === "boolean" ? { display: message.display } : {}),
+		...(meta?.display !== undefined ? { display: meta.display } : {}),
 		...("details" in message ? { details: message.details } : {}),
-		...("timestamp" in message && typeof message.timestamp === "number" ? { timestamp: message.timestamp } : {}),
+		...(meta?.timestamp !== undefined ? { timestamp: meta.timestamp } : {}),
 	};
 }
 
@@ -341,13 +366,7 @@ function isExtensionMessageContent(value: unknown): value is ExtensionMessage["c
 	if (typeof value === "string") {
 		return true;
 	}
-	if (!Array.isArray(value)) {
-		return false;
-	}
-	return value.every(
-		(part) =>
-			typeof part === "object" && part !== null && "type" in part && (part.type === "text" || part.type === "image"),
-	);
+	return contentArraySchema.safeParse(value).success;
 }
 
 function messageCustomType(message: AgentMessage): string | undefined {
@@ -383,21 +402,15 @@ function transcriptToolResult(item: Extract<DPiTranscriptItem, { type: "tool_sta
 	};
 }
 
-const recordSchema = z.record(z.string(), z.unknown());
-
 function recordArgs(value: unknown): Record<string, unknown> {
 	const parsed = recordSchema.safeParse(value);
 	return parsed.success ? parsed.data : {};
 }
 
-const toolResultWithContentSchema = z.object({
-	content: z.array(z.unknown()).optional(),
-});
-
 function transcriptToolResultContent(
 	item: Extract<DPiTranscriptItem, { type: "tool_state" }>,
 ): ToolResultMessage["content"] {
-	const parsed = toolResultWithContentSchema.safeParse(item.result);
+	const parsed = toolResultSchema.safeParse(item.result);
 	if (parsed.success && parsed.data.content) {
 		return parsed.data.content as ToolResultMessage["content"];
 	}
@@ -412,13 +425,11 @@ function transcriptToolText(item: Extract<DPiTranscriptItem, { type: "tool_state
 	if (typeof result === "string") {
 		return result;
 	}
-	const parsed = toolResultWithContentSchema.safeParse(result);
+	const parsed = toolResultSchema.safeParse(result);
 	if (parsed.success && parsed.data.content) {
 		return parsed.data.content
-			.map((part) => {
-				const partParsed = z.object({ text: z.string().optional() }).safeParse(part);
-				return partParsed.success && partParsed.data.text ? partParsed.data.text : "";
-			})
+			.filter((p): p is z.infer<typeof textPartSchema> => p.type === "text")
+			.map((p) => p.text)
 			.join("");
 	}
 	return item.status;
@@ -465,14 +476,11 @@ function contentText(content: unknown): string {
 	if (typeof content === "string") {
 		return content;
 	}
-	if (Array.isArray(content)) {
-		return content
-			.map((part) => {
-				if (typeof part === "object" && part !== null && "text" in part && typeof part.text === "string") {
-					return part.text;
-				}
-				return "";
-			})
+	const parsed = contentArraySchema.safeParse(content);
+	if (parsed.success) {
+		return parsed.data
+			.filter((p): p is z.infer<typeof textPartSchema> => p.type === "text")
+			.map((p) => p.text)
 			.join("");
 	}
 	return "";
@@ -495,19 +503,6 @@ function isCompactDividerMessage(message: AgentMessage): boolean {
 	return "customType" in message && message.customType === "compact-divider";
 }
 
-const compactDividerContentSchema = z.object({
-	label: z.string().optional(),
-});
-
-const compactDividerDetailsSchema = z.object({
-	summary: z.string().optional(),
-	result: z
-		.object({
-			summary: z.string().optional(),
-		})
-		.optional(),
-});
-
 function compactDividerLabel(message: AgentMessage): string {
 	if (!("content" in message)) {
 		return "Compact completed";
@@ -516,26 +511,18 @@ function compactDividerLabel(message: AgentMessage): string {
 	if (typeof content === "string") {
 		return content;
 	}
-	const parsed = compactDividerContentSchema.safeParse(content);
-	if (parsed.success && parsed.data.label) {
-		return parsed.data.label;
-	}
-	return "Compact completed";
+	return compactDividerContentSchema.safeParse(content).data?.label ?? "Compact completed";
 }
 
 function compactDividerSummary(message: AgentMessage): string | undefined {
 	if (!("details" in message)) {
 		return undefined;
 	}
-	const parsed = compactDividerDetailsSchema.safeParse(message.details);
-	if (!parsed.success) {
-		return undefined;
-	}
-	const details = parsed.data;
-	if (details.summary?.trim()) {
+	const details = compactDividerDetailsSchema.safeParse(message.details).data;
+	if (details?.summary?.trim()) {
 		return details.summary;
 	}
-	if (details.result?.summary?.trim()) {
+	if (details?.result?.summary?.trim()) {
 		return details.result.summary;
 	}
 	return undefined;

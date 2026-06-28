@@ -1,32 +1,17 @@
 import { Box, Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
-import { type DPiMessageMeta, dPiMessageMetaSchema, extractDPiMeta } from "../message-meta.ts";
+import { dPiMessageMetaSchema, extractDPiMeta } from "../message-meta.ts";
 import { defineTuiComponent } from "../tui-components/tui-component-definition.ts";
 
 export default defineTuiComponent({
 	customType: "d-pi-message",
 	render: (message, _options, theme) => {
 		const extracted = extractDPiMeta(message.content);
-		const meta = extracted?.meta ?? detailsMeta(message.details);
+		const meta = extracted?.meta ?? parseMessageMeta(message.details);
 		if (!meta) return undefined;
-		const sourceType = typeof meta.sourceType === "string" ? meta.sourceType : "unknown";
-		const sourceName =
-			typeof meta.agentName === "string"
-				? meta.agentName
-				: typeof meta.sourceName === "string"
-					? meta.sourceName
-					: typeof meta.connectId === "string"
-						? meta.connectId
-						: "";
-		const createTime = typeof meta.createTime === "string" ? meta.createTime : "";
-		const authName =
-			typeof meta.auth === "object" &&
-			meta.auth !== null &&
-			"name" in meta.auth &&
-			typeof meta.auth.name === "string"
-				? meta.auth.name
-				: "";
-		const source = sourceName ? `${sourceType}:${sourceName}` : sourceType;
-		const header = [source, authName, createTime].filter((part) => part.trim()).join(" · ");
+		const sourceName = meta.agentName ?? meta.sourceName ?? meta.connectId ?? "";
+		const authName = meta.auth?.name ?? "";
+		const source = sourceName ? `${meta.sourceType}:${sourceName}` : meta.sourceType;
+		const header = [source, authName, meta.createTime].filter((part) => part.trim()).join(" · ");
 		const container = new Container();
 		container.addChild(new Spacer(1));
 		container.addChild(new Text(theme.fg("warning", header), 0, 0));
@@ -65,7 +50,7 @@ export default defineTuiComponent({
 	},
 });
 
-function detailsMeta(value: unknown): DPiMessageMeta | undefined {
+function parseMessageMeta(value: unknown) {
 	const parsed = dPiMessageMetaSchema.safeParse(value);
 	return parsed.success ? parsed.data : undefined;
 }

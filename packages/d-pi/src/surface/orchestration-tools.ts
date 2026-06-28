@@ -1,9 +1,19 @@
 import { Type } from "typebox";
+import { z } from "zod";
 import type { AgentToolDefinition } from "../agent-definition.ts";
 import { defineTool } from "../agent-definition.ts";
 import { getBuiltinContext } from "./builtin-context.ts";
 import type { DPiCreateAgentActionPayload, DPiHubMessageMode, DPiTeamSnapshot } from "./hub-actions.ts";
 import { toolJsonDetails, toolTextResult } from "./tool-surface.ts";
+
+const reloadParamsSchema = z
+	.object({
+		reason: z
+			.string()
+			.optional()
+			.catch(() => undefined),
+	})
+	.passthrough();
 
 export function createSendMessageTool(): AgentToolDefinition {
 	return defineTool({
@@ -231,8 +241,8 @@ export function createReloadTool(): AgentToolDefinition {
 			if (!reloadFn) {
 				throw new Error("Reload not available: d-pi session is not initialized yet.");
 			}
-			const input = params as { reason?: unknown };
-			await reloadFn(typeof input.reason === "string" ? input.reason : undefined);
+			const parsed = reloadParamsSchema.safeParse(params).data;
+			await reloadFn(parsed?.reason);
 			return {
 				content: [{ type: "text" as const, text: "Agent configuration reloaded." }],
 				details: ctx.getReloadDetails(),
