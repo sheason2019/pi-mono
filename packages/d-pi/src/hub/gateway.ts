@@ -200,7 +200,7 @@ export class HubGateway {
 								error: "Remote call timed out",
 							});
 							if (resolved) {
-								process.stderr.write(`[hub] remote call ${callId} timed out after ${timeoutMs}ms\n`);
+								process.stderr.write(`[d-pi hub] Remote call ${callId} timed out after ${timeoutMs}ms\n`);
 							}
 						}, timeoutMs);
 						execReg.setPendingTimer(connectId, callId, timer);
@@ -591,7 +591,7 @@ export class HubGateway {
 					ok ? { ok: true, result } : { ok: false, error: error ?? "Unknown error" },
 				);
 				if (!resolved) {
-					process.stderr.write(`[hub] dropping result for unknown callId ${callId}\n`);
+					process.stderr.write(`[d-pi hub] Dropping result for unknown callId ${callId}\n`);
 				}
 				res.writeHead(200, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ ok: true }));
