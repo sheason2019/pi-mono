@@ -28,11 +28,11 @@ export function formatDPiMetaMessage(
 	const normalized: DPiMessageMeta = {
 		createTime: meta.createTime ?? formatMetaTime(new Date()),
 		sourceType: meta.sourceType,
-		...(meta.agentName === undefined ? {} : { agentName: meta.agentName }),
-		...(meta.sourceName === undefined ? {} : { sourceName: meta.sourceName }),
-		...(meta.connectId === undefined ? {} : { connectId: meta.connectId }),
-		...(meta.auth === undefined ? {} : { auth: meta.auth }),
 	};
+	if (meta.agentName !== undefined) normalized.agentName = meta.agentName;
+	if (meta.sourceName !== undefined) normalized.sourceName = meta.sourceName;
+	if (meta.connectId !== undefined) normalized.connectId = meta.connectId;
+	if (meta.auth !== undefined) normalized.auth = meta.auth;
 	return `[meta(${JSON.stringify(normalized)})]\n${content}`;
 }
 

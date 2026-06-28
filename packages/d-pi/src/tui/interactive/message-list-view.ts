@@ -13,24 +13,24 @@ import { createDPiNativeTheme, getDPiNativeMarkdownTheme } from "../native/theme
 import type { DPiInteractiveSessionStateSnapshot, DPiInteractiveTurnStats } from "./agent-session-proxy.ts";
 import { createDPiInteractiveStyle, type DPiInteractiveStyleOptions } from "./style.ts";
 
-const textPartSchema = z.object({ type: z.literal("text"), text: z.string().catch("") }).passthrough();
-const imagePartSchema = z.object({ type: z.literal("image"), mimeType: z.string().optional() }).passthrough();
-const contentArraySchema = z.array(
-	z.union([textPartSchema, imagePartSchema, z.object({ type: z.string() }).passthrough()]),
-);
-const toolResultSchema = z.object({ content: contentArraySchema.optional() }).passthrough();
-const compactDividerContentSchema = z.object({ label: z.string().optional() }).passthrough();
-const compactDividerDetailsSchema = z
-	.object({
-		summary: z.string().optional(),
-		result: z.object({ summary: z.string().optional() }).passthrough().optional(),
-	})
-	.passthrough();
+const textPartSchema = z.object({ type: z.literal("text"), text: z.string().catch("") });
+const imagePartSchema = z.object({
+	type: z.literal("image"),
+	data: z.string(),
+	mimeType: z.string(),
+});
+const contentPartSchema = z.union([textPartSchema, imagePartSchema]).catch(() => ({ type: "text" as const, text: "" }));
+const contentArraySchema = z.array(contentPartSchema);
+const toolResultSchema = z.object({ content: contentArraySchema.optional() });
+const compactDividerContentSchema = z.object({ label: z.string().optional() });
+const compactDividerDetailsSchema = z.object({
+	summary: z.string().optional(),
+	result: z.object({ summary: z.string().optional() }).optional(),
+});
 const transcriptMessageSchema = z.object({
 	role: z.string().optional(),
 	customType: z.string().optional(),
 	display: z.boolean().optional(),
-	details: z.unknown().optional(),
 	timestamp: z.number().optional(),
 	content: z.unknown().optional(),
 });
@@ -133,18 +133,18 @@ function itemComponents(
 		return messageComponents(item.message, messages, transcriptToolCallIds, theme, markdownTheme, options);
 	}
 	if (item.type === "boundary") {
+		const details: Record<string, unknown> = {};
+		if (item.summary !== undefined) details.summary = item.summary;
+		if (item.tokensBefore !== undefined) details.tokensBefore = item.tokensBefore;
+		if (item.durationMs !== undefined) details.durationMs = item.durationMs;
+		if (item.completedAt !== undefined) details.completedAt = item.completedAt;
 		return messageComponents(
 			{
 				role: "custom",
 				customType: "compact-divider",
 				content: item.label,
 				display: true,
-				details: {
-					...(item.summary === undefined ? {} : { summary: item.summary }),
-					...(item.tokensBefore === undefined ? {} : { tokensBefore: item.tokensBefore }),
-					...(item.durationMs === undefined ? {} : { durationMs: item.durationMs }),
-					...(item.completedAt === undefined ? {} : { completedAt: item.completedAt }),
-				},
+				details,
 				timestamp: item.timestamp,
 			},
 			messages,
@@ -205,16 +205,16 @@ function itemLines(item: DPiTranscriptItem, options: DPiInteractiveStyleOptions)
 		return messageLines(item.message, options);
 	}
 	if (item.type === "boundary") {
+		const details: Record<string, unknown> = {};
+		if (item.summary !== undefined) details.summary = item.summary;
+		if (item.tokensBefore !== undefined) details.tokensBefore = item.tokensBefore;
 		return messageLines(
 			{
 				role: "custom",
 				customType: "compact-divider",
 				content: item.label,
 				display: true,
-				details: {
-					...(item.summary === undefined ? {} : { summary: item.summary }),
-					...(item.tokensBefore === undefined ? {} : { tokensBefore: item.tokensBefore }),
-				},
+				details,
 				timestamp: item.timestamp,
 			},
 			options,
@@ -352,14 +352,13 @@ function toExtensionMessage(message: AgentMessage): ExtensionMessage {
 	const meta = transcriptMessageSchema.safeParse(message).data;
 	const rawContent = meta?.content;
 	const content = isExtensionMessageContent(rawContent) ? rawContent : "";
-	return {
-		...(meta?.role !== undefined ? { role: meta.role } : {}),
-		...(meta?.customType !== undefined ? { customType: meta.customType } : {}),
-		content,
-		...(meta?.display !== undefined ? { display: meta.display } : {}),
-		...("details" in message ? { details: message.details } : {}),
-		...(meta?.timestamp !== undefined ? { timestamp: meta.timestamp } : {}),
-	};
+	const result: ExtensionMessage = { content };
+	if (meta?.role !== undefined) result.role = meta.role;
+	if (meta?.customType !== undefined) result.customType = meta.customType;
+	if (meta?.display !== undefined) result.display = meta.display;
+	if (meta?.timestamp !== undefined) result.timestamp = meta.timestamp;
+	if ("details" in message) result.details = message.details;
+	return result;
 }
 
 function isExtensionMessageContent(value: unknown): value is ExtensionMessage["content"] {
@@ -412,7 +411,7 @@ function transcriptToolResultContent(
 ): ToolResultMessage["content"] {
 	const parsed = toolResultSchema.safeParse(item.result);
 	if (parsed.success && parsed.data.content) {
-		return parsed.data.content as ToolResultMessage["content"];
+		return parsed.data.content;
 	}
 	return [{ type: "text", text: transcriptToolText(item) }];
 }
@@ -421,16 +420,12 @@ function transcriptToolText(item: Extract<DPiTranscriptItem, { type: "tool_state
 	if (item.error) {
 		return item.error;
 	}
-	const result = item.result;
-	if (typeof result === "string") {
-		return result;
+	if (typeof item.result === "string") {
+		return item.result;
 	}
-	const parsed = toolResultSchema.safeParse(result);
-	if (parsed.success && parsed.data.content) {
-		return parsed.data.content
-			.filter((p): p is z.infer<typeof textPartSchema> => p.type === "text")
-			.map((p) => p.text)
-			.join("");
+	const text = extractContentText(item.result);
+	if (text) {
+		return text;
 	}
 	return item.status;
 }
@@ -476,14 +471,18 @@ function contentText(content: unknown): string {
 	if (typeof content === "string") {
 		return content;
 	}
-	const parsed = contentArraySchema.safeParse(content);
-	if (parsed.success) {
-		return parsed.data
-			.filter((p): p is z.infer<typeof textPartSchema> => p.type === "text")
-			.map((p) => p.text)
-			.join("");
+	return extractContentText(content);
+}
+
+function extractContentText(value: unknown): string {
+	const parsed = contentArraySchema.safeParse(value);
+	if (!parsed.success) {
+		return "";
 	}
-	return "";
+	return parsed.data
+		.filter((p): p is z.infer<typeof textPartSchema> => p.type === "text")
+		.map((p) => p.text)
+		.join("");
 }
 
 function formatCompactTokens(count: number): string {

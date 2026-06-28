@@ -9,19 +9,15 @@ import type {
 	DPiTeamSnapshot,
 } from "./index.ts";
 
-const createAgentResultSchema = z
-	.object({
-		agentName: z.string().optional(),
-		error: z.string().optional(),
-	})
-	.passthrough();
+const createAgentResultSchema = z.object({
+	agentName: z.string().optional(),
+	error: z.string().optional(),
+});
 
-const okResultSchema = z
-	.object({
-		ok: z.boolean().optional(),
-		error: z.string().optional(),
-	})
-	.passthrough();
+const okResultSchema = z.object({
+	ok: z.boolean().optional(),
+	error: z.string().optional(),
+});
 
 export function createHubActionsClientFromHubChannel(channel: HubChannel): DPiHubActionsClient {
 	return {

@@ -1,6 +1,5 @@
 import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import { type TSchema, Type } from "typebox";
-import { z } from "zod";
 import type { AgentToolDefinition } from "../agent-definition.ts";
 import { defineTool } from "../agent-definition.ts";
 import { isRecord } from "../shared/schemas.ts";
@@ -23,22 +22,18 @@ const ReadParameters = Type.Object({
 	path: Type.String(),
 });
 
-const dispatchParamsSchema = z
-	.object({
-		connect_id: z
-			.string()
-			.optional()
-			.catch(() => undefined),
-	})
-	.passthrough();
-
 function parseDispatchParams(params: unknown): {
 	connectId: string | undefined;
 	nativeParams: Record<string, unknown>;
 } {
-	const parsed = dispatchParamsSchema.safeParse(params).data ?? {};
-	const { connect_id: connectId, ...nativeParams } = parsed;
-	return { connectId, nativeParams };
+	if (!isRecord(params)) {
+		return { connectId: undefined, nativeParams: {} };
+	}
+	const { connect_id, ...nativeParams } = params;
+	return {
+		connectId: typeof connect_id === "string" ? connect_id : undefined,
+		nativeParams,
+	};
 }
 
 export function createDispatchBashTool(): AgentToolDefinition {

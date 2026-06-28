@@ -42,175 +42,192 @@ export interface DPiNativeToolResultLike {
 	isError?: boolean;
 }
 
-const truncationDetailsSchema = z
-	.object({
-		truncated: z.boolean().optional(),
-		maxBytes: z.number().optional(),
-		outputLines: z.number().optional(),
-		totalLines: z.number().optional(),
-		truncatedBy: z.string().optional(),
-		firstLineExceedsLimit: z.boolean().optional(),
-		maxLines: z.number().optional(),
-	})
-	.passthrough();
+const truncationDetailsSchema = z.object({
+	truncated: z.boolean().optional(),
+	maxBytes: z.number().optional(),
+	outputLines: z.number().optional(),
+	totalLines: z.number().optional(),
+	truncatedBy: z.string().optional(),
+	firstLineExceedsLimit: z.boolean().optional(),
+	maxLines: z.number().optional(),
+});
 
-const listResultDetailsSchema = z
-	.object({
-		entryLimitReached: z.number().optional(),
-		resultLimitReached: z.number().optional(),
-		matchLimitReached: z.number().optional(),
-		linesTruncated: z.boolean().optional(),
-		truncation: truncationDetailsSchema.optional(),
-	})
-	.passthrough();
+const listResultDetailsSchema = z.object({
+	entryLimitReached: z.number().optional(),
+	resultLimitReached: z.number().optional(),
+	matchLimitReached: z.number().optional(),
+	linesTruncated: z.boolean().optional(),
+	truncation: truncationDetailsSchema.optional(),
+});
 
-const editResultDetailsSchema = z
-	.object({
-		diff: z.string().optional(),
-		firstChangedLine: z.number().optional(),
-	})
-	.passthrough();
+const editResultDetailsSchema = z.object({
+	diff: z.string().optional(),
+	firstChangedLine: z.number().optional(),
+});
 
-const bashResultDetailsSchema = z
-	.object({
-		truncation: truncationDetailsSchema.optional(),
-		fullOutputPath: z.string().optional(),
-	})
-	.passthrough();
+const bashResultDetailsSchema = z.object({
+	truncation: truncationDetailsSchema.optional(),
+	fullOutputPath: z.string().optional(),
+});
 
-const lsCallArgsSchema = z
-	.object({
-		path: z
-			.string()
-			.optional()
-			.catch(() => undefined),
-		limit: z
-			.number()
-			.optional()
-			.catch(() => undefined),
-	})
-	.passthrough();
+const readResultDetailsSchema = z.object({
+	truncation: truncationDetailsSchema.optional(),
+});
 
-const findCallArgsSchema = z
-	.object({
-		pattern: z
-			.string()
-			.optional()
-			.catch(() => undefined),
-		path: z
-			.string()
-			.optional()
-			.catch(() => undefined),
-		limit: z
-			.number()
-			.optional()
-			.catch(() => undefined),
-	})
-	.passthrough();
+const lsCallArgsSchema = z.object({
+	path: z
+		.string()
+		.optional()
+		.catch(() => undefined),
+	limit: z
+		.number()
+		.optional()
+		.catch(() => undefined),
+});
 
-const grepCallArgsSchema = z
-	.object({
-		pattern: z
-			.string()
-			.optional()
-			.catch(() => undefined),
-		path: z
-			.string()
-			.optional()
-			.catch(() => undefined),
-		glob: z
-			.string()
-			.optional()
-			.catch(() => undefined),
-		limit: z
-			.number()
-			.optional()
-			.catch(() => undefined),
-	})
-	.passthrough();
+const findCallArgsSchema = z.object({
+	pattern: z
+		.string()
+		.optional()
+		.catch(() => undefined),
+	path: z
+		.string()
+		.optional()
+		.catch(() => undefined),
+	limit: z
+		.number()
+		.optional()
+		.catch(() => undefined),
+});
 
-const readCallArgsSchema = z
-	.object({
-		file_path: z
-			.string()
-			.optional()
-			.catch(() => undefined),
-		path: z
-			.string()
-			.optional()
-			.catch(() => undefined),
-		offset: z
-			.number()
-			.optional()
-			.catch(() => undefined),
-		limit: z
-			.number()
-			.optional()
-			.catch(() => undefined),
-	})
-	.passthrough();
+const grepCallArgsSchema = z.object({
+	pattern: z
+		.string()
+		.optional()
+		.catch(() => undefined),
+	path: z
+		.string()
+		.optional()
+		.catch(() => undefined),
+	glob: z
+		.string()
+		.optional()
+		.catch(() => undefined),
+	limit: z
+		.number()
+		.optional()
+		.catch(() => undefined),
+});
 
-const writeCallArgsSchema = z
-	.object({
-		file_path: z
-			.string()
-			.optional()
-			.catch(() => undefined),
-		path: z
-			.string()
-			.optional()
-			.catch(() => undefined),
-		content: z
-			.string()
-			.optional()
-			.catch(() => undefined),
-	})
-	.passthrough();
+const readCallArgsSchema = z.object({
+	file_path: z
+		.string()
+		.optional()
+		.catch(() => undefined),
+	path: z
+		.string()
+		.optional()
+		.catch(() => undefined),
+	offset: z
+		.number()
+		.optional()
+		.catch(() => undefined),
+	limit: z
+		.number()
+		.optional()
+		.catch(() => undefined),
+});
 
-const bashCallArgsSchema = z
-	.object({
-		command: z
-			.string()
-			.optional()
-			.catch(() => undefined),
-		timeout: z
-			.number()
-			.optional()
-			.catch(() => undefined),
-	})
-	.passthrough();
+const writeCallArgsSchema = z.object({
+	file_path: z
+		.string()
+		.optional()
+		.catch(() => undefined),
+	path: z
+		.string()
+		.optional()
+		.catch(() => undefined),
+	content: z
+		.string()
+		.optional()
+		.catch(() => undefined),
+});
 
-function parseArgs<T extends z.ZodTypeAny>(schema: T, args: unknown): z.infer<T> {
-	const result = schema.safeParse(args);
-	return result.success ? result.data : ({} as z.infer<T>);
+const bashCallArgsSchema = z.object({
+	command: z
+		.string()
+		.optional()
+		.catch(() => undefined),
+	timeout: z
+		.number()
+		.optional()
+		.catch(() => undefined),
+});
+
+interface ParsedReadArgs {
+	filePath: string | undefined;
+	offset: number | undefined;
+	limit: number | undefined;
 }
 
-function filePathFrom(data: { file_path?: string; path?: string }): string | undefined {
-	return data.file_path ?? data.path;
+function parseCallArgs<T extends z.ZodObject<z.ZodRawShape>>(schema: T, args: unknown): z.infer<T> {
+	return schema.safeParse(args).data ?? {};
 }
+
+function parseReadArgs(args: unknown): ParsedReadArgs {
+	const data = parseCallArgs(readCallArgsSchema, args);
+	return { filePath: data.file_path ?? data.path, offset: data.offset, limit: data.limit };
+}
+
+type TruncationDetails = z.infer<typeof truncationDetailsSchema>;
 
 export function createDPiNativeToolRendererDefinition(toolName: string): DPiNativeToolRendererDefinition | undefined {
 	const nativeName = nativeToolName(toolName);
 	switch (nativeName) {
 		case "ls":
 			return textToolRenderer(
-				(args, theme, context) => formatLsCall(args, theme, context.cwd),
-				formatListResult(20, "lines"),
+				(args, theme, context) => formatLsCall(parseCallArgs(lsCallArgsSchema, args), theme, context.cwd),
+				(result, options, theme) => {
+					const output = getTextOutput(result, false).trim();
+					const details = listResultDetailsSchema.safeParse(result.details).data;
+					return formatListResult(output, details, options, theme, 20, "lines");
+				},
 			);
 		case "find":
-			return textToolRenderer(formatFindCall, formatListResult(20, "lines"));
+			return textToolRenderer(
+				(args, theme) => formatFindCall(parseCallArgs(findCallArgsSchema, args), theme),
+				(result, options, theme) => {
+					const output = getTextOutput(result, false).trim();
+					const details = listResultDetailsSchema.safeParse(result.details).data;
+					return formatListResult(output, details, options, theme, 20, "lines");
+				},
+			);
 		case "grep":
-			return textToolRenderer(formatGrepCall, formatListResult(15, "lines"));
+			return textToolRenderer(
+				(args, theme) => formatGrepCall(parseCallArgs(grepCallArgsSchema, args), theme),
+				(result, options, theme) => {
+					const output = getTextOutput(result, false).trim();
+					const details = listResultDetailsSchema.safeParse(result.details).data;
+					return formatListResult(output, details, options, theme, 15, "lines");
+				},
+			);
 		case "read":
 			return textToolRenderer(
 				(args, theme, context) => {
-					const classification = !context.expanded ? getCompactReadClassification(args, context.cwd) : undefined;
-					return classification
-						? formatCompactReadCall(classification, args, theme)
-						: formatReadCall(args, theme, context.cwd);
+					const parsed = parseReadArgs(args);
+					if (!context.expanded) {
+						const classification = getCompactReadClassification(parsed, context.cwd);
+						if (classification) return formatCompactReadCall(classification, parsed, theme);
+					}
+					return formatReadCall(parsed, theme, context.cwd);
 				},
-				(result, options, theme, context) =>
-					formatReadResult(context.args, result, options, theme, context.showImages, context.isError),
+				(result, options, theme, context) => {
+					const args = parseReadArgs(context.args);
+					const output = getTextOutput(result, context.showImages);
+					const truncation = readResultDetailsSchema.safeParse(result.details).data?.truncation;
+					const lang = args.filePath ? getLanguageFromPath(args.filePath) : undefined;
+					return formatReadResult(output, truncation, options, theme, lang, context.isError);
+				},
 			);
 		case "write":
 			return createWriteRenderer();
@@ -251,82 +268,67 @@ function nativeToolName(toolName: string): string {
 	return toolName.startsWith("dispatch_") ? toolName.slice("dispatch_".length) : toolName;
 }
 
-function formatLsCall(args: unknown, theme: DPiNativeTheme, cwd: string): string {
-	const data = parseArgs(lsCallArgsSchema, args);
-	const rawPath = data.path;
-	const limit = data.limit;
-	let text = `${theme.fg("toolTitle", theme.bold("ls"))} ${renderToolPath(rawPath, theme, cwd, ".")}`;
-	if (limit !== undefined) {
-		text += theme.fg("toolOutput", ` (limit ${limit})`);
+function formatLsCall(data: z.infer<typeof lsCallArgsSchema>, theme: DPiNativeTheme, cwd: string): string {
+	const pathDisplay = renderToolPath(data.path, theme, cwd, ".");
+	let text = `${theme.fg("toolTitle", theme.bold("ls"))} ${pathDisplay}`;
+	if (data.limit !== undefined) {
+		text += theme.fg("toolOutput", ` (limit ${data.limit})`);
 	}
 	return text;
 }
 
-function formatFindCall(args: unknown, theme: DPiNativeTheme): string {
-	const data = parseArgs(findCallArgsSchema, args);
-	const pattern = data.pattern;
-	const rawPath = data.path;
-	const limit = data.limit;
-	const patternDisplay = pattern !== undefined ? theme.fg("accent", pattern || "") : invalidArgText(theme);
+function formatFindCall(data: z.infer<typeof findCallArgsSchema>, theme: DPiNativeTheme): string {
+	const patternDisplay = data.pattern !== undefined ? theme.fg("accent", data.pattern) : invalidArgText(theme);
 	const pathDisplay =
-		rawPath !== undefined
-			? theme.fg("toolOutput", ` in ${shortenPath(rawPath || ".")}`)
+		data.path !== undefined
+			? theme.fg("toolOutput", ` in ${shortenPath(data.path || ".")}`)
 			: theme.fg("toolOutput", ` in ${invalidArgText(theme)}`);
 	let text = `${theme.fg("toolTitle", theme.bold("find"))} ${patternDisplay}${pathDisplay}`;
-	if (limit !== undefined) {
-		text += theme.fg("toolOutput", ` (limit ${limit})`);
+	if (data.limit !== undefined) {
+		text += theme.fg("toolOutput", ` (limit ${data.limit})`);
 	}
 	return text;
 }
 
-function formatGrepCall(args: unknown, theme: DPiNativeTheme): string {
-	const data = parseArgs(grepCallArgsSchema, args);
-	const pattern = data.pattern;
-	const rawPath = data.path;
-	const glob = data.glob;
-	const limit = data.limit;
-	const patternDisplay = pattern !== undefined ? theme.fg("accent", `/${pattern || ""}/`) : invalidArgText(theme);
+function formatGrepCall(data: z.infer<typeof grepCallArgsSchema>, theme: DPiNativeTheme): string {
+	const patternDisplay = data.pattern !== undefined ? theme.fg("accent", `/${data.pattern}/`) : invalidArgText(theme);
 	const pathDisplay =
-		rawPath !== undefined
-			? theme.fg("toolOutput", ` in ${shortenPath(rawPath || ".")}`)
+		data.path !== undefined
+			? theme.fg("toolOutput", ` in ${shortenPath(data.path || ".")}`)
 			: theme.fg("toolOutput", ` in ${invalidArgText(theme)}`);
 	let text = `${theme.fg("toolTitle", theme.bold("grep"))} ${patternDisplay}${pathDisplay}`;
-	if (glob) {
-		text += theme.fg("toolOutput", ` (${glob})`);
+	if (data.glob) {
+		text += theme.fg("toolOutput", ` (${data.glob})`);
 	}
-	if (limit !== undefined) {
-		text += theme.fg("toolOutput", ` limit ${limit}`);
+	if (data.limit !== undefined) {
+		text += theme.fg("toolOutput", ` limit ${data.limit}`);
 	}
 	return text;
 }
 
-function formatReadCall(args: unknown, theme: DPiNativeTheme, cwd: string): string {
-	const data = parseArgs(readCallArgsSchema, args);
-	const rawPath = filePathFrom(data);
-	return `${theme.fg("toolTitle", theme.bold("read"))} ${renderToolPath(rawPath, theme, cwd)}${formatLineRange(data, theme)}`;
+function formatReadCall(data: ParsedReadArgs, theme: DPiNativeTheme, cwd: string): string {
+	return `${theme.fg("toolTitle", theme.bold("read"))} ${renderToolPath(data.filePath, theme, cwd)}${formatLineRange(data, theme)}`;
 }
 
 function formatWriteCall(
-	args: unknown,
+	data: z.infer<typeof writeCallArgsSchema>,
 	options: DPiNativeToolRenderResultOptions,
 	theme: DPiNativeTheme,
-	context: DPiNativeToolRenderContext,
+	cwd: string,
 	cache: WriteHighlightCache | undefined,
 ): string {
-	const data = parseArgs(writeCallArgsSchema, args);
-	const rawPath = filePathFrom(data);
-	const content = data.content;
-	const pathDisplay = renderToolPath(rawPath, theme, context.cwd);
+	const filePath = data.file_path ?? data.path;
+	const pathDisplay = renderToolPath(filePath, theme, cwd);
 	let text = `${theme.fg("toolTitle", theme.bold("write"))} ${pathDisplay}`;
-	if (content === undefined) {
+	if (data.content === undefined) {
 		text += `\n\n${theme.fg("error", "[invalid content arg - expected string]")}`;
 		return text;
 	}
-	if (content) {
-		const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
+	if (data.content.length > 0) {
+		const lang = filePath ? getLanguageFromPath(filePath) : undefined;
 		const renderedLines = lang
-			? (cache?.highlightedLines ?? highlightCode(replaceTabs(normalizeDisplayText(content)), lang, theme))
-			: normalizeDisplayText(content).split("\n");
+			? (cache?.highlightedLines ?? highlightCode(replaceTabs(normalizeDisplayText(data.content)), lang, theme))
+			: normalizeDisplayText(data.content).split("\n");
 		const lines = trimTrailingEmptyLines(renderedLines);
 		const totalLines = lines.length;
 		const maxLines = options.expanded ? lines.length : 10;
@@ -340,57 +342,61 @@ function formatWriteCall(
 	return text;
 }
 
-function formatBashCall(args: unknown, theme: DPiNativeTheme): string {
-	const data = parseArgs(bashCallArgsSchema, args);
-	const command = data.command;
-	const timeout = data.timeout;
-	const timeoutSuffix = timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
+function formatBashCall(data: z.infer<typeof bashCallArgsSchema>, theme: DPiNativeTheme): string {
+	const timeoutSuffix = data.timeout ? theme.fg("muted", ` (timeout ${data.timeout}s)`) : "";
 	const commandDisplay =
-		command === undefined ? invalidArgText(theme) : command ? command : theme.fg("toolOutput", "...");
-	return theme.fg("toolTitle", theme.bold(`$ ${commandDisplay}`)) + timeoutSuffix;
+		data.command === undefined
+			? invalidArgText(theme)
+			: data.command.length > 0
+				? data.command
+				: theme.fg("toolOutput", "...");
+	return `${theme.fg("toolTitle", theme.bold(`$ ${commandDisplay}`))}${timeoutSuffix}`;
 }
 
-function formatEditCall(args: unknown, theme: DPiNativeTheme, cwd: string): string {
-	const data = parseArgs(readCallArgsSchema, args);
-	const editPath = filePathFrom(data);
-	return `${theme.fg("toolTitle", theme.bold("edit"))} ${renderToolPath(editPath, theme, cwd)}`;
+function formatEditCall(data: ParsedReadArgs, theme: DPiNativeTheme, cwd: string): string {
+	return `${theme.fg("toolTitle", theme.bold("edit"))} ${renderToolPath(data.filePath, theme, cwd)}`;
 }
 
 function createWriteRenderer(): DPiNativeToolRendererDefinition {
+	let cache: WriteHighlightCache | undefined;
 	return {
 		renderCall(args, theme, context) {
 			const component =
 				(context.lastComponent as WriteCallRenderComponent | undefined) ?? new WriteCallRenderComponent();
-			const data = parseArgs(writeCallArgsSchema, args);
-			const rawPath = filePathFrom(data);
-			const fileContent = data.content;
-			if (fileContent !== undefined) {
-				component.cache = context.argsComplete
-					? rebuildWriteHighlightCacheFull(rawPath, fileContent)
-					: updateWriteHighlightCacheIncremental(component.cache, rawPath, fileContent);
+			const data = parseCallArgs(writeCallArgsSchema, args);
+			const filePath = data.file_path ?? data.path;
+			if (data.content !== undefined) {
+				cache = context.argsComplete
+					? rebuildWriteHighlightCacheFull(filePath, data.content)
+					: updateWriteHighlightCacheIncremental(cache, filePath, data.content);
 			} else {
-				component.cache = undefined;
+				cache = undefined;
 			}
 			component.setText(
 				formatWriteCall(
-					args,
+					data,
 					{ expanded: context.expanded, isPartial: context.isPartial },
 					theme,
-					context,
-					component.cache,
+					context.cwd,
+					cache,
 				),
 			);
 			return component;
 		},
 		renderResult(result, _options, theme, context) {
-			const output = formatErrorOnlyResult({ ...result, isError: context.isError }, theme);
-			if (!output) {
+			if (!context.isError) {
+				const component = (context.lastComponent as Container | undefined) ?? new Container();
+				component.clear();
+				return component;
+			}
+			const errorText = getTextOutput(result, true);
+			if (!errorText) {
 				const component = (context.lastComponent as Container | undefined) ?? new Container();
 				component.clear();
 				return component;
 			}
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(output);
+			text.setText(`\n${theme.fg("error", errorText)}`);
 			return text;
 		},
 	};
@@ -405,7 +411,7 @@ function createBashRenderer(): DPiNativeToolRendererDefinition {
 				state.endedAt = undefined;
 			}
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatBashCall(args, theme));
+			text.setText(formatBashCall(parseCallArgs(bashCallArgsSchema, args), theme));
 			return text;
 		},
 		renderResult(result, options, theme, context) {
@@ -422,12 +428,13 @@ function createBashRenderer(): DPiNativeToolRendererDefinition {
 			}
 			const component =
 				(context.lastComponent as BashResultRenderComponent | undefined) ?? new BashResultRenderComponent();
+			const details = bashResultDetailsSchema.safeParse(result.details).data;
 			rebuildBashResultRenderComponent(
 				component,
-				result,
+				getTextOutput(result, context.showImages).trim(),
+				details,
 				options,
 				theme,
-				context.showImages,
 				state.startedAt,
 				state.endedAt,
 			);
@@ -443,32 +450,48 @@ function createEditRenderer(): DPiNativeToolRendererDefinition {
 		renderCall(args, theme, context) {
 			const state = context.state as EditRenderState;
 			const component = getEditCallRenderComponent(state, context.lastComponent);
-			return buildEditCallComponent(component, args, theme, context.cwd);
+			return buildEditCallComponent(component, parseReadArgs(args), theme, context.cwd);
 		},
 		renderResult(result, _options, theme, context) {
 			const state = context.state as EditRenderState;
 			const callComponent = state.callComponent;
+			const args = parseReadArgs(context.args);
 			const details = editResultDetailsSchema.safeParse(result.details).data;
 			const resultDiff = details?.diff;
-			if (callComponent && resultDiff) {
-				callComponent.preview = {
-					diff: resultDiff,
-					firstChangedLine: details?.firstChangedLine,
-				};
-				callComponent.settledError = false;
-				buildEditCallComponent(callComponent, context.args, theme, context.cwd);
-			} else if (callComponent) {
-				callComponent.settledError = context.isError;
-				buildEditCallComponent(callComponent, context.args, theme, context.cwd);
+
+			if (callComponent) {
+				if (resultDiff) {
+					callComponent.preview = { diff: resultDiff, firstChangedLine: details?.firstChangedLine };
+					callComponent.settledError = false;
+				} else {
+					callComponent.settledError = context.isError;
+					callComponent.preview = undefined;
+				}
+				buildEditCallComponent(callComponent, args, theme, context.cwd);
 			}
-			const output = formatEditResult(context.args, callComponent?.preview, result, theme, context.isError);
+
+			let output: string | undefined;
+			if (context.isError) {
+				const errorText = getTextOutput(result, true);
+				const previewError =
+					callComponent?.preview && "error" in callComponent.preview ? callComponent.preview.error : undefined;
+				if (errorText && errorText !== previewError) {
+					output = theme.fg("error", errorText);
+				}
+			} else if (resultDiff) {
+				const previewDiff =
+					callComponent?.preview && !("error" in callComponent.preview) ? callComponent.preview.diff : undefined;
+				if (resultDiff !== previewDiff) {
+					output = renderDiff(resultDiff, theme, { filePath: args.filePath });
+				}
+			}
+
 			const component = (context.lastComponent as Container | undefined) ?? new Container();
 			component.clear();
-			if (!output) {
-				return component;
+			if (output) {
+				component.addChild(new Spacer(1));
+				component.addChild(new Text(output, 1, 0));
 			}
-			component.addChild(new Spacer(1));
-			component.addChild(new Text(output, 1, 0));
 			return component;
 		},
 	};
@@ -483,59 +506,44 @@ function formatLineRange(data: { offset?: number; limit?: number }, theme: DPiNa
 	return theme.fg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
 }
 
-function formatListResult(maxCollapsedLines: number, unit: string) {
-	return (
-		result: DPiNativeToolResultLike,
-		options: DPiNativeToolRenderResultOptions,
-		theme: DPiNativeTheme,
-		context: DPiNativeToolRenderContext,
-	): string => {
-		const output = getTextOutput(result, context.showImages).trim();
-		let text = output
-			? `\n${formatOutputLines(output, options.expanded ? Number.POSITIVE_INFINITY : maxCollapsedLines, theme, unit)}`
-			: "";
-		const details = listResultDetailsSchema.safeParse(result.details).data;
-		const warnings: string[] = [];
-		const limits: Array<[string, string]> = [
-			["entryLimitReached", "entries"],
-			["resultLimitReached", "results"],
-			["matchLimitReached", "matches"],
-		];
-		for (const [key, label] of limits) {
-			const value = details?.[key as keyof typeof details];
-			if (typeof value === "number") {
-				warnings.push(`${value} ${label} limit`);
-			}
-		}
-		const truncation = details?.truncation;
-		if (truncation?.truncated === true) {
-			warnings.push(`${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit`);
-		}
-		if (details?.linesTruncated === true) {
-			warnings.push("some lines truncated");
-		}
-		if (warnings.length > 0) {
-			text += `\n${theme.fg("warning", `[Truncated: ${warnings.join(", ")}]`)}`;
-		}
-		return text;
-	};
+function formatListResult(
+	output: string,
+	details: z.infer<typeof listResultDetailsSchema> | undefined,
+	options: DPiNativeToolRenderResultOptions,
+	theme: DPiNativeTheme,
+	maxCollapsedLines: number,
+	unit: string,
+): string {
+	let text = output
+		? `\n${formatOutputLines(output, options.expanded ? Number.POSITIVE_INFINITY : maxCollapsedLines, theme, unit)}`
+		: "";
+	const warnings: string[] = [];
+	if (details?.entryLimitReached !== undefined) warnings.push(`${details.entryLimitReached} entries limit`);
+	if (details?.resultLimitReached !== undefined) warnings.push(`${details.resultLimitReached} results limit`);
+	if (details?.matchLimitReached !== undefined) warnings.push(`${details.matchLimitReached} matches limit`);
+	if (details?.truncation?.truncated === true) {
+		warnings.push(`${formatSize(details.truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit`);
+	}
+	if (details?.linesTruncated === true) {
+		warnings.push("some lines truncated");
+	}
+	if (warnings.length > 0) {
+		text += `\n${theme.fg("warning", `[Truncated: ${warnings.join(", ")}]`)}`;
+	}
+	return text;
 }
 
 function formatReadResult(
-	args: unknown,
-	result: DPiNativeToolResultLike,
+	output: string,
+	truncation: TruncationDetails | undefined,
 	options: DPiNativeToolRenderResultOptions,
 	theme: DPiNativeTheme,
-	showImages: boolean,
+	lang: string | undefined,
 	isError: boolean,
 ): string {
 	if (!options.expanded && !isError) {
 		return "";
 	}
-	const data = parseArgs(readCallArgsSchema, args);
-	const rawPath = filePathFrom(data);
-	const output = getTextOutput(result, showImages);
-	const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
 	const renderedLines = lang ? highlightCode(replaceTabs(output), lang, theme) : output.split("\n");
 	const lines = trimTrailingEmptyLines(renderedLines);
 	const maxLines = options.expanded ? lines.length : 10;
@@ -545,9 +553,6 @@ function formatReadResult(
 	if (remaining > 0) {
 		text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint(theme)}${theme.fg("muted", ")")}`;
 	}
-	const truncation = truncationDetailsSchema.safeParse(
-		z.object({ truncation: z.unknown().optional() }).passthrough().safeParse(result.details).data?.truncation,
-	).data;
 	if (truncation?.truncated === true) {
 		if (truncation.firstLineExceedsLimit === true) {
 			text += `\n${theme.fg("warning", `[First line exceeds ${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit]`)}`;
@@ -561,28 +566,27 @@ function formatReadResult(
 }
 
 function rebuildBashResultRenderComponent(
-	component: BashResultRenderComponent,
-	result: DPiNativeToolResultLike,
+	component: Container,
+	output: string,
+	details: z.infer<typeof bashResultDetailsSchema> | undefined,
 	options: DPiNativeToolRenderResultOptions,
 	theme: DPiNativeTheme,
-	showImages: boolean,
 	startedAt: number | undefined,
 	endedAt: number | undefined,
 ): void {
-	const state = component.state;
+	const state = (component as BashResultRenderComponent).state;
 	component.clear();
-	let output = getTextOutput(result, showImages).trim();
-	const details = bashResultDetailsSchema.safeParse(result.details).data;
 	const truncation = details?.truncation;
 	const fullOutputPath = details?.fullOutputPath;
-	if (!options.isPartial && truncation?.truncated === true && fullOutputPath && output.endsWith("]")) {
-		const footerStart = output.lastIndexOf("\n\n[");
-		if (footerStart !== -1 && output.slice(footerStart).includes(fullOutputPath)) {
-			output = output.slice(0, footerStart).trimEnd();
+	let displayOutput = output;
+	if (!options.isPartial && truncation?.truncated === true && fullOutputPath && displayOutput.endsWith("]")) {
+		const footerStart = displayOutput.lastIndexOf("\n\n[");
+		if (footerStart !== -1 && displayOutput.slice(footerStart).includes(fullOutputPath)) {
+			displayOutput = displayOutput.slice(0, footerStart).trimEnd();
 		}
 	}
-	if (output) {
-		const styledOutput = output
+	if (displayOutput) {
+		const styledOutput = displayOutput
 			.split("\n")
 			.map((line) => theme.fg("toolOutput", line))
 			.join("\n");
@@ -597,7 +601,7 @@ function rebuildBashResultRenderComponent(
 						state.cachedSkipped = preview.skippedCount;
 						state.cachedWidth = width;
 					}
-					if (state.cachedSkipped && state.cachedSkipped > 0) {
+					if ((state.cachedSkipped ?? 0) > 0) {
 						const hint = `${theme.fg("muted", `... (${state.cachedSkipped} earlier lines,`)} ${keyHint(theme)}${theme.fg("muted", ")")}`;
 						return ["", truncateToWidth(hint, width, "..."), ...(state.cachedLines ?? [])];
 					}
@@ -634,42 +638,9 @@ function rebuildBashResultRenderComponent(
 	}
 }
 
-function formatErrorOnlyResult(result: DPiNativeToolResultLike, theme: DPiNativeTheme): string | undefined {
-	if (!result.isError) {
-		return undefined;
-	}
-	const output = getTextOutput(result, true);
-	return output ? `\n${theme.fg("error", output)}` : undefined;
-}
-
-function formatEditResult(
-	args: unknown,
-	preview: EditPreview | undefined,
-	result: DPiNativeToolResultLike,
-	theme: DPiNativeTheme,
-	isError: boolean,
-): string | undefined {
-	const data = parseArgs(readCallArgsSchema, args);
-	const rawPath = filePathFrom(data);
-	const previewDiff = preview && !("error" in preview) ? preview.diff : undefined;
-	const previewError = preview && "error" in preview ? preview.error : undefined;
-	if (isError) {
-		const errorText = getTextOutput(result, true);
-		if (!errorText || errorText === previewError) {
-			return undefined;
-		}
-		return theme.fg("error", errorText);
-	}
-	const resultDiff = editResultDetailsSchema.safeParse(result.details).data?.diff;
-	if (resultDiff && resultDiff !== previewDiff) {
-		return renderDiff(resultDiff, theme, { filePath: rawPath });
-	}
-	return undefined;
-}
-
 function buildEditCallComponent(
 	component: EditCallRenderComponent,
-	args: unknown,
+	args: ParsedReadArgs,
 	theme: DPiNativeTheme,
 	cwd: string,
 ): EditCallRenderComponent {
@@ -773,13 +744,11 @@ interface CompactReadClassification {
 
 const COMPACT_RESOURCE_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
 
-function getCompactReadClassification(args: unknown, cwd: string): CompactReadClassification | undefined {
-	const data = parseArgs(readCallArgsSchema, args);
-	const rawPath = filePathFrom(data);
-	if (!rawPath) {
+function getCompactReadClassification(data: ParsedReadArgs, cwd: string): CompactReadClassification | undefined {
+	if (!data.filePath) {
 		return undefined;
 	}
-	const absolutePath = path.resolve(cwd, rawPath);
+	const absolutePath = path.resolve(cwd, data.filePath);
 	const fileName = path.basename(absolutePath);
 	if (fileName === "SKILL.md") {
 		return { kind: "skill", label: path.basename(path.dirname(absolutePath)) || fileName };
@@ -792,11 +761,10 @@ function getCompactReadClassification(args: unknown, cwd: string): CompactReadCl
 
 function formatCompactReadCall(
 	classification: CompactReadClassification,
-	args: unknown,
+	data: ParsedReadArgs,
 	theme: DPiNativeTheme,
 ): string {
-	const data = parseArgs(readCallArgsSchema, args);
-	const expandHint = theme.fg("dim", ` (ctrl+o to expand)`);
+	const expandHint = theme.fg("dim", " (ctrl+o to expand)");
 	if (classification.kind === "skill") {
 		return (
 			theme.fg("customMessageLabel", `${theme.bold("[skill]")} `) +
@@ -925,7 +893,6 @@ class BashResultRenderComponent extends Container {
 }
 
 class WriteCallRenderComponent extends Text {
-	cache?: WriteHighlightCache;
 	constructor() {
 		super("", 0, 0);
 	}
