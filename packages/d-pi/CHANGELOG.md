@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0-alpha.14] - 2026-06-28
+
 ### Changed
 
 - Rewrote the connect TUI message list renderer to use ID-based incremental updates instead of clearing and rebuilding the entire component tree on every SSE event. The new `DPiInteractiveMessageListRenderer` maintains a `Map<itemId, ItemSlot>` index for O(1) lookups, allowing streaming assistant tokens to update the active markdown component in-place via `updateContent()` without touching other message components. Structural changes (new messages, deletions, inline tool call additions, option changes) rebuild only from the first divergence point. This eliminates the editor typing lag that occurred during streaming because each token no longer triggered a full DOM teardown.
