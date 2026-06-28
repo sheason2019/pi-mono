@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0-alpha.12] - 2026-06-28
+
 ### Added
 
 - Added `autoCompact` option to `defineAgent()` for declarative control over automatic context compaction. Defaults to `true`.
