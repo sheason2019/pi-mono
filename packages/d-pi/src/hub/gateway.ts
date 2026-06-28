@@ -45,7 +45,7 @@ export interface HubGatewayOptions {
 	 *  /_hub/executor/results before failing the pending
 	 *  /agents/{id}/remote-call. Default 60_000. */
 	remoteCallTimeoutMs?: number;
-	workspaceRoot?: string;
+	workspaceRoot: string;
 }
 
 const remoteCallSchema = z.object({
@@ -106,7 +106,7 @@ export class HubGateway {
 	private readonly _executorRegistry: ExecutorRegistry | undefined;
 	private readonly _agentBindings: Map<string, string> = new Map();
 	private readonly _remoteCallTimeoutMs: number;
-	private readonly _workspaceRoot: string | undefined;
+	private readonly _workspaceRoot: string;
 
 	constructor(
 		registry: AgentRegistry,
@@ -122,7 +122,7 @@ export class HubGateway {
 		this._auth = auth;
 		this._executorRegistry = executorRegistry;
 		this._remoteCallTimeoutMs = options?.remoteCallTimeoutMs ?? 60_000;
-		this._workspaceRoot = options?.workspaceRoot;
+		this._workspaceRoot = options?.workspaceRoot ?? "";
 	}
 
 	async start(port: number): Promise<void> {
@@ -401,12 +401,12 @@ export class HubGateway {
 			return;
 		}
 
-		if (path === "/_hub/.public/tui-components" && req.method === "GET") {
+		if (path === "/_hub/tui-components" && req.method === "GET") {
 			this._handleTuiComponentsManifest(req, res);
 			return;
 		}
 
-		const tuiComponentMatch = path.match(/^\/_hub\/\.public\/tui-components\/(.+)$/);
+		const tuiComponentMatch = path.match(/^\/_hub\/tui-components\/(.+)$/);
 		if (tuiComponentMatch && req.method === "GET") {
 			this._handleTuiComponentFile(res, tuiComponentMatch[1]!);
 			return;
@@ -957,12 +957,10 @@ export class HubGateway {
 
 	private _handleTuiComponentsManifest(req: IncomingMessage, res: ServerResponse): void {
 		const origin = `http://${req.headers.host ?? "localhost"}`;
-		const components = this._workspaceRoot
-			? discoverTuiComponentFiles(this._workspaceRoot).map((component) => ({
-					name: component.name,
-					url: `${origin}/_hub/.public/tui-components/${encodeURIComponent(component.name)}`,
-				}))
-			: [];
+		const components = discoverTuiComponentFiles(this._workspaceRoot).map((component) => ({
+			name: component.name,
+			url: `${origin}/_hub/tui-components/${encodeURIComponent(component.name)}`,
+		}));
 		res.writeHead(200, { "Content-Type": "application/json" });
 		res.end(JSON.stringify({ components }));
 	}
@@ -985,9 +983,6 @@ export class HubGateway {
 	}
 
 	private _resolveTuiComponentFile(name: string): string | undefined {
-		if (!this._workspaceRoot) {
-			return undefined;
-		}
 		const dir = tuiComponentsDir(this._workspaceRoot);
 		const filePath = resolve(join(dir, name));
 		const rel = relative(resolve(dir), filePath);

@@ -1,4 +1,5 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import dPiMessageComponent from "../../public/d-pi-message.ts";
@@ -24,7 +25,7 @@ export async function loadDPiConnectTuiComponents(
 		[dPiMessageComponent.customType]: dPiMessageComponent.render as MessageRenderer<unknown>,
 	};
 	const fetchFn = options.fetch ?? fetch;
-	const manifestResponse = await fetchFn(`${options.hubUrl.replace(/\/+$/, "")}/_hub/.public/tui-components`, {
+	const manifestResponse = await fetchFn(`${options.hubUrl.replace(/\/+$/, "")}/_hub/tui-components`, {
 		headers: options.authHeaders,
 	});
 	if (!manifestResponse.ok) {
@@ -48,6 +49,28 @@ export async function loadDPiConnectTuiComponents(
 	return registry;
 }
 
+function resolveDPiPackageDir(): string {
+	const require = createRequire(import.meta.url);
+	try {
+		return dirname(require.resolve("@sheason/d-pi/package.json"));
+	} catch {
+		let current = fileURLToPath(import.meta.url);
+		while (current !== dirname(current)) {
+			try {
+				const pkgPath = join(current, "package.json");
+				const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { name?: string };
+				if (pkg.name === "@sheason/d-pi") {
+					return current;
+				}
+			} catch {
+				// not found, keep going up
+			}
+			current = dirname(current);
+		}
+		throw new Error("Could not resolve @sheason/d-pi package directory");
+	}
+}
+
 async function importTuiComponentSource(
 	name: string,
 	source: string,
@@ -58,9 +81,8 @@ async function importTuiComponentSource(
 	  }
 	| undefined
 > {
-	const srcRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
-	const packageRoot = dirname(srcRoot);
-	const dir = join(packageRoot, ".tui-component-cache");
+	const packageDir = resolveDPiPackageDir();
+	const dir = join(packageDir, ".tui-component-cache");
 	mkdirSync(dir, { recursive: true });
 	const filePath = join(dir, `${safeModuleName(name)}-${Date.now()}-${Math.random().toString(36).slice(2)}.ts`);
 	writeFileSync(filePath, source, "utf-8");

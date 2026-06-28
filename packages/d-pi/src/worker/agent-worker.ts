@@ -104,7 +104,7 @@ async function reloadAgentResources(): Promise<void> {
 	const resolvedModel = await resolveDPiInitialModel({
 		modelRegistry,
 		agentDefinition: newAgentDefinition,
-		workspaceRoot: config.workspaceContext?.workspaceRoot,
+		workspaceRoot: config.workspaceContext.workspaceRoot,
 	});
 	if (!resolvedModel) {
 		throw new Error(`Agent "${config.agentName}" must define a loadable model in agent.ts`);
@@ -356,6 +356,7 @@ async function runAgentWorker(): Promise<void> {
 	// 1. Create infrastructure
 	const { agentDir, modelRegistry: workerModelRegistry } = createDPiWorkerInfrastructure(cwd, {
 		agentDefinition,
+		workspaceRoot: config.workspaceContext.workspaceRoot,
 	});
 	modelRegistry = workerModelRegistry;
 
@@ -399,13 +400,10 @@ async function runAgentWorker(): Promise<void> {
 		// ResourceLoader invokes these overrides inside its own
 		// reload(), so each `reload` re-computes the d-pi-injected
 		// sections from the live on-disk state.
-		const workspaceRoot = config.workspaceContext?.workspaceRoot;
-		const additionalSkillPaths = config.workspaceContext?.additionalSkillPaths ?? [];
-		// Keep the executable agent definition as the single source of truth.
-		// ResourceLoader overrides are synchronous, so this closure projects the
-		// definition loaded above instead of reparsing agent.ts from source.
+		const workspaceRoot = config.workspaceContext.workspaceRoot;
+		const additionalSkillPaths = config.workspaceContext.additionalSkillPaths;
 		const readFreshDPiContext = () => {
-			const freshWorkspaceContext = workspaceRoot ? loadWorkspaceContext(workspaceRoot) : undefined;
+			const freshWorkspaceContext = loadWorkspaceContext(workspaceRoot);
 			return { freshAgentConfig: agentConfig, freshWorkspaceContext };
 		};
 
@@ -450,7 +448,7 @@ async function runAgentWorker(): Promise<void> {
 		const resolvedModel = await resolveDPiInitialModel({
 			modelRegistry: modelRegistry!,
 			agentDefinition,
-			workspaceRoot: config.workspaceContext?.workspaceRoot,
+			workspaceRoot: config.workspaceContext.workspaceRoot,
 		});
 		remoteFirstRuntimeModel = resolvedModel;
 		if (!remoteFirstRuntimeModel) {
@@ -544,7 +542,7 @@ async function runAgentWorker(): Promise<void> {
 			initialMessages,
 			modelManager: new DPiModelManager({ model: remoteFirstRuntimeModel }),
 			contextManager: new DPiContextManager({
-				workspaceRoot: config.workspaceContext?.workspaceRoot ?? cwd,
+				workspaceRoot: config.workspaceContext.workspaceRoot,
 				agentName,
 				agentDir: cwd,
 				cwd,

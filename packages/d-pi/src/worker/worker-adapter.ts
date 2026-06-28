@@ -71,7 +71,7 @@ export interface DPiWorkerInfrastructure {
 
 export interface DPiWorkerInfrastructureOptions {
 	agentDefinition?: LoadedAgentDefinition;
-	workspaceRoot?: string;
+	workspaceRoot: string;
 }
 
 export interface DPiWorkerSession {
@@ -145,7 +145,7 @@ export type DPiCreateSessionRuntimeFactory = (options: {
 
 export function createDPiWorkerInfrastructure(
 	cwd: string,
-	options: DPiWorkerInfrastructureOptions = {},
+	options: DPiWorkerInfrastructureOptions,
 ): DPiWorkerInfrastructure {
 	const modelRegistry = createBuiltInModelRegistry(options.agentDefinition);
 	return {
@@ -161,7 +161,7 @@ export function createDPiSessionManager(cwd: string, sessionDir?: string): DPiWo
 export async function resolveDPiInitialModel(options: {
 	modelRegistry: DPiWorkerModelRegistry;
 	agentDefinition?: LoadedAgentDefinition;
-	workspaceRoot?: string;
+	workspaceRoot: string;
 }): Promise<Model<Api> | undefined> {
 	const { agentDefinition, modelRegistry, workspaceRoot } = options;
 	let resolvedModel: Model<Api> | undefined;
@@ -180,12 +180,9 @@ export async function resolveDPiInitialModel(options: {
 async function resolveAgentDefinitionModel(
 	modelRegistry: DPiWorkerModelRegistry,
 	modelSpec: AgentModelSpec,
-	workspaceRoot?: string,
+	workspaceRoot: string,
 ): Promise<Model<Api> | undefined> {
 	if (typeof modelSpec === "string") {
-		if (!workspaceRoot) {
-			return undefined;
-		}
 		return resolveWorkspaceModelRef(modelRegistry, workspaceRoot, modelSpec);
 	}
 	if ("id" in modelSpec) {
