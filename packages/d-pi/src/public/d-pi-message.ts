@@ -1,5 +1,5 @@
 import { Box, Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
-import { type DPiMessageMeta, extractDPiMeta } from "../message-meta.ts";
+import { type DPiMessageMeta, dPiMessageMetaSchema, extractDPiMeta } from "../message-meta.ts";
 import { defineTuiComponent } from "../tui-components/tui-component-definition.ts";
 
 export default defineTuiComponent({
@@ -66,13 +66,6 @@ export default defineTuiComponent({
 });
 
 function detailsMeta(value: unknown): DPiMessageMeta | undefined {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) {
-		return undefined;
-	}
-	const record = value as Record<string, unknown>;
-	const sourceType = record.sourceType;
-	if (sourceType !== "agent" && sourceType !== "connect" && sourceType !== "source") {
-		return undefined;
-	}
-	return record as unknown as DPiMessageMeta;
+	const parsed = dPiMessageMetaSchema.safeParse(value);
+	return parsed.success ? parsed.data : undefined;
 }

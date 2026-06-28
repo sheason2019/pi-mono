@@ -1,5 +1,6 @@
 import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import { type Static, type TSchema, Type } from "typebox";
+import { z } from "zod";
 import type { AgentToolDefinition } from "../agent-definition.ts";
 import { defineTool } from "../agent-definition.ts";
 import { isRecord } from "../shared/schemas.ts";
@@ -108,11 +109,11 @@ function toObjectSchema(parameters: TSchema): TSchema & { properties?: unknown; 
 	return Type.Object({});
 }
 
+const recordSchema = z.record(z.string(), z.unknown());
+
 function toRecord(params: Static<TSchema>): Record<string, unknown> {
-	if (isRecord(params)) {
-		return params;
-	}
-	return {};
+	const parsed = recordSchema.safeParse(params);
+	return parsed.success ? parsed.data : {};
 }
 
 function stripConnectId(params: Record<string, unknown>): Record<string, unknown> {

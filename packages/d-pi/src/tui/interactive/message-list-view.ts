@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
 import { type Component, Container, Markdown, Spacer, Text, TruncatedText } from "@earendil-works/pi-tui";
+import { z } from "zod";
 import { extractDPiMeta } from "../../message-meta.ts";
 import type { DPiTranscriptItem } from "../../runtime/transcript/projector.ts";
 import type { ExtensionMessage, MessageRenderer } from "../../tui-components/tui-component-definition.ts";
@@ -382,18 +383,23 @@ function transcriptToolResult(item: Extract<DPiTranscriptItem, { type: "tool_sta
 	};
 }
 
+const recordSchema = z.record(z.string(), z.unknown());
+
 function recordArgs(value: unknown): Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: {};
+	const parsed = recordSchema.safeParse(value);
+	return parsed.success ? parsed.data : {};
 }
+
+const toolResultWithContentSchema = z.object({
+	content: z.array(z.unknown()).optional(),
+});
 
 function transcriptToolResultContent(
 	item: Extract<DPiTranscriptItem, { type: "tool_state" }>,
 ): ToolResultMessage["content"] {
-	const result = item.result;
-	if (typeof result === "object" && result !== null && "content" in result && Array.isArray(result.content)) {
-		return result.content as ToolResultMessage["content"];
+	const parsed = toolResultWithContentSchema.safeParse(item.result);
+	if (parsed.success && parsed.data.content) {
+		return parsed.data.content as ToolResultMessage["content"];
 	}
 	return [{ type: "text", text: transcriptToolText(item) }];
 }
@@ -406,13 +412,13 @@ function transcriptToolText(item: Extract<DPiTranscriptItem, { type: "tool_state
 	if (typeof result === "string") {
 		return result;
 	}
-	if (typeof result === "object" && result !== null && "content" in result && Array.isArray(result.content)) {
-		return result.content
-			.map((part) =>
-				typeof part === "object" && part !== null && "text" in part && typeof part.text === "string"
-					? part.text
-					: "",
-			)
+	const parsed = toolResultWithContentSchema.safeParse(result);
+	if (parsed.success && parsed.data.content) {
+		return parsed.data.content
+			.map((part) => {
+				const partParsed = z.object({ text: z.string().optional() }).safeParse(part);
+				return partParsed.success && partParsed.data.text ? partParsed.data.text : "";
+			})
 			.join("");
 	}
 	return item.status;
@@ -489,6 +495,19 @@ function isCompactDividerMessage(message: AgentMessage): boolean {
 	return "customType" in message && message.customType === "compact-divider";
 }
 
+const compactDividerContentSchema = z.object({
+	label: z.string().optional(),
+});
+
+const compactDividerDetailsSchema = z.object({
+	summary: z.string().optional(),
+	result: z
+		.object({
+			summary: z.string().optional(),
+		})
+		.optional(),
+});
+
 function compactDividerLabel(message: AgentMessage): string {
 	if (!("content" in message)) {
 		return "Compact completed";
@@ -497,28 +516,27 @@ function compactDividerLabel(message: AgentMessage): string {
 	if (typeof content === "string") {
 		return content;
 	}
-	if (typeof content === "object" && content !== null && !Array.isArray(content)) {
-		const record = content as Record<string, unknown>;
-		if (typeof record.label === "string") {
-			return record.label;
-		}
+	const parsed = compactDividerContentSchema.safeParse(content);
+	if (parsed.success && parsed.data.label) {
+		return parsed.data.label;
 	}
 	return "Compact completed";
 }
 
 function compactDividerSummary(message: AgentMessage): string | undefined {
-	if (!("details" in message) || typeof message.details !== "object" || message.details === null) {
+	if (!("details" in message)) {
 		return undefined;
 	}
-	const details = message.details as Record<string, unknown>;
-	if (typeof details.summary === "string" && details.summary.trim()) {
+	const parsed = compactDividerDetailsSchema.safeParse(message.details);
+	if (!parsed.success) {
+		return undefined;
+	}
+	const details = parsed.data;
+	if (details.summary?.trim()) {
 		return details.summary;
 	}
-	if (typeof details.result === "object" && details.result !== null) {
-		const result = details.result as Record<string, unknown>;
-		if (typeof result.summary === "string" && result.summary.trim()) {
-			return result.summary;
-		}
+	if (details.result?.summary?.trim()) {
+		return details.result.summary;
 	}
 	return undefined;
 }

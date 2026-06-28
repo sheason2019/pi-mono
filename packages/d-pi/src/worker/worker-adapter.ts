@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AgentMessage, estimateContextTokens } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { z } from "zod";
 import type {
 	AgentCommandDefinition,
 	AgentLocalModelDefinition,
@@ -450,20 +451,25 @@ function loadedThemeResources(themes: unknown[]): DPiInteractiveBannerData["load
 			];
 }
 
+const promptRecordSchema = z.record(z.string(), z.unknown());
+
 function promptRecordString(value: unknown, key: string): string | undefined {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+	const parsed = promptRecordSchema.safeParse(value);
+	if (!parsed.success) {
 		return undefined;
 	}
-	const field = (value as Record<string, unknown>)[key];
+	const field = parsed.data[key];
 	return typeof field === "string" ? field : undefined;
 }
 
+const toolResultWithContentSchema = z.object({
+	content: z.unknown(),
+});
+
 function toolResultContent(result: unknown, fallbackText: string): unknown[] {
-	if (typeof result === "object" && result !== null && "content" in result) {
-		const content = (result as { content?: unknown }).content;
-		if (Array.isArray(content)) {
-			return content;
-		}
+	const parsed = toolResultWithContentSchema.safeParse(result);
+	if (parsed.success && Array.isArray(parsed.data.content)) {
+		return parsed.data.content;
 	}
 	if (typeof result === "string") {
 		return [{ type: "text", text: result }];
@@ -2111,6 +2117,22 @@ function localMessageToAgentMessage(message: DPiLocalAgentMessage): DPiAgentMess
 	} as DPiAgentMessage;
 }
 
+const compactDividerDetailsSchema = z.object({
+	summary: z.string().optional(),
+	tokensBefore: z.number().optional(),
+});
+
+const compactDividerSchema = z.object({
+	label: z.string(),
+	details: z.record(z.string(), z.unknown()).optional(),
+});
+
+const compactResultSchema = z.object({
+	divider: compactDividerSchema.optional(),
+	summary: z.string().optional(),
+	tokensBefore: z.number().optional(),
+});
+
 function compactDividerFromResult(
 	result: unknown,
 	startedAt: number,
@@ -2126,35 +2148,30 @@ function compactDividerFromResult(
 			result,
 		},
 	};
-	if (typeof result !== "object" || result === null) {
+	const parsed = compactResultSchema.safeParse(result);
+	if (!parsed.success || !parsed.data.divider) {
 		return fallback;
 	}
-	const record = result as Record<string, unknown>;
-	if (typeof record.divider !== "object" || record.divider === null) {
-		return fallback;
-	}
-	const divider = record.divider as Record<string, unknown>;
-	if (typeof divider.label !== "string") {
-		return fallback;
-	}
+	const divider = parsed.data.divider;
 	return {
 		label: divider.label,
-		details:
-			typeof divider.details === "object" && divider.details !== null && !Array.isArray(divider.details)
-				? { ...(divider.details as Record<string, unknown>), result }
-				: fallback.details,
+		details: divider.details ? { ...divider.details, result } : fallback.details,
 	};
 }
 
 function compactDividerDetails(result: unknown): Record<string, unknown> {
-	if (typeof result !== "object" || result === null) {
+	const parsed = compactDividerDetailsSchema.safeParse(result);
+	if (!parsed.success) {
 		return {};
 	}
-	const record = result as Record<string, unknown>;
-	return {
-		...(typeof record.summary === "string" ? { summary: record.summary } : {}),
-		...(typeof record.tokensBefore === "number" ? { tokensBefore: record.tokensBefore } : {}),
-	};
+	const out: Record<string, unknown> = {};
+	if (parsed.data.summary !== undefined) {
+		out.summary = parsed.data.summary;
+	}
+	if (parsed.data.tokensBefore !== undefined) {
+		out.tokensBefore = parsed.data.tokensBefore;
+	}
+	return out;
 }
 
 function compactErrorHttpStatus(error: unknown): number {

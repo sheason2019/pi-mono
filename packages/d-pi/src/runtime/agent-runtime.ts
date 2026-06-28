@@ -22,6 +22,7 @@ import {
 	SessionError,
 } from "@earendil-works/pi-agent-core/node";
 import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
+import { z } from "zod";
 import type { LoadedAgentDefinition } from "../agent-loader.ts";
 import type { DPiContextManager } from "../context/context-manager.ts";
 import { createDPiRuntimeError, isDPiRuntimeError } from "./errors.ts";
@@ -184,11 +185,16 @@ function errorCodeFromHarness(error: AgentHarnessError): DPiRuntimeErrorCode {
 	return "unknown";
 }
 
+const errorWithCodeSchema = z.object({
+	code: z.unknown(),
+});
+
 function isBusyHarnessError(error: unknown): boolean {
-	return (
-		(error instanceof AgentHarnessError && error.code === "busy") ||
-		(error instanceof Error && "code" in error && (error as { code?: unknown }).code === "busy")
-	);
+	if (error instanceof AgentHarnessError && error.code === "busy") {
+		return true;
+	}
+	const parsed = errorWithCodeSchema.safeParse(error);
+	return parsed.success && parsed.data.code === "busy";
 }
 
 function errorCodeFromMessage(message: string): DPiRuntimeErrorCode {
@@ -222,11 +228,14 @@ function toDPiRuntimeError(error: unknown): DPiRuntimeError {
 			details: { harnessErrorCode: error.code },
 		});
 	}
-	if (error instanceof Error && "code" in error && (error as { code?: unknown }).code === "busy") {
-		return createDPiRuntimeError("busy", error.message, {
-			retryable: true,
-			details: { harnessErrorCode: "busy" },
-		});
+	if (error instanceof Error) {
+		const parsed = errorWithCodeSchema.safeParse(error);
+		if (parsed.success && parsed.data.code === "busy") {
+			return createDPiRuntimeError("busy", error.message, {
+				retryable: true,
+				details: { harnessErrorCode: "busy" },
+			});
+		}
 	}
 	if (error instanceof SessionError) {
 		return createDPiRuntimeError("invalid_session", error.message, {
@@ -310,12 +319,13 @@ function toolQueueItem(event: {
 	};
 }
 
+const toolResultWithNameSchema = z.object({
+	toolName: z.string().optional(),
+});
+
 function toolNameFromResult(result: unknown): string | undefined {
-	if (typeof result !== "object" || result === null || !("toolName" in result)) {
-		return undefined;
-	}
-	const toolName = (result as { toolName?: unknown }).toolName;
-	return typeof toolName === "string" ? toolName : undefined;
+	const parsed = toolResultWithNameSchema.safeParse(result);
+	return parsed.success ? parsed.data.toolName : undefined;
 }
 
 export class DPiAgentRuntime {

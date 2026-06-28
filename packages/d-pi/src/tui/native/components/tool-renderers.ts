@@ -2,6 +2,7 @@ import * as path from "node:path";
 import { Box, type Component, Container, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import * as Diff from "diff";
 import hljs from "highlight.js";
+import { z } from "zod";
 import type { DPiNativeTheme } from "../theme/theme.ts";
 
 export interface DPiNativeToolRenderResultOptions {
@@ -952,16 +953,16 @@ function keyHint(theme: DPiNativeTheme): string {
 	return `${theme.fg("dim", "ctrl+o")}${theme.fg("muted", " to expand")}`;
 }
 
+const recordSchema = z.record(z.string(), z.unknown());
+
 function getDetailsRecord(value: unknown): Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: {};
+	const parsed = recordSchema.safeParse(value);
+	return parsed.success ? parsed.data : {};
 }
 
 function toRecord(value: unknown): Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: {};
+	const parsed = recordSchema.safeParse(value);
+	return parsed.success ? parsed.data : {};
 }
 
 function str(value: unknown): string | null {

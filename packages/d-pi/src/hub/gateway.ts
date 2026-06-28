@@ -87,6 +87,10 @@ const executorRegisterSchema = z.object({
 	cwd: z.string({ required_error: "cwd is required" }).min(1, "cwd is required"),
 });
 
+const trustedPromptBodySchema = z.object({
+	text: z.string(),
+});
+
 function zodErrorMessage(err: unknown): string {
 	if (err instanceof z.ZodError) {
 		return err.issues.map((i) => `${i.path.join(".") || "value"}: ${i.message}`).join("; ");
@@ -1168,23 +1172,20 @@ export class HubGateway {
 	}
 
 	private _withTrustedPromptAuth(body: unknown, session: AuthSessionInfo, agentName: string): unknown {
-		if (typeof body !== "object" || body === null || Array.isArray(body)) {
-			return body;
-		}
-		const record = body as Record<string, unknown>;
-		if (typeof record.text !== "string") {
+		const parsed = trustedPromptBodySchema.safeParse(body);
+		if (!parsed.success) {
 			return body;
 		}
 		const connectId = this._agentBindings.get(agentName);
 		return {
-			...record,
+			...parsed.data,
 			text: formatDPiMetaMessage(
 				{
 					sourceType: "connect",
 					auth: session.auth,
 					...(connectId === undefined ? {} : { connectId }),
 				},
-				record.text,
+				parsed.data.text,
 			),
 			auth: session.auth,
 		};

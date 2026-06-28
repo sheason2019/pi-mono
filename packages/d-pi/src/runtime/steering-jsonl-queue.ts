@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, truncateSync, writeFileSync } from "node:fs";
 import { appendFile, mkdir, readFile, truncate, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { z } from "zod";
 
 export type SteeringQueueSource = "agent" | "connect" | "runtime";
 
@@ -142,6 +143,20 @@ function normalizeRecord(record: SteeringQueueRecord): SteeringQueueRecord {
 	};
 }
 
+const steeringQueueImageSchema = z.object({
+	url: z.string(),
+	mediaType: z.string().optional(),
+});
+
+const steeringQueueRecordSchema = z.object({
+	version: z.literal(1),
+	id: z.string(),
+	text: z.string(),
+	createdAt: z.number(),
+	source: z.enum(["agent", "connect", "runtime"]),
+	images: z.array(steeringQueueImageSchema).optional(),
+});
+
 function parseRecords(content: string): SteeringQueueRecord[] {
 	return content.split("\n").flatMap((line) => {
 		const trimmed = line.trim();
@@ -159,45 +174,11 @@ function parseRecord(line: string): SteeringQueueRecord[] {
 	} catch {
 		return [];
 	}
-	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+	const parsed = steeringQueueRecordSchema.safeParse(value);
+	if (!parsed.success) {
 		return [];
 	}
-	const record = value as Record<string, unknown>;
-	if (
-		record.version !== 1 ||
-		typeof record.id !== "string" ||
-		typeof record.text !== "string" ||
-		typeof record.createdAt !== "number" ||
-		(record.source !== "agent" && record.source !== "connect" && record.source !== "runtime")
-	) {
-		return [];
-	}
-	return [
-		{
-			version: 1,
-			id: record.id,
-			text: record.text,
-			createdAt: record.createdAt,
-			source: record.source,
-			...(Array.isArray(record.images) ? { images: record.images.flatMap(parseImage) } : {}),
-		},
-	];
-}
-
-function parseImage(value: unknown): SteeringQueueImage[] {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) {
-		return [];
-	}
-	const record = value as Record<string, unknown>;
-	if (typeof record.url !== "string") {
-		return [];
-	}
-	return [
-		{
-			url: record.url,
-			...(typeof record.mediaType === "string" ? { mediaType: record.mediaType } : {}),
-		},
-	];
+	return [parsed.data];
 }
 
 function withQueueLock<T>(queuePath: string, operation: () => Promise<T>): Promise<T> {

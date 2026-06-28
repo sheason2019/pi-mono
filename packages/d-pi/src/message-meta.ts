@@ -1,14 +1,20 @@
-export interface DPiMessageMeta {
-	createTime: string;
-	sourceType: "agent" | "connect" | "source";
-	agentName?: string;
-	sourceName?: string;
-	connectId?: string;
-	auth?: {
-		name: string;
-		description: string;
-	};
-}
+import { z } from "zod";
+
+export const dPiMessageMetaSchema = z.object({
+	createTime: z.string(),
+	sourceType: z.union([z.literal("agent"), z.literal("connect"), z.literal("source")]),
+	agentName: z.string().optional(),
+	sourceName: z.string().optional(),
+	connectId: z.string().optional(),
+	auth: z
+		.object({
+			name: z.string(),
+			description: z.string(),
+		})
+		.optional(),
+});
+
+export type DPiMessageMeta = z.infer<typeof dPiMessageMetaSchema>;
 
 function formatMetaTime(date: Date): string {
 	const pad = (value: number): string => String(value).padStart(2, "0");
@@ -40,14 +46,11 @@ export function extractDPiMeta(content: unknown): { meta: DPiMessageMeta; text: 
 		return undefined;
 	}
 	try {
-		const parsed = JSON.parse(match[1]!);
-		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+		const parsed = dPiMessageMetaSchema.safeParse(JSON.parse(match[1]!));
+		if (!parsed.success) {
 			return undefined;
 		}
-		if (parsed.sourceType !== "agent" && parsed.sourceType !== "connect" && parsed.sourceType !== "source") {
-			return undefined;
-		}
-		return { meta: parsed as DPiMessageMeta, text: match[2] ?? "" };
+		return { meta: parsed.data, text: match[2] ?? "" };
 	} catch {
 		return undefined;
 	}
