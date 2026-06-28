@@ -118,15 +118,15 @@ describe("d-pi interactive editor submit", () => {
 		const fetchFn = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
 			const textUrl = typeof url === "string" ? url : url.toString();
 			calls.push({ url: textUrl, init });
-			if (textUrl === "https://dp.example/_hub/.public/tui-components") {
+			if (textUrl === "https://dp.example/_hub/tui-components") {
 				return new Response(
 					JSON.stringify({
-						components: [{ name: "meta.ts", url: "https://dp.example/_hub/.public/tui-components/meta.ts" }],
+						components: [{ name: "meta.ts", url: "https://dp.example/_hub/tui-components/meta.ts" }],
 					}),
 					{ status: 200, headers: { "Content-Type": "application/json" } },
 				);
 			}
-			if (textUrl === "https://dp.example/_hub/.public/tui-components/meta.ts") {
+			if (textUrl === "https://dp.example/_hub/tui-components/meta.ts") {
 				return new Response(
 					[
 						`export { default } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src", "public", "d-pi-message.ts")).href)};`,
@@ -145,8 +145,8 @@ describe("d-pi interactive editor submit", () => {
 
 		expect(Object.keys(renderers)).toEqual(["d-pi-message"]);
 		expect(calls.map((call) => call.url)).toEqual([
-			"https://dp.example/_hub/.public/tui-components",
-			"https://dp.example/_hub/.public/tui-components/meta.ts",
+			"https://dp.example/_hub/tui-components",
+			"https://dp.example/_hub/tui-components/meta.ts",
 		]);
 		expect(calls[0]?.init?.headers).toEqual({ Authorization: "Bearer token" });
 		expect(calls[1]?.init?.headers).toEqual({ Authorization: "Bearer token" });
