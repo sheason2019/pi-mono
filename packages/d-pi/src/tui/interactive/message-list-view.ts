@@ -54,12 +54,464 @@ export interface DPiInteractiveMessageListComponentOptions extends DPiInteractiv
 	messageRenderers?: Readonly<Record<string, MessageRenderer<unknown>>>;
 }
 
+interface ItemRenderContext {
+	theme: ReturnType<typeof createDPiNativeTheme>;
+	markdownTheme: ReturnType<typeof getDPiNativeMarkdownTheme>;
+	style: ReturnType<typeof createDPiInteractiveStyle>;
+	options: DPiInteractiveMessageListComponentOptions;
+}
+
+interface ItemSlot {
+	itemId: string;
+	index: number;
+	components: Component[];
+	assistantComponent: DPiNativeAssistantMessageComponent | undefined;
+	toolComponents: Map<string, DPiNativeToolExecutionComponent>;
+}
+
+export class DPiInteractiveMessageListRenderer {
+	private readonly container: Container;
+	private ctx: ItemRenderContext;
+	private itemSlots: ItemSlot[] = [];
+	private itemSlotById = new Map<string, ItemSlot>();
+	private statusComponents: Component[] = [];
+	private errorComponent: Text | undefined;
+	private lastStatusEntries: readonly DPiInteractiveStatusEntry[] = [];
+	private lastErrorText = "";
+	private lastToolsExpanded = false;
+	private lastMessageRendererKeys = "";
+	private lastCwd: string | undefined;
+
+	constructor(container: Container, options: DPiInteractiveMessageListComponentOptions = {}) {
+		this.container = container;
+		this.ctx = createItemRenderContext(options);
+		this.lastToolsExpanded = options.toolsExpanded ?? false;
+		this.lastMessageRendererKeys = Object.keys(options.messageRenderers ?? {}).join(",");
+		this.lastCwd = options.cwd;
+	}
+
+	updateOptions(options: DPiInteractiveMessageListComponentOptions): void {
+		this.ctx = createItemRenderContext(options);
+	}
+
+	update(
+		snapshot: DPiInteractiveSessionStateSnapshot,
+		statusEntries: readonly DPiInteractiveStatusEntry[] = [],
+		errorText = "",
+	): void {
+		const options = this.ctx.options;
+		const newToolsExpanded = options.toolsExpanded ?? false;
+		const newMessageRendererKeys = Object.keys(options.messageRenderers ?? {}).join(",");
+		const newCwd = options.cwd;
+		const optionsChanged = newMessageRendererKeys !== this.lastMessageRendererKeys || newCwd !== this.lastCwd;
+		const toolsExpandedChanged = newToolsExpanded !== this.lastToolsExpanded;
+
+		if (optionsChanged) {
+			this.reset();
+		} else if (toolsExpandedChanged) {
+			for (const slot of this.itemSlots) {
+				for (const [, tc] of slot.toolComponents) {
+					tc.setExpanded(newToolsExpanded);
+				}
+			}
+		}
+
+		this.lastToolsExpanded = newToolsExpanded;
+		this.lastMessageRendererKeys = newMessageRendererKeys;
+		this.lastCwd = newCwd;
+
+		const items = getSnapshotTranscriptItems(snapshot);
+		const transcriptToolCallIds = collectTranscriptToolCallIds(items);
+		const showStatusEntries = items.some((item) => item.type === "turn_stats") ? [] : statusEntries;
+
+		let rebuildFromIndex = -1;
+		const newItemIds = new Set<string>();
+
+		for (let i = 0; i < items.length; i++) {
+			const item = items[i]!;
+			newItemIds.add(item.id);
+
+			if (rebuildFromIndex >= 0) {
+				continue;
+			}
+
+			const slot = this.itemSlotById.get(item.id);
+			if (!slot) {
+				rebuildFromIndex = i;
+				continue;
+			}
+
+			if (slot.index !== i) {
+				rebuildFromIndex = Math.min(i, slot.index);
+				continue;
+			}
+
+			if (item.type === "message" && item.message.role === "assistant" && slot.assistantComponent) {
+				const assistant = normalizeAssistantMessage(item.message);
+				const inlineToolCalls = assistant.content
+					.filter((part): part is ToolCall => part.type === "toolCall")
+					.filter((toolCall) => !transcriptToolCallIds.has(toolCall.id));
+				const existingIds = new Set(slot.toolComponents.keys());
+				const newIds = new Set(inlineToolCalls.map((tc) => tc.id));
+				const toolsChanged = existingIds.size !== newIds.size || [...newIds].some((id) => !existingIds.has(id));
+				if (toolsChanged) {
+					rebuildFromIndex = i;
+					continue;
+				}
+				slot.assistantComponent.updateContent(assistant);
+				for (const tc of inlineToolCalls) {
+					const tc2 = slot.toolComponents.get(tc.id);
+					if (tc2) {
+						tc2.updateResult(findToolResult(snapshot.messages, tc.id));
+					}
+				}
+			} else if (item.type === "tool_state") {
+				const tc = slot.toolComponents.get(item.toolCallId);
+				if (tc) {
+					tc.updateResult(item.status === "running" ? undefined : transcriptToolResult(item));
+				}
+			}
+		}
+
+		for (let i = this.itemSlots.length - 1; i >= 0; i--) {
+			if (!newItemIds.has(this.itemSlots[i]!.itemId)) {
+				if (rebuildFromIndex < 0 || i < rebuildFromIndex) {
+					rebuildFromIndex = i;
+				}
+			}
+		}
+
+		if (rebuildFromIndex >= 0) {
+			this.rebuildFromIndex(rebuildFromIndex, items, snapshot.messages, transcriptToolCallIds);
+		}
+
+		this.syncStatusAndError(showStatusEntries, items.length, errorText);
+		this.lastStatusEntries = showStatusEntries;
+		this.lastErrorText = errorText;
+	}
+
+	reset(): void {
+		this.disposeAllSlots();
+		this.container.clear();
+		this.itemSlots = [];
+		this.itemSlotById.clear();
+		this.statusComponents = [];
+		this.errorComponent = undefined;
+		this.lastStatusEntries = [];
+		this.lastErrorText = "";
+	}
+
+	private rebuildFromIndex(
+		fromIndex: number,
+		items: readonly DPiTranscriptItem[],
+		messages: readonly AgentMessage[],
+		transcriptToolCallIds: ReadonlySet<string>,
+	): void {
+		this.removeSlotsFrom(fromIndex);
+		this.removeStatusComponents();
+		this.removeErrorComponent();
+
+		for (let i = fromIndex; i < items.length; i++) {
+			this.appendSlot(items[i]!, messages, transcriptToolCallIds);
+		}
+	}
+
+	private disposeAllSlots(): void {
+		for (const slot of this.itemSlots) {
+			disposeComponents(slot.components);
+		}
+	}
+
+	private removeSlotsFrom(fromIndex: number): void {
+		for (let i = this.itemSlots.length - 1; i >= fromIndex; i--) {
+			const slot = this.itemSlots[i]!;
+			disposeComponents(slot.components);
+			for (const comp of slot.components) {
+				this.container.removeChild(comp);
+			}
+			this.itemSlotById.delete(slot.itemId);
+		}
+		this.itemSlots.length = fromIndex;
+	}
+
+	private appendSlot(
+		item: DPiTranscriptItem,
+		messages: readonly AgentMessage[],
+		transcriptToolCallIds: ReadonlySet<string>,
+	): void {
+		const hasContentBefore = this.container.children.length > 0;
+		const itemComps = buildItemComponents(item, messages, transcriptToolCallIds, this.ctx);
+		const components: Component[] = [];
+
+		if (item.type === "message" && item.message.role === "user" && itemComps.length > 0 && hasContentBefore) {
+			components.push(new Spacer(1));
+		}
+
+		let assistantComponent: DPiNativeAssistantMessageComponent | undefined;
+		const toolComponents = new Map<string, DPiNativeToolExecutionComponent>();
+		for (const comp of itemComps) {
+			components.push(comp);
+			if (comp instanceof DPiNativeAssistantMessageComponent) {
+				assistantComponent = comp;
+			}
+			if (comp instanceof DPiNativeToolExecutionComponent) {
+				toolComponents.set(comp.toolCallId, comp);
+			}
+		}
+
+		for (const comp of components) {
+			this.container.addChild(comp);
+		}
+
+		const slot: ItemSlot = {
+			itemId: item.id,
+			index: this.itemSlots.length,
+			components,
+			assistantComponent,
+			toolComponents,
+		};
+		this.itemSlots.push(slot);
+		this.itemSlotById.set(item.id, slot);
+	}
+
+	private syncStatusAndError(
+		statusEntries: readonly DPiInteractiveStatusEntry[],
+		itemsLength: number,
+		errorText: string,
+	): void {
+		const entriesChanged =
+			statusEntries.length !== this.lastStatusEntries.length ||
+			statusEntries.some(
+				(e, i) =>
+					e.afterMessageCount !== this.lastStatusEntries[i]?.afterMessageCount ||
+					e.text !== this.lastStatusEntries[i]?.text,
+			);
+		const errorChanged = errorText !== this.lastErrorText;
+
+		if (entriesChanged) {
+			this.removeStatusComponents();
+			const addEntry = (entry: DPiInteractiveStatusEntry): void => {
+				const spacer = new Spacer(1);
+				const text = new Text(this.ctx.style.dim(entry.text), 1, 0);
+				this.container.addChild(spacer);
+				this.container.addChild(text);
+				this.statusComponents.push(spacer, text);
+			};
+			for (const entry of statusEntries) {
+				if (entry.afterMessageCount > itemsLength || (itemsLength === 0 && entry.afterMessageCount === 0)) {
+					addEntry(entry);
+				}
+			}
+		}
+
+		if (errorChanged) {
+			this.removeErrorComponent();
+			if (errorText) {
+				this.errorComponent = new Text(errorText, 1, 0);
+				this.container.addChild(this.errorComponent);
+			}
+		}
+	}
+
+	private removeStatusComponents(): void {
+		for (const comp of this.statusComponents) {
+			this.container.removeChild(comp);
+		}
+		this.statusComponents = [];
+	}
+
+	private removeErrorComponent(): void {
+		if (this.errorComponent) {
+			this.container.removeChild(this.errorComponent);
+			this.errorComponent = undefined;
+		}
+	}
+}
+
+function createItemRenderContext(options: DPiInteractiveMessageListComponentOptions): ItemRenderContext {
+	const theme = createDPiNativeTheme(options);
+	return {
+		theme,
+		markdownTheme: getDPiNativeMarkdownTheme(theme),
+		style: createDPiInteractiveStyle(options),
+		options,
+	};
+}
+
+function disposeComponents(components: readonly Component[]): void {
+	for (const comp of components) {
+		const disposable = comp as { dispose?: () => void };
+		if (typeof disposable.dispose === "function") {
+			disposable.dispose();
+		}
+	}
+}
+
+export function getSnapshotTranscriptItems(snapshot: DPiInteractiveSessionStateSnapshot): DPiTranscriptItem[] {
+	return (
+		snapshot.transcriptItems?.map((item) => ({ ...item })) ??
+		snapshot.messages.map((message, index) => ({
+			id: `message-${index}`,
+			type: "message" as const,
+			message,
+			timestamp: transcriptMessageSchema.safeParse(message).data?.timestamp ?? Date.now(),
+		}))
+	);
+}
+
+function collectTranscriptToolCallIds(items: readonly DPiTranscriptItem[]): Set<string> {
+	return new Set(items.flatMap((item) => (item.type === "tool_state" ? [item.toolCallId] : [])));
+}
+
+function buildItemComponents(
+	item: DPiTranscriptItem,
+	messages: readonly AgentMessage[],
+	transcriptToolCallIds: ReadonlySet<string>,
+	ctx: ItemRenderContext,
+): Component[] {
+	if (item.type === "message") {
+		return buildMessageComponents(item.message, messages, transcriptToolCallIds, ctx);
+	}
+	if (item.type === "boundary") {
+		const details: Record<string, unknown> = {};
+		if (item.summary !== undefined) details.summary = item.summary;
+		if (item.tokensBefore !== undefined) details.tokensBefore = item.tokensBefore;
+		if (item.durationMs !== undefined) details.durationMs = item.durationMs;
+		if (item.completedAt !== undefined) details.completedAt = item.completedAt;
+		return buildMessageComponents(
+			{
+				role: "custom",
+				customType: "compact-divider",
+				content: item.label,
+				display: true,
+				details,
+				timestamp: item.timestamp,
+			},
+			messages,
+			transcriptToolCallIds,
+			ctx,
+		);
+	}
+	if (item.type === "tool_state") {
+		return [
+			new DPiNativeToolExecutionComponent(
+				{ type: "toolCall", id: item.toolCallId, name: item.toolName, arguments: recordArgs(item.args) },
+				transcriptToolResult(item),
+				{
+					theme: ctx.theme,
+					cwd: ctx.options.cwd,
+					expanded: ctx.options.toolsExpanded,
+					showImages: ctx.options.showImages,
+					imageWidthCells: ctx.options.imageWidthCells,
+				},
+			),
+		];
+	}
+	if (item.type === "turn_stats") {
+		return [
+			new Spacer(1),
+			new Text(
+				ctx.theme.fg("muted", buildDPiInteractiveStatusView({ isStreaming: false }, item, { color: false }).text),
+				1,
+				0,
+			),
+		];
+	}
+	return [new Text(ctx.theme.fg(item.level === "error" ? "error" : "muted", item.text), 1, 0)];
+}
+
+function buildMessageComponents(
+	message: AgentMessage,
+	messages: readonly AgentMessage[],
+	transcriptToolCallIds: ReadonlySet<string>,
+	ctx: ItemRenderContext,
+): Component[] {
+	const custom = buildCustomMessageComponent(message, ctx);
+	if (custom) {
+		return [custom];
+	}
+	if (message.role === "user") {
+		const text = stripDPiMetaWrapper(contentText(message.content));
+		if (!text) {
+			return [];
+		}
+		return [
+			new DPiNativeUserMessageComponent(text, {
+				theme: ctx.theme,
+				markdownTheme: ctx.markdownTheme,
+			}),
+		];
+	}
+	if (isCompactDividerMessage(message)) {
+		const divider = new Container();
+		const summary = compactDividerSummary(message);
+		divider.addChild(new Spacer(1));
+		divider.addChild(new DPiNativeDynamicBorder((text) => ctx.theme.fg("borderMuted", text)));
+		divider.addChild(new Text(ctx.theme.fg("muted", compactDividerLabel(message)), 1, 0));
+		divider.addChild(new Spacer(1));
+		if (summary) {
+			divider.addChild(
+				new Markdown(summary, 1, 0, ctx.markdownTheme, {
+					color: (text: string) => ctx.theme.fg("muted", text),
+				}),
+			);
+		}
+		divider.addChild(new Spacer(1));
+		return [divider];
+	}
+	if (message.role === "toolResult") {
+		return [];
+	}
+	if (message.role !== "assistant") {
+		const text = contentText("content" in message ? message.content : "");
+		return text ? [new Text(ctx.theme.fg("muted", text), 1, 0)] : [];
+	}
+	const assistant = normalizeAssistantMessage(message);
+	const assistantComp = new DPiNativeAssistantMessageComponent(assistant, {
+		theme: ctx.theme,
+		markdownTheme: ctx.markdownTheme,
+	});
+	const toolComps = assistant.content
+		.filter((part): part is ToolCall => part.type === "toolCall")
+		.filter((toolCall) => !transcriptToolCallIds.has(toolCall.id))
+		.map(
+			(toolCall) =>
+				new DPiNativeToolExecutionComponent(toolCall, findToolResult(messages, toolCall.id), {
+					theme: ctx.theme,
+					cwd: ctx.options.cwd,
+					expanded: ctx.options.toolsExpanded,
+					showImages: ctx.options.showImages,
+					imageWidthCells: ctx.options.imageWidthCells,
+				}),
+		);
+	return [assistantComp, ...toolComps];
+}
+
+function buildCustomMessageComponent(message: AgentMessage, ctx: ItemRenderContext): Component | undefined {
+	const customType = messageCustomType(message);
+	if (!customType) {
+		return undefined;
+	}
+	const renderer = ctx.options.messageRenderers?.[customType];
+	if (!renderer) {
+		return undefined;
+	}
+	return renderer(
+		toExtensionMessage(message),
+		{ expanded: ctx.options.toolsExpanded === true },
+		{
+			bg: (name, text) => ctx.theme.bg(name as Parameters<typeof ctx.theme.bg>[0], text),
+			fg: (name, text) => ctx.theme.fg(name as Parameters<typeof ctx.theme.fg>[0], text),
+		},
+	);
+}
+
 export function buildDPiInteractiveMessageListView(
 	snapshot: DPiInteractiveSessionStateSnapshot,
 	options: DPiInteractiveStyleOptions = {},
 ): DPiInteractiveMessageListView {
 	const lines = [
-		...snapshotTranscriptItems(snapshot).flatMap((item) => itemLines(item, options)),
+		...getSnapshotTranscriptItems(snapshot).flatMap((item) => itemLines(item, options)),
 		...snapshot.steeringMessages.map((message) => createDPiInteractiveStyle(options).dim(`steer queued: ${message}`)),
 	];
 	return { text: lines.join("\n") };
@@ -70,20 +522,16 @@ export function buildDPiInteractiveMessageListComponent(
 	options: DPiInteractiveMessageListComponentOptions = {},
 ): Container {
 	const container = new Container();
-	const theme = createDPiNativeTheme(options);
-	const markdownTheme = getDPiNativeMarkdownTheme(theme);
-	const style = createDPiInteractiveStyle(options);
-	const items = snapshotTranscriptItems(snapshot);
-	const transcriptToolCallIds = new Set(
-		items.flatMap((item) => (item.type === "tool_state" ? [item.toolCallId] : [])),
-	);
+	const ctx = createItemRenderContext(options);
+	const items = getSnapshotTranscriptItems(snapshot);
+	const transcriptToolCallIds = collectTranscriptToolCallIds(items);
 	const statusEntries = items.some((item) => item.type === "turn_stats") ? [] : (options.statusEntries ?? []);
 	const addStatusEntry = (entry: DPiInteractiveStatusEntry): void => {
 		container.addChild(new Spacer(1));
-		container.addChild(new Text(style.dim(entry.text), 1, 0));
+		container.addChild(new Text(ctx.style.dim(entry.text), 1, 0));
 	};
 	for (const [index, item] of items.entries()) {
-		const components = itemComponents(item, snapshot.messages, transcriptToolCallIds, theme, markdownTheme, options);
+		const components = buildItemComponents(item, snapshot.messages, transcriptToolCallIds, ctx);
 		if (
 			item.type === "message" &&
 			item.message.role === "user" &&
@@ -107,79 +555,6 @@ export function buildDPiInteractiveMessageListComponent(
 		}
 	}
 	return container;
-}
-
-function snapshotTranscriptItems(snapshot: DPiInteractiveSessionStateSnapshot): DPiTranscriptItem[] {
-	return (
-		snapshot.transcriptItems?.map((item) => ({ ...item })) ??
-		snapshot.messages.map((message, index) => ({
-			id: `message-${index}`,
-			type: "message" as const,
-			message,
-			timestamp: transcriptMessageSchema.safeParse(message).data?.timestamp ?? Date.now(),
-		}))
-	);
-}
-
-function itemComponents(
-	item: DPiTranscriptItem,
-	messages: readonly AgentMessage[],
-	transcriptToolCallIds: ReadonlySet<string>,
-	theme: ReturnType<typeof createDPiNativeTheme>,
-	markdownTheme: ReturnType<typeof getDPiNativeMarkdownTheme>,
-	options: DPiInteractiveMessageListComponentOptions,
-): Component[] {
-	if (item.type === "message") {
-		return messageComponents(item.message, messages, transcriptToolCallIds, theme, markdownTheme, options);
-	}
-	if (item.type === "boundary") {
-		const details: Record<string, unknown> = {};
-		if (item.summary !== undefined) details.summary = item.summary;
-		if (item.tokensBefore !== undefined) details.tokensBefore = item.tokensBefore;
-		if (item.durationMs !== undefined) details.durationMs = item.durationMs;
-		if (item.completedAt !== undefined) details.completedAt = item.completedAt;
-		return messageComponents(
-			{
-				role: "custom",
-				customType: "compact-divider",
-				content: item.label,
-				display: true,
-				details,
-				timestamp: item.timestamp,
-			},
-			messages,
-			transcriptToolCallIds,
-			theme,
-			markdownTheme,
-			options,
-		);
-	}
-	if (item.type === "tool_state") {
-		return [
-			new DPiNativeToolExecutionComponent(
-				{ type: "toolCall", id: item.toolCallId, name: item.toolName, arguments: recordArgs(item.args) },
-				transcriptToolResult(item),
-				{
-					theme,
-					cwd: options.cwd,
-					expanded: options.toolsExpanded,
-					showImages: options.showImages,
-					imageWidthCells: options.imageWidthCells,
-				},
-			),
-		];
-	}
-	if (item.type === "turn_stats") {
-		return [
-			new Spacer(1),
-			new Text(
-				theme.fg("muted", buildDPiInteractiveStatusView({ isStreaming: false }, item, { color: false }).text),
-				1,
-				0,
-			),
-		];
-	}
-	return [new Text(theme.fg(item.level === "error" ? "error" : "muted", item.text), 1, 0)];
 }
 
 export function buildDPiInteractivePendingMessagesComponent(
@@ -253,99 +628,6 @@ export function buildDPiInteractiveStatusView(
 	parts.push(`total ${formatCompactTokens(stats.total)}`);
 	parts.push(`${stats.duration.toFixed(1)}s`);
 	return { text: style.dim(parts.join(", ")) };
-}
-
-function messageComponents(
-	message: AgentMessage,
-	messages: readonly AgentMessage[],
-	transcriptToolCallIds: ReadonlySet<string>,
-	theme: ReturnType<typeof createDPiNativeTheme>,
-	markdownTheme: ReturnType<typeof getDPiNativeMarkdownTheme>,
-	options: DPiInteractiveMessageListComponentOptions,
-): Component[] {
-	const custom = customMessageComponent(message, theme, options);
-	if (custom) {
-		return [custom];
-	}
-	if (message.role === "user") {
-		const text = stripDPiMetaWrapper(contentText(message.content));
-		if (!text) {
-			return [];
-		}
-		return [
-			new DPiNativeUserMessageComponent(text, {
-				theme,
-				markdownTheme,
-			}),
-		];
-	}
-	if (isCompactDividerMessage(message)) {
-		const divider = new Container();
-		const summary = compactDividerSummary(message);
-		divider.addChild(new Spacer(1));
-		divider.addChild(new DPiNativeDynamicBorder((text) => theme.fg("borderMuted", text)));
-		divider.addChild(new Text(theme.fg("muted", compactDividerLabel(message)), 1, 0));
-		divider.addChild(new Spacer(1));
-		if (summary) {
-			divider.addChild(
-				new Markdown(summary, 1, 0, markdownTheme, {
-					color: (text: string) => theme.fg("muted", text),
-				}),
-			);
-		}
-		divider.addChild(new Spacer(1));
-		return [divider];
-	}
-	if (message.role === "toolResult") {
-		return [];
-	}
-	if (message.role !== "assistant") {
-		const text = contentText("content" in message ? message.content : "");
-		return text ? [new Text(theme.fg("muted", text), 1, 0)] : [];
-	}
-	const assistant = normalizeAssistantMessage(message);
-	return [
-		new DPiNativeAssistantMessageComponent(assistant, {
-			theme,
-			markdownTheme,
-		}),
-		...assistant.content
-			.filter((part): part is ToolCall => part.type === "toolCall")
-			.filter((toolCall) => !transcriptToolCallIds.has(toolCall.id))
-			.map(
-				(toolCall) =>
-					new DPiNativeToolExecutionComponent(toolCall, findToolResult(messages, toolCall.id), {
-						theme,
-						cwd: options.cwd,
-						expanded: options.toolsExpanded,
-						showImages: options.showImages,
-						imageWidthCells: options.imageWidthCells,
-					}),
-			),
-	];
-}
-
-function customMessageComponent(
-	message: AgentMessage,
-	theme: ReturnType<typeof createDPiNativeTheme>,
-	options: DPiInteractiveMessageListComponentOptions,
-): Component | undefined {
-	const customType = messageCustomType(message);
-	if (!customType) {
-		return undefined;
-	}
-	const renderer = options.messageRenderers?.[customType];
-	if (!renderer) {
-		return undefined;
-	}
-	return renderer(
-		toExtensionMessage(message),
-		{ expanded: options.toolsExpanded === true },
-		{
-			bg: (name, text) => theme.bg(name as Parameters<typeof theme.bg>[0], text),
-			fg: (name, text) => theme.fg(name as Parameters<typeof theme.fg>[0], text),
-		},
-	);
 }
 
 function toExtensionMessage(message: AgentMessage): ExtensionMessage {

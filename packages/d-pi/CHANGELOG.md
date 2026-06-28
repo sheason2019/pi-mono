@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Rewrote the connect TUI message list renderer to use ID-based incremental updates instead of clearing and rebuilding the entire component tree on every SSE event. The new `DPiInteractiveMessageListRenderer` maintains a `Map<itemId, ItemSlot>` index for O(1) lookups, allowing streaming assistant tokens to update the active markdown component in-place via `updateContent()` without touching other message components. Structural changes (new messages, deletions, inline tool call additions, option changes) rebuild only from the first divergence point. This eliminates the editor typing lag that occurred during streaming because each token no longer triggered a full DOM teardown.
+- Tool execution components now support in-place result updates via `updateResult()`, so running tool timers and partial output are refreshed without recreating the component.
+- Expanded/collapsed tool state (`toolsExpanded`) now toggles via `setExpanded()` on existing tool components instead of rebuilding the entire list.
+
+### Fixed
+
+- Fixed a memory leak in the bash tool renderer: the `setInterval` used for the elapsed-time timer was never cleared if the component was removed while the tool was still running (e.g. during context compaction or session replacement). Tool execution components now expose a `dispose()` method and accept cleanup callbacks via `onCleanup` in the render context; the renderer calls `dispose()` on all removed components. Custom TUI components that define a `dispose()` method will also be cleaned up automatically.
+
 ## [0.6.0-alpha.12] - 2026-06-28
 
 ### Added

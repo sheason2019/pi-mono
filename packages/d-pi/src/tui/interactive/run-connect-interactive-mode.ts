@@ -41,8 +41,8 @@ import type {
 import { buildDPiInteractiveBannerView } from "./banner-view.ts";
 import { buildDPiInteractiveFooterView } from "./footer-view.ts";
 import {
-	buildDPiInteractiveMessageListComponent,
 	buildDPiInteractivePendingMessagesComponent,
+	DPiInteractiveMessageListRenderer,
 	type DPiInteractiveStatusEntry,
 } from "./message-list-view.ts";
 import { createDPiInteractiveRemoteAgentSessionProxy } from "./remote-agent-session-proxy.ts";
@@ -802,6 +802,7 @@ export async function runDPiConnectInteractiveMode(
 	setKeybindings(keybindings);
 	const banner = new Text("", 0, 0);
 	const messages = new Container();
+	const messageRenderer = new DPiInteractiveMessageListRenderer(messages, { color: true });
 	const status = new DPiNativeStatusContainer(tui, nativeTheme);
 	const footer = new Text("", 0, 0);
 	const editor = new DPiNativeCustomEditor(tui, getDPiNativeEditorTheme(nativeTheme), keybindings);
@@ -872,19 +873,14 @@ export async function runDPiConnectInteractiveMode(
 			clientState.errors.length === 0
 				? ""
 				: `\n\nErrors:\n${clientState.errors.map((error) => `- ${error}`).join("\n")}`;
-		messages.clear();
-		messages.addChild(
-			buildDPiInteractiveMessageListComponent(messageSnapshot, {
-				color: true,
-				statusEntries: clientState.turnStatusEntries,
-				cwd: process.cwd(),
-				toolsExpanded: clientState.toolsExpanded,
-				messageRenderers: clientState.messageRenderers,
-			}),
-		);
-		if (errorText) {
-			messages.addChild(new Text(errorText, 1, 0));
-		}
+		messageRenderer.updateOptions({
+			color: true,
+			statusEntries: clientState.turnStatusEntries,
+			cwd: process.cwd(),
+			toolsExpanded: clientState.toolsExpanded,
+			messageRenderers: clientState.messageRenderers,
+		});
+		messageRenderer.update(messageSnapshot, clientState.turnStatusEntries, errorText);
 		pendingMessagesContainer.clear();
 		pendingMessagesContainer.addChild(buildDPiInteractivePendingMessagesComponent(snapshot, { color: true }));
 		status.setWorking(
@@ -992,6 +988,7 @@ export async function runDPiConnectInteractiveMode(
 	const unsubscribeStatus = proxy.subscribe((event) => {
 		if (event.type === "session_replaced") {
 			clientState.turnStatusEntries.splice(0, clientState.turnStatusEntries.length);
+			messageRenderer.reset();
 			render();
 		}
 	});
