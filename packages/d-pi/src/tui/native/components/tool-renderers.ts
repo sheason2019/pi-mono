@@ -22,6 +22,7 @@ export interface DPiNativeToolRenderContext {
 	expanded: boolean;
 	showImages: boolean;
 	isError: boolean;
+	onCleanup: (fn: () => void) => void;
 }
 
 export interface DPiNativeToolRendererDefinition {
@@ -188,15 +189,20 @@ function createBashRenderer(): DPiNativeToolRendererDefinition {
 		},
 		renderResult(result, options, theme, context) {
 			const state = context.state as BashRenderState;
-			if (state.startedAt !== undefined && options.isPartial && !state.interval) {
-				state.interval = setInterval(() => context.invalidate(), 1000);
-			}
 			if (!options.isPartial || context.isError) {
 				state.endedAt ??= Date.now();
 				if (state.interval) {
 					clearInterval(state.interval);
 					state.interval = undefined;
 				}
+			} else if (!state.interval) {
+				state.interval = setInterval(() => context.invalidate(), 1000);
+				context.onCleanup(() => {
+					if (state.interval) {
+						clearInterval(state.interval);
+						state.interval = undefined;
+					}
+				});
 			}
 			const component =
 				(context.lastComponent as BashResultRenderComponent | undefined) ?? new BashResultRenderComponent();

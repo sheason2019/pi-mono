@@ -20,18 +20,20 @@ export class DPiNativeToolExecutionComponent extends Container {
 	private readonly contentBox: Box;
 	private readonly theme: DPiNativeTheme;
 	private readonly toolCall: ToolCall;
-	private readonly result: ToolResultMessage | undefined;
+	private result: ToolResultMessage | undefined;
 	private readonly contentText: Text;
 	private readonly selfRenderContainer: Container;
 	private readonly rendererState: Record<string, unknown> = {};
 	private readonly toolDefinition: DPiNativeToolRendererDefinition | undefined;
 	private readonly cwd: string;
+	private cleanupFns: Array<() => void> = [];
 	private callRendererComponent: Component | undefined;
 	private resultRendererComponent: Component | undefined;
 	private expanded: boolean;
 	private showImages: boolean;
 	private isPartial = true;
 	private hideComponent = false;
+	private disposed = false;
 
 	constructor(
 		toolCall: ToolCall,
@@ -62,6 +64,28 @@ export class DPiNativeToolExecutionComponent extends Container {
 
 	setExpanded(expanded: boolean): void {
 		this.expanded = expanded;
+		this.updateContent();
+	}
+
+	get toolCallId(): string {
+		return this.toolCall.id;
+	}
+
+	dispose(): void {
+		if (this.disposed) {
+			return;
+		}
+		this.disposed = true;
+		for (const fn of this.cleanupFns) {
+			fn();
+		}
+		this.cleanupFns = [];
+	}
+
+	updateResult(result: ToolResultMessage | undefined): void {
+		this.result = result;
+		this.isPartial = result === undefined;
+		this.resultRendererComponent = undefined;
 		this.updateContent();
 	}
 
@@ -166,6 +190,11 @@ export class DPiNativeToolExecutionComponent extends Container {
 			expanded: this.expanded,
 			showImages: this.showImages,
 			isError: this.result?.isError ?? false,
+			onCleanup: (fn: () => void) => {
+				if (!this.disposed) {
+					this.cleanupFns.push(fn);
+				}
+			},
 		};
 	}
 
