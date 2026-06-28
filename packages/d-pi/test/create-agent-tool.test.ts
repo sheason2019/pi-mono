@@ -35,6 +35,8 @@ function setupContext(client: DPiHubActionsClient): void {
 		},
 		getReloadFn: () => undefined,
 		getReloadDetails: () => ({}),
+		updatePlan: () => {},
+		getPlan: () => [],
 	});
 }
 

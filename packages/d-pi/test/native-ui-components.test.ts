@@ -34,6 +34,7 @@ const assistantMessage: AssistantMessage = {
 function snapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "claude-sonnet-4",
+		plan: [],
 		isStreaming: false,
 		isCompacting: false,
 		steeringMessages: [],

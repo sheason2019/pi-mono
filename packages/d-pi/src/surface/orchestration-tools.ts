@@ -277,6 +277,63 @@ export function createReloadWorkspaceTool(): AgentToolDefinition {
 	});
 }
 
+export function createPlanTool(): AgentToolDefinition {
+	return defineTool({
+		name: "plan",
+		label: "Plan",
+		description:
+			"Update your visible task plan (TODO list) displayed above the user's input box. " +
+			"Call this at the START of your turn to outline your plan before taking action, " +
+			"and update it as you complete tasks. The plan is visible to the user in real-time. " +
+			"Pass the COMPLETE list of todos each time you call this (it replaces the previous plan). " +
+			"Use concise, action-oriented titles for each item, and provide a brief summary describing " +
+			"the goal or current state of the task so the user can understand the purpose at a glance.",
+		parameters: Type.Object({
+			todos: Type.Array(
+				Type.Object({
+					id: Type.String({
+						description:
+							"Short unique identifier for this todo item (e.g. 't1', 'investigate', 'implement'). " +
+							"Reuse the same id when updating an item's status.",
+					}),
+					content: Type.String({ description: "Concise task title (1 short action phrase)." }),
+					summary: Type.Optional(
+						Type.String({
+							description:
+								"Optional brief explanation of the task's goal, approach, or current findings. " +
+								"Shown under the title to help the user understand why this step is needed.",
+						}),
+					),
+					status: Type.Union([Type.Literal("pending"), Type.Literal("in_progress"), Type.Literal("completed")], {
+						description: "Current status of the task.",
+					}),
+				}),
+				{ description: "Complete ordered list of todo items. Replaces the previous plan entirely." },
+			),
+		}),
+		async execute(_toolCallId, params) {
+			const ctx = getBuiltinContext();
+			const plan = params.todos.map((t) => ({
+				id: t.id,
+				content: t.content,
+				summary: t.summary,
+				status: t.status,
+			}));
+			ctx.updatePlan(plan);
+			const completed = plan.filter((t) => t.status === "completed").length;
+			const inProgress = plan.filter((t) => t.status === "in_progress").length;
+			const pending = plan.filter((t) => t.status === "pending").length;
+			const lines = plan.map((t) => {
+				const marker = t.status === "completed" ? "[x]" : t.status === "in_progress" ? "[>]" : "[ ]";
+				return `${marker} ${t.content}`;
+			});
+			return toolTextResult(
+				`Plan updated (${completed} done, ${inProgress} in progress, ${pending} pending):\n${lines.join("\n")}`,
+			);
+		},
+	});
+}
+
 function errorTextResult(text: string) {
 	return {
 		content: [{ type: "text" as const, text }],

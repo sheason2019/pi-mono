@@ -335,6 +335,8 @@ describe('send_message via IPC (case "send_message" in _handleToolCall)', () => 
 			},
 			getReloadFn: () => undefined,
 			getReloadDetails: () => ({}),
+			updatePlan: () => {},
+			getPlan: () => [],
 		});
 		const tool = createSendMessageTool();
 

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { type AgentMessage, estimateContextTokens } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { z } from "zod";
@@ -32,6 +34,7 @@ import type {
 	DPiInteractiveRemoteSettings,
 	DPiInteractiveSessionItemData,
 	DPiInteractiveSlashCommand,
+	DPiInteractiveTodoItem,
 	DPiInteractiveTreeNodeData,
 	DPiInteractiveUserMessageItem,
 } from "../tui/interactive/agent-session-proxy.ts";
@@ -547,6 +550,7 @@ export interface DPiLocalAgentState {
 	cwd: string;
 	availableProviderCount: number;
 	remoteSettings: DPiInteractiveRemoteSettings;
+	plan: DPiInteractiveTodoItem[];
 	agent: {
 		sessionId: string;
 		status: "busy" | "ready";
@@ -565,6 +569,7 @@ export interface DPiLocalAgentState {
 
 export interface DPiLocalAgentSessionProxyOptions {
 	steeringQueuePath?: string;
+	planPath?: string;
 	agentDefinition?: LoadedAgentDefinition;
 }
 
@@ -589,7 +594,8 @@ export type DPiLocalAgentEvent =
 			type: "tool_execution_end";
 			data: { type: "tool_execution_end"; toolCallId: string; result: unknown; isError: boolean };
 	  }
-	| { type: "compaction_end" | "compaction_start"; data?: unknown };
+	| { type: "compaction_end" | "compaction_start"; data?: unknown }
+	| { type: "plan"; data: DPiInteractiveTodoItem[] };
 
 export interface DPiRegisteredTool {
 	name: string;
@@ -854,10 +860,15 @@ export class DPiAgentIpcServer {
 				error: `Unknown action: ${String(action)}`,
 			});
 		} catch (error) {
+			const message = errorMessage(error);
+			if (action === "compact" && message === "Compaction cancelled") {
+				this.handlers.onHttpResponse(requestId, 200, { ok: true, cancelled: true });
+				return;
+			}
 			const status = action === "compact" ? compactErrorHttpStatus(error) : 500;
 			this.handlers.onHttpResponse(requestId, status, {
 				ok: false,
-				error: errorMessage(error),
+				error: message,
 			});
 		}
 	}
@@ -892,11 +903,14 @@ export class DPiLocalAgentSessionProxy {
 	private readonly runtime: DPiAgentSessionRuntime;
 	private agentDefinition: LoadedAgentDefinition | undefined;
 	private readonly steeringQueuePath: string;
+	private readonly planPath: string | undefined;
+	private planPersister: ((plan: DPiInteractiveTodoItem[]) => Promise<void> | void) | undefined;
 	private readonly listeners = new Set<(event: DPiLocalAgentEvent) => void>();
 	private readonly messages: DPiLocalAgentMessage[] = [];
 	private readonly transcriptItems: DPiTranscriptItem[] = [];
 	private readonly importedSessionMessageIds = new Set<string>();
 	private readonly queued: DPiLocalQueueItem[] = [];
+	private plan: DPiInteractiveTodoItem[] = [];
 	private realtimeCursor = 0;
 	private realtimePageIndex = 0;
 	private realtimePage: DPiInteractiveRealtimePage = createDPiInteractiveRealtimePage("initial", 0);
@@ -904,6 +918,7 @@ export class DPiLocalAgentSessionProxy {
 	private banner: DPiInteractiveBannerData | undefined;
 	private streaming = false;
 	private compacting = false;
+	private interrupted = false;
 	private sessionName: string | undefined;
 	private remoteSettingsOverrides: Partial<DPiInteractiveRemoteSettings> = {};
 	private tokenUsage: DPiLocalAgentState["tokenUsage"] = {
@@ -935,12 +950,42 @@ export class DPiLocalAgentSessionProxy {
 		this.steeringQueuePath =
 			options.steeringQueuePath ??
 			join(getSessionMetadata(runtime.session).cwd ?? tmpdir(), `.d-pi-${randomUUID()}`, "steering.jsonl");
+		this.planPath = options.planPath;
 		this.subscribeToSessionMessages();
+		if (this.planPath) {
+			this.plan = loadPlanFromFileSync(this.planPath);
+		}
+	}
+
+	setPlanPersister(persister: ((plan: DPiInteractiveTodoItem[]) => Promise<void> | void) | undefined): void {
+		this.planPersister = persister;
 	}
 
 	setBanner(banner: DPiInteractiveBannerData | undefined): void {
 		this.banner = banner;
 		this.emitState();
+	}
+
+	updatePlan(plan: DPiInteractiveTodoItem[]): void {
+		this.plan = plan.map((item) => ({ ...item }));
+		this.emit({ type: "plan", data: this.plan });
+		this.emitState();
+		if (this.planPath) {
+			void savePlanToFile(this.planPath, this.plan);
+		}
+		if (this.planPersister) {
+			void this.planPersister(this.plan);
+		}
+	}
+
+	restorePlan(plan: DPiInteractiveTodoItem[]): void {
+		this.plan = plan.map((item) => ({ ...item }));
+		this.emit({ type: "plan", data: this.plan });
+		this.emitState();
+	}
+
+	getPlan(): DPiInteractiveTodoItem[] {
+		return [...this.plan];
 	}
 
 	updateAgentDefinition(agentDefinition: LoadedAgentDefinition | undefined): void {
@@ -1012,6 +1057,7 @@ export class DPiLocalAgentSessionProxy {
 			cwd: runtimeSnapshot?.cwd ?? metadata.cwd ?? "",
 			availableProviderCount: this.runtime.session.modelRegistry.getAll().length,
 			remoteSettings,
+			plan: [...this.plan],
 			agent: {
 				sessionId: runtimeSnapshot?.session.id ?? metadata.id,
 				status: isStreaming ? "busy" : "ready",
@@ -1210,6 +1256,7 @@ export class DPiLocalAgentSessionProxy {
 		}
 		if (event.type === "agent_start") {
 			this.streaming = true;
+			this.interrupted = false;
 			this.streamingAssistantMessageId = undefined;
 			this.emit({ type: "agent_start", data: { type: "agent_start" } });
 			this.emitState();
@@ -1217,11 +1264,27 @@ export class DPiLocalAgentSessionProxy {
 		}
 		if (event.type === "agent_end") {
 			this.streaming = false;
+			if (this.interrupted) {
+				this.interrupted = false;
+				this.recordSessionMessage(
+					{
+						id: nextGeneratedId("message"),
+						role: "custom",
+						customType: "interrupted-notice",
+						content: "Interrupted by user",
+						timestamp: Date.now(),
+					},
+					true,
+				);
+			}
 			this.emit({ type: "agent_end", data: { type: "agent_end" } });
 			this.emitState();
 			return;
 		}
 		if (event.type === "assistant_stream") {
+			if (this.interrupted) {
+				return;
+			}
 			if (!event.done) {
 				this.streaming = true;
 			}
@@ -1329,6 +1392,9 @@ export class DPiLocalAgentSessionProxy {
 		if (event.type === "session_replaced") {
 			this.startRealtimePage("resume", { emit: false });
 			this.importedSessionMessageIds.clear();
+			this.interrupted = false;
+			this.streaming = false;
+			this.compacting = false;
 			if (event.transcriptItems) {
 				this.transcriptItems.splice(0, this.transcriptItems.length, ...event.transcriptItems);
 			}
@@ -1340,6 +1406,22 @@ export class DPiLocalAgentSessionProxy {
 			return;
 		}
 		if (event.type === "error") {
+			if (this.interrupted) {
+				this.interrupted = false;
+				this.streaming = false;
+				this.recordSessionMessage(
+					{
+						id: nextGeneratedId("message"),
+						role: "custom",
+						customType: "interrupted-notice",
+						content: "Interrupted by user",
+						timestamp: Date.now(),
+					},
+					true,
+				);
+				this.emitState();
+				return;
+			}
 			this.recordSessionMessage(
 				{
 					id: nextGeneratedId("message"),
@@ -1396,14 +1478,31 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	abort(): void {
-		if (this.messageDispatcher?.abort) {
-			void this.messageDispatcher.abort();
-		} else {
-			void this.runtime.session.agent.abort?.();
+		if (this.interrupted || (!this.streaming && !this.compacting)) {
+			return;
 		}
-		this.streaming = false;
-		this.emit({ type: "agent_end", data: { type: "agent_end" } });
-		this.emitState();
+		this.interrupted = true;
+		const wasStreaming = this.streaming;
+		const dispatchAbort = this.messageDispatcher?.abort
+			? this.messageDispatcher.abort()
+			: this.runtime.session.agent.abort?.();
+		Promise.resolve(dispatchAbort).then(() => {
+			if (!wasStreaming && this.interrupted) {
+				this.interrupted = false;
+				this.streaming = false;
+				this.recordSessionMessage(
+					{
+						id: nextGeneratedId("message"),
+						role: "custom",
+						customType: "interrupted-notice",
+						content: "Interrupted by user",
+						timestamp: Date.now(),
+					},
+					true,
+				);
+				this.emitState();
+			}
+		});
 	}
 
 	resubscribe(reason: "new" | "resume" | "fork"): void {
@@ -2095,6 +2194,15 @@ function localMessageToTranscriptItem(message: DPiLocalAgentMessage): DPiTranscr
 			timestamp: message.timestamp,
 		};
 	}
+	if (message.role === "custom" && message.customType === "interrupted-notice") {
+		return {
+			id: message.id,
+			type: "notice",
+			level: "info",
+			text: typeof message.content === "string" ? message.content : messageContentText(message.content),
+			timestamp: message.timestamp,
+		};
+	}
 	return {
 		id: message.id,
 		type: "message",
@@ -2374,4 +2482,75 @@ function extractImages(input: unknown): Array<{ url: string; mediaType?: string 
 		];
 	});
 	return images.length > 0 ? images : undefined;
+}
+
+const planItemSchema = z.object({
+	id: z.string(),
+	content: z.string(),
+	summary: z.string().optional(),
+	status: z.enum(["pending", "in_progress", "completed"]),
+});
+
+const planStoreSchema = z.object({
+	version: z.literal(1),
+	plan: z.array(planItemSchema),
+	updatedAt: z.number(),
+});
+
+const planFileLocks = new Map<string, Promise<unknown>>();
+
+async function savePlanToFile(planPath: string, plan: readonly DPiInteractiveTodoItem[]): Promise<void> {
+	const previous = planFileLocks.get(planPath) ?? Promise.resolve();
+	const next = previous.then(async () => {
+		await mkdir(dirname(planPath), { recursive: true });
+		const data = {
+			version: 1 as const,
+			plan: plan.map((item) => ({ ...item })),
+			updatedAt: Date.now(),
+		};
+		await writeFile(planPath, JSON.stringify(data, null, 2), "utf8");
+	});
+	planFileLocks.set(
+		planPath,
+		next.finally(() => {
+			if (planFileLocks.get(planPath) === next) {
+				planFileLocks.delete(planPath);
+			}
+		}),
+	);
+	await next;
+}
+
+function loadPlanFromFileSync(planPath: string): DPiInteractiveTodoItem[] {
+	let content: string;
+	try {
+		content = readFileSync(planPath, "utf8");
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") {
+			return [];
+		}
+		throw error;
+	}
+	return parsePlanStoreContent(content);
+}
+
+function parsePlanStoreContent(content: string): DPiInteractiveTodoItem[] {
+	if (!content.trim()) {
+		return [];
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(content);
+	} catch {
+		return [];
+	}
+	const result = planStoreSchema.safeParse(parsed);
+	if (!result.success) {
+		return [];
+	}
+	return result.data.plan.map((item) => ({ ...item }));
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+	return typeof error === "object" && error !== null && "code" in error;
 }

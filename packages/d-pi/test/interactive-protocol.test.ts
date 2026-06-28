@@ -11,6 +11,7 @@ import {
 function createSnapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "claude-sonnet-4",
+		plan: [],
 		isStreaming: false,
 		isCompacting: false,
 		steeringMessages: [],

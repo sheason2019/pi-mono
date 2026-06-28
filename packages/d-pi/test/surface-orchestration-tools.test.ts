@@ -69,6 +69,8 @@ function setupContext(client: RecordingHubActionsClient, agentName = "root"): vo
 		},
 		getReloadFn: () => undefined,
 		getReloadDetails: () => ({}),
+		updatePlan: () => {},
+		getPlan: () => [],
 	});
 }
 

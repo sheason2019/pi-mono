@@ -348,6 +348,7 @@ export class DPiAgentRuntime {
 	private readonly sessionInfo: DPiRuntimeSessionInfo;
 	private activeTurn = false;
 	private turnStartedAt: number | undefined;
+	private compactAbortController: AbortController | undefined;
 
 	constructor(options: DPiAgentRuntimeOptions) {
 		this.agentName = options.agentName;
@@ -423,9 +424,13 @@ export class DPiAgentRuntime {
 	}
 
 	async abort(): Promise<void> {
+		this.compactAbortController?.abort();
+		this.compactAbortController = undefined;
 		await this.harness.abort?.();
-		this.activeTurn = false;
-		await this.emit({ type: "agent_end", agentName: this.agentName });
+		if (this.activeTurn) {
+			this.activeTurn = false;
+			await this.emit({ type: "agent_end", agentName: this.agentName });
+		}
 	}
 
 	async reloadContext(agentDefinition?: LoadedAgentDefinition): Promise<void> {
@@ -463,24 +468,40 @@ export class DPiAgentRuntime {
 			);
 		}
 
-		const result = await compactSession(
-			preparation.value,
-			model,
-			auth.apiKey,
-			auth.headers,
-			customInstructions,
-			undefined,
-			this.thinkingLevel,
-		);
+		this.compactAbortController = new AbortController();
+		const compactSignal = this.compactAbortController.signal;
+		let result: Awaited<ReturnType<typeof compactSession>>;
+		try {
+			result = await compactSession(
+				preparation.value,
+				model,
+				auth.apiKey,
+				auth.headers,
+				customInstructions,
+				compactSignal,
+				this.thinkingLevel,
+			);
+		} catch (error) {
+			this.compactAbortController = undefined;
+			if (compactSignal.aborted) {
+				throw new Error("Compaction cancelled");
+			}
+			throw error;
+		}
+		this.compactAbortController = undefined;
+		if (compactSignal.aborted) {
+			throw new Error("Compaction cancelled");
+		}
 		if (!result.ok) {
 			throw result.error;
 		}
 
+		const summaryResult = result.value;
 		await this.session.appendCompaction(
-			result.value.summary,
-			result.value.firstKeptEntryId,
-			result.value.tokensBefore,
-			result.value.details,
+			summaryResult.summary,
+			summaryResult.firstKeptEntryId,
+			summaryResult.tokensBefore,
+			summaryResult.details,
 		);
 		const completedAt = Date.now();
 		const durationMs = completedAt - startedAt;
@@ -490,8 +511,8 @@ export class DPiAgentRuntime {
 			createDPiTranscriptBoundaryEntry({
 				reason: "compact",
 				label,
-				summary: result.value.summary,
-				tokensBefore: result.value.tokensBefore,
+				summary: summaryResult.summary,
+				tokensBefore: summaryResult.tokensBefore,
 				durationMs,
 				completedAt,
 			}),
@@ -505,12 +526,12 @@ export class DPiAgentRuntime {
 				: ((await this.session.buildContext()).messages as DPiAgentMessage[]);
 		await this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
 		return {
-			...result.value,
+			...summaryResult,
 			divider: {
 				label,
 				details: {
-					summary: result.value.summary,
-					tokensBefore: result.value.tokensBefore,
+					summary: summaryResult.summary,
+					tokensBefore: summaryResult.tokensBefore,
 					durationMs,
 					completedAt,
 				},

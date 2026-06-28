@@ -8,6 +8,7 @@ export interface DPiInteractiveStyleOptions {
 export interface DPiInteractiveStyle {
 	accent(text: string): string;
 	heading(text: string): string;
+	bold(text: string): string;
 	dim(text: string): string;
 	muted(text: string): string;
 	text(text: string): string;
@@ -35,6 +36,7 @@ export function createDPiInteractiveStyle(options: DPiInteractiveStyleOptions = 
 	return {
 		accent: (text) => theme.fg("accent", text),
 		heading: (text) => theme.fg("mdHeading", text),
+		bold: (text) => theme.bold(text),
 		dim: (text) => theme.fg("dim", text),
 		muted: (text) => theme.fg("muted", text),
 		text: (text) => theme.fg("text", text),

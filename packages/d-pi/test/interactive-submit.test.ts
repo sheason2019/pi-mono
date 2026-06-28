@@ -76,6 +76,7 @@ function createProxy(overrides: Partial<DPiInteractiveAgentSessionProxy> = {}): 
 function connectSnapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "anthropic/claude-sonnet-4",
+		plan: [],
 		isStreaming: false,
 		isCompacting: false,
 		steeringMessages: [],
@@ -241,6 +242,7 @@ describe("d-pi interactive editor submit", () => {
 						sessionFile: "/tmp/session.jsonl",
 						cwd: "/tmp/workspace",
 						model: "anthropic/claude-sonnet-4",
+						plan: [],
 						messages: [{ role: "assistant", content: "last answer" }],
 						contextUsage: { tokens: 10, contextWindow: 100, percent: 10 },
 						tokenUsage: {
