@@ -94,6 +94,20 @@ jobs:
             --provenance \
             --ignore-scripts
 
+      - name: Package dist as tar.gz
+        run: |
+          VERSION="${RELEASE_TAG#d-pi-v}"
+          VERSION="${VERSION#v}"
+          ARCHIVE_NAME="d-pi-${VERSION}.tar.gz"
+          DIR_NAME="d-pi-${VERSION}"
+          cd packages/d-pi
+          cp -r dist "$DIR_NAME"
+          tar -czf "$ARCHIVE_NAME" "$DIR_NAME"
+          rm -rf "$DIR_NAME"
+          mv "$ARCHIVE_NAME" ../../
+          echo "archive_name=$ARCHIVE_NAME" >> "$GITHUB_OUTPUT"
+        id: archive
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
         with:
@@ -102,6 +116,6 @@ jobs:
           generate_release_notes: true
           overwrite_files: true
           files: |
-            packages/d-pi/dist/**
+            ${{ steps.archive.outputs.archive_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
