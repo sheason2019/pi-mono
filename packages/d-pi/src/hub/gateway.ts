@@ -1041,7 +1041,7 @@ export class HubGateway {
 
 		// Dispatch via IPC to the worker
 		const requestId = gatewayRandomUUID();
-		const payload = cleanPath === "prompt" ? this._withTrustedPromptAuth(body, auth) : body;
+		const payload = cleanPath === "prompt" ? this._withTrustedPromptAuth(body, auth, agentName) : body;
 
 		if (method === "GET") {
 			agent.worker.postMessage({
@@ -1167,7 +1167,7 @@ export class HubGateway {
 		});
 	}
 
-	private _withTrustedPromptAuth(body: unknown, session: AuthSessionInfo): unknown {
+	private _withTrustedPromptAuth(body: unknown, session: AuthSessionInfo, agentName: string): unknown {
 		if (typeof body !== "object" || body === null || Array.isArray(body)) {
 			return body;
 		}
@@ -1175,9 +1175,17 @@ export class HubGateway {
 		if (typeof record.text !== "string") {
 			return body;
 		}
+		const connectId = this._agentBindings.get(agentName);
 		return {
 			...record,
-			text: formatDPiMetaMessage({ sourceType: "connect", auth: session.auth }, record.text),
+			text: formatDPiMetaMessage(
+				{
+					sourceType: "connect",
+					auth: session.auth,
+					...(connectId === undefined ? {} : { connectId }),
+				},
+				record.text,
+			),
 			auth: session.auth,
 		};
 	}
