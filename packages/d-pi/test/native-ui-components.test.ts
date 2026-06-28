@@ -131,7 +131,7 @@ describe("d-pi native interactive components", () => {
 					content: [
 						{
 							type: "text" as const,
-							text: '[meta({"sourceType":"connect","connectId":"local"})]\nhello through connect',
+							text: '[meta({"createTime":"2026/06/28 12:00:00","sourceType":"connect","connectId":"local"})]\nhello through connect',
 						},
 					],
 					timestamp: 1,
@@ -188,15 +188,15 @@ describe("d-pi native interactive components", () => {
 				{
 					...assistantMessage,
 					content: [
-						{ type: "text" as const, text: "我来查看目录。" },
-						{ type: "toolCall" as const, id: "tool-1", name: "dispatch_ls", arguments: { path: "." } },
+						{ type: "text" as const, text: "Let me check." },
+						{ type: "toolCall" as const, id: "tool-1", name: "dispatch_bash", arguments: { command: "ls" } },
 					],
 					stopReason: "toolUse" as const,
 				},
 				{
 					role: "toolResult" as const,
 					toolCallId: "tool-1",
-					toolName: "dispatch_ls",
+					toolName: "dispatch_bash",
 					content: [{ type: "text" as const, text: output }],
 					isError: false,
 					timestamp: 3,
@@ -209,12 +209,12 @@ describe("d-pi native interactive components", () => {
 		const plain = stripAnsi(rendered);
 
 		expect(component.children[1]).toBeInstanceOf(DPiNativeToolExecutionComponent);
-		expect(plain).toContain("ls .");
-		expect(plain).not.toContain("dispatch_ls");
-		expect(plain).not.toContain('{"path":"."}');
-		expect(plain).toContain("entry-20");
-		expect(plain).not.toContain("entry-21");
-		expect(plain).toContain("4 more lines");
+		expect(plain).toContain("$ ls");
+		expect(plain).not.toContain("dispatch_bash");
+		expect(plain).not.toContain('{"command":"ls"}');
+		expect(plain).toContain("entry-24");
+		expect(plain).not.toContain("entry-1");
+		expect(plain).toContain("earlier lines");
 		expect(rendered).not.toContain("────");
 		expect(rendered).toContain("\x1b[48;2;40;50;40m");
 	});
@@ -226,8 +226,8 @@ describe("d-pi native interactive components", () => {
 				{
 					...assistantMessage,
 					content: [
-						{ type: "text" as const, text: "我来查看目录。" },
-						{ type: "toolCall" as const, id: "tool-1", name: "dispatch_ls", arguments: { path: "." } },
+						{ type: "text" as const, text: "Let me check." },
+						{ type: "toolCall" as const, id: "tool-1", name: "dispatch_bash", arguments: { command: "ls" } },
 					],
 					stopReason: "toolUse" as const,
 				},
@@ -238,9 +238,9 @@ describe("d-pi native interactive components", () => {
 					id: "tool-state",
 					type: "tool_state" as const,
 					toolCallId: "tool-1",
-					toolName: "dispatch_ls",
+					toolName: "dispatch_bash",
 					status: "succeeded" as const,
-					args: { path: "." },
+					args: { command: "ls" },
 					result: "done",
 					timestamp: 2,
 				},
@@ -261,13 +261,15 @@ describe("d-pi native interactive components", () => {
 			messages: [
 				{
 					...assistantMessage,
-					content: [{ type: "toolCall" as const, id: "tool-1", name: "dispatch_ls", arguments: { path: "." } }],
+					content: [
+						{ type: "toolCall" as const, id: "tool-1", name: "dispatch_bash", arguments: { command: "ls" } },
+					],
 					stopReason: "toolUse" as const,
 				},
 				{
 					role: "toolResult" as const,
 					toolCallId: "tool-1",
-					toolName: "dispatch_ls",
+					toolName: "dispatch_bash",
 					content: [{ type: "text" as const, text: output }],
 					isError: false,
 					timestamp: 3,
@@ -278,8 +280,9 @@ describe("d-pi native interactive components", () => {
 		const component = buildDPiInteractiveMessageListComponent(state, { toolsExpanded: true });
 		const rendered = stripAnsi(component.render(80).join("\n"));
 
+		expect(rendered).toContain("entry-1");
 		expect(rendered).toContain("entry-24");
-		expect(rendered).not.toContain("more lines");
+		expect(rendered).not.toContain("earlier lines");
 	});
 
 	it("renders bash with native last-visual-lines preview", () => {
@@ -307,66 +310,9 @@ describe("d-pi native interactive components", () => {
 		expect(expanded).toContain("line 1");
 	});
 
-	it("renders write previews and hides successful results like native", () => {
-		const rendered = renderToolPlain(
-			"dispatch_write",
-			{ path: "new.ts", content: numberedLines("line", 12) },
-			"Successfully wrote",
-		);
-
-		expect(rendered).toContain("write new.ts");
-		expect(rendered).toContain("line-10");
-		expect(rendered).not.toContain("line-11");
-		expect(rendered).toContain("2 more lines, 12 total");
-		expect(rendered).not.toContain("Successfully wrote");
-	});
-
-	it("renders grep and find with native call labels and collapsed result counts", () => {
-		const grep = renderToolPlain(
-			"dispatch_grep",
-			{ pattern: "TODO", path: ".", glob: "*.ts" },
-			numberedLines("match", 16),
-		);
-		const find = renderToolPlain("dispatch_find", { pattern: "*.ts", path: "src" }, numberedLines("file", 24));
-
-		expect(grep).toContain("grep /TODO/ in . (*.ts)");
-		expect(grep).toContain("match-15");
-		expect(grep).not.toContain("match-16");
-		expect(grep).toContain("1 more lines");
-		expect(find).toContain("find *.ts in src");
-		expect(find).toContain("file-20");
-		expect(find).not.toContain("file-21");
-		expect(find).toContain("4 more lines");
-	});
-
-	it("renders edit with native self shell and diff output", () => {
-		const rendered = renderToolPlain(
-			"dispatch_edit",
-			{ path: "file.ts", edits: [{ oldText: "old", newText: "new" }] },
-			"Successfully replaced 1 block(s) in file.ts.",
-			{
-				details: {
-					diff: "-1 old\n+1 new",
-					firstChangedLine: 1,
-				},
-			},
-		);
-
-		expect(rendered).toContain("edit file.ts");
-		expect(rendered).toContain("-1 old");
-		expect(rendered).toContain("+1 new");
-		expect(rendered).not.toContain("dispatch_edit");
-		expect(rendered).not.toContain("Successfully replaced");
-	});
-
 	it.each([
 		["dispatch_bash", { command: "printf test" }, "$ printf test"],
 		["dispatch_read", { path: "AGENTS.md" }, "read resource AGENTS.md"],
-		["dispatch_ls", { path: "." }, "ls ."],
-		["dispatch_grep", { pattern: "TODO", path: ".", glob: "*.ts" }, "grep /TODO/ in . (*.ts)"],
-		["dispatch_find", { pattern: "*.ts", path: "src" }, "find *.ts in src"],
-		["dispatch_write", { path: "new.ts", content: "hello" }, "write new.ts"],
-		["dispatch_edit", { path: "file.ts", edits: [{ oldText: "old", newText: "new" }] }, "edit file.ts"],
 	])("preserves %s args when rendering settled transcript tool state", (toolName, args, expectedHeader) => {
 		const state = {
 			...snapshot(),
