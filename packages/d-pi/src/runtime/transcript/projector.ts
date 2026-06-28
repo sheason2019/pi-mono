@@ -1,4 +1,5 @@
 import type { AgentMessage, SessionTreeEntry } from "@earendil-works/pi-agent-core/node";
+import { z } from "zod";
 import type { DPiAgentMessage } from "../types.ts";
 
 export const DPiTranscriptCustomTypes = {
@@ -8,6 +9,46 @@ export const DPiTranscriptCustomTypes = {
 	toolState: "d-pi/transcript.tool_state@v1",
 	turnStats: "d-pi/transcript.turn_stats@v1",
 } as const;
+
+const transcriptBoundarySchema = z.object({
+	version: z.literal(1),
+	reason: z.enum(["compact", "fork", "new", "resume"]),
+	label: z.string(),
+	summary: z.string().optional(),
+	tokensBefore: z.number().optional(),
+	durationMs: z.number().optional(),
+	completedAt: z.number().optional(),
+});
+
+const transcriptToolStateSchema = z.object({
+	version: z.literal(1),
+	toolCallId: z.string(),
+	toolName: z.string(),
+	status: z.enum(["cancelled", "failed", "running", "succeeded"]),
+	timestamp: z.number().optional(),
+	args: z.unknown().optional(),
+	result: z.unknown().optional(),
+	error: z.string().optional(),
+});
+
+const transcriptTurnStatsSchema = z.object({
+	version: z.literal(1),
+	tps: z.number(),
+	output: z.number(),
+	input: z.number(),
+	cacheRead: z.number(),
+	cacheWrite: z.number(),
+	total: z.number(),
+	duration: z.number(),
+	timestamp: z.number().optional(),
+});
+
+const transcriptNoticeSchema = z.object({
+	version: z.literal(1),
+	level: z.enum(["error", "info", "warning"]),
+	text: z.string(),
+	timestamp: z.number().optional(),
+});
 
 export type DPiTranscriptBoundaryReason = "compact" | "fork" | "new" | "resume";
 export type DPiTranscriptNoticeLevel = "error" | "info" | "warning";
@@ -306,29 +347,11 @@ function transcriptBoundaryFromEntry(entry: SessionTreeEntry): DPiTranscriptBoun
 	if (entry.type !== "custom" || entry.customType !== DPiTranscriptCustomTypes.boundary) {
 		return undefined;
 	}
-	const data = entry.data;
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	const parsed = transcriptBoundarySchema.safeParse(entry.data);
+	if (!parsed.success) {
 		return undefined;
 	}
-	const record = data as Record<string, unknown>;
-	const reason = record.reason;
-	const label = record.label;
-	if (
-		record.version !== 1 ||
-		(reason !== "compact" && reason !== "fork" && reason !== "new" && reason !== "resume") ||
-		typeof label !== "string"
-	) {
-		return undefined;
-	}
-	return {
-		version: 1,
-		reason,
-		label,
-		...(typeof record.summary === "string" ? { summary: record.summary } : {}),
-		...(typeof record.tokensBefore === "number" ? { tokensBefore: record.tokensBefore } : {}),
-		...(typeof record.durationMs === "number" ? { durationMs: record.durationMs } : {}),
-		...(typeof record.completedAt === "number" ? { completedAt: record.completedAt } : {}),
-	};
+	return parsed.data;
 }
 
 function transcriptToolStateFromEntry(
@@ -337,28 +360,15 @@ function transcriptToolStateFromEntry(
 	if (entry.type !== "custom" || entry.customType !== DPiTranscriptCustomTypes.toolState) {
 		return undefined;
 	}
-	const data = entry.data;
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	const parsed = transcriptToolStateSchema.safeParse(entry.data);
+	if (!parsed.success) {
 		return undefined;
 	}
-	const record = data as Record<string, unknown>;
-	const status = record.status;
-	if (
-		record.version !== 1 ||
-		typeof record.toolCallId !== "string" ||
-		typeof record.toolName !== "string" ||
-		(status !== "cancelled" && status !== "failed" && status !== "running" && status !== "succeeded")
-	) {
-		return undefined;
-	}
+	const { version, ...rest } = parsed.data;
+	void version;
 	return {
-		toolCallId: record.toolCallId,
-		toolName: record.toolName,
-		status,
-		timestamp: numberOr(record.timestamp, timestampFromEntry(entry)),
-		...(record.args === undefined ? {} : { args: record.args }),
-		...(record.result === undefined ? {} : { result: record.result }),
-		...(typeof record.error === "string" ? { error: record.error } : {}),
+		...rest,
+		timestamp: numberOr(rest.timestamp, timestampFromEntry(entry)),
 	};
 }
 
@@ -368,32 +378,15 @@ function transcriptTurnStatsFromEntry(
 	if (entry.type !== "custom" || entry.customType !== DPiTranscriptCustomTypes.turnStats) {
 		return undefined;
 	}
-	const data = entry.data;
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	const parsed = transcriptTurnStatsSchema.safeParse(entry.data);
+	if (!parsed.success) {
 		return undefined;
 	}
-	const record = data as Record<string, unknown>;
-	if (
-		record.version !== 1 ||
-		typeof record.tps !== "number" ||
-		typeof record.output !== "number" ||
-		typeof record.input !== "number" ||
-		typeof record.cacheRead !== "number" ||
-		typeof record.cacheWrite !== "number" ||
-		typeof record.total !== "number" ||
-		typeof record.duration !== "number"
-	) {
-		return undefined;
-	}
+	const { version, ...rest } = parsed.data;
+	void version;
 	return {
-		tps: record.tps,
-		output: record.output,
-		input: record.input,
-		cacheRead: record.cacheRead,
-		cacheWrite: record.cacheWrite,
-		total: record.total,
-		duration: record.duration,
-		timestamp: numberOr(record.timestamp, timestampFromEntry(entry)),
+		...rest,
+		timestamp: numberOr(rest.timestamp, timestampFromEntry(entry)),
 	};
 }
 
@@ -401,23 +394,15 @@ function transcriptNoticeFromEntry(entry: SessionTreeEntry): Omit<DPiTranscriptN
 	if (entry.type !== "custom" || entry.customType !== DPiTranscriptCustomTypes.notice) {
 		return undefined;
 	}
-	const data = entry.data;
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	const parsed = transcriptNoticeSchema.safeParse(entry.data);
+	if (!parsed.success) {
 		return undefined;
 	}
-	const record = data as Record<string, unknown>;
-	const level = record.level;
-	if (
-		record.version !== 1 ||
-		(level !== "error" && level !== "info" && level !== "warning") ||
-		typeof record.text !== "string"
-	) {
-		return undefined;
-	}
+	const { version, ...rest } = parsed.data;
+	void version;
 	return {
-		level,
-		text: record.text,
-		timestamp: numberOr(record.timestamp, timestampFromEntry(entry)),
+		...rest,
+		timestamp: numberOr(rest.timestamp, timestampFromEntry(entry)),
 	};
 }
 

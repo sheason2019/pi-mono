@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { DPiJsonValue, DPiServiceActionRequest } from "./protocol.ts";
 
 export type DPiServiceActionName = "prompt" | "steer" | "follow-up";
@@ -49,9 +50,16 @@ export function toWorkerAction(action: DPiServiceActionName, request: DPiService
 	};
 }
 
+const optionsWithImagesSchema = z
+	.object({
+		images: z.unknown().optional(),
+	})
+	.passthrough();
+
 function extractImages(options: DPiJsonValue | undefined): DPiJsonValue | undefined {
-	if (typeof options !== "object" || options === null || Array.isArray(options)) {
+	const parsed = optionsWithImagesSchema.safeParse(options);
+	if (!parsed.success) {
 		return undefined;
 	}
-	return options.images;
+	return parsed.data.images as DPiJsonValue | undefined;
 }

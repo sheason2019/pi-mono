@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 import { buildAgentTsSource } from "../agent-config.ts";
 import { ensureAgentConventionDirs } from "../agent-loader.ts";
 import type { WorkspaceContext } from "../types.ts";
@@ -27,6 +28,12 @@ function packageNameFromDirectory(dir: string): string {
 	return normalized || "dpi-workspace";
 }
 
+const packageJsonSchema = z
+	.object({
+		dependencies: z.record(z.string(), z.unknown()).optional(),
+	})
+	.passthrough();
+
 function writeWorkspacePackageJson(workspaceRoot: string): void {
 	const packageJsonPath = join(workspaceRoot, "package.json");
 	const packageRoot = dPiPackageRoot();
@@ -46,16 +53,15 @@ function writeWorkspacePackageJson(workspaceRoot: string): void {
 		return;
 	}
 
-	const current = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as Record<string, unknown>;
-	const dependencies =
-		typeof current.dependencies === "object" && current.dependencies !== null
-			? (current.dependencies as Record<string, unknown>)
-			: {};
+	const currentRaw = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+	const parsed = packageJsonSchema.safeParse(currentRaw);
+	const current = parsed.success ? parsed.data : { dependencies: undefined };
+	const dependencies = current.dependencies ?? {};
 	writeFileSync(
 		packageJsonPath,
 		`${JSON.stringify(
 			{
-				...current,
+				...currentRaw,
 				private: true,
 				type: "module",
 				dependencies: {

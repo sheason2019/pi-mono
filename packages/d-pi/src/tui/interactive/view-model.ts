@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { DPiTranscriptItem } from "../../runtime/transcript/projector.ts";
 import type { DPiInteractiveSessionStateSnapshot } from "./agent-session-proxy.ts";
 
@@ -158,23 +159,15 @@ export function isDPiInteractiveRealtimeState(value: unknown): value is DPiInter
 	);
 }
 
+const dPiInteractiveRealtimePageSchema = z.object({
+	id: z.string(),
+	index: z.number(),
+	reason: z.enum(["compact", "fork", "initial", "new", "resume"]),
+	startedAt: z.number(),
+});
+
 function isDPiInteractiveRealtimePage(value: unknown): value is DPiInteractiveRealtimePage {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"id" in value &&
-		typeof value.id === "string" &&
-		"index" in value &&
-		typeof value.index === "number" &&
-		"reason" in value &&
-		(value.reason === "compact" ||
-			value.reason === "fork" ||
-			value.reason === "initial" ||
-			value.reason === "new" ||
-			value.reason === "resume") &&
-		"startedAt" in value &&
-		typeof value.startedAt === "number"
-	);
+	return dPiInteractiveRealtimePageSchema.safeParse(value).success;
 }
 
 export function isDPiInteractiveRealtimeEvent(value: unknown): value is DPiInteractiveRealtimeEvent {

@@ -1,4 +1,5 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import { z } from "zod";
 
 export type DPiToolJsonValue =
 	| null
@@ -62,12 +63,16 @@ function toToolJsonValue(value: unknown, path: string): DPiToolJsonValue | undef
 	throw new TypeError(`Tool details must be JSON-safe at ${path}`);
 }
 
+const plainObjectSchema = z.record(z.string(), z.unknown()).refine(
+	(value) => {
+		const prototype = Object.getPrototypeOf(value);
+		return prototype === Object.prototype || prototype === null;
+	},
+	{ message: "Must be a plain object" },
+);
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-	const prototype = Object.getPrototypeOf(value);
-	return prototype === Object.prototype || prototype === null;
+	return plainObjectSchema.safeParse(value).success;
 }
 
 function isToolJsonObject(value: DPiToolJsonValue | undefined): value is DPiToolDetails {

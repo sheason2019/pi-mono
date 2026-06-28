@@ -1,5 +1,5 @@
 import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
-import { type Static, type TSchema, Type } from "typebox";
+import { type TSchema, Type } from "typebox";
 import type { AgentToolDefinition } from "../agent-definition.ts";
 import { defineTool } from "../agent-definition.ts";
 import { isRecord } from "../shared/schemas.ts";
@@ -21,6 +21,20 @@ const BashParameters = Type.Object({
 const ReadParameters = Type.Object({
 	path: Type.String(),
 });
+
+function parseDispatchParams(params: unknown): {
+	connectId: string | undefined;
+	nativeParams: Record<string, unknown>;
+} {
+	if (!isRecord(params)) {
+		return { connectId: undefined, nativeParams: {} };
+	}
+	const { connect_id, ...nativeParams } = params;
+	return {
+		connectId: typeof connect_id === "string" ? connect_id : undefined,
+		nativeParams,
+	};
+}
 
 export function createDispatchBashTool(): AgentToolDefinition {
 	return createDispatchTool("bash", "Dispatch bash", BashParameters);
@@ -46,9 +60,7 @@ function createDispatchTool(nativeName: string, label: string, parameters: TSche
 		parameters: dispatchParameters,
 		async execute(toolCallId, params, signal, onUpdate) {
 			const ctx = getBuiltinContext();
-			const paramsRecord = toRecord(params);
-			const connectId = typeof paramsRecord.connect_id === "string" ? paramsRecord.connect_id : undefined;
-			const nativeParams = stripConnectId(paramsRecord);
+			const { connectId, nativeParams } = parseDispatchParams(params);
 
 			const localExecutor = ctx.localExecutors[nativeName];
 			if (!localExecutor) {
@@ -106,23 +118,6 @@ function toObjectSchema(parameters: TSchema): TSchema & { properties?: unknown; 
 		return parameters as TSchema & { properties?: unknown; required?: unknown };
 	}
 	return Type.Object({});
-}
-
-function toRecord(params: Static<TSchema>): Record<string, unknown> {
-	if (isRecord(params)) {
-		return params;
-	}
-	return {};
-}
-
-function stripConnectId(params: Record<string, unknown>): Record<string, unknown> {
-	const nativeParams: Record<string, unknown> = {};
-	for (const [key, value] of Object.entries(params)) {
-		if (key !== "connect_id") {
-			nativeParams[key] = value;
-		}
-	}
-	return nativeParams;
 }
 
 function errorTextResult(text: string) {

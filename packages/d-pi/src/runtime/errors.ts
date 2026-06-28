@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { DPiJsonValue, DPiRuntimeError, DPiRuntimeErrorCode } from "./types.ts";
 
 const runtimeErrorCodes = new Set<DPiRuntimeErrorCode>([
@@ -59,25 +60,22 @@ export function createDPiRuntimeError(
 	};
 }
 
+const dPiRuntimeErrorSchema = z.object({
+	name: z.literal("DPiRuntimeError"),
+	code: z.string().refine((code) => runtimeErrorCodes.has(code as DPiRuntimeErrorCode), {
+		message: "Invalid error code",
+	}),
+	message: z.string(),
+	retryable: z.boolean(),
+	details: z.unknown().optional(),
+});
+
 export function isDPiRuntimeError(value: unknown): value is DPiRuntimeError {
-	if (typeof value !== "object" || value === null) {
+	const parsed = dPiRuntimeErrorSchema.safeParse(value);
+	if (!parsed.success) {
 		return false;
 	}
-	const candidate = value as {
-		name?: unknown;
-		code?: unknown;
-		message?: unknown;
-		retryable?: unknown;
-		details?: unknown;
-	};
-	return (
-		candidate.name === "DPiRuntimeError" &&
-		typeof candidate.code === "string" &&
-		runtimeErrorCodes.has(candidate.code as DPiRuntimeErrorCode) &&
-		typeof candidate.message === "string" &&
-		typeof candidate.retryable === "boolean" &&
-		(candidate.details === undefined || isDPiJsonValue(candidate.details))
-	);
+	return parsed.data.details === undefined || isDPiJsonValue(parsed.data.details);
 }
 
 export type { DPiRuntimeError, DPiRuntimeErrorCode };

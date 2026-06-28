@@ -1,5 +1,5 @@
+import { z } from "zod";
 import type { HubChannel } from "../multi-agent/hub-channel.ts";
-import { isRecord } from "../shared/schemas.ts";
 import type {
 	DPiCreateAgentActionResult,
 	DPiDispatchRemoteToolActionPayload,
@@ -9,20 +9,25 @@ import type {
 	DPiTeamSnapshot,
 } from "./index.ts";
 
-interface OkResult {
-	ok?: boolean;
-	error?: string;
-}
+const createAgentResultSchema = z.object({
+	agentName: z.string().optional(),
+	error: z.string().optional(),
+});
+
+const okResultSchema = z.object({
+	ok: z.boolean().optional(),
+	error: z.string().optional(),
+});
 
 export function createHubActionsClientFromHubChannel(channel: HubChannel): DPiHubActionsClient {
 	return {
 		async createAgent(payload): Promise<DPiCreateAgentActionResult> {
 			const raw = await channel.createAgent(payload.name, payload.cwd);
-			const result = asCreateAgentResult(raw);
-			if (result.error) {
+			const result = createAgentResultSchema.safeParse(raw).data;
+			if (result?.error) {
 				throw new Error(result.error);
 			}
-			return { agentName: result.agentName ?? payload.name };
+			return { agentName: result?.agentName ?? payload.name };
 		},
 		async destroyAgent(payload): Promise<{ ok: boolean; error?: string }> {
 			return normalizeOkResult(await channel.destroyAgent(payload.agentName));
@@ -44,36 +49,10 @@ export function createHubActionsClientFromHubChannel(channel: HubChannel): DPiHu
 	};
 }
 
-function asCreateAgentResult(value: unknown): { agentName?: string; error?: string } {
-	if (!isRecord(value)) {
-		return {};
-	}
-	return {
-		agentName: stringField(value, "agentName"),
-		error: stringField(value, "error"),
-	};
-}
-
 function normalizeOkResult(value: unknown): { ok: boolean; error?: string } {
-	const result = asOkResult(value);
-	if (result.error) {
+	const result = okResultSchema.safeParse(value).data;
+	if (result?.error) {
 		return { ok: false, error: result.error };
 	}
-	return { ok: result.ok ?? true };
-}
-
-function asOkResult(value: unknown): OkResult {
-	if (!isRecord(value)) {
-		return {};
-	}
-	const ok = value.ok;
-	return {
-		ok: typeof ok === "boolean" ? ok : undefined,
-		error: stringField(value, "error"),
-	};
-}
-
-function stringField(record: Record<string, unknown>, key: string): string | undefined {
-	const value = record[key];
-	return typeof value === "string" ? value : undefined;
+	return { ok: result?.ok ?? true };
 }

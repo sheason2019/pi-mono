@@ -231,8 +231,7 @@ export function createReloadTool(): AgentToolDefinition {
 			if (!reloadFn) {
 				throw new Error("Reload not available: d-pi session is not initialized yet.");
 			}
-			const input = params as { reason?: unknown };
-			await reloadFn(typeof input.reason === "string" ? input.reason : undefined);
+			await reloadFn(params.reason);
 			return {
 				content: [{ type: "text" as const, text: "Agent configuration reloaded." }],
 				details: ctx.getReloadDetails(),
