@@ -310,7 +310,6 @@ interface NativeToolDefinition {
 port.on("message", (message: HubToWorkerMessage) => {
 	switch (message.type) {
 		case "tool_result":
-			process.stderr.write(`[d-pi worker ${config.agentName}] Received tool_result for callId=${message.callId}\n`);
 			hubChannel?.resolveCall(message.callId, message.result);
 			break;
 		case "message":
@@ -347,8 +346,6 @@ async function runAgentWorker(): Promise<void> {
 	// See "name is identity" in the changelog for the rationale.
 	const { agentName, cwd } = config;
 
-	process.stderr.write(`[d-pi worker ${agentName}] Starting agent "${agentName}"...\n`);
-
 	agentDefinition = await readLoadedAgentDefinitionFromTs(cwd);
 	agentConfig = agentDefinition ? agentDefinitionToConfig(agentDefinition) : undefined;
 	agentToolNames = agentDefinition?.tools.map((tool) => tool.name) ?? [];
@@ -360,11 +357,7 @@ async function runAgentWorker(): Promise<void> {
 	});
 	modelRegistry = workerModelRegistry;
 
-	process.stderr.write(`[d-pi worker ${agentName}] Infrastructure created\n`);
-
 	// 2. Create the HubChannel for multi-agent communication.
-	// Worker-side /agents command is a stub (real implementation
-	// lives in the client/connect TUI). It is registered below via registerCapabilities.
 	const channel = new HubChannelClass(agentName, postToHub);
 	hubChannel = channel;
 
@@ -407,8 +400,6 @@ async function runAgentWorker(): Promise<void> {
 			return { freshAgentConfig: agentConfig, freshWorkspaceContext };
 		};
 
-		process.stderr.write(`[d-pi worker ${agentName}] Creating session services...\n`);
-
 		const services = await createDPiAgentSessionServices({
 			cwd: opts.cwd,
 			agentDir: opts.agentDir,
@@ -442,8 +433,6 @@ async function runAgentWorker(): Promise<void> {
 				additionalSkillPaths,
 			},
 		});
-
-		process.stderr.write(`[d-pi worker ${agentName}] Session services created, resolving model...\n`);
 
 		const resolvedModel = await resolveDPiInitialModel({
 			modelRegistry: modelRegistry!,
@@ -646,8 +635,6 @@ async function runAgentWorker(): Promise<void> {
 	postToHub({ type: "subscribe_sources", agentName, sources: [...(agentDefinition?.sources ?? [])] });
 	postToHub({ type: "ready", agentName });
 	postToHub({ type: "status_update", agentName, status: "ready" });
-
-	process.stderr.write(`[d-pi worker] Agent "${agentName}" ready (IPC mode)\n`);
 
 	// Keep alive
 	return new Promise(() => {});

@@ -42,6 +42,7 @@ export class Hub {
 	 * (`/agents/{name}/remote-call`) time out consistently.
 	 */
 	private readonly _remoteCallTimeoutMs: number;
+	private readonly _restoreErrors: string[] = [];
 
 	constructor(config: HubConfig) {
 		this._config = config;
@@ -116,9 +117,16 @@ export class Hub {
 			});
 		}
 
+		const readyAgents = Array.from(this._registry.getAll()).filter((a) => a.status === "ready");
 		process.stderr.write(`[d-pi hub] Workspace: ${this._config.workspaceRoot}\n`);
+		process.stderr.write(
+			`[d-pi hub] Agents ready: ${readyAgents.map((a) => a.name).join(", ")} (${readyAgents.length})\n`,
+		);
 		process.stderr.write(`[d-pi hub] Listening on port ${hubPort}\n`);
 		process.stderr.write(`[d-pi hub] Connect with: d-pi connect <local-user@http://localhost:${hubPort}>\n`);
+		for (const err of this._restoreErrors) {
+			process.stderr.write(`[d-pi hub] Warning: ${err}\n`);
+		}
 	}
 
 	/**
@@ -152,22 +160,15 @@ export class Hub {
 		for (const d of ordered) {
 			let parentName = d.config.parentName;
 			if (d.cycle) {
-				process.stderr.write(
-					`[d-pi hub] Cycle detected in parent chain starting at "${d.config.name}" (${d.entryName}/); restoring as orphan.\n`,
+				this._restoreErrors.push(
+					`Cycle detected in parent chain starting at "${d.config.name}" (${d.entryName}/); restored as orphan.`,
 				);
 				parentName = undefined;
 			}
-			process.stderr.write(`[d-pi hub] Restoring agent "${d.config.name}" from ${d.entryName}/\n`);
 			const parentNameForCreate = parentName;
 			if (parentName && !this._registry.getByName(parentName)) {
-				// parentName is set but the named parent didn't make it into
-				// the registry during this restore pass (e.g. its agent.ts
-				// is missing or filtered out). Surface this loudly — the
-				// depth-sort above is supposed to prevent it, but we still
-				// want a clear signal if a parent agent.ts is hand-deleted
-				// mid-edit.
-				process.stderr.write(
-					`[d-pi hub] Parent agent "${parentName}" not found while restoring "${d.config.name}" (${d.entryName}/); restoring as orphan.\n`,
+				this._restoreErrors.push(
+					`Parent agent "${parentName}" not found while restoring "${d.config.name}" (${d.entryName}/); restored as orphan.`,
 				);
 			}
 			try {
@@ -175,10 +176,11 @@ export class Hub {
 					name: d.config.name,
 					description: d.config.description,
 					persistDefinition: false,
+					_silent: true,
 				});
 			} catch (err) {
-				process.stderr.write(
-					`[d-pi hub] Failed to restore agent from ${d.entryName}/: ${err instanceof Error ? err.message : String(err)}\n`,
+				this._restoreErrors.push(
+					`Failed to restore agent from ${d.entryName}/: ${err instanceof Error ? err.message : String(err)}`,
 				);
 			}
 		}
@@ -191,6 +193,7 @@ export class Hub {
 			cwd?: string;
 			description?: string;
 			persistDefinition?: boolean;
+			_silent?: boolean;
 		},
 	): Promise<CreateAgentResult> {
 		// Parent invariant: a non-undefined parentName MUST refer to a live
@@ -237,8 +240,6 @@ export class Hub {
 
 		// Compute isolated session directory
 		const sessionDir = join(agentDir, AGENT_SESSION_DIR);
-
-		process.stderr.write(`[d-pi hub] Creating agent "${options.name}" (IPC mode), cwd=${agentDir}\n`);
 
 		// Create worker — `agentName` is the agent's identity (no separate id)
 		const worker = new Worker(new URL("../worker/agent-worker.js", import.meta.url), {
@@ -291,7 +292,6 @@ export class Hub {
 					clearTimeout(timeout);
 					this._registry.updateStatus(options.name, "ready");
 					worker.off("message", readyHandler);
-					process.stderr.write(`[d-pi hub] Agent "${options.name}" is ready\n`);
 					resolve({ agentName: options.name });
 				}
 				if (message.type === "error" && message.agentName === options.name) {
@@ -408,7 +408,7 @@ export class Hub {
 	private async _handleToolCall(callId: string, tool: string, params: unknown, fromAgentName: string): Promise<void> {
 		const agent = this._registry.get(fromAgentName);
 		if (!agent) {
-			process.stderr.write(`[d-pi hub] _handleToolCall: agent not found for ${fromAgentName}\n`);
+			process.stderr.write(`[d-pi hub] Received tool call from unknown agent: ${fromAgentName}\n`);
 			return;
 		}
 
@@ -585,7 +585,7 @@ export class Hub {
 							});
 							if (resolved) {
 								process.stderr.write(
-									`[hub] dispatch call ${executorCallId} timed out after ${this._remoteCallTimeoutMs}ms\n`,
+									`[d-pi hub] Dispatch call ${executorCallId} timed out after ${this._remoteCallTimeoutMs}ms\n`,
 								);
 							}
 						}, this._remoteCallTimeoutMs);

@@ -213,7 +213,6 @@ export class SourceManager {
 				messageCount: 0,
 				lastMessageTime: undefined,
 			});
-			process.stderr.write(`[d-pi source] Loaded source "${name}" (command: ${definition.command})\n`);
 		} catch (err) {
 			process.stderr.write(
 				`[d-pi source] Failed to load source "${name}" from ${filePath}: ${err instanceof Error ? err.message : String(err)}\n`,
@@ -225,10 +224,6 @@ export class SourceManager {
 		const { definition } = handle;
 		const cwd = definition.cwd ?? join(this.workspaceRoot, "sources", handle.name);
 		const env = { ...process.env, ...(definition.env ?? {}) };
-
-		process.stderr.write(
-			`[d-pi source] Starting source "${handle.name}": ${definition.command} ${(definition.args ?? []).join(" ")}\n`,
-		);
 
 		const child = spawn(definition.command, definition.args ?? [], {
 			cwd,
@@ -244,8 +239,9 @@ export class SourceManager {
 			this.flushBuffer(handle);
 		});
 
-		child.stderr.on("data", (chunk: Buffer) => {
-			process.stderr.write(`[d-pi source ${handle.name}] ${chunk.toString("utf-8")}`);
+		child.stderr.on("data", (_chunk: Buffer) => {
+			// Source process stderr is intentionally not forwarded to the hub log
+			// to avoid polluting serve output with third-party process noise.
 		});
 
 		child.on("error", (err) => {
@@ -253,10 +249,11 @@ export class SourceManager {
 		});
 
 		child.on("exit", (code) => {
-			process.stderr.write(`[d-pi source ${handle.name}] Process exited with code ${code}\n`);
 			handle.process = undefined;
-			if (!handle.shutdown && handle.subscribers.size > 0) {
-				process.stderr.write(`[d-pi source ${handle.name}] Restarting in ${RESTART_DELAY_MS}ms...\n`);
+			if (code !== 0 && !handle.shutdown) {
+				process.stderr.write(
+					`[d-pi source ${handle.name}] Exited with code ${code}, restarting in ${RESTART_DELAY_MS}ms...\n`,
+				);
 				handle.restartTimer = setTimeout(() => {
 					handle.restartTimer = undefined;
 					if (!handle.shutdown && handle.subscribers.size > 0) {

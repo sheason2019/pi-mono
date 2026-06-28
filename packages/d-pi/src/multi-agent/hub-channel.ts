@@ -49,10 +49,7 @@ export class HubChannel {
 		if (pending) {
 			this._pendingCalls.delete(callId);
 			clearTimeout((pending as typeof pending & { timer?: ReturnType<typeof setTimeout> }).timer);
-			process.stderr.write(`[d-pi hub-channel] resolveCall callId=${callId}, result=${JSON.stringify(result)}\n`);
 			pending.resolve(result);
-		} else {
-			process.stderr.write(`[d-pi hub-channel] resolveCall: no pending call for callId=${callId}\n`);
 		}
 	}
 
