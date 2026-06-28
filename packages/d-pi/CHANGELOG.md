@@ -21,6 +21,8 @@
 - Fixed remote worker IPC behavior after the runtime cutover: state queries, prompt/steer/follow-up actions, SSE subscribe/unsubscribe, extension-generated messages, and local native tool execution are now handled by d-pi-owned adapters instead of placeholder or timeout-prone bridges.
 - Fixed context usage percentage always showing 0% in the TUI footer. The worker adapter and runtime snapshot now compute context window usage via the upstream `estimateContextTokens` helper, which uses provider-reported usage data when available and falls back to a character-based heuristic otherwise.
 - Fixed `d-pi connect` hanging indefinitely when the hub is unreachable. Connect now has a 10-second timeout for hub API calls (team fetch, agent binding); the process exits cleanly on timeout instead of blocking forever.
+- Fixed `d-pi-message` custom component not rendering in connect mode. The d-pi connect client now bundles the built-in `d-pi-message` component directly instead of relying on workspace-side TUI component discovery, so custom message rendering works out of the box without requiring `tui-components/d-pi-message.ts` in the workspace.
+- Fixed `d-pi doctor` missing TUI component information. The doctor output now includes a `tui components` check that lists all discovered `.ts` component files, or shows an info note when none are present.
 
 ### Removed
 

@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import dPiMessageComponent from "../../public/d-pi-message.ts";
 import type { MessageRenderer } from "../../tui-components/tui-component-definition.ts";
 import { isAgentTuiComponentDefinition } from "../../tui-components/tui-component-discovery.ts";
 
@@ -19,15 +20,17 @@ export interface LoadDPiConnectTuiComponentsOptions {
 export async function loadDPiConnectTuiComponents(
 	options: LoadDPiConnectTuiComponentsOptions,
 ): Promise<DPiMessageRendererRegistry> {
+	const registry: DPiMessageRendererRegistry = {
+		[dPiMessageComponent.customType]: dPiMessageComponent.render as MessageRenderer<unknown>,
+	};
 	const fetchFn = options.fetch ?? fetch;
 	const manifestResponse = await fetchFn(`${options.hubUrl.replace(/\/+$/, "")}/_hub/.public/tui-components`, {
 		headers: options.authHeaders,
 	});
 	if (!manifestResponse.ok) {
-		return {};
+		return registry;
 	}
 	const manifest = (await manifestResponse.json()) as TuiComponentsManifest;
-	const registry: DPiMessageRendererRegistry = {};
 	for (const component of manifest.components ?? []) {
 		if (typeof component.name !== "string" || typeof component.url !== "string") {
 			continue;

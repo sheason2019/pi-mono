@@ -956,23 +956,25 @@ export class HubGateway {
 	}
 
 	private _handleTuiComponentsManifest(req: IncomingMessage, res: ServerResponse): void {
-		const workspaceRoot = this._workspaceRoot;
-		if (!workspaceRoot) {
-			res.writeHead(200, { "Content-Type": "application/json" });
-			res.end(JSON.stringify({ components: [] }));
-			return;
-		}
 		const origin = `http://${req.headers.host ?? "localhost"}`;
-		const components = discoverTuiComponentFiles(workspaceRoot).map((component) => ({
-			name: component.name,
-			url: `${origin}/_hub/.public/tui-components/${encodeURIComponent(component.name)}`,
-		}));
+		const components = this._workspaceRoot
+			? discoverTuiComponentFiles(this._workspaceRoot).map((component) => ({
+					name: component.name,
+					url: `${origin}/_hub/.public/tui-components/${encodeURIComponent(component.name)}`,
+				}))
+			: [];
 		res.writeHead(200, { "Content-Type": "application/json" });
 		res.end(JSON.stringify({ components }));
 	}
 
 	private _handleTuiComponentFile(res: ServerResponse, encodedName: string): void {
-		const filePath = this._resolveTuiComponentFile(encodedName);
+		const name = decodeURIComponent(encodedName);
+		if (name !== basename(name) || name.includes("/") || name.includes("\\") || !name.endsWith(".ts")) {
+			res.writeHead(404, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ error: "TUI component not found" }));
+			return;
+		}
+		const filePath = this._resolveTuiComponentFile(name);
 		if (!filePath) {
 			res.writeHead(404, { "Content-Type": "application/json" });
 			res.end(JSON.stringify({ error: "TUI component not found" }));
@@ -982,12 +984,8 @@ export class HubGateway {
 		res.end(readFileSync(filePath, "utf-8"));
 	}
 
-	private _resolveTuiComponentFile(encodedName: string): string | undefined {
+	private _resolveTuiComponentFile(name: string): string | undefined {
 		if (!this._workspaceRoot) {
-			return undefined;
-		}
-		const name = decodeURIComponent(encodedName);
-		if (name !== basename(name) || name.includes("/") || name.includes("\\") || !name.endsWith(".ts")) {
 			return undefined;
 		}
 		const dir = tuiComponentsDir(this._workspaceRoot);
