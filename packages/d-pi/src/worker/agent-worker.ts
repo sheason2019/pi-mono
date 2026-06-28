@@ -37,6 +37,7 @@ import {
 	createDestroyAgentTool,
 	createDispatchBashTool,
 	createDispatchReadTool,
+	createPlanTool,
 	createReloadTool,
 	createReloadWorkspaceTool,
 	createSendMessageTool,
@@ -133,6 +134,7 @@ async function reloadAgentResources(): Promise<void> {
 		getResourceLoader: () => runtime?.session?.resourceLoader,
 		getModelRegistry: () => runtime?.session?.modelRegistry,
 		getDisableDefaultTools: () => newAgentDefinition.disableDefaultTools,
+		getProxy: () => proxy,
 	});
 	runtime.session.registerCapabilities(capabilities);
 	agentToolNames = capabilities.tools.map((t) => t.name);
@@ -176,6 +178,7 @@ interface AgentLocalToolsSetupOptions {
 	getResourceLoader: () => ResourceLoader | undefined;
 	getModelRegistry: () => ModelRegistry | undefined;
 	getDisableDefaultTools: () => boolean;
+	getProxy: () => DPiLocalAgentSessionProxy | undefined;
 }
 
 function getDefaultBuiltinTools(): AgentToolDefinition[] {
@@ -188,6 +191,7 @@ function getDefaultBuiltinTools(): AgentToolDefinition[] {
 		createTeamTool(),
 		createReloadTool(),
 		createReloadWorkspaceTool(),
+		createPlanTool(),
 	];
 }
 
@@ -226,6 +230,7 @@ function setupBuiltinContext(options: AgentLocalToolsSetupOptions): void {
 			tool.execute(toolCallId, params as never, signal, onUpdate as never);
 	}
 	const hubClient = createHubActionsClientFromHubChannel(options.channel);
+	const currentProxy = options.getProxy();
 	setBuiltinContext({
 		hubClient,
 		agentName: options.channel.agentName,
@@ -233,6 +238,8 @@ function setupBuiltinContext(options: AgentLocalToolsSetupOptions): void {
 		remoteExecutor: createWorkerRemoteExecutor(options.channel),
 		getReloadFn: options.getReloadFn,
 		getReloadDetails: () => createReloadSnapshot(options).details,
+		updatePlan: (plan) => currentProxy?.updatePlan(plan),
+		getPlan: () => currentProxy?.getPlan() ?? [],
 	});
 }
 
@@ -467,6 +474,7 @@ async function runAgentWorker(): Promise<void> {
 	// 6. Create proxy
 	proxy = new DPiLocalAgentSessionProxy(runtime!, {
 		steeringQueuePath: join(agentDir, "steering.jsonl"),
+		planPath: join(agentDir, "plan.json"),
 		agentDefinition: agentDefinition,
 	});
 	proxy.setBanner(generateDPiBanner(runtime!.session));
@@ -491,6 +499,7 @@ async function runAgentWorker(): Promise<void> {
 			getResourceLoader: () => runtime?.session?.resourceLoader,
 			getModelRegistry: () => runtime?.session?.modelRegistry,
 			getDisableDefaultTools: () => agentDefinition?.disableDefaultTools ?? false,
+			getProxy: () => proxy,
 		});
 		session.registerCapabilities(capabilities);
 		agentToolNames = capabilities.tools.map((t) => t.name);

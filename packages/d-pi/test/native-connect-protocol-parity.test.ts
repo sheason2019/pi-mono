@@ -15,6 +15,7 @@ import {
 function snapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "anthropic/claude-sonnet-4",
+		plan: [],
 		isStreaming: false,
 		isCompacting: false,
 		steeringMessages: [],

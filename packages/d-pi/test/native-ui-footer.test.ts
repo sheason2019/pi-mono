@@ -6,6 +6,7 @@ import { createDPiNativeTheme, getDPiNativeEditorTheme } from "../src/tui/native
 function snapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "stepfun/step-3.7-flash",
+		plan: [],
 		isStreaming: false,
 		isCompacting: false,
 		steeringMessages: [],

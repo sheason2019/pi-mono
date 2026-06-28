@@ -13,6 +13,7 @@ import {
 function snapshot(): DPiInteractiveSessionStateSnapshot {
 	return {
 		model: "claude-sonnet-4",
+		plan: [],
 		isStreaming: true,
 		isCompacting: false,
 		steeringMessages: ["interrupt"],
