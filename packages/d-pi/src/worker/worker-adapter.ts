@@ -1114,28 +1114,17 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	getTree(): DPiInteractiveTreeNodeData[] {
-		const nodes = this.messages.map((message, index): DPiInteractiveTreeNodeData => {
-			const previous = this.messages[index - 1];
-			return {
+		return this.messages.map(
+			(message): DPiInteractiveTreeNodeData => ({
 				id: message.id,
 				type: message.role,
-				parentId: previous?.id ?? null,
+				parentId: null,
 				timestamp: new Date(message.timestamp).toISOString(),
 				preview: messageContentText(message.content).replace(/\s+/g, " ").trim(),
 				content: message.content,
 				children: [],
-			};
-		});
-		const byId = new Map(nodes.map((node) => [node.id, node]));
-		const roots: DPiInteractiveTreeNodeData[] = [];
-		for (const node of nodes) {
-			if (node.parentId) {
-				byId.get(node.parentId)?.children.push(node);
-			} else {
-				roots.push(node);
-			}
-		}
-		return roots;
+			}),
+		);
 	}
 
 	getUserMessagesForForking(): DPiInteractiveUserMessageItem[] {
