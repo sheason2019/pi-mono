@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0-alpha.15] - 2026-06-29
+
 ### Added
 
 - Added `plan` tool for visible task management. Agents can create, update, and clear task plan items with title and description; the plan persists across restarts via `plan.json` in the agent directory, and renders above the input box in the TUI.
