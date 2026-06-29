@@ -255,7 +255,7 @@ describe("hub endpoint POST /agents/{id}/remote-call", () => {
 			async () => {},
 			new AuthSessionManager(workspaceRoot),
 			executorRegistry,
-			{ remoteCallTimeoutMs: 50, workspaceRoot },
+			{ remoteCallTimeoutMs: 50 },
 		);
 		await gateway.start(0);
 		const url = gateway.url();

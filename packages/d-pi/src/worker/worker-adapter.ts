@@ -47,7 +47,6 @@ import type {
 	DPiInteractiveStatusState,
 } from "../tui/interactive/view-model.ts";
 import { createDPiInteractiveRealtimePage } from "../tui/interactive/view-model.ts";
-import type { MessageRenderer } from "../tui-components/tui-component-definition.ts";
 import { loadWorkspaceModelDefinition } from "../workspace/workspace-resources.ts";
 
 export interface DPiRequestAuth {
@@ -613,7 +612,6 @@ export interface DPiRegisteredCommand {
 export interface DPiSessionCapabilitySnapshot {
 	tools: DPiRegisteredTool[];
 	commands: DPiRegisteredCommand[];
-	renderers: string[];
 	inputHandlers: number;
 	eventHandlers: string[];
 }
@@ -621,7 +619,6 @@ export interface DPiSessionCapabilitySnapshot {
 interface DPiSessionRegistryState extends DPiSessionCapabilitySnapshot {
 	toolDefinitions: ToolDefinition[];
 	commandDefinitions: AgentCommandDefinition[];
-	messageRenderers: Array<{ customType: string; renderer: MessageRenderer<unknown> }>;
 	inputHandlerDefinitions: Array<NonNullable<AgentMiddlewareDefinition["onInput"]>>;
 	eventHandlerDefinitions: Array<{ event: string; handler: () => void }>;
 }
@@ -1988,12 +1985,10 @@ function createEmptyRegistryState(): DPiSessionRegistryState {
 	return {
 		tools: [],
 		commands: [],
-		renderers: [],
 		inputHandlers: 0,
 		eventHandlers: [],
 		toolDefinitions: [],
 		commandDefinitions: [],
-		messageRenderers: [],
 		inputHandlerDefinitions: [],
 		eventHandlerDefinitions: [],
 	};
@@ -2002,12 +1997,10 @@ function createEmptyRegistryState(): DPiSessionRegistryState {
 function resetRegistryState(state: DPiSessionRegistryState): void {
 	state.tools = [];
 	state.commands = [];
-	state.renderers = [];
 	state.inputHandlers = 0;
 	state.eventHandlers = [];
 	state.toolDefinitions = [];
 	state.commandDefinitions = [];
-	state.messageRenderers = [];
 	state.inputHandlerDefinitions = [];
 	state.eventHandlerDefinitions = [];
 }
@@ -2393,7 +2386,6 @@ function getSessionCapabilitySnapshot(session: DPiWorkerSession): DPiSessionCapa
 	return {
 		tools: state.tools.map((tool) => ({ ...tool })),
 		commands: state.commands.map((command) => ({ ...command })),
-		renderers: [...state.renderers],
 		inputHandlers: state.inputHandlers,
 		eventHandlers: [...state.eventHandlers],
 	};
