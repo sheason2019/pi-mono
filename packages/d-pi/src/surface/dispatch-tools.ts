@@ -51,12 +51,12 @@ function createDispatchTool(nativeName: string, label: string, parameters: TSche
 		name: `dispatch_${nativeName}`,
 		label,
 		description:
-			`Execute ${nativeName} either locally on the hub host or remotely on a connected d-pi client. ` +
-			"Without the `connect_id` parameter, runs on the hub host (same as a local tool). " +
-			"With `connect_id`, dispatches to the specified connected client device. " +
-			"Use `connect_id` when the task targets the user's device (their laptop, local files, shell environment). " +
-			"Omit `connect_id` when operating on the hub host. " +
-			"Do NOT use `connect_id` to test whether a client is connected - only use it when you need to operate on the user's device for a specific task.",
+			`Execute ${nativeName} either on the hub host or remotely on a connected d-pi client. ` +
+			'Set `connect_id` to `"host"` to run on the hub host. ' +
+			"Set `connect_id` to a connect_id string to dispatch to the specified connected client device. " +
+			"Use the user's connect_id when the task targets the user's device (their laptop, local files, shell environment). " +
+			'Use `"host"` when operating on the hub host. ' +
+			"The `connect_id` parameter is required — do NOT omit it.",
 		parameters: dispatchParameters,
 		async execute(toolCallId, params, signal, onUpdate) {
 			const ctx = getBuiltinContext();
@@ -67,7 +67,7 @@ function createDispatchTool(nativeName: string, label: string, parameters: TSche
 				throw new Error(`No local executor registered for native tool: ${nativeName}`);
 			}
 
-			if (!connectId) {
+			if (!connectId || connectId === "host") {
 				return (await localExecutor(
 					toolCallId,
 					nativeParams,
@@ -103,6 +103,7 @@ function createDispatchTool(nativeName: string, label: string, parameters: TSche
 function withConnectIdParameter(parameters: TSchema): TSchema {
 	const base = toObjectSchema(parameters);
 	const baseProperties = isRecord(base.properties) ? (base.properties as Record<string, TSchema>) : {};
+	const baseRequired = Array.isArray(base.required) ? (base.required as string[]) : [];
 	return {
 		...base,
 		type: "object",
@@ -110,10 +111,10 @@ function withConnectIdParameter(parameters: TSchema): TSchema {
 			...baseProperties,
 			connect_id: Type.String({
 				description:
-					"Optional. The connect_id of the d-pi client to dispatch to. Omit to run locally on the hub host. Provide to run on the specified connected client device.",
+					'Required. The dispatch target. Set to "host" to run on the hub host. Set to a connect_id string to dispatch to the specified connected d-pi client device.',
 			}),
 		},
-		...(Array.isArray(base.required) ? { required: base.required.filter((name) => name !== "connect_id") } : {}),
+		required: [...baseRequired, "connect_id"],
 	} as TSchema;
 }
 
