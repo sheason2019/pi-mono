@@ -21,10 +21,55 @@ d-pi is the agent base you are currently running on. It allows
 multiple long-lived agents to run as a team, and provides an executor
 capability for running commands remotely through a connected client.
 
-File and shell operations use dispatch tools. By default, omit
-connect_id so commands run on the hub host where your agent process
-lives. Only provide connect_id when the user explicitly asks you to
-operate on a connected client device.
+### Dispatch tools and execution targets
+
+File and shell operations use dispatch tools (\`dispatch_bash\`, \`dispatch_read\`).
+The \`connect_id\` parameter is always required — never omit it.
+
+- \`connect_id: "host"\` — run the tool on the hub host machine where your
+  agent process lives. This is the "local" execution path.
+- \`connect_id: "<connect-id>"\` — dispatch the tool to a connected d-pi
+  client device (e.g. the user's laptop). Use this when the task targets
+  the user's device, their local files, or their shell environment.
+
+Use \`team\` to see which executors are connected and which agent they are
+bound to. Each executor entry shows its \`connectId\` and \`boundAgentName\`.
+
+### Agent working directories and workspace layout
+
+The d-pi workspace root is the directory containing the \`.dpi/\` marker.
+Each agent has its own working directory under \`agents/<name>/\`:
+
+- Your agent's \`cwd\` is \`agents/<your-name>/\` — this is where relative
+  paths resolve when you run shell commands or read files via dispatch.
+- The workspace root (where \`.dpi/\`, \`models/\`, \`sources/\`, and the
+  top-level \`context/\` live) is two levels up from your cwd. Use
+  \`../../\` to refer to workspace-root paths from your agent cwd.
+- The \`agents/\` directory itself is one level up from your cwd.
+- Each agent has its own independent \`session/\` directory under its cwd.
+
+Example path relationships (for an agent named "main"):
+
+\`\`\`
+workspace/          ← d-pi workspace root (.dpi/ lives here)
+├── .dpi/
+├── models/
+├── sources/
+├── context/
+└── agents/
+    └── main/       ← agent cwd (process.cwd())
+        ├── agent.ts
+        ├── AGENTS.md
+        ├── context/
+        ├── tools/
+        ├── commands/
+        ├── skills/
+        └── session/
+\`\`\`
+
+When operating on the hub host (\`connect_id: "host"\`), relative paths are
+resolved from your agent's cwd (\`agents/<name>/\`). To access workspace-level
+files, use relative paths like \`../../models/\` or \`../../context/\`.
 
 ### Convention-based configuration
 
@@ -65,6 +110,27 @@ meta header indicating sourceType: "source" and sourceName. Messages from
 connected users have sourceType: "connect"; messages from other agents have
 sourceType: "agent" with agentName. Always check the meta header to
 distinguish automated source pushes from direct user input.
+
+### Agent lifecycle and team management
+
+Agents are defined entirely on disk under \`agents/<name>/agent.ts\`. There is
+no programmatic API to create or destroy agents directly — use the filesystem.
+
+To create a new agent:
+1. Create a directory \`agents/<name>/\` under the workspace root.
+2. Write an \`agent.ts\` file with \`defineAgent({...})\` — you must explicitly
+   specify a model (there is no default model).
+   - Use \`parent: parentAgent\` to make it a child of an existing agent.
+   - Reference workspace models by path string, e.g. \`model: "openai/gpt-4o"\`.
+3. Call the \`sync_agents\` tool — the hub will discover and start the new agent.
+
+To remove an agent:
+1. Make sure it has no children (destroy children first).
+2. Delete the entire \`agents/<name>/\` directory.
+3. Call the \`sync_agents\` tool — the hub will stop and remove the agent.
+
+Use the \`team\` tool to see the full agent tree, each agent's status, model,
+and tools, plus connected executors and running sources.
 
 ### Reloading
 
