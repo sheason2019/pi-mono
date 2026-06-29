@@ -55,6 +55,7 @@ export type WorkerToHubMessage =
 	| { type: "error"; agentName: string; error: string }
 	| { type: "tool_call"; agentName: string; tool: string; params: unknown; callId: string }
 	| { type: "tool_call_timeout"; agentName: string; callId: string }
+	| { type: "cancel_tool_call"; agentName: string; callId: string }
 	| { type: "status_update"; agentName: string; status: AgentStatus }
 	| { type: "http_response"; agentName: string; requestId: string; status: number; body: unknown }
 	| { type: "sse_event"; agentName: string; subscriberId: string; event: string; data: unknown }

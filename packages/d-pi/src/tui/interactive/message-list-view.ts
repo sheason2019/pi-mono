@@ -417,7 +417,7 @@ function buildItemComponents(
 			),
 		];
 	}
-	return [new Text(ctx.theme.fg(item.level === "error" ? "error" : "muted", item.text), 1, 0)];
+	return [new Spacer(1), new Text(ctx.theme.fg(item.level === "error" ? "error" : "muted", item.text), 1, 0)];
 }
 
 function buildMessageComponents(
@@ -601,7 +601,7 @@ function itemLines(item: DPiTranscriptItem, options: DPiInteractiveStyleOptions)
 	if (item.type === "turn_stats") {
 		return ["", style.dim(buildDPiInteractiveStatusView({ isStreaming: false }, item, { color: false }).text)];
 	}
-	return blockLines(item.text, item.level === "error" ? style.error : style.muted);
+	return ["", ...blockLines(item.text, item.level === "error" ? style.error : style.muted)];
 }
 
 export function buildDPiInteractiveStatusView(

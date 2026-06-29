@@ -2198,7 +2198,7 @@ function localMessageToTranscriptItem(message: DPiLocalAgentMessage): DPiTranscr
 		return {
 			id: message.id,
 			type: "notice",
-			level: "info",
+			level: "error",
 			text: typeof message.content === "string" ? message.content : messageContentText(message.content),
 			timestamp: message.timestamp,
 		};

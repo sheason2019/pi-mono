@@ -83,6 +83,7 @@ function createDispatchTool(nativeName: string, label: string, parameters: TSche
 					toolName: nativeName,
 					params: nativeParams,
 					sourceAgentName: ctx.agentName,
+					signal,
 				});
 
 				if (!result.ok || result.error) {
@@ -90,6 +91,9 @@ function createDispatchTool(nativeName: string, label: string, parameters: TSche
 				}
 				return result.result as AgentToolResult<DPiToolDetails>;
 			} catch (err) {
+				if (signal?.aborted) {
+					throw err;
+				}
 				return errorTextResult(errorMessage(err));
 			}
 		},

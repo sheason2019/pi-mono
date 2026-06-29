@@ -4,6 +4,10 @@ export type RemoteCallEvent = {
 	params: unknown;
 };
 
+export type CancelCallEvent = {
+	callId: string;
+};
+
 export type ResultPayload =
 	| { connectId: string; callId: string; ok: true; result: unknown }
 	| { connectId: string; callId: string; ok: false; error: string };
@@ -16,6 +20,7 @@ export interface ExecutorClientOptions {
 	authToken?: string;
 	connectId: string;
 	onCommand: (event: RemoteCallEvent) => Promise<void> | void;
+	onCancel?: (event: CancelCallEvent) => void;
 }
 
 /** Small helper: do a fetch with the executor's auth header (omitted
@@ -45,6 +50,7 @@ async function hubFetch(
 async function readSseEvents(
 	reader: ReadableStreamDefaultReader<Uint8Array>,
 	onRemoteCall: (event: RemoteCallEvent) => Promise<void> | void,
+	onCancelCall: ((event: CancelCallEvent) => void) | undefined,
 	close: () => void,
 ): Promise<void> {
 	const decoder = new TextDecoder();
@@ -83,6 +89,15 @@ async function readSseEvents(
 						});
 					} catch {
 						/* ignore malformed */
+					}
+				} else if (eventName === "cancel-call") {
+					if (onCancelCall) {
+						try {
+							const event = JSON.parse(dataStr) as CancelCallEvent;
+							onCancelCall(event);
+						} catch {
+							/* ignore malformed */
+						}
 					}
 				}
 				// "connected" is informational; no-op.
@@ -133,7 +148,7 @@ export class ExecutorClient {
 		}
 
 		const reader = res.body.getReader();
-		void readSseEvents(reader, this.opts.onCommand, () => {
+		void readSseEvents(reader, this.opts.onCommand, this.opts.onCancel, () => {
 			// SSE ended: the hub disconnected us (graceful shutdown or
 			// server died) or the underlying socket errored out. We
 			// deliberately do not reconnect. The executor's lifetime

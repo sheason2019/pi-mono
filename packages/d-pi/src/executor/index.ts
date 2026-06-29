@@ -31,11 +31,15 @@ export async function main(): Promise<void> {
 		authToken: env.authToken,
 		connectId: env.connectId,
 		onCommand: async (event) => {
-			const result = await runner.run(event.callId, event.tool, event.params);
-			await client.sendResult({
-				callId: event.callId,
-				...result,
-			});
+			const result = await runner.run(event.callId, event.tool, event.params as Record<string, unknown>);
+			if (result.ok) {
+				await client.sendResult({ callId: event.callId, ok: true, result: result.result });
+			} else {
+				await client.sendResult({ callId: event.callId, ok: false, error: result.error });
+			}
+		},
+		onCancel: (event) => {
+			runner.cancelCall(event.callId);
 		},
 	});
 	await client.start();

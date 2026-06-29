@@ -246,7 +246,7 @@ function setupBuiltinContext(options: AgentLocalToolsSetupOptions): void {
 function createWorkerRemoteExecutor(channel: HubChannel): DPiRemoteExecutor {
 	return {
 		async executeRemoteTool(request): Promise<DPiRemoteToolResult> {
-			const result = await channel.callDispatch(request.toolName, request.params, request.connectId);
+			const result = await channel.callDispatch(request.toolName, request.params, request.connectId, request.signal);
 			const dispatchResult = result as Partial<DPiRemoteToolResult>;
 			return {
 				requestId: request.requestId,
