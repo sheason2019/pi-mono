@@ -56,6 +56,8 @@ function setupContext(
 		remoteExecutor,
 		getReloadFn: () => undefined,
 		getReloadDetails: () => ({}),
+		updatePlan: () => {},
+		getPlan: () => [],
 	});
 }
 

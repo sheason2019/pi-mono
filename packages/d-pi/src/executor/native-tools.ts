@@ -1,5 +1,6 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { platform } from "node:os";
 import { resolve } from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
@@ -66,29 +67,107 @@ function execShell(
 	signal: AbortSignal | undefined,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
 	return new Promise((resolvePromise) => {
-		const child = execFile(
-			shell,
-			["-lc", command],
-			{
-				cwd,
-				encoding: "utf8",
-				maxBuffer: MAX_TEXT_BYTES,
-				signal,
-				timeout: timeoutMs,
-			},
-			(error, stdout, stderr) => {
-				const exitCode = error && "code" in error && typeof error.code === "number" ? error.code : error ? 1 : 0;
-				resolvePromise({ exitCode, stdout: String(stdout), stderr: String(stderr) });
-			},
-		);
-		child.on("error", (error) => {
-			resolvePromise({ exitCode: 1, stdout: "", stderr: error.message });
+		const isUnix = platform() !== "win32";
+		const child = spawn(shell, ["-lc", command], {
+			cwd,
+			detached: isUnix,
+			stdio: ["ignore", "pipe", "pipe"],
 		});
+
+		let stdout = "";
+		let stderr = "";
+		let timedOut = false;
+		let aborted = false;
+		let resolved = false;
+		let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+		const resolveOnce = (code: number) => {
+			if (resolved) return;
+			resolved = true;
+			if (timeoutId) clearTimeout(timeoutId);
+			if (aborted) {
+				resolvePromise({ exitCode: 1, stdout, stderr: stderr || "Command aborted by user" });
+			} else if (timedOut) {
+				resolvePromise({ exitCode: code || 1, stdout, stderr: stderr || `Command timed out after ${timeoutMs}ms` });
+			} else {
+				resolvePromise({ exitCode: code, stdout, stderr });
+			}
+		};
+
+		child.stdout.setEncoding("utf8");
+		child.stderr.setEncoding("utf8");
+
+		child.stdout.on("data", (chunk: string) => {
+			stdout += chunk;
+			if (Buffer.byteLength(stdout) > MAX_TEXT_BYTES * 2) {
+				stdout = stdout.slice(0, MAX_TEXT_BYTES);
+				child.kill("SIGKILL");
+			}
+		});
+		child.stderr.on("data", (chunk: string) => {
+			stderr += chunk;
+			if (Buffer.byteLength(stderr) > MAX_TEXT_BYTES * 2) {
+				stderr = stderr.slice(0, MAX_TEXT_BYTES);
+				child.kill("SIGKILL");
+			}
+		});
+
+		child.on("error", (err: NodeJS.ErrnoException) => {
+			if (err.code === "ABORT_ERR") return;
+			if (!resolved) {
+				stderr = err.message;
+				resolveOnce(1);
+			}
+		});
+
+		child.on("close", (code: number | null) => {
+			resolveOnce(code ?? 1);
+		});
+
+		if (timeoutMs) {
+			timeoutId = setTimeout(() => {
+				timedOut = true;
+				killProcessTree(child.pid, isUnix);
+			}, timeoutMs);
+		}
+
+		if (signal) {
+			const onAbort = () => {
+				aborted = true;
+				killProcessTree(child.pid, isUnix);
+			};
+			if (signal.aborted) {
+				onAbort();
+			} else {
+				signal.addEventListener("abort", onAbort, { once: true });
+				child.once("close", () => signal.removeEventListener("abort", onAbort));
+			}
+		}
 	});
 }
 
+function killProcessTree(pid: number | undefined, isUnix: boolean): void {
+	if (pid === undefined) return;
+	try {
+		if (isUnix) {
+			process.kill(-pid, "SIGTERM");
+			setTimeout(() => {
+				try {
+					process.kill(-pid, "SIGKILL");
+				} catch {
+					// already exited
+				}
+			}, 500);
+		} else {
+			process.kill(pid, "SIGKILL");
+		}
+	} catch {
+		// Process may already be gone
+	}
+}
+
 async function runRead(cwd: string, params: Static<typeof ReadParameters>): Promise<AgentToolResult<unknown>> {
-	const filePath = resolveInsideCwd(cwd, params.path);
+	const filePath = resolvePath(cwd, params.path);
 	const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
 	const imageExts = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"];
 
@@ -109,13 +188,8 @@ async function runRead(cwd: string, params: Static<typeof ReadParameters>): Prom
 	};
 }
 
-function resolveInsideCwd(cwd: string, path: string): string {
-	const root = resolve(cwd);
-	const target = resolve(root, path);
-	if (target !== root && !target.startsWith(`${root}/`)) {
-		throw new Error(`Path escapes working directory: ${path}`);
-	}
-	return target;
+function resolvePath(cwd: string, path: string): string {
+	return resolve(cwd, path);
 }
 
 function truncateText(text: string): string {

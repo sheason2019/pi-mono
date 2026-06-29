@@ -29,6 +29,7 @@ export { createHubActionsClientFromHubChannel } from "./hub-actions-adapter.ts";
 export {
 	createCreateAgentTool,
 	createDestroyAgentTool,
+	createPlanTool,
 	createReloadTool,
 	createReloadWorkspaceTool,
 	createSendMessageTool,

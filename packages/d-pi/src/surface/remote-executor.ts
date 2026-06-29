@@ -4,6 +4,7 @@ export interface DPiRemoteToolRequest {
 	toolName: string;
 	params: unknown;
 	sourceAgentName?: string;
+	signal?: AbortSignal;
 }
 
 export interface DPiRemoteToolResult {

@@ -164,6 +164,13 @@ export interface DPiInteractiveSlashCommand {
 	sourceInfo?: unknown;
 }
 
+export interface DPiInteractiveTodoItem {
+	id: string;
+	title: string;
+	description?: string;
+	status: "pending" | "in_progress" | "completed";
+}
+
 export interface DPiInteractiveSessionStateSnapshot {
 	model: string;
 	isStreaming: boolean;
@@ -181,6 +188,7 @@ export interface DPiInteractiveSessionStateSnapshot {
 	cwd: string;
 	availableProviderCount: number;
 	remoteSettings: DPiInteractiveRemoteSettings;
+	plan: DPiInteractiveTodoItem[];
 }
 
 export type DPiInteractiveAgentSessionEvent =
@@ -197,7 +205,8 @@ export type DPiInteractiveAgentSessionEvent =
 	| { type: "queue_update"; steering: string[] }
 	| { type: "state_update"; snapshot?: Partial<DPiInteractiveSessionStateSnapshot> }
 	| ({ type: "turn_stats" } & DPiInteractiveTurnStats)
-	| { type: "session_replaced"; reason: "new" | "resume" | "fork" };
+	| { type: "session_replaced"; reason: "new" | "resume" | "fork" }
+	| { type: "plan_update"; plan: DPiInteractiveTodoItem[] };
 
 export interface DPiInteractiveAgentSessionProxy {
 	subscribe(listener: (event: DPiInteractiveAgentSessionEvent) => void): () => void;

@@ -14,6 +14,7 @@ import {
 	setKeybindings,
 	type Terminal,
 	Text,
+	TruncatedText,
 	TUI,
 } from "@earendil-works/pi-tui";
 import { AGENT_SWITCH_FILE } from "../../multi-agent/multi-agent-extension.ts";
@@ -35,6 +36,7 @@ import type {
 	DPiInteractiveSessionItemData,
 	DPiInteractiveSessionStateSnapshot,
 	DPiInteractiveSlashCommand,
+	DPiInteractiveTodoItem,
 	DPiInteractiveTreeNodeData,
 	DPiInteractiveUserMessageItem,
 } from "./agent-session-proxy.ts";
@@ -46,6 +48,7 @@ import {
 	type DPiInteractiveStatusEntry,
 } from "./message-list-view.ts";
 import { createDPiInteractiveRemoteAgentSessionProxy } from "./remote-agent-session-proxy.ts";
+import { createDPiInteractiveStyle } from "./style.ts";
 import { submitDPiInteractiveEditorText } from "./submit.ts";
 import { type DPiMessageRendererRegistry, loadDPiConnectTuiComponents } from "./tui-component-loader.ts";
 
@@ -610,6 +613,45 @@ function settingUpdateFromSelectValue(
 	return undefined;
 }
 
+function buildDPiInteractivePlanComponent(
+	plan: readonly DPiInteractiveTodoItem[],
+	options: { color?: boolean } = {},
+): Container {
+	const container = new Container();
+	if (plan.length === 0) {
+		return container;
+	}
+	const style = createDPiInteractiveStyle(options);
+	container.addChild(new Spacer(1));
+	container.addChild(new Text(style.heading("Task Plan"), 1, 0));
+	for (const item of plan) {
+		const marker =
+			item.status === "completed"
+				? style.success("[x]")
+				: item.status === "in_progress"
+					? style.accent("[>]")
+					: style.dim("[ ]");
+		const titleText =
+			item.status === "completed"
+				? style.dim(style.bold(item.title))
+				: item.status === "in_progress"
+					? style.bold(item.title)
+					: style.bold(style.muted(item.title));
+		container.addChild(new TruncatedText(`${marker} ${titleText}`, 1, 0));
+		if (item.description) {
+			const descText =
+				item.status === "completed"
+					? style.dim(item.description)
+					: item.status === "in_progress"
+						? style.muted(item.description)
+						: style.muted(item.description);
+			container.addChild(new TruncatedText(`    ${descText}`, 1, 0));
+		}
+	}
+	container.addChild(new Spacer(1));
+	return container;
+}
+
 function sessionPanelText(snapshot: DPiInteractiveSessionStateSnapshot): string {
 	return [
 		`Session: ${snapshot.sessionName ?? snapshot.sessionFile ?? "(unnamed)"}`,
@@ -807,12 +849,11 @@ export async function runDPiConnectInteractiveMode(
 	const footer = new Text("", 0, 0);
 	const editor = new DPiNativeCustomEditor(tui, getDPiNativeEditorTheme(nativeTheme), keybindings);
 	const layout = createDPiConnectRootLayout();
-	const { editorContainer, pendingMessagesContainer } = layout;
+	const { editorContainer, pendingMessagesContainer, widgetContainerAbove } = layout;
 	editorContainer.addChild(editor);
 	layout.headerContainer.addChild(banner);
 	layout.chatContainer.addChild(messages);
 	layout.statusContainer.addChild(status);
-	layout.widgetContainerAbove.addChild(new Spacer(1));
 	layout.footerContainer.addChild(footer);
 	tui.addChild(layout.root);
 	tui.setFocus(editor);
@@ -883,6 +924,8 @@ export async function runDPiConnectInteractiveMode(
 		messageRenderer.update(messageSnapshot, clientState.turnStatusEntries, errorText);
 		pendingMessagesContainer.clear();
 		pendingMessagesContainer.addChild(buildDPiInteractivePendingMessagesComponent(snapshot, { color: true }));
+		widgetContainerAbove.clear();
+		widgetContainerAbove.addChild(buildDPiInteractivePlanComponent(snapshot.plan, { color: true }));
 		status.setWorking(
 			snapshot.isStreaming || snapshot.isCompacting,
 			snapshot.isCompacting
@@ -1030,7 +1073,11 @@ export async function runDPiConnectInteractiveMode(
 			render();
 		});
 	};
-	editor.onEscape = () => proxy.abort();
+	editor.onEscape = () => {
+		if (proxy.isStreaming || proxy.isCompacting) {
+			proxy.abort();
+		}
+	};
 	editor.onAction("app.clear", () => {
 		const now = Date.now();
 		if (now - clientState.lastCtrlCTime < 500) {

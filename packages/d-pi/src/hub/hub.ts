@@ -43,6 +43,8 @@ export class Hub {
 	 */
 	private readonly _remoteCallTimeoutMs: number;
 	private readonly _restoreErrors: string[] = [];
+	/** Maps worker IPC callId → { connectId, executorCallId } for in-flight dispatches, used for cancel. */
+	private readonly _dispatchCalls = new Map<string, { connectId: string; executorCallId: string }>();
 
 	constructor(config: HubConfig) {
 		this._config = config;
@@ -399,6 +401,15 @@ export class Hub {
 				process.stderr.write(`[d-pi hub] Tool call ${message.callId} from agent ${message.agentName} timed out\n`);
 				break;
 
+			case "cancel_tool_call": {
+				const dispatchInfo = this._dispatchCalls.get(message.callId);
+				if (dispatchInfo) {
+					this._dispatchCalls.delete(message.callId);
+					this._executorRegistry.cancelCall(dispatchInfo.connectId, dispatchInfo.executorCallId);
+				}
+				break;
+			}
+
 			case "subscribe_sources":
 				void this._sourceManager.subscribeAgent(message.agentName, message.sources);
 				break;
@@ -576,14 +587,19 @@ export class Hub {
 					// IPC layer to match the response back to the
 					// awaiting worker.
 					const executorCallId = `${fromAgentName}-dispatch-${randomUUID()}`;
+					this._dispatchCalls.set(callId, { connectId: cid, executorCallId });
 					result = await new Promise<{ ok: true; result: unknown } | { ok: false; error: string }>((resolve) => {
-						this._executorRegistry.addPendingCallback(cid, executorCallId, resolve);
+						this._executorRegistry.addPendingCallback(cid, executorCallId, (value) => {
+							this._dispatchCalls.delete(callId);
+							resolve(value);
+						});
 						const timer = setTimeout(() => {
 							const resolved = this._executorRegistry.resolveOne(cid, executorCallId, {
 								ok: false,
 								error: "Remote call timed out",
 							});
 							if (resolved) {
+								this._dispatchCalls.delete(callId);
 								process.stderr.write(
 									`[d-pi hub] Dispatch call ${executorCallId} timed out after ${this._remoteCallTimeoutMs}ms\n`,
 								);

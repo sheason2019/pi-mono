@@ -1,21 +1,45 @@
-import type { AgentToolDefinition } from "../agent-definition.ts";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 
-export type RunnerResult = { ok: true; result: unknown } | { ok: false; error: string };
-export type DPiExecutableTool = AgentToolDefinition;
+export type ToolCallResult =
+	| { ok: true; result: AgentToolResult<unknown> }
+	| { ok: false; result: null; error: string };
 
 export class ToolRunner {
-	private readonly byName: Map<string, DPiExecutableTool>;
-	constructor(tools: DPiExecutableTool[]) {
-		this.byName = new Map(tools.map((t) => [t.name, t]));
+	private readonly _tools: AgentTool[];
+	private readonly _abortControllers = new Map<string, AbortController>();
+
+	constructor(tools: AgentTool[]) {
+		this._tools = tools;
 	}
-	async run(callId: string, name: string, params: unknown): Promise<RunnerResult> {
-		const tool = this.byName.get(name);
-		if (!tool) return { ok: false, error: `Unknown tool: ${name}` };
+
+	cancelCall(callId: string): void {
+		const ac = this._abortControllers.get(callId);
+		if (ac) {
+			ac.abort();
+		}
+	}
+
+	async run(callId: string, name: string, params: Record<string, unknown>): Promise<ToolCallResult> {
+		const tool = this._tools.find((t) => t.name === name);
+
+		if (!tool) {
+			return { ok: false, result: null, error: `unknown tool: ${name}` };
+		}
+
+		const ac = new AbortController();
+		this._abortControllers.set(callId, ac);
+
 		try {
-			const result = await tool.execute(callId, params as never, undefined, undefined);
+			const result = await tool.execute(callId, params as never, ac.signal, undefined);
+			this._abortControllers.delete(callId);
 			return { ok: true, result };
-		} catch (e) {
-			return { ok: false, error: e instanceof Error ? e.message : String(e) };
+		} catch (err) {
+			this._abortControllers.delete(callId);
+			const error = err as Error;
+			if (error.name === "AbortError") {
+				return { ok: false, result: null, error: "aborted" };
+			}
+			return { ok: false, result: null, error: error.message };
 		}
 	}
 }

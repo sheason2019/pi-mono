@@ -194,4 +194,22 @@ export class ExecutorRegistry {
 			handle.pendingTimers.delete(callId);
 		}
 	}
+
+	cancelCall(connectId: string, callId: string): void {
+		const handle = this.entries.get(connectId);
+		if (!handle) return;
+		const pending = handle.pendingCalls.get(callId);
+		if (pending) {
+			this.clearPendingTimer(connectId, callId);
+			handle.pendingCalls.delete(callId);
+			pending.resolve({ ok: false, error: "aborted" });
+		}
+		if (handle.sseConn) {
+			try {
+				handle.sseConn.send("cancel-call", { callId });
+			} catch {
+				/* SSE may be closed; ignore */
+			}
+		}
+	}
 }

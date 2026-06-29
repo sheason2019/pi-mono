@@ -1,7 +1,10 @@
+import type { DPiInteractiveTodoItem } from "../tui/interactive/agent-session-proxy.ts";
 import type { DPiLocalToolExecutor } from "./dispatch-tools.ts";
 import type { DPiHubActionsClient } from "./hub-actions.ts";
 import type { DPiRemoteExecutor } from "./remote-executor.ts";
 import type { DPiToolDetails } from "./tool-surface.ts";
+
+export type DPiPlanItem = DPiInteractiveTodoItem;
 
 export interface DPiBuiltinContext {
 	hubClient: DPiHubActionsClient;
@@ -10,6 +13,8 @@ export interface DPiBuiltinContext {
 	remoteExecutor: DPiRemoteExecutor;
 	getReloadFn: () => ((reason?: string) => Promise<void>) | undefined;
 	getReloadDetails: () => DPiToolDetails;
+	updatePlan: (plan: DPiPlanItem[]) => void;
+	getPlan: () => DPiPlanItem[];
 }
 
 let _builtinContext: DPiBuiltinContext | null = null;

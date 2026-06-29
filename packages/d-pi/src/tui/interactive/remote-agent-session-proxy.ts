@@ -6,6 +6,7 @@ import type {
 	DPiInteractiveSessionItemData,
 	DPiInteractiveSessionStateSnapshot,
 	DPiInteractiveSlashCommand,
+	DPiInteractiveTodoItem,
 	DPiInteractiveTreeNodeData,
 	DPiInteractiveUserMessageItem,
 } from "./agent-session-proxy.ts";
@@ -43,11 +44,11 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 		maybeOptions?: DPiInteractiveRemoteAgentSessionProxyOptions,
 	) {
 		if (maybeOptions) {
-			this.statusState = initialStatus as DPiInteractiveStatusState;
+			this.statusState = ensurePlanInStatus(initialStatus as DPiInteractiveStatusState);
 			this.realtimeState = realtimeOrOptions as DPiInteractiveRealtimeState;
 		} else {
 			const split = splitDPiInteractiveSnapshot(initialStatus as DPiInteractiveSessionStateSnapshot);
-			this.statusState = split.status;
+			this.statusState = ensurePlanInStatus(split.status);
 			this.realtimeState = split.realtime;
 		}
 		const options = maybeOptions ?? (realtimeOrOptions as DPiInteractiveRemoteAgentSessionProxyOptions);
@@ -216,8 +217,8 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	private applyNamedEvent(event: NamedSseEvent): void {
 		const data = parseSseEventData(event.data);
 		if (event.event === "status" && isDPiInteractiveStatusState(data)) {
-			this.statusState = data;
-			this.emit({ type: "state_update", snapshot: data });
+			this.statusState = ensurePlanInStatus(data);
+			this.emit({ type: "state_update", snapshot: this.statusState });
 			return;
 		}
 		if (event.event === "realtime" && isDPiInteractiveRealtimeEvent(data)) {
@@ -240,13 +241,19 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 		}
 		if (event.event === "state" && isInteractiveSnapshot(data)) {
 			const split = splitDPiInteractiveSnapshot(data);
-			this.statusState = split.status;
+			this.statusState = ensurePlanInStatus(split.status);
 			this.realtimeState = split.realtime;
 			this.emit({ type: "state_update", snapshot: data });
 			return;
 		}
 		if (event.event === "turn_stats" && isTurnStats(data)) {
 			this.emit({ type: "turn_stats", ...data });
+			return;
+		}
+		if (event.event === "plan" && isTodoList(data)) {
+			const normalized = normalizeTodoList(data);
+			this.statusState = { ...this.statusState, plan: normalized };
+			this.emit({ type: "plan_update", plan: normalized });
 			return;
 		}
 		if (data === undefined && isPayloadLessInteractiveEventType(event.event)) {
@@ -277,6 +284,8 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 			this.statusState = { ...this.statusState, isCompacting: false };
 		} else if (event.type === "queue_update") {
 			this.statusState = { ...this.statusState, steeringMessages: event.steering };
+		} else if (event.type === "plan_update") {
+			this.statusState = { ...this.statusState, plan: event.plan };
 		}
 	}
 
@@ -431,4 +440,61 @@ function isTurnStats(
 		"total" in value &&
 		"duration" in value
 	);
+}
+
+function normalizeTodoList(value: readonly unknown[]): DPiInteractiveTodoItem[] {
+	return value.map((raw) => {
+		const rec = raw as Record<string, unknown>;
+		return {
+			id: typeof rec.id === "string" ? rec.id : "",
+			title: typeof rec.title === "string" ? rec.title : typeof rec.content === "string" ? rec.content : "",
+			description:
+				typeof rec.description === "string"
+					? rec.description
+					: typeof rec.summary === "string"
+						? rec.summary
+						: undefined,
+			status:
+				rec.status === "completed" || rec.status === "in_progress" || rec.status === "pending"
+					? rec.status
+					: "pending",
+		};
+	});
+}
+
+function isTodoList(value: unknown): value is DPiInteractiveTodoItem[] {
+	if (!Array.isArray(value)) {
+		return false;
+	}
+	return value.every((item) => {
+		if (typeof item !== "object" || item === null) {
+			return false;
+		}
+		const rec = item as Record<string, unknown>;
+		const title =
+			typeof rec.title === "string" ? rec.title : typeof rec.content === "string" ? rec.content : undefined;
+		const desc =
+			typeof rec.description === "string"
+				? rec.description
+				: typeof rec.summary === "string"
+					? rec.summary
+					: undefined;
+		const descOk =
+			!("description" in rec) && !("summary" in rec)
+				? true
+				: typeof desc === "string" || rec.description === undefined || rec.summary === undefined;
+		return (
+			typeof rec.id === "string" &&
+			typeof title === "string" &&
+			["pending", "in_progress", "completed"].includes(rec.status as string) &&
+			descOk
+		);
+	});
+}
+
+function ensurePlanInStatus(status: DPiInteractiveStatusState): DPiInteractiveStatusState {
+	if (Array.isArray(status.plan) && isTodoList(status.plan)) {
+		return { ...status, plan: normalizeTodoList(status.plan) };
+	}
+	return { ...status, plan: [] };
 }
