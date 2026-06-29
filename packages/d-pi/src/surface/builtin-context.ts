@@ -1,14 +1,10 @@
+import type { DPiInteractiveTodoItem } from "../tui/interactive/agent-session-proxy.ts";
 import type { DPiLocalToolExecutor } from "./dispatch-tools.ts";
 import type { DPiHubActionsClient } from "./hub-actions.ts";
 import type { DPiRemoteExecutor } from "./remote-executor.ts";
 import type { DPiToolDetails } from "./tool-surface.ts";
 
-export interface DPiPlanItem {
-	id: string;
-	content: string;
-	summary?: string;
-	status: "pending" | "in_progress" | "completed";
-}
+export type DPiPlanItem = DPiInteractiveTodoItem;
 
 export interface DPiBuiltinContext {
 	hubClient: DPiHubActionsClient;

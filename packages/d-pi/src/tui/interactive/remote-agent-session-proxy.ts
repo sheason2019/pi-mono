@@ -251,8 +251,9 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 			return;
 		}
 		if (event.event === "plan" && isTodoList(data)) {
-			this.statusState = { ...this.statusState, plan: data };
-			this.emit({ type: "plan_update", plan: data });
+			const normalized = normalizeTodoList(data);
+			this.statusState = { ...this.statusState, plan: normalized };
+			this.emit({ type: "plan_update", plan: normalized });
 			return;
 		}
 		if (data === undefined && isPayloadLessInteractiveEventType(event.event)) {
@@ -441,6 +442,26 @@ function isTurnStats(
 	);
 }
 
+function normalizeTodoList(value: readonly unknown[]): DPiInteractiveTodoItem[] {
+	return value.map((raw) => {
+		const rec = raw as Record<string, unknown>;
+		return {
+			id: typeof rec.id === "string" ? rec.id : "",
+			title: typeof rec.title === "string" ? rec.title : typeof rec.content === "string" ? rec.content : "",
+			description:
+				typeof rec.description === "string"
+					? rec.description
+					: typeof rec.summary === "string"
+						? rec.summary
+						: undefined,
+			status:
+				rec.status === "completed" || rec.status === "in_progress" || rec.status === "pending"
+					? rec.status
+					: "pending",
+		};
+	});
+}
+
 function isTodoList(value: unknown): value is DPiInteractiveTodoItem[] {
 	if (!Array.isArray(value)) {
 		return false;
@@ -450,18 +471,30 @@ function isTodoList(value: unknown): value is DPiInteractiveTodoItem[] {
 			return false;
 		}
 		const rec = item as Record<string, unknown>;
+		const title =
+			typeof rec.title === "string" ? rec.title : typeof rec.content === "string" ? rec.content : undefined;
+		const desc =
+			typeof rec.description === "string"
+				? rec.description
+				: typeof rec.summary === "string"
+					? rec.summary
+					: undefined;
+		const descOk =
+			!("description" in rec) && !("summary" in rec)
+				? true
+				: typeof desc === "string" || rec.description === undefined || rec.summary === undefined;
 		return (
 			typeof rec.id === "string" &&
-			typeof rec.content === "string" &&
+			typeof title === "string" &&
 			["pending", "in_progress", "completed"].includes(rec.status as string) &&
-			(!("summary" in rec) || typeof rec.summary === "string" || rec.summary === undefined)
+			descOk
 		);
 	});
 }
 
 function ensurePlanInStatus(status: DPiInteractiveStatusState): DPiInteractiveStatusState {
-	if (Array.isArray(status.plan)) {
-		return status;
+	if (Array.isArray(status.plan) && isTodoList(status.plan)) {
+		return { ...status, plan: normalizeTodoList(status.plan) };
 	}
 	return { ...status, plan: [] };
 }

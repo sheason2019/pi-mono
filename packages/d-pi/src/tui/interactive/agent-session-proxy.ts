@@ -166,8 +166,8 @@ export interface DPiInteractiveSlashCommand {
 
 export interface DPiInteractiveTodoItem {
 	id: string;
-	content: string;
-	summary?: string;
+	title: string;
+	description?: string;
 	status: "pending" | "in_progress" | "completed";
 }
 

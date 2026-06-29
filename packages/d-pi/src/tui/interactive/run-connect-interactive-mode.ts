@@ -633,19 +633,19 @@ function buildDPiInteractivePlanComponent(
 					: style.dim("[ ]");
 		const titleText =
 			item.status === "completed"
-				? style.dim(style.bold(item.content))
+				? style.dim(style.bold(item.title))
 				: item.status === "in_progress"
-					? style.bold(item.content)
-					: style.bold(style.muted(item.content));
+					? style.bold(item.title)
+					: style.bold(style.muted(item.title));
 		container.addChild(new TruncatedText(`${marker} ${titleText}`, 1, 0));
-		if (item.summary) {
-			const summaryText =
+		if (item.description) {
+			const descText =
 				item.status === "completed"
-					? style.dim(item.summary)
+					? style.dim(item.description)
 					: item.status === "in_progress"
-						? style.muted(item.summary)
-						: style.muted(item.summary);
-			container.addChild(new TruncatedText(`    ${summaryText}`, 1, 0));
+						? style.muted(item.description)
+						: style.muted(item.description);
+			container.addChild(new TruncatedText(`    ${descText}`, 1, 0));
 		}
 	}
 	container.addChild(new Spacer(1));

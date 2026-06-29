@@ -2484,12 +2484,33 @@ function extractImages(input: unknown): Array<{ url: string; mediaType?: string 
 	return images.length > 0 ? images : undefined;
 }
 
-const planItemSchema = z.object({
-	id: z.string(),
-	content: z.string(),
-	summary: z.string().optional(),
-	status: z.enum(["pending", "in_progress", "completed"]),
-});
+const planItemSchema = z.preprocess(
+	(raw: unknown): DPiInteractiveTodoItem => {
+		const item = raw as Record<string, unknown>;
+		const title = typeof item.title === "string" ? item.title : typeof item.content === "string" ? item.content : "";
+		const description =
+			typeof item.description === "string"
+				? item.description
+				: typeof item.summary === "string"
+					? item.summary
+					: undefined;
+		return {
+			id: typeof item.id === "string" ? item.id : "",
+			title,
+			description,
+			status:
+				item.status === "completed" || item.status === "in_progress" || item.status === "pending"
+					? item.status
+					: "pending",
+		};
+	},
+	z.object({
+		id: z.string(),
+		title: z.string(),
+		description: z.string().optional(),
+		status: z.enum(["pending", "in_progress", "completed"]),
+	}),
+);
 
 const planStoreSchema = z.object({
 	version: z.literal(1),

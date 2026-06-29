@@ -286,8 +286,8 @@ export function createPlanTool(): AgentToolDefinition {
 			"Call this at the START of your turn to outline your plan before taking action, " +
 			"and update it as you complete tasks. The plan is visible to the user in real-time. " +
 			"Pass the COMPLETE list of todos each time you call this (it replaces the previous plan). " +
-			"Use concise, action-oriented titles for each item, and provide a brief summary describing " +
-			"the goal or current state of the task so the user can understand the purpose at a glance.",
+			"Use concise, action-oriented titles for each item, and provide a brief description " +
+			"explaining the goal or current state of the task so the user can understand the purpose at a glance.",
 		parameters: Type.Object({
 			todos: Type.Array(
 				Type.Object({
@@ -296,8 +296,8 @@ export function createPlanTool(): AgentToolDefinition {
 							"Short unique identifier for this todo item (e.g. 't1', 'investigate', 'implement'). " +
 							"Reuse the same id when updating an item's status.",
 					}),
-					content: Type.String({ description: "Concise task title (1 short action phrase)." }),
-					summary: Type.Optional(
+					title: Type.String({ description: "Concise task title (1 short action phrase)." }),
+					description: Type.Optional(
 						Type.String({
 							description:
 								"Optional brief explanation of the task's goal, approach, or current findings. " +
@@ -315,8 +315,8 @@ export function createPlanTool(): AgentToolDefinition {
 			const ctx = getBuiltinContext();
 			const plan = params.todos.map((t) => ({
 				id: t.id,
-				content: t.content,
-				summary: t.summary,
+				title: t.title,
+				description: t.description,
 				status: t.status,
 			}));
 			ctx.updatePlan(plan);
@@ -325,7 +325,7 @@ export function createPlanTool(): AgentToolDefinition {
 			const pending = plan.filter((t) => t.status === "pending").length;
 			const lines = plan.map((t) => {
 				const marker = t.status === "completed" ? "[x]" : t.status === "in_progress" ? "[>]" : "[ ]";
-				return `${marker} ${t.content}`;
+				return `${marker} ${t.title}`;
 			});
 			return toolTextResult(
 				`Plan updated (${completed} done, ${inProgress} in progress, ${pending} pending):\n${lines.join("\n")}`,
