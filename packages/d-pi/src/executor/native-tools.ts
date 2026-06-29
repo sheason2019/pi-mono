@@ -174,9 +174,8 @@ async function runRead(cwd: string, params: Static<typeof ReadParameters>): Prom
 	if (imageExts.includes(ext)) {
 		const data = await readFile(filePath);
 		const mimeType = ext === "svg" ? "image/svg+xml" : ext === "jpg" ? "image/jpeg" : `image/${ext}`;
-		const dataUrl = `data:${mimeType};base64,${data.toString("base64")}`;
 		return {
-			content: [{ type: "image", data: dataUrl, mimeType } as ImageContent],
+			content: [{ type: "image", data: data.toString("base64"), mimeType } as ImageContent],
 			details: { path: filePath, bytes: data.length },
 		};
 	}
