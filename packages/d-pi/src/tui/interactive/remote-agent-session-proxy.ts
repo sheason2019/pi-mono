@@ -447,13 +447,8 @@ function normalizeTodoList(value: readonly unknown[]): DPiInteractiveTodoItem[] 
 		const rec = raw as Record<string, unknown>;
 		return {
 			id: typeof rec.id === "string" ? rec.id : "",
-			title: typeof rec.title === "string" ? rec.title : typeof rec.content === "string" ? rec.content : "",
-			description:
-				typeof rec.description === "string"
-					? rec.description
-					: typeof rec.summary === "string"
-						? rec.summary
-						: undefined,
+			title: typeof rec.title === "string" ? rec.title : "",
+			description: typeof rec.description === "string" ? rec.description : undefined,
 			status:
 				rec.status === "completed" || rec.status === "in_progress" || rec.status === "pending"
 					? rec.status
@@ -471,23 +466,11 @@ function isTodoList(value: unknown): value is DPiInteractiveTodoItem[] {
 			return false;
 		}
 		const rec = item as Record<string, unknown>;
-		const title =
-			typeof rec.title === "string" ? rec.title : typeof rec.content === "string" ? rec.content : undefined;
-		const desc =
-			typeof rec.description === "string"
-				? rec.description
-				: typeof rec.summary === "string"
-					? rec.summary
-					: undefined;
-		const descOk =
-			!("description" in rec) && !("summary" in rec)
-				? true
-				: typeof desc === "string" || rec.description === undefined || rec.summary === undefined;
 		return (
 			typeof rec.id === "string" &&
-			typeof title === "string" &&
+			typeof rec.title === "string" &&
 			["pending", "in_progress", "completed"].includes(rec.status as string) &&
-			descOk
+			(!("description" in rec) || typeof rec.description === "string" || rec.description === undefined)
 		);
 	});
 }

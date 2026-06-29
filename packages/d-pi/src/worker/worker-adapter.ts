@@ -2437,17 +2437,10 @@ function extractImages(input: unknown): Array<{ url: string; mediaType?: string 
 const planItemSchema = z.preprocess(
 	(raw: unknown): DPiInteractiveTodoItem => {
 		const item = raw as Record<string, unknown>;
-		const title = typeof item.title === "string" ? item.title : typeof item.content === "string" ? item.content : "";
-		const description =
-			typeof item.description === "string"
-				? item.description
-				: typeof item.summary === "string"
-					? item.summary
-					: undefined;
 		return {
 			id: typeof item.id === "string" ? item.id : "",
-			title,
-			description,
+			title: typeof item.title === "string" ? item.title : "",
+			description: typeof item.description === "string" ? item.description : undefined,
 			status:
 				item.status === "completed" || item.status === "in_progress" || item.status === "pending"
 					? item.status

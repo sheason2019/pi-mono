@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import { z } from "zod";
 import type { AgentToolDefinition } from "../agent-definition.ts";
 import { defineTool } from "../agent-definition.ts";
 import { getBuiltinContext } from "./builtin-context.ts";
@@ -269,17 +270,36 @@ export function createSyncAgentsTool(): AgentToolDefinition {
 	});
 }
 
+const planTodoItemSchema = z
+	.object({
+		id: z.string().min(1, "id is required and must be non-empty"),
+		title: z.string().min(1, "title is required and must be non-empty"),
+		description: z.string().optional(),
+		status: z.enum(["pending", "in_progress", "completed"], {
+			invalid_type_error: "status must be one of: pending, in_progress, completed",
+		}),
+	})
+	.strict();
+
+const planParamsSchema = z
+	.object({
+		todos: z.array(planTodoItemSchema).min(0),
+	})
+	.strict();
+
 export function createPlanTool(): AgentToolDefinition {
 	return defineTool({
 		name: "plan",
 		label: "Plan",
 		description:
 			"Update your visible task plan (TODO list) displayed above the user's input box. " +
-			"Call this at the START of your turn to outline your plan before taking action, " +
-			"and update it as you complete tasks. The plan is visible to the user in real-time. " +
-			"Pass the COMPLETE list of todos each time you call this (it replaces the previous plan). " +
-			"Use concise, action-oriented titles for each item, and provide a brief description " +
-			"explaining the goal or current state of the task so the user can understand the purpose at a glance.",
+			"Call this BEFORE starting any multi-step task (3+ steps) to outline your plan, setting the first item to in_progress. " +
+			"Update the plan as you complete each step (mark finished items completed, set the next item to in_progress). " +
+			"When ALL tasks are done, call plan one final time with every item marked completed. " +
+			"Pass the COMPLETE list of todos each time you call this — it replaces the previous plan entirely. " +
+			"Reuse the same id values when updating existing items. " +
+			"Todo item fields: id (short unique string), title (concise action phrase), description (optional brief note), status (pending|in_progress|completed). " +
+			"Do NOT use deprecated fields like 'summary' or 'content'.",
 		parameters: Type.Object({
 			todos: Type.Array(
 				Type.Object({
@@ -305,7 +325,23 @@ export function createPlanTool(): AgentToolDefinition {
 		}),
 		async execute(_toolCallId, params) {
 			const ctx = getBuiltinContext();
-			const plan = params.todos.map((t) => ({
+			const parsed = planParamsSchema.safeParse(params);
+			if (!parsed.success) {
+				const issues = parsed.error.issues
+					.map((i) => {
+						const field = i.path.join(".") || "todos";
+						const deprecated =
+							i.code === "unrecognized_keys"
+								? ` — unrecognized field(s): ${(i as z.ZodIssue & { keys: string[] }).keys.join(", ")}`
+								: "";
+						return `${field}: ${i.message}${deprecated}`;
+					})
+					.join("; ");
+				return errorTextResult(
+					`Invalid plan parameters: ${issues}. Each todo item only accepts: id, title, description?, status. Do not use deprecated fields like 'summary' or 'content'.`,
+				);
+			}
+			const plan = parsed.data.todos.map((t) => ({
 				id: t.id,
 				title: t.title,
 				description: t.description,
