@@ -109,6 +109,11 @@ export class DPiNativeToolExecutionComponent extends Container {
 			}
 			renderContainer.clear();
 			let hasContent = false;
+			const dispatchHeader = this.createDispatchHeader();
+			if (dispatchHeader) {
+				renderContainer.addChild(dispatchHeader);
+				hasContent = true;
+			}
 			const callRenderer = this.toolDefinition.renderCall;
 			if (callRenderer) {
 				try {
@@ -198,6 +203,16 @@ export class DPiNativeToolExecutionComponent extends Container {
 		};
 	}
 
+	private createDispatchHeader(): Component | undefined {
+		if (!this.toolCall.name.startsWith("dispatch_")) {
+			return undefined;
+		}
+		const args = this.toolCall.arguments as Record<string, unknown> | undefined;
+		const connectId = args && typeof args.connect_id === "string" ? args.connect_id : undefined;
+		const label = connectId ? `dispatch:${connectId}` : "dispatch:host";
+		return new Text(this.theme.fg("muted", this.theme.bold(label)), 0, 0);
+	}
+
 	private createCallFallback(): Component {
 		return new Text(this.theme.fg("toolTitle", this.theme.bold(this.toolCall.name)), 0, 0);
 	}
@@ -211,7 +226,14 @@ export class DPiNativeToolExecutionComponent extends Container {
 	}
 
 	private formatFallbackToolExecution(): string {
-		let text = this.theme.fg("toolTitle", this.theme.bold(this.toolCall.name));
+		let text = "";
+		if (this.toolCall.name.startsWith("dispatch_")) {
+			const args = this.toolCall.arguments as Record<string, unknown> | undefined;
+			const connectId = args && typeof args.connect_id === "string" ? args.connect_id : undefined;
+			const label = connectId ? `dispatch:${connectId}` : "dispatch:host";
+			text += `${this.theme.fg("muted", this.theme.bold(label))}\n`;
+		}
+		text += this.theme.fg("toolTitle", this.theme.bold(this.toolCall.name));
 		const args = formatJson(this.toolCall.arguments);
 		if (args) {
 			text += `\n\n${args}`;
