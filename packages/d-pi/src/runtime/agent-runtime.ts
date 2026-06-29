@@ -427,10 +427,8 @@ export class DPiAgentRuntime {
 		this.compactAbortController?.abort();
 		this.compactAbortController = undefined;
 		await this.harness.abort?.();
-		if (this.activeTurn) {
-			this.activeTurn = false;
-			await this.emit({ type: "agent_end", agentName: this.agentName });
-		}
+		this.activeTurn = false;
+		await this.emit({ type: "agent_end", agentName: this.agentName });
 	}
 
 	async reloadContext(agentDefinition?: LoadedAgentDefinition): Promise<void> {
