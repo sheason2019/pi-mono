@@ -1045,7 +1045,8 @@ export class HubGateway {
 
 		// Dispatch via IPC to the worker
 		const requestId = gatewayRandomUUID();
-		const payload = cleanPath === "prompt" ? this._withTrustedPromptAuth(body, auth, agentName) : body;
+		const needsMeta = new Set(["prompt", "steer", "follow-up"]);
+		const payload = needsMeta.has(cleanPath) ? this._withTrustedPromptAuth(body, auth, agentName) : body;
 
 		if (method === "GET") {
 			agent.worker.postMessage({
