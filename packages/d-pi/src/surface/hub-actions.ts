@@ -94,12 +94,19 @@ export interface DPiReloadWorkspaceResult {
 	};
 }
 
+export interface DPiSyncAgentsResult {
+	added: string[];
+	removed: string[];
+	errors: Array<{ agentName: string; error: string }>;
+}
+
 export type DPiHubActionRequest =
 	| { action: "createAgent"; payload: DPiCreateAgentActionPayload }
 	| { action: "destroyAgent"; payload: DPiDestroyAgentActionPayload }
 	| { action: "getTeam"; payload: Record<string, never> }
 	| { action: "sendMessage"; payload: DPiSendMessageActionPayload }
 	| { action: "reloadWorkspace"; payload: Record<string, never> }
+	| { action: "syncAgents"; payload: Record<string, never> }
 	| { action: "dispatchRemoteTool"; payload: DPiDispatchRemoteToolActionPayload };
 
 export type DPiHubActionsTransport = (request: DPiHubActionRequest) => Promise<unknown>;
@@ -110,6 +117,7 @@ export interface DPiHubActionsClient {
 	getTeam(): Promise<DPiTeamSnapshot>;
 	sendMessage(payload: DPiSendMessageActionPayload): Promise<{ ok: boolean; error?: string }>;
 	reloadWorkspace(): Promise<DPiReloadWorkspaceResult>;
+	syncAgents(): Promise<DPiSyncAgentsResult>;
 	dispatchRemoteTool(payload: DPiDispatchRemoteToolActionPayload): Promise<DPiDispatchRemoteToolActionResult>;
 }
 
@@ -136,6 +144,9 @@ export function createHubActionsClient(transport: DPiHubActionsTransport): DPiHu
 		},
 		reloadWorkspace() {
 			return dispatchHubAction(transport, { action: "reloadWorkspace", payload: {} });
+		},
+		syncAgents() {
+			return dispatchHubAction(transport, { action: "syncAgents", payload: {} });
 		},
 		dispatchRemoteTool(payload) {
 			return dispatchHubAction(transport, { action: "dispatchRemoteTool", payload });

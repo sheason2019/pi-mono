@@ -9,8 +9,7 @@ export const DEFAULT_BUILTIN_TOOL_NAMES = [
 	"dispatch_bash",
 	"dispatch_read",
 	"send_message",
-	"create_agent",
-	"destroy_agent",
+	"sync_agents",
 	"team",
 	"reload",
 	"reload_workspace",
@@ -156,8 +155,8 @@ export function buildAgentTsSource(config: AgentTsSourceConfig): string {
 	lines.push('// - model: "openai/gpt-4o"  → references models/openai/gpt-4o.ts');
 	lines.push('// - sources: ["lark-bridge"] → subscribes to sources/lark-bridge');
 	lines.push("//");
-	lines.push("// Built-in tools (dispatch_bash, dispatch_read, send_message, create_agent,");
-	lines.push("// destroy_agent, team, reload, reload_workspace) are always available.");
+	lines.push("// Built-in tools (dispatch_bash, dispatch_read, send_message, sync_agents,");
+	lines.push("// team, reload, reload_workspace) are always available.");
 	lines.push("");
 
 	lines.push("export default defineAgent({");

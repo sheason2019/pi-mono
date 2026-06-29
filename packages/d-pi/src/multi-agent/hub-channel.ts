@@ -49,6 +49,10 @@ export class HubChannel {
 		return this._callTool("reload_workspace", {});
 	}
 
+	syncAgents(): Promise<unknown> {
+		return this._callTool("sync_agents", {});
+	}
+
 	resolveCall(callId: string, result: unknown): void {
 		const pending = this._pendingCalls.get(callId);
 		if (pending) {

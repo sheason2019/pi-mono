@@ -378,6 +378,76 @@ export class Hub {
 		await Promise.all(destroyPromises);
 	}
 
+	async syncAgents(): Promise<{
+		added: string[];
+		removed: string[];
+		errors: Array<{ agentName: string; error: string }>;
+	}> {
+		const added: string[] = [];
+		const removed: string[] = [];
+		const errors: Array<{ agentName: string; error: string }> = [];
+
+		const discovered = await discoverPersistedAgents(this._config.workspaceRoot);
+		const diskNames = new Set(discovered.map((d) => d.config.name));
+		const runningNames = new Set(Array.from(this._registry.getAll()).map((r) => r.name));
+
+		const toRemove: string[] = [];
+		for (const name of runningNames) {
+			if (name === "root") continue;
+			if (!diskNames.has(name)) {
+				toRemove.push(name);
+			}
+		}
+
+		if (toRemove.length > 0) {
+			const removeOrder = this._orderForRemoval(toRemove);
+			for (const name of removeOrder) {
+				try {
+					await this.destroyAgent(name);
+					removed.push(name);
+				} catch (err) {
+					errors.push({ agentName: name, error: err instanceof Error ? err.message : String(err) });
+				}
+			}
+		}
+
+		const toAdd = discovered.filter((d) => !runningNames.has(d.config.name) && d.config.name !== "root");
+		if (toAdd.length > 0) {
+			const ordered = orderAgentsForRestore(toAdd);
+			for (const entry of ordered) {
+				try {
+					await this.createAgent(entry.config.parentName, {
+						name: entry.config.name,
+						description: entry.config.description,
+						cwd: join(this._config.workspaceRoot, "agents", entry.entryName),
+						persistDefinition: false,
+						_silent: true,
+					});
+					added.push(entry.config.name);
+				} catch (err) {
+					errors.push({ agentName: entry.config.name, error: err instanceof Error ? err.message : String(err) });
+				}
+			}
+		}
+
+		return { added, removed, errors };
+	}
+
+	private _orderForRemoval(names: string[]): string[] {
+		const allRecords = Array.from(this._registry.getAll());
+		const recordMap = new Map(allRecords.map((r) => [r.name, r]));
+
+		function getDepth(name: string, visited = new Set<string>()): number {
+			if (visited.has(name)) return 0;
+			visited.add(name);
+			const record = recordMap.get(name);
+			if (!record?.parentName) return 0;
+			return 1 + getDepth(record.parentName, visited);
+		}
+
+		return [...names].sort((a, b) => getDepth(b) - getDepth(a));
+	}
+
 	private _handleWorkerMessage(_worker: Worker, message: WorkerToHubMessage): void {
 		switch (message.type) {
 			case "ready":
@@ -618,6 +688,17 @@ export class Hub {
 				case "reload_workspace": {
 					try {
 						result = await this.reloadWorkspace();
+					} catch (err) {
+						result = {
+							error: err instanceof Error ? err.message : String(err),
+						};
+					}
+					break;
+				}
+
+				case "sync_agents": {
+					try {
+						result = await this.syncAgents();
 					} catch (err) {
 						result = {
 							error: err instanceof Error ? err.message : String(err),
