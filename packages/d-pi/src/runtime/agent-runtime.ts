@@ -45,6 +45,7 @@ import {
 } from "./transcript/projector.ts";
 import type {
 	DPiAgentMessage,
+	DPiCompactionState,
 	DPiJsonValue,
 	DPiPromptOptions,
 	DPiRuntimeCompactResult,
@@ -349,6 +350,7 @@ export class DPiAgentRuntime {
 	private activeTurn = false;
 	private turnStartedAt: number | undefined;
 	private compactAbortController: AbortController | undefined;
+	private compactionState: DPiCompactionState = { status: "idle", queued: false };
 
 	constructor(options: DPiAgentRuntimeOptions) {
 		this.agentName = options.agentName;
@@ -466,6 +468,10 @@ export class DPiAgentRuntime {
 			);
 		}
 
+		this.compactionState = { status: "running", queued: false, startedAt };
+		await this.emit({ type: "compaction_start", agentName: this.agentName });
+		await this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
+
 		this.compactAbortController = new AbortController();
 		const compactSignal = this.compactAbortController.signal;
 		let result: Awaited<ReturnType<typeof compactSession>>;
@@ -481,6 +487,17 @@ export class DPiAgentRuntime {
 			);
 		} catch (error) {
 			this.compactAbortController = undefined;
+			this.compactionState = {
+				status: "failed",
+				queued: false,
+				error: error instanceof Error ? error.message : String(error),
+			};
+			void this.emit({
+				type: "compaction_end",
+				agentName: this.agentName,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			void this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
 			if (compactSignal.aborted) {
 				throw new Error("Compaction cancelled");
 			}
@@ -488,9 +505,15 @@ export class DPiAgentRuntime {
 		}
 		this.compactAbortController = undefined;
 		if (compactSignal.aborted) {
+			this.compactionState = { status: "idle", queued: false };
+			void this.emit({ type: "compaction_end", agentName: this.agentName, error: "Compaction cancelled" });
+			void this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
 			throw new Error("Compaction cancelled");
 		}
 		if (!result.ok) {
+			this.compactionState = { status: "failed", queued: false, error: result.error.message };
+			void this.emit({ type: "compaction_end", agentName: this.agentName, error: result.error.message });
+			void this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
 			throw result.error;
 		}
 
@@ -522,6 +545,8 @@ export class DPiAgentRuntime {
 			currentPageMessages.length > 0
 				? currentPageMessages
 				: ((await this.session.buildContext()).messages as DPiAgentMessage[]);
+		this.compactionState = { status: "idle", queued: false };
+		await this.emit({ type: "compaction_end", agentName: this.agentName });
 		await this.emit({ type: "snapshot_update", snapshot: this.getSnapshot() });
 		return {
 			...summaryResult,
@@ -567,7 +592,7 @@ export class DPiAgentRuntime {
 			messages: this.messages.map((message) => ({ ...message })),
 			transcriptItems: this.transcriptItems.map((item) => ({ ...item })),
 			streaming: { active: this.activeTurn },
-			compaction: { status: "idle", queued: false },
+			compaction: { ...this.compactionState },
 			queues: cloneQueues(this.queues),
 			model,
 			contextUsage: { tokens, contextWindow, percent },

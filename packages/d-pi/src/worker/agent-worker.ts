@@ -33,14 +33,13 @@ import { projectDPiTranscript } from "../runtime/transcript/projector.ts";
 import type { DPiPromptImage } from "../runtime/types.ts";
 import { createHubActionsClientFromHubChannel } from "../surface/hub-actions-adapter.ts";
 import {
-	createCreateAgentTool,
-	createDestroyAgentTool,
 	createDispatchBashTool,
 	createDispatchReadTool,
 	createPlanTool,
 	createReloadTool,
 	createReloadWorkspaceTool,
 	createSendMessageTool,
+	createSyncAgentsTool,
 	createTeamTool,
 	type DPiLocalToolExecutor,
 	type DPiRemoteExecutor,
@@ -186,8 +185,7 @@ function getDefaultBuiltinTools(): AgentToolDefinition[] {
 		createDispatchBashTool(),
 		createDispatchReadTool(),
 		createSendMessageTool(),
-		createCreateAgentTool(),
-		createDestroyAgentTool(),
+		createSyncAgentsTool(),
 		createTeamTool(),
 		createReloadTool(),
 		createReloadWorkspaceTool(),

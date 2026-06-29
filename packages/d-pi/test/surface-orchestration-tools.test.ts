@@ -11,9 +11,10 @@ import type {
 	DPiHubActionsClient,
 	DPiReloadWorkspaceResult,
 	DPiSendMessageActionPayload,
+	DPiSyncAgentsResult,
 	DPiTeamSnapshot,
 } from "../src/surface/index.ts";
-import { createDestroyAgentTool, createSendMessageTool, createTeamTool } from "../src/surface/orchestration-tools.ts";
+import { createSendMessageTool, createSyncAgentsTool, createTeamTool } from "../src/surface/orchestration-tools.ts";
 
 interface TextToolResult {
 	content: Array<{ type: "text"; text: string }>;
@@ -25,9 +26,11 @@ class RecordingHubActionsClient implements DPiHubActionsClient {
 	readonly createAgentCalls: DPiCreateAgentActionPayload[] = [];
 	readonly destroyAgentCalls: DPiDestroyAgentActionPayload[] = [];
 	readonly sendMessageCalls: DPiSendMessageActionPayload[] = [];
+	readonly syncAgentsCalls: number = 0;
 
 	createAgentResult: DPiCreateAgentActionResult = { agentName: "child" };
 	teamSnapshot: DPiTeamSnapshot = { rootName: "root", agents: [], sources: [], executors: [] };
+	syncAgentsResult: DPiSyncAgentsResult = { added: [], removed: [], errors: [] };
 
 	async createAgent(payload: DPiCreateAgentActionPayload): Promise<DPiCreateAgentActionResult> {
 		this.createAgentCalls.push(payload);
@@ -54,6 +57,11 @@ class RecordingHubActionsClient implements DPiHubActionsClient {
 
 	async reloadWorkspace(): Promise<DPiReloadWorkspaceResult> {
 		return { models: [], contextFiles: [], sources: { added: [], removed: [], changed: [], total: 0 } };
+	}
+
+	async syncAgents(): Promise<DPiSyncAgentsResult> {
+		(this.syncAgentsCalls as number)++;
+		return this.syncAgentsResult;
 	}
 }
 
@@ -170,15 +178,21 @@ describe("d-pi surface orchestration tools", () => {
 		});
 	});
 
-	it("routes destroy_agent through the typed destroyAgent action", async () => {
+	it("routes sync_agents through the typed syncAgents action", async () => {
 		const client = new RecordingHubActionsClient();
+		client.syncAgentsResult = {
+			added: ["agent-a", "agent-b"],
+			removed: ["agent-c"],
+			errors: [],
+		};
 		setupContext(client);
-		const tool = createDestroyAgentTool();
+		const tool = createSyncAgentsTool();
 
-		const result = asTextToolResult(await tool.execute("call-7", { agent_name: "child" }));
+		const result = asTextToolResult(await tool.execute("call-7", {}));
 
-		expect(client.destroyAgentCalls).toEqual([{ agentName: "child" }]);
-		expect(textOf(result)).toContain('Agent "child" destroyed');
+		expect(client.syncAgentsCalls).toEqual(1);
+		expect(textOf(result)).toContain("Added (2): agent-a, agent-b");
+		expect(textOf(result)).toContain("Removed (1): agent-c");
 	});
 
 	it("marks ok false action results without errors as tool errors", async () => {

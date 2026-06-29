@@ -22,7 +22,7 @@ describe("DPI_META_PROMPT stays lean", () => {
 	it("keeps dispatch connect_id guidance minimal", () => {
 		expect(DPI_META_PROMPT).toMatch(/dispatch tools/i);
 		expect(DPI_META_PROMPT).toMatch(/omit\s+connect_id/i);
-		expect(DPI_META_PROMPT).toMatch(/explicitly asks/i);
+		expect(DPI_META_PROMPT).toMatch(/always required/i);
 	});
 
 	it("points agents to the source repository for deeper investigation", () => {

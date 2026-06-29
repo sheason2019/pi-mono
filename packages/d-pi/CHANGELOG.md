@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `plan` tool for visible task management. Agents can create, update, and clear task plan items with title and description; the plan persists across restarts via `plan.json` in the agent directory, and renders above the input box in the TUI.
+- Added dispatch target label to tool call headers in the TUI. Dispatch tools now show `dispatch:<connect_id>` (or `dispatch:host` when running locally) at the top of each tool execution block, making it clear where the command is executing.
+- Added `sync_agents` orchestration tool for filesystem-based agent lifecycle management. Instead of programmatic `create_agent`/`destroy_agent`, agents are defined on disk under `agents/<name>/agent.ts`; calling `sync_agents` starts newly added agents and stops removed ones, with child agents ordered for safe removal.
+- Expanded the d-pi system prompt with execution target semantics (connect_id required, host vs remote), agent working directory layout and path relationships, and filesystem-based agent lifecycle guidance.
+
+### Changed
+
+- Made `connect_id` a required parameter for all dispatch tools. Agents must explicitly pass `"host"` to run on the hub machine, eliminating the ambiguity where an omitted parameter could be misinterpreted as "local on the connected device."
+- Renamed plan tool item fields from `content`/`summary` to `title`/`description` for clarity. A Zod preprocessor handles migration of existing `plan.json` files with the old schema.
+- Replaced programmatic agent creation/destruction (`create_agent`/`destroy_agent` tools) with filesystem-based `sync_agents`. This removes the default-model trap where created agents inherited an unusable default model; agents now require an explicit model in their `agent.ts` file.
+- Aligned abort/UX with the agent-core standard. Interrupt state is now propagated via `stopReason: "aborted"` through the full message pipeline instead of custom notice events, matching the upstream runtime contract.
+
+### Fixed
+
+- Fixed the `read` tool returning image data as a data URL (with `data:image/...;base64,` prefix) instead of a plain base64 string, which caused API validation failures when the image entered the message history.
+- Fixed compaction state not propagating from runtime through the proxy to the TUI. The proxy now handles `compaction_start`/`compaction_end` events and emits status updates on `snapshot_update`, so the UI correctly reflects `compacting` state.
+- Fixed steer and follow-up messages losing meta headers (sourceType, auth, connectId) when sent in connect mode. The gateway now injects trusted prompt auth metadata on all three paths — prompt, steer, and follow-up — not just prompt.
+- Fixed dispatched bash tools not being properly abortable. The full cancellation chain now propagates `AbortSignal` from Worker through Hub IPC to the Executor, and bash execution uses `spawn` with `detached: true` so the entire process group can be killed reliably.
+- Fixed `agent_end` not always being emitted on abort, which caused CI test failures. The runtime now guarantees an `agent_end` event with `stopReason: "aborted"` whenever abort is triggered, matching the main branch behavior.
+
 ## [0.6.0-alpha.14] - 2026-06-28
 
 ### Changed

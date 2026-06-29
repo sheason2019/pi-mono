@@ -6,6 +6,7 @@ import type {
 	DPiDispatchRemoteToolActionResult,
 	DPiHubActionsClient,
 	DPiReloadWorkspaceResult,
+	DPiSyncAgentsResult,
 	DPiTeamSnapshot,
 } from "./index.ts";
 
@@ -40,6 +41,9 @@ export function createHubActionsClientFromHubChannel(channel: HubChannel): DPiHu
 		},
 		async reloadWorkspace(): Promise<DPiReloadWorkspaceResult> {
 			return (await channel.reloadWorkspace()) as DPiReloadWorkspaceResult;
+		},
+		async syncAgents(): Promise<DPiSyncAgentsResult> {
+			return (await channel.syncAgents()) as DPiSyncAgentsResult;
 		},
 		async dispatchRemoteTool(
 			_payload: DPiDispatchRemoteToolActionPayload,

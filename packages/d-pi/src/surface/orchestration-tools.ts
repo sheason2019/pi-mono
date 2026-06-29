@@ -2,7 +2,7 @@ import { Type } from "typebox";
 import type { AgentToolDefinition } from "../agent-definition.ts";
 import { defineTool } from "../agent-definition.ts";
 import { getBuiltinContext } from "./builtin-context.ts";
-import type { DPiCreateAgentActionPayload, DPiHubMessageMode, DPiTeamSnapshot } from "./hub-actions.ts";
+import type { DPiHubMessageMode, DPiTeamSnapshot } from "./hub-actions.ts";
 import { toolJsonDetails, toolTextResult } from "./tool-surface.ts";
 
 export function createSendMessageTool(): AgentToolDefinition {
@@ -44,61 +44,6 @@ export function createSendMessageTool(): AgentToolDefinition {
 				);
 			} catch (err) {
 				return errorTextResult(`Failed to send message: ${errorMessage(err)}`);
-			}
-		},
-	});
-}
-
-export function createCreateAgentTool(): AgentToolDefinition {
-	return defineTool({
-		name: "create_agent",
-		label: "Create Agent",
-		description:
-			"Create a new child agent in the network. The new agent will be a direct child of this agent (the caller) and will have its own independent session. You cannot specify the parent - the parent is always the agent that called this tool. The agent tree is enforced as a strict parent/child topology: each new agent becomes a direct child of the caller, never a sibling, never a grandchild, never an orphan.",
-		parameters: Type.Object({
-			name: Type.String({ description: "Human-readable name for the new agent" }),
-			cwd: Type.Optional(
-				Type.String({ description: "Working directory override (defaults to workspace/agents/<name>/)" }),
-			),
-		}),
-		async execute(_toolCallId, params) {
-			const ctx = getBuiltinContext();
-			try {
-				const payload: DPiCreateAgentActionPayload = {
-					name: params.name,
-					cwd: params.cwd,
-				};
-				const result = await ctx.hubClient.createAgent(payload);
-				return toolTextResult(
-					`Created agent "${result.agentName}"`,
-					toolJsonDetails({ agentName: result.agentName }),
-				);
-			} catch (err) {
-				return errorTextResult(`Failed to create agent: ${errorMessage(err)}`);
-			}
-		},
-	});
-}
-
-export function createDestroyAgentTool(): AgentToolDefinition {
-	return defineTool({
-		name: "destroy_agent",
-		label: "Destroy Agent",
-		description: "Destroy an agent in the network. The agent must have no children. Destroy all child agents first.",
-		parameters: Type.Object({
-			agent_name: Type.String({ description: "Name of the agent to destroy" }),
-		}),
-		async execute(_toolCallId, params) {
-			const ctx = getBuiltinContext();
-			try {
-				const result = await ctx.hubClient.destroyAgent({ agentName: params.agent_name });
-				const actionError = okActionError(result);
-				if (actionError) {
-					return errorTextResult(`Failed to destroy agent: ${actionError}`);
-				}
-				return toolTextResult(`Agent "${params.agent_name}" destroyed`);
-			} catch (err) {
-				return errorTextResult(`Failed to destroy agent: ${errorMessage(err)}`);
 			}
 		},
 	});
@@ -272,6 +217,53 @@ export function createReloadWorkspaceTool(): AgentToolDefinition {
 				};
 			} catch (err) {
 				return errorTextResult(`Failed to reload workspace: ${errorMessage(err)}`);
+			}
+		},
+	});
+}
+
+export function createSyncAgentsTool(): AgentToolDefinition {
+	return defineTool({
+		name: "sync_agents",
+		label: "Sync Agents",
+		description:
+			"Synchronize the running agent team with the agents/ directory on disk. " +
+			"Agents are defined as convention-based directories under agents/<name>/agent.ts. " +
+			"This tool will start any new agents found on disk, and stop any running agents " +
+			"whose directory no longer exists. The 'root' agent is never removed. " +
+			"To create a new agent, write an agent.ts file under agents/<name>/ first, " +
+			"then call this tool. To remove an agent, delete its directory first, " +
+			"then call this tool. Each agent.ts must explicitly define a model - " +
+			"there is no default model.",
+		parameters: Type.Object({}),
+		async execute() {
+			const ctx = getBuiltinContext();
+			try {
+				const result = await ctx.hubClient.syncAgents();
+				const lines: string[] = ["Agent team synchronized with agents/ directory."];
+				if (result.added.length > 0) {
+					lines.push(`Added (${result.added.length}): ${result.added.join(", ")}`);
+				} else {
+					lines.push("Added: none");
+				}
+				if (result.removed.length > 0) {
+					lines.push(`Removed (${result.removed.length}): ${result.removed.join(", ")}`);
+				} else {
+					lines.push("Removed: none");
+				}
+				if (result.errors.length > 0) {
+					lines.push("");
+					lines.push(`Errors (${result.errors.length}):`);
+					for (const e of result.errors) {
+						lines.push(`  ${e.agentName}: ${e.error}`);
+					}
+				}
+				return {
+					content: [{ type: "text" as const, text: lines.join("\n") }],
+					details: toolJsonDetails(result),
+				};
+			} catch (err) {
+				return errorTextResult(`Failed to sync agents: ${errorMessage(err)}`);
 			}
 		},
 	});

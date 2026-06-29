@@ -21,18 +21,18 @@ export {
 	type DPiHubMessageMode,
 	type DPiReloadWorkspaceResult,
 	type DPiSendMessageActionPayload,
+	type DPiSyncAgentsResult,
 	type DPiTeamAgentEntry,
 	type DPiTeamExecutorEntry,
 	type DPiTeamSnapshot,
 } from "./hub-actions.ts";
 export { createHubActionsClientFromHubChannel } from "./hub-actions-adapter.ts";
 export {
-	createCreateAgentTool,
-	createDestroyAgentTool,
 	createPlanTool,
 	createReloadTool,
 	createReloadWorkspaceTool,
 	createSendMessageTool,
+	createSyncAgentsTool,
 	createTeamTool,
 } from "./orchestration-tools.ts";
 export type { DPiRemoteExecutor, DPiRemoteToolRequest, DPiRemoteToolResult } from "./remote-executor.ts";

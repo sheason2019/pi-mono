@@ -103,6 +103,17 @@ export interface DPiTurnStatsEvent {
 	duration: number;
 }
 
+export interface DPiCompactionStartEvent {
+	type: "compaction_start";
+	agentName: string;
+}
+
+export interface DPiCompactionEndEvent {
+	type: "compaction_end";
+	agentName: string;
+	error?: string;
+}
+
 export interface DPiErrorEvent {
 	type: "error";
 	agentName?: string;
@@ -122,4 +133,6 @@ export type DPiRuntimeEvent =
 	| DPiStateUpdateEvent
 	| DPiSnapshotUpdateEvent
 	| DPiTurnStatsEvent
+	| DPiCompactionStartEvent
+	| DPiCompactionEndEvent
 	| DPiErrorEvent;

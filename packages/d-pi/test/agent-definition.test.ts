@@ -1,12 +1,11 @@
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import {
-	createCreateAgentTool,
-	createDestroyAgentTool,
 	createDispatchBashTool,
 	createDispatchReadTool,
 	createReloadTool,
 	createSendMessageTool,
+	createSyncAgentsTool,
 	createTeamTool,
 	defineAgent,
 	defineAnthropicProvider,
@@ -119,22 +118,13 @@ describe("agent definition helpers", () => {
 	it("creates built-in tool definitions directly without stub replacement", () => {
 		const allBuiltinTools = [
 			createSendMessageTool(),
-			createCreateAgentTool(),
-			createDestroyAgentTool(),
+			createSyncAgentsTool(),
 			createTeamTool(),
 			createDispatchBashTool(),
 			createDispatchReadTool(),
 			createReloadTool(),
 		];
-		const expectedNames = [
-			"send_message",
-			"create_agent",
-			"destroy_agent",
-			"team",
-			"dispatch_bash",
-			"dispatch_read",
-			"reload",
-		];
+		const expectedNames = ["send_message", "sync_agents", "team", "dispatch_bash", "dispatch_read", "reload"];
 		expect(allBuiltinTools.map((t) => t.name)).toEqual(expectedNames);
 		for (const tool of allBuiltinTools) {
 			expect(tool.label).toBeTruthy();
