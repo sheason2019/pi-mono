@@ -1252,6 +1252,7 @@ export class DPiLocalAgentSessionProxy {
 
 	applyRuntimeEvent(event: DPiRuntimeEvent): void {
 		if (event.type === "snapshot_update") {
+			this.emit({ type: "status", data: this.getStatusState() });
 			this.emitState();
 			return;
 		}
@@ -1265,6 +1266,18 @@ export class DPiLocalAgentSessionProxy {
 		if (event.type === "agent_end") {
 			this.streaming = false;
 			this.emit({ type: "agent_end", data: { type: "agent_end" } });
+			this.emitState();
+			return;
+		}
+		if (event.type === "compaction_start") {
+			this.compacting = true;
+			this.emit({ type: "compaction_start" });
+			this.emitState();
+			return;
+		}
+		if (event.type === "compaction_end") {
+			this.compacting = false;
+			this.emit({ type: "compaction_end" });
 			this.emitState();
 			return;
 		}
