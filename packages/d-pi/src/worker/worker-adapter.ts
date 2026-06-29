@@ -508,6 +508,8 @@ export interface DPiLocalAgentMessage {
 	toolCallId?: string;
 	toolName?: string;
 	isError?: boolean;
+	stopReason?: string;
+	errorMessage?: string;
 	timestamp: number;
 }
 
@@ -918,7 +920,6 @@ export class DPiLocalAgentSessionProxy {
 	private banner: DPiInteractiveBannerData | undefined;
 	private streaming = false;
 	private compacting = false;
-	private interrupted = false;
 	private sessionName: string | undefined;
 	private remoteSettingsOverrides: Partial<DPiInteractiveRemoteSettings> = {};
 	private tokenUsage: DPiLocalAgentState["tokenUsage"] = {
@@ -1256,7 +1257,6 @@ export class DPiLocalAgentSessionProxy {
 		}
 		if (event.type === "agent_start") {
 			this.streaming = true;
-			this.interrupted = false;
 			this.streamingAssistantMessageId = undefined;
 			this.emit({ type: "agent_start", data: { type: "agent_start" } });
 			this.emitState();
@@ -1264,27 +1264,11 @@ export class DPiLocalAgentSessionProxy {
 		}
 		if (event.type === "agent_end") {
 			this.streaming = false;
-			if (this.interrupted) {
-				this.interrupted = false;
-				this.recordSessionMessage(
-					{
-						id: nextGeneratedId("message"),
-						role: "custom",
-						customType: "interrupted-notice",
-						content: "Interrupted by user",
-						timestamp: Date.now(),
-					},
-					true,
-				);
-			}
 			this.emit({ type: "agent_end", data: { type: "agent_end" } });
 			this.emitState();
 			return;
 		}
 		if (event.type === "assistant_stream") {
-			if (this.interrupted) {
-				return;
-			}
 			if (!event.done) {
 				this.streaming = true;
 			}
@@ -1392,7 +1376,6 @@ export class DPiLocalAgentSessionProxy {
 		if (event.type === "session_replaced") {
 			this.startRealtimePage("resume", { emit: false });
 			this.importedSessionMessageIds.clear();
-			this.interrupted = false;
 			this.streaming = false;
 			this.compacting = false;
 			if (event.transcriptItems) {
@@ -1406,22 +1389,6 @@ export class DPiLocalAgentSessionProxy {
 			return;
 		}
 		if (event.type === "error") {
-			if (this.interrupted) {
-				this.interrupted = false;
-				this.streaming = false;
-				this.recordSessionMessage(
-					{
-						id: nextGeneratedId("message"),
-						role: "custom",
-						customType: "interrupted-notice",
-						content: "Interrupted by user",
-						timestamp: Date.now(),
-					},
-					true,
-				);
-				this.emitState();
-				return;
-			}
 			this.recordSessionMessage(
 				{
 					id: nextGeneratedId("message"),
@@ -1478,31 +1445,10 @@ export class DPiLocalAgentSessionProxy {
 	}
 
 	abort(): void {
-		if (this.interrupted || (!this.streaming && !this.compacting)) {
-			return;
-		}
-		this.interrupted = true;
-		const wasStreaming = this.streaming;
 		const dispatchAbort = this.messageDispatcher?.abort
 			? this.messageDispatcher.abort()
 			: this.runtime.session.agent.abort?.();
-		Promise.resolve(dispatchAbort).then(() => {
-			if (!wasStreaming && this.interrupted) {
-				this.interrupted = false;
-				this.streaming = false;
-				this.recordSessionMessage(
-					{
-						id: nextGeneratedId("message"),
-						role: "custom",
-						customType: "interrupted-notice",
-						content: "Interrupted by user",
-						timestamp: Date.now(),
-					},
-					true,
-				);
-				this.emitState();
-			}
-		});
+		void Promise.resolve(dispatchAbort);
 	}
 
 	resubscribe(reason: "new" | "resume" | "fork"): void {
@@ -1562,6 +1508,8 @@ export class DPiLocalAgentSessionProxy {
 			id,
 			role: "assistant",
 			content: "content" in message ? message.content : "",
+			stopReason: "stopReason" in message ? message.stopReason : undefined,
+			errorMessage: "errorMessage" in message ? message.errorMessage : undefined,
 			timestamp: message.timestamp ?? Date.now(),
 		};
 		const existingIndex = this.messages.findIndex((candidate) => candidate.id === id);
@@ -2142,6 +2090,10 @@ function runtimeMessageToLocalMessage(message: DPiAgentMessage): DPiLocalAgentMe
 		...("toolCallId" in message && typeof message.toolCallId === "string" ? { toolCallId: message.toolCallId } : {}),
 		...("toolName" in message && typeof message.toolName === "string" ? { toolName: message.toolName } : {}),
 		...("isError" in message && message.isError ? { isError: true } : {}),
+		...("stopReason" in message && typeof message.stopReason === "string" ? { stopReason: message.stopReason } : {}),
+		...("errorMessage" in message && typeof message.errorMessage === "string"
+			? { errorMessage: message.errorMessage }
+			: {}),
 		timestamp: message.timestamp ?? Date.now(),
 	};
 }
@@ -2194,15 +2146,6 @@ function localMessageToTranscriptItem(message: DPiLocalAgentMessage): DPiTranscr
 			timestamp: message.timestamp,
 		};
 	}
-	if (message.role === "custom" && message.customType === "interrupted-notice") {
-		return {
-			id: message.id,
-			type: "notice",
-			level: "error",
-			text: typeof message.content === "string" ? message.content : messageContentText(message.content),
-			timestamp: message.timestamp,
-		};
-	}
 	return {
 		id: message.id,
 		type: "message",
@@ -2221,6 +2164,8 @@ function localMessageToAgentMessage(message: DPiLocalAgentMessage): DPiAgentMess
 		...(message.toolCallId === undefined ? {} : { toolCallId: message.toolCallId }),
 		...(message.toolName === undefined ? {} : { toolName: message.toolName }),
 		...(message.isError === undefined ? {} : { isError: message.isError }),
+		...(message.stopReason === undefined ? {} : { stopReason: message.stopReason }),
+		...(message.errorMessage === undefined ? {} : { errorMessage: message.errorMessage }),
 		timestamp: message.timestamp,
 	} as DPiAgentMessage;
 }
