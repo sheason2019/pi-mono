@@ -117,7 +117,7 @@ JSON metadata about the sender. Parse it to decide how to reply. The header
 shape:
 
 \`\`\`
-[meta({"createTime":"...","sourceType":"<type>", ...optional fields...})]
+[meta({"sourceType":"<type>", ...optional fields...})]
 <message body>
 \`\`\`
 
@@ -129,23 +129,23 @@ everything after it.
 - \`sourceType: "agent"\` (with \`agentName\`) — the message is from another
   agent. There is NO implicit reply channel between agents: your normal
   text output is NOT delivered to the sender. To reply, you MUST call the
-  \`send_message\` tool with \`agent_name\` set to the sender's \`agentName\` and
+  send_message tool with \`agent_name\` set to the sender's \`agentName\` and
   \`message\` set to your reply. If you only emit text, the sending agent
   never sees it.
 - \`sourceType: "connect"\` (with \`connectId\`, optionally \`auth\`) — the
   message is from a connected human user. Reply normally in your text
-  output; the user reads it directly. Do not use \`send_message\` to reply
+  output; the user reads it directly. Do not use send_message to reply
   to a user.
 - \`sourceType: "source"\` (with \`sourceName\`) — the message is an automated
   push from a subscribed source subprocess, not a human or agent. There is
-  no sender to reply to. Do not call \`send_message\` toward a source; handle
+  no sender to reply to. Do not call send_message toward a source; handle
   the payload as part of your task (e.g. update your plan, run a tool, or
   ignore if not actionable).
 
 Common mistake: a child agent receives a task from its parent
 (\`sourceType: "agent"\`) and answers in plain text. The parent never
 receives the answer. Always route agent-bound replies through
-\`send_message\`.
+send_message.
 
 ### Agent lifecycle
 
