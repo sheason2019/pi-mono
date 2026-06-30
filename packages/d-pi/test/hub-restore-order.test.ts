@@ -299,6 +299,7 @@ describe("Hub.createAgent — parent invariant defensive check", () => {
 			parentName: undefined,
 			children: [],
 			status: "ready",
+			plan: [],
 			worker: { postMessage: () => {}, on: () => {}, off: () => {} } as never,
 			cwd: workspace,
 		});

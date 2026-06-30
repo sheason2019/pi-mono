@@ -94,17 +94,17 @@ describe("d-pi gateway auth", () => {
 		const url = gateway.url();
 
 		try {
-			const unauthorized = await fetch(`${url}/_hub/network`);
+			const unauthorized = await fetch(`${url}/api/network`);
 			expect(unauthorized.status).toBe(401);
 
-			const challengeResponse = await fetch(`${url}/_hub/auth/challenge`, {
+			const challengeResponse = await fetch(`${url}/api/auth/challenge`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ publicKey: localUser.publicKey }),
 			});
 			expect(challengeResponse.status).toBe(200);
 			const challenge = (await challengeResponse.json()) as { challengeId: string; challenge: string };
-			const sessionResponse = await fetch(`${url}/_hub/auth/session`, {
+			const sessionResponse = await fetch(`${url}/api/auth/session`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
@@ -116,7 +116,7 @@ describe("d-pi gateway auth", () => {
 			expect(sessionResponse.status).toBe(200);
 			const session = (await sessionResponse.json()) as { token: string };
 
-			const authorized = await fetch(`${url}/_hub/team`, {
+			const authorized = await fetch(`${url}/api/team`, {
 				headers: { Authorization: `Bearer ${session.token}` },
 			});
 			expect(authorized.status).toBe(200);
@@ -143,6 +143,7 @@ describe("d-pi gateway auth", () => {
 			parentName: undefined,
 			children: [],
 			status: "ready",
+			plan: [],
 			worker: mockWorker as never,
 			cwd: workspaceRoot,
 		});
@@ -155,13 +156,13 @@ describe("d-pi gateway auth", () => {
 		await gateway.start(0);
 
 		try {
-			const challengeResponse = await fetch(`${gateway.url()}/_hub/auth/challenge`, {
+			const challengeResponse = await fetch(`${gateway.url()}/api/auth/challenge`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ publicKey: localUser.publicKey }),
 			});
 			const challenge = (await challengeResponse.json()) as { challengeId: string; challenge: string };
-			const sessionResponse = await fetch(`${gateway.url()}/_hub/auth/session`, {
+			const sessionResponse = await fetch(`${gateway.url()}/api/auth/session`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({

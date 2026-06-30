@@ -151,6 +151,7 @@ async function reloadAgentResources(): Promise<void> {
 
 	await runtime.session.reload();
 	proxy.setBanner(generateDPiBanner(runtime.session));
+	postToHub({ type: "description_update", agentName: config.agentName, description: newAgentDefinition.description });
 }
 
 async function triggerAgentReload(): Promise<void> {
@@ -635,8 +636,19 @@ async function runAgentWorker(): Promise<void> {
 			postToHub({ type: "status_update", agentName, status: "busy" });
 		} else if (event.type === "compaction_end") {
 			postToHub({ type: "status_update", agentName, status: "ready" });
+		} else if (event.type === "plan") {
+			postToHub({ type: "plan_update", agentName, plan: event.data });
 		}
 	});
+
+	// 8c. Sync the persisted plan to the Hub so the dashboard reflects it
+	// without waiting for the next plan tool call. The proxy loads
+	// plan.json in its constructor but only emits the plan event from
+	// updatePlan/restorePlan, and restorePlan is never invoked on
+	// startup — so without this one-shot sync a resumed agent's plan
+	// stays empty on the dashboard until the agent calls plan again.
+	postToHub({ type: "plan_update", agentName, plan: proxy.getPlan() });
+	postToHub({ type: "description_update", agentName, description: agentDefinition?.description });
 
 	// 9. Signal ready to Hub
 	postToHub({ type: "subscribe_sources", agentName, sources: [...(agentDefinition?.sources ?? [])] });

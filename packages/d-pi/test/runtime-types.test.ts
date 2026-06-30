@@ -104,6 +104,7 @@ const snapshot = {
 				status: "busy",
 				children: ["child"],
 				cwd: "/fake",
+				plan: [],
 			},
 		],
 		sources: [],

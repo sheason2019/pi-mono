@@ -5,5 +5,6 @@ export {
 	fetchTeamSnapshot,
 	formatAgentEntry,
 	parseAgentName,
+	statusIndicator,
 	switchAgent,
 } from "./multi-agent-extension.ts";

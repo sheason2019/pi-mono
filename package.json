@@ -3,7 +3,8 @@
 	"private": true,
 	"type": "module",
 	"workspaces": [
-		"packages/d-pi"
+		"packages/d-pi",
+		"packages/d-pi-web"
 	],
 	"scripts": {
 		"clean": "npm run clean --workspaces",

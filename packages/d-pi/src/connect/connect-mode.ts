@@ -66,7 +66,7 @@ export interface ConnectSessionSpawnOptions {
  * session connected to the selected agent.
  *
  * Before each spawn, the parent registers the agent→connectId binding with
- * the hub via POST /_hub/agents/{name}/bind so /agents/{name}/remote-call can be
+ * the hub via POST /api/agents/{name}/bind so /agents/{name}/remote-call can be
  * dispatched to the executor.
  */
 export async function runDPiConnectMode(
@@ -91,7 +91,7 @@ export async function runDPiConnectMode(
 	const connectTimeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
 	const networkResponse = await fetchWithTimeout(
 		fetchImpl,
-		`${url}/_hub/team`,
+		`${url}/api/team`,
 		{ headers },
 		connectTimeoutMs,
 		`Failed to reach hub at ${url}`,
@@ -276,7 +276,7 @@ export async function bindAgentOnHub(
 	const encodedAgentName = encodeURIComponent(agentName);
 	const res = await fetchWithTimeout(
 		fetchImpl,
-		`${hubUrl}/_hub/agents/${encodedAgentName}/bind`,
+		`${hubUrl}/api/agents/${encodedAgentName}/bind`,
 		{
 			method: "POST",
 			headers,
@@ -380,7 +380,7 @@ export async function runConnectSession(opts: ConnectSessionSpawnOptions & { fet
 		if (authToken) headers.Authorization = `Bearer ${authToken}`;
 		const encodedAgentName = encodeURIComponent(agentName);
 		await Promise.race([
-			fetchImpl(`${hubUrl}/_hub/agents/${encodedAgentName}/unbind`, { method: "POST", headers }),
+			fetchImpl(`${hubUrl}/api/agents/${encodedAgentName}/unbind`, { method: "POST", headers }),
 			new Promise((_, reject) => setTimeout(() => reject(new Error("unbind timeout")), 2_000)),
 		]);
 	} catch {

@@ -43,13 +43,13 @@ async function startHubWithAuth(workspaceRoot: string): Promise<StartedHub> {
 	);
 	await gateway.start(0);
 
-	const challengeResponse = await fetch(`${gateway.url()}/_hub/auth/challenge`, {
+	const challengeResponse = await fetch(`${gateway.url()}/api/auth/challenge`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ publicKey: localUser.publicKey }),
 	});
 	const challenge = (await challengeResponse.json()) as { challengeId: string; challenge: string };
-	const sessionResponse = await fetch(`${gateway.url()}/_hub/auth/session`, {
+	const sessionResponse = await fetch(`${gateway.url()}/api/auth/session`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
@@ -69,7 +69,7 @@ async function startHubWithAuth(workspaceRoot: string): Promise<StartedHub> {
 	};
 }
 
-describe("hub endpoint POST /_hub/executor/register", () => {
+describe("hub endpoint POST /api/executor/register", () => {
 	beforeEach(() => {
 		createTempDir("d-pi-exec-register-");
 	});
@@ -83,7 +83,7 @@ describe("hub endpoint POST /_hub/executor/register", () => {
 	it("registers a new executor with cwd under a valid token", async () => {
 		const { url, executorRegistry, sessionToken, gateway } = await startHubWithAuth(tempDir!);
 		try {
-			const res = await fetch(`${url}/_hub/executor/register`, {
+			const res = await fetch(`${url}/api/executor/register`, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 				body: JSON.stringify({ connectId: "c1", cwd: "/tmp" }),
@@ -101,13 +101,13 @@ describe("hub endpoint POST /_hub/executor/register", () => {
 	it("rejects duplicate registration of the same connectId with 409", async () => {
 		const { url, sessionToken, gateway } = await startHubWithAuth(tempDir!);
 		try {
-			const first = await fetch(`${url}/_hub/executor/register`, {
+			const first = await fetch(`${url}/api/executor/register`, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 				body: JSON.stringify({ connectId: "c1", cwd: "/tmp" }),
 			});
 			expect(first.status).toBe(200);
-			const second = await fetch(`${url}/_hub/executor/register`, {
+			const second = await fetch(`${url}/api/executor/register`, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 				body: JSON.stringify({ connectId: "c1", cwd: "/other" }),
@@ -122,7 +122,7 @@ describe("hub endpoint POST /_hub/executor/register", () => {
 	it("rejects requests without an auth token with 401", async () => {
 		const { url, gateway } = await startHubWithAuth(tempDir!);
 		try {
-			const res = await fetch(`${url}/_hub/executor/register`, {
+			const res = await fetch(`${url}/api/executor/register`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ connectId: "c1", cwd: "/tmp" }),
@@ -136,13 +136,13 @@ describe("hub endpoint POST /_hub/executor/register", () => {
 	it("rejects body missing connectId or cwd with 400", async () => {
 		const { url, sessionToken, gateway } = await startHubWithAuth(tempDir!);
 		try {
-			const noCwd = await fetch(`${url}/_hub/executor/register`, {
+			const noCwd = await fetch(`${url}/api/executor/register`, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 				body: JSON.stringify({ connectId: "c1" }),
 			});
 			expect(noCwd.status).toBe(400);
-			const noId = await fetch(`${url}/_hub/executor/register`, {
+			const noId = await fetch(`${url}/api/executor/register`, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 				body: JSON.stringify({ cwd: "/tmp" }),

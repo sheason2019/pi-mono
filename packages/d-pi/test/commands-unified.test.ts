@@ -74,6 +74,7 @@ async function startHub(
 		parentName: undefined,
 		children: [],
 		status: "ready",
+		plan: [],
 		worker: mockWorker as never,
 		cwd: workspaceRoot,
 	});
@@ -85,14 +86,14 @@ async function startHub(
 	);
 	await gateway.start(0);
 	const ch = (await (
-		await fetch(`${gateway.url()}/_hub/auth/challenge`, {
+		await fetch(`${gateway.url()}/api/auth/challenge`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ publicKey: localUser.publicKey }),
 		})
 	).json()) as { challengeId: string; challenge: string };
 	const session = (await (
-		await fetch(`${gateway.url()}/_hub/auth/session`, {
+		await fetch(`${gateway.url()}/api/auth/session`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({

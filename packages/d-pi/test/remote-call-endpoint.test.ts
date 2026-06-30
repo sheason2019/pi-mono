@@ -40,14 +40,14 @@ async function startHubWithAuth(workspaceRoot: string): Promise<StartedHub> {
 	);
 	await gateway.start(0);
 	const challenge = (await (
-		await fetch(`${gateway.url()}/_hub/auth/challenge`, {
+		await fetch(`${gateway.url()}/api/auth/challenge`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ publicKey: localUser.publicKey }),
 		})
 	).json()) as { challengeId: string; challenge: string };
 	const session = (await (
-		await fetch(`${gateway.url()}/_hub/auth/session`, {
+		await fetch(`${gateway.url()}/api/auth/session`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -84,7 +84,7 @@ describe("hub endpoint POST /agents/{id}/remote-call", () => {
 					// Immediately POST a result back to resolve the pending call.
 					const port = new URL(url).port;
 					const payload = data as { callId: string };
-					void fetch(`http://127.0.0.1:${port}/_hub/executor/results`, {
+					void fetch(`http://127.0.0.1:${port}/api/executor/results`, {
 						method: "POST",
 						headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 						body: JSON.stringify({
@@ -261,14 +261,14 @@ describe("hub endpoint POST /agents/{id}/remote-call", () => {
 		const url = gateway.url();
 		try {
 			const ch = (await (
-				await fetch(`${url}/_hub/auth/challenge`, {
+				await fetch(`${url}/api/auth/challenge`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ publicKey: localUser.publicKey }),
 				})
 			).json()) as { challengeId: string; challenge: string };
 			const session = (await (
-				await fetch(`${url}/_hub/auth/session`, {
+				await fetch(`${url}/api/auth/session`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({

@@ -108,6 +108,7 @@ async function startHub(
 		parentName: undefined,
 		children: [],
 		status: "ready",
+		plan: [],
 		worker: worker as never,
 		cwd: workspaceRoot,
 	});
@@ -121,13 +122,13 @@ async function startHub(
 	gateway.bindAgent(agentName, "connect-123");
 	await gateway.start(0);
 
-	const challengeResponse = await fetch(`${gateway.url()}/_hub/auth/challenge`, {
+	const challengeResponse = await fetch(`${gateway.url()}/api/auth/challenge`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ publicKey: localUser.publicKey }),
 	});
 	const challenge = (await challengeResponse.json()) as { challengeId: string; challenge: string };
-	const sessionResponse = await fetch(`${gateway.url()}/_hub/auth/session`, {
+	const sessionResponse = await fetch(`${gateway.url()}/api/auth/session`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
@@ -222,7 +223,7 @@ describe("d-pi service gateway API", () => {
 				send: (event, data) => {
 					received.push({ event, data });
 					const payload = data as { callId: string };
-					void fetch(`${hub.url}/_hub/executor/results`, {
+					void fetch(`${hub.url}/api/executor/results`, {
 						method: "POST",
 						headers: { ...serviceAuthHeaders(hub.sessionToken), "Content-Type": "application/json" },
 						body: JSON.stringify({

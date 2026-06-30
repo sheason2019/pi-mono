@@ -51,6 +51,7 @@ function invokeRemoteViaIpc(
 			parentName: undefined,
 			children: [],
 			status: "ready",
+			plan: [],
 			worker: fakeWorker as never,
 			cwd: tempDir!,
 		});
@@ -73,6 +74,7 @@ function registerFakeAgent(
 		parentName,
 		children: [],
 		status: "ready",
+		plan: [],
 		worker: {
 			postMessage: onPostMessage,
 			on() {},
@@ -158,7 +160,7 @@ describe('remote tool dispatch via IPC (case "dispatch" in _handleToolCall)', ()
 				dispatched.push(payload);
 				// Simulate the executor running the tool and calling
 				// resolveOne to post the result back. In production this
-				// goes through HTTP POST /_hub/executor/results, but for
+				// goes through HTTP POST /api/executor/results, but for
 				// this unit test we call the registry directly.
 				setTimeout(() => {
 					executorRegistry.resolveOne("test-conn", payload.callId, {

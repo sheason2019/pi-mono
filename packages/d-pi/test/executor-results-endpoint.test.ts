@@ -40,14 +40,14 @@ async function startHubWithAuth(workspaceRoot: string): Promise<StartedHub> {
 	);
 	await gateway.start(0);
 	const challenge = (await (
-		await fetch(`${gateway.url()}/_hub/auth/challenge`, {
+		await fetch(`${gateway.url()}/api/auth/challenge`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ publicKey: localUser.publicKey }),
 		})
 	).json()) as { challengeId: string; challenge: string };
 	const session = (await (
-		await fetch(`${gateway.url()}/_hub/auth/session`, {
+		await fetch(`${gateway.url()}/api/auth/session`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -60,7 +60,7 @@ async function startHubWithAuth(workspaceRoot: string): Promise<StartedHub> {
 	return { url: gateway.url(), gateway, executorRegistry, sessionToken: session.token };
 }
 
-describe("hub endpoint POST /_hub/executor/results", () => {
+describe("hub endpoint POST /api/executor/results", () => {
 	beforeEach(() => {
 		createTempDir("d-pi-exec-results-");
 	});
@@ -87,7 +87,7 @@ describe("hub endpoint POST /_hub/executor/results", () => {
 			} as never;
 			executorRegistry.addPending("c1", "call-1", fakeRes);
 
-			const res = await fetch(`${url}/_hub/executor/results`, {
+			const res = await fetch(`${url}/api/executor/results`, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 				body: JSON.stringify({ connectId: "c1", callId: "call-1", ok: true, result: { foo: 1 } }),
@@ -108,7 +108,7 @@ describe("hub endpoint POST /_hub/executor/results", () => {
 		const { url, executorRegistry, sessionToken, gateway } = await startHubWithAuth(tempDir!);
 		try {
 			executorRegistry.preRegister("c1", { cwd: "/tmp" });
-			const res = await fetch(`${url}/_hub/executor/results`, {
+			const res = await fetch(`${url}/api/executor/results`, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 				body: JSON.stringify({ connectId: "c1", callId: "no-such-call", ok: true }),
@@ -135,7 +135,7 @@ describe("hub endpoint POST /_hub/executor/results", () => {
 			} as never;
 			executorRegistry.addPending("c1", "call-1", fakeRes);
 
-			const res = await fetch(`${url}/_hub/executor/results`, {
+			const res = await fetch(`${url}/api/executor/results`, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 				body: JSON.stringify({ connectId: "c1", callId: "call-1", ok: false, error: "tool blew up" }),
@@ -153,7 +153,7 @@ describe("hub endpoint POST /_hub/executor/results", () => {
 	it("returns 400 on missing fields", async () => {
 		const { url, sessionToken, gateway } = await startHubWithAuth(tempDir!);
 		try {
-			const res = await fetch(`${url}/_hub/executor/results`, {
+			const res = await fetch(`${url}/api/executor/results`, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 				body: JSON.stringify({ connectId: "c1" }),
@@ -167,7 +167,7 @@ describe("hub endpoint POST /_hub/executor/results", () => {
 	it("returns 401 without auth", async () => {
 		const { url, gateway } = await startHubWithAuth(tempDir!);
 		try {
-			const res = await fetch(`${url}/_hub/executor/results`, {
+			const res = await fetch(`${url}/api/executor/results`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ connectId: "c1", callId: "x", ok: true }),

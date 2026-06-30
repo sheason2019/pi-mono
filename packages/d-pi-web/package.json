@@ -1,0 +1,31 @@
+{
+	"name": "@sheason/d-pi-web",
+	"private": true,
+	"version": "0.6.0-alpha.16",
+	"type": "module",
+	"scripts": {
+		"dev": "rsbuild dev",
+		"build": "rsbuild build",
+		"preview": "rsbuild preview"
+	},
+	"dependencies": {
+		"radix-ui": "1.6.0",
+		"react": "19.1.0",
+		"react-dom": "19.1.0",
+		"reactflow": "11.11.4"
+	},
+	"devDependencies": {
+		"@rsbuild/core": "2.1.1",
+		"@rsbuild/plugin-react": "2.1.0",
+		"@rsbuild/plugin-tailwindcss": "2.0.3",
+		"@tailwindcss/postcss": "4.3.2",
+		"@types/react": "19.1.2",
+		"@types/react-dom": "19.1.2",
+		"class-variance-authority": "0.7.1",
+		"clsx": "2.1.1",
+		"lucide-react": "1.22.0",
+		"tailwind-merge": "3.6.0",
+		"tailwindcss": "4.3.2",
+		"typescript": "5.9.3"
+	}
+}

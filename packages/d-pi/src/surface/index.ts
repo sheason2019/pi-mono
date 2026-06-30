@@ -9,7 +9,6 @@ export {
 } from "./dispatch-tools.ts";
 export {
 	createHubActionsClient,
-	type DPiAgentStatus,
 	type DPiCreateAgentActionPayload,
 	type DPiCreateAgentActionResult,
 	type DPiDestroyAgentActionPayload,

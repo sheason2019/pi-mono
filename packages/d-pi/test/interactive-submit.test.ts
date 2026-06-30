@@ -467,8 +467,9 @@ describe("d-pi interactive editor submit", () => {
 						status: "ready",
 						children: ["helper"],
 						cwd: "/fake",
+						plan: [],
 					},
-					{ name: "helper", parentName: "root", status: "busy", children: [], cwd: "/fake" },
+					{ name: "helper", parentName: "root", status: "busy", children: [], cwd: "/fake", plan: [] },
 				],
 				sources: [],
 				executors: [],
@@ -544,8 +545,8 @@ describe("d-pi interactive editor submit", () => {
 				Response.json({
 					rootName: "root",
 					agents: [
-						{ name: "root", parentName: undefined, status: "ready", children: ["helper"] },
-						{ name: "helper", parentName: "root", status: "ready", children: [] },
+						{ name: "root", parentName: undefined, status: "ready", children: ["helper"], plan: [] },
+						{ name: "helper", parentName: "root", status: "ready", children: [], plan: [] },
 					],
 					executors: [],
 				}),

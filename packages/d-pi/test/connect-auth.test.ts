@@ -28,7 +28,7 @@ describe("d-pi connect auth", () => {
 		const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
 			const body = init?.body ? JSON.parse(String(init.body)) : undefined;
 			calls.push({ url: String(url), body });
-			if (String(url).endsWith("/_hub/auth/challenge")) {
+			if (String(url).endsWith("/api/auth/challenge")) {
 				return new Response(JSON.stringify({ challengeId: "challenge-1", challenge: "sign-me" }), { status: 200 });
 			}
 			return new Response(JSON.stringify({ token: "session-token" }), { status: 200 });
@@ -42,10 +42,10 @@ describe("d-pi connect auth", () => {
 
 		expect(session).toEqual({ url: "https://example.com/dpi", token: "session-token" });
 		expect(calls[0]).toEqual({
-			url: "https://example.com/dpi/_hub/auth/challenge",
+			url: "https://example.com/dpi/api/auth/challenge",
 			body: { publicKey: localUser.publicKey },
 		});
-		expect(calls[1]?.url).toBe("https://example.com/dpi/_hub/auth/session");
+		expect(calls[1]?.url).toBe("https://example.com/dpi/api/auth/session");
 		expect(calls[1]?.body).toMatchObject({
 			publicKey: localUser.publicKey,
 			challengeId: "challenge-1",

@@ -5,7 +5,7 @@ import type { AgentStatus, TeamAgentEntry, TeamSnapshot } from "../types.ts";
 
 export const AGENT_SWITCH_FILE = join(tmpdir(), "d-pi-agent-switch.txt");
 
-function statusIndicator(status: AgentStatus): string {
+export function statusIndicator(status: AgentStatus): string {
 	switch (status) {
 		case "busy":
 			return "\u25CF";
@@ -42,7 +42,7 @@ export async function fetchTeamSnapshot(hubUrl: string, authToken?: string): Pro
 	if (authToken) {
 		headers.Authorization = `Bearer ${authToken}`;
 	}
-	const response = await fetch(`${hubUrl}/_hub/team`, { headers });
+	const response = await fetch(`${hubUrl}/api/team`, { headers });
 	if (!response.ok) {
 		throw new Error(`Failed to fetch team: ${response.status}`);
 	}

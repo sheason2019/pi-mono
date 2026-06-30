@@ -72,7 +72,10 @@ export class Hub {
 			(agentName) => this.destroyAgent(agentName),
 			new AuthSessionManager(config.workspaceRoot),
 			this._executorRegistry,
-			{ remoteCallTimeoutMs: this._remoteCallTimeoutMs },
+			{
+				remoteCallTimeoutMs: this._remoteCallTimeoutMs,
+				webDir: config.webDir,
+			},
 		);
 	}
 
@@ -277,6 +280,8 @@ export class Hub {
 			parentName,
 			children: [],
 			status: "starting",
+			plan: [],
+			description: options.description,
 			worker,
 			cwd: agentDir,
 		});
@@ -482,6 +487,14 @@ export class Hub {
 
 			case "subscribe_sources":
 				void this._sourceManager.subscribeAgent(message.agentName, message.sources);
+				break;
+
+			case "plan_update":
+				this._registry.updatePlan(message.agentName, message.plan);
+				break;
+
+			case "description_update":
+				this._registry.updateDescription(message.agentName, message.description);
 				break;
 		}
 	}
