@@ -20,8 +20,6 @@ describe("native coding-agent connect parity manifest", () => {
 			"changelog",
 			"hotkeys",
 			"trust",
-			"login",
-			"logout",
 			"new",
 			"compact",
 			"resume",
@@ -52,8 +50,6 @@ describe("native coding-agent connect parity manifest", () => {
 			export: "Not available in connect mode",
 			import: "Not available in connect mode",
 			share: "Not available in connect mode",
-			login: "Not available in connect mode — configure auth on the server",
-			logout: "Not available in connect mode — configure auth on the server",
 		});
 	});
 

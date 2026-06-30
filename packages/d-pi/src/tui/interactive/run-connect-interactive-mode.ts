@@ -181,8 +181,6 @@ const DPI_CONNECT_FALLBACK_SLASH_COMMANDS: readonly SlashCommand[] = [
 	{ name: "changelog", description: "Show changelog entries" },
 	{ name: "hotkeys", description: "Show all keyboard shortcuts" },
 	{ name: "trust", description: "Save project trust decision for future sessions" },
-	{ name: "login", description: "Configure provider authentication" },
-	{ name: "logout", description: "Remove provider authentication" },
 	{ name: "new", description: "Start a new session" },
 	{ name: "compact", description: "Manually compact the session context" },
 	{ name: "resume", description: "Resume a different session" },
@@ -692,10 +690,6 @@ export async function handleDPiConnectSlashCommand(
 			case "/import":
 			case "/share":
 				showStatus("Not available in connect mode");
-				return true;
-			case "/login":
-			case "/logout":
-				showStatus("Not available in connect mode — configure auth on the server");
 				return true;
 			default:
 				return false;
