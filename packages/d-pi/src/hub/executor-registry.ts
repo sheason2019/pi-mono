@@ -3,7 +3,7 @@
  * transport (HTTP ServerResponse or IPC callback). Encoded in the JSON
  * body that an HTTP caller receives, and passed verbatim to an IPC
  * callback. Mirrors the shape the executor POSTs back via
- * `/_hub/executor/results`.
+ * `/api/executor/results`.
  */
 export type ResolvedCall = { ok: true; result: unknown } | { ok: false; error: string };
 
@@ -11,7 +11,7 @@ export type ResolvedCall = { ok: true; result: unknown } | { ok: false; error: s
  * One in-flight call to a connected executor. The hub parks a PendingCall
  * when it dispatches a tool to the client and resolves it when the client
  * POSTs back a result (see HubGateway._handleHubApi for
- * `/_hub/executor/results`).
+ * `/api/executor/results`).
  *
  * Two transport shapes share this interface:
  *
@@ -164,7 +164,7 @@ export class ExecutorRegistry {
 	/**
 	 * Resolve a pending call by callId. Called from
 	 * `HubGateway._handleHubApi` when the executor POSTs
-	 * `/_hub/executor/results`, and from the server-side timeout / IPC
+	 * `/api/executor/results`, and from the server-side timeout / IPC
 	 * dispatch paths. Returns true if a pending call was found and
 	 * resolved, false if the callId is unknown (the call may have
 	 * already timed out / been removed; a late duplicate result is

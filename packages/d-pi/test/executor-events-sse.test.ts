@@ -41,14 +41,14 @@ async function startHubWithAuth(workspaceRoot: string): Promise<StartedHub> {
 	);
 	await gateway.start(0);
 	const challenge = (await (
-		await fetch(`${gateway.url()}/_hub/auth/challenge`, {
+		await fetch(`${gateway.url()}/api/auth/challenge`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ publicKey: localUser.publicKey }),
 		})
 	).json()) as { challengeId: string; challenge: string };
 	const session = (await (
-		await fetch(`${gateway.url()}/_hub/auth/session`, {
+		await fetch(`${gateway.url()}/api/auth/session`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -142,7 +142,7 @@ async function* openSse(url: string, headers: Record<string, string>): AsyncGene
 	}
 }
 
-describe("hub endpoint GET /_hub/executor/events (SSE)", () => {
+describe("hub endpoint GET /api/executor/events (SSE)", () => {
 	beforeEach(() => {
 		createTempDir("d-pi-exec-events-");
 	});
@@ -158,7 +158,7 @@ describe("hub endpoint GET /_hub/executor/events (SSE)", () => {
 		try {
 			executorRegistry.preRegister("c1", { cwd: "/tmp" });
 
-			const sseIter = openSse(`${url}/_hub/executor/events?connectId=c1`, {
+			const sseIter = openSse(`${url}/api/executor/events?connectId=c1`, {
 				Authorization: `Bearer ${sessionToken}`,
 			});
 			const first = (await sseIter.next()).value as ParsedSseEvent;
@@ -193,7 +193,7 @@ describe("hub endpoint GET /_hub/executor/events (SSE)", () => {
 	it("returns 404 when connectId is not pre-registered", async () => {
 		const { url, gateway, sessionToken } = await startHubWithAuth(tempDir!);
 		try {
-			const res = await fetch(`${url}/_hub/executor/events?connectId=missing`, {
+			const res = await fetch(`${url}/api/executor/events?connectId=missing`, {
 				headers: { Authorization: `Bearer ${sessionToken}` },
 			});
 			expect(res.status).toBe(404);
@@ -205,7 +205,7 @@ describe("hub endpoint GET /_hub/executor/events (SSE)", () => {
 	it("returns 400 when connectId query param is missing", async () => {
 		const { url, gateway, sessionToken } = await startHubWithAuth(tempDir!);
 		try {
-			const res = await fetch(`${url}/_hub/executor/events`, {
+			const res = await fetch(`${url}/api/executor/events`, {
 				headers: { Authorization: `Bearer ${sessionToken}` },
 			});
 			expect(res.status).toBe(400);
@@ -217,7 +217,7 @@ describe("hub endpoint GET /_hub/executor/events (SSE)", () => {
 	it("returns 401 without auth", async () => {
 		const { url, gateway } = await startHubWithAuth(tempDir!);
 		try {
-			const res = await fetch(`${url}/_hub/executor/events?connectId=c1`);
+			const res = await fetch(`${url}/api/executor/events?connectId=c1`);
 			expect(res.status).toBe(401);
 		} finally {
 			await gateway.stop();
@@ -228,7 +228,7 @@ describe("hub endpoint GET /_hub/executor/events (SSE)", () => {
 		const { url, gateway, executorRegistry, sessionToken } = await startHubWithAuth(tempDir!);
 		try {
 			executorRegistry.preRegister("c2", { cwd: "/tmp" });
-			const sseIter = openSse(`${url}/_hub/executor/events?connectId=c2`, {
+			const sseIter = openSse(`${url}/api/executor/events?connectId=c2`, {
 				Authorization: `Bearer ${sessionToken}`,
 			});
 			// Read the connected event (proves the SSE is open).

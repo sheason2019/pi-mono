@@ -30,17 +30,19 @@ interface WorkerHttpResponseWaitOptions {
  * HTTP gateway for the d-pi Hub.
  *
  * Routes:
- *   /_hub/agents       GET  → list all agents
- *   /_hub/agents       POST → create agent
- *   /_hub/agents/{id}  DELETE → destroy agent
- *   /_hub/team       GET  → team snapshot
- *   /agents/{id}/*     → reverse proxy to agent's HTTP server
- *   /*                 → reverse proxy to root agent
+ *   /api/agents          GET    → list all agents
+ *   /api/agents          POST   → create agent
+ *   /api/agents/{name}   DELETE → destroy agent
+ *   /api/team            GET    → team snapshot
+ *   /api/auth/*                 → auth endpoints
+ *   /api/executor/*             → executor endpoints
+ *   /agents/{name}/*    → reverse proxy to agent's HTTP server
+ *   /*                  → reverse proxy to root agent
  */
 export interface HubGatewayOptions {
 	/** Max time to wait for an executor to POST a result to
-	 *  /_hub/executor/results before failing the pending
-	 *  /agents/{id}/remote-call. Default 60_000. */
+	 *  /api/executor/results before failing the pending
+	 *  /agents/{name}/remote-call. Default 60_000. */
 	remoteCallTimeoutMs?: number;
 }
 
@@ -129,14 +131,8 @@ export class HubGateway {
 			const path = url.pathname;
 
 			try {
-				// Hub internal API
-				if (path.startsWith("/_hub/")) {
-					await this._handleHubApi(req, res, path);
-					return;
-				}
-
 				if (path.startsWith("/api/")) {
-					await this._handleServiceApi(req, res, path);
+					await this._handleApi(req, res, path);
 					return;
 				}
 
@@ -325,8 +321,31 @@ export class HubGateway {
 		return this._auth.verifyToken(header.slice("Bearer ".length));
 	}
 
-	private async _handleHubApi(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
-		if (path === "/_hub/auth/challenge" && req.method === "POST") {
+	private async _handleApi(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+		const snapshotMatch = path.match(/^\/api\/agents\/([^/]+)\/snapshot$/);
+		if (snapshotMatch && req.method === "GET") {
+			await this._handleServiceSnapshot(req, res, decodeURIComponent(snapshotMatch[1]!));
+			return;
+		}
+
+		const eventsMatch = path.match(/^\/api\/agents\/([^/]+)\/events$/);
+		if (eventsMatch && req.method === "GET") {
+			this._handleServiceAgentSse(req, res, decodeURIComponent(eventsMatch[1]!));
+			return;
+		}
+
+		const actionMatch = path.match(/^\/api\/agents\/([^/]+)\/actions\/([^/]+)$/);
+		if (actionMatch && req.method === "POST") {
+			await this._handleServiceAction(
+				req,
+				res,
+				decodeURIComponent(actionMatch[1]!),
+				decodeURIComponent(actionMatch[2]!),
+			);
+			return;
+		}
+
+		if (path === "/api/auth/challenge" && req.method === "POST") {
 			if (!this._auth) {
 				res.writeHead(404, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ error: "Auth is not enabled" }));
@@ -360,13 +379,13 @@ export class HubGateway {
 			return;
 		}
 
-		if (path === "/_hub/auth/session" && req.method === "POST") {
+		if (path === "/api/auth/session" && req.method === "POST") {
 			if (!this._auth) {
 				res.writeHead(404, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ error: "Auth is not enabled" }));
 				return;
 			}
-			// Same ordering rationale as /_hub/auth/challenge: compute first,
+			// Same ordering rationale as /api/auth/challenge: compute first,
 			// write the response after, so a throw from createSession() cannot
 			// leave the response in a half-closed 200 state.
 			let session: { token: string; auth: { name: string; description: string } };
@@ -399,16 +418,16 @@ export class HubGateway {
 			return;
 		}
 
-		// GET /_hub/agents — list all agents
-		if (path === "/_hub/agents" && req.method === "GET") {
+		// GET /api/agents — list all agents
+		if (path === "/api/agents" && req.method === "GET") {
 			const snapshot = this._registry.getTeamSnapshot();
 			res.writeHead(200, { "Content-Type": "application/json" });
 			res.end(JSON.stringify(snapshot.agents));
 			return;
 		}
 
-		// POST /_hub/agents — create agent
-		if (path === "/_hub/agents" && req.method === "POST") {
+		// POST /api/agents — create agent
+		if (path === "/api/agents" && req.method === "POST") {
 			const body = await this._readBody(req);
 			const params = createAgentSchema.parse(JSON.parse(body));
 			try {
@@ -425,8 +444,8 @@ export class HubGateway {
 			return;
 		}
 
-		// DELETE /_hub/agents/{name} — destroy agent
-		const deleteMatch = path.match(/^\/_hub\/agents\/([^/]+)$/);
+		// DELETE /api/agents/{name} — destroy agent
+		const deleteMatch = path.match(/^\/api\/agents\/([^/]+)$/);
 		if (deleteMatch && req.method === "DELETE") {
 			const agentName = deleteMatch[1];
 			try {
@@ -440,7 +459,7 @@ export class HubGateway {
 			return;
 		}
 
-		// POST /_hub/agents/{id}/bind — bind an agent id to a connect id so the
+		// POST /api/agents/{id}/bind — bind an agent id to a connect id so the
 		// hub can dispatch /agents/{id}/remote-call requests to the executor
 		// registered for that connect id. Called by `d-pi connect` after the
 		// auth handshake.
@@ -451,7 +470,7 @@ export class HubGateway {
 		// calls to the new executor. Stale cleanup of the dropped
 		// session's executor entry (in the ExecutorRegistry) happens
 		// when that session's SSE channel closes, not here.
-		const bindMatch = path.match(/^\/_hub\/agents\/([^/]+)\/bind$/);
+		const bindMatch = path.match(/^\/api\/agents\/([^/]+)\/bind$/);
 		if (bindMatch && req.method === "POST") {
 			try {
 				const body = await this._readBody(req);
@@ -475,9 +494,9 @@ export class HubGateway {
 			return;
 		}
 
-		// POST /_hub/agents/{id}/unbind — drop the agent→connectId binding.
+		// POST /api/agents/{id}/unbind — drop the agent→connectId binding.
 		// Called by `d-pi connect` on session exit.
-		const unbindMatch = path.match(/^\/_hub\/agents\/([^/]+)\/unbind$/);
+		const unbindMatch = path.match(/^\/api\/agents\/([^/]+)\/unbind$/);
 		if (unbindMatch && req.method === "POST") {
 			this.unbindAgent(decodeURIComponent(unbindMatch[1]!));
 			res.writeHead(200, { "Content-Type": "application/json" });
@@ -485,8 +504,8 @@ export class HubGateway {
 			return;
 		}
 
-		// GET /_hub/team — team snapshot
-		if (path === "/_hub/team" && req.method === "GET") {
+		// GET /api/team — team snapshot
+		if (path === "/api/team" && req.method === "GET") {
 			const snapshot = this._registry.getTeamSnapshot();
 			snapshot.executors =
 				this._executorRegistry?.list().map((executor) => ({
@@ -498,7 +517,7 @@ export class HubGateway {
 			return;
 		}
 
-		if (path === "/_hub/executor/events" && req.method === "GET") {
+		if (path === "/api/executor/events" && req.method === "GET") {
 			const execReg = this._executorRegistry;
 			if (!execReg) {
 				res.writeHead(503, { "Content-Type": "application/json" });
@@ -558,7 +577,7 @@ export class HubGateway {
 			return;
 		}
 
-		if (path === "/_hub/executor/results" && req.method === "POST") {
+		if (path === "/api/executor/results" && req.method === "POST") {
 			const execReg = this._executorRegistry;
 			if (!execReg) {
 				res.writeHead(503, { "Content-Type": "application/json" });
@@ -585,7 +604,7 @@ export class HubGateway {
 			return;
 		}
 
-		if (path === "/_hub/executor/register" && req.method === "POST") {
+		if (path === "/api/executor/register" && req.method === "POST") {
 			if (!this._executorRegistry) {
 				res.writeHead(503, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ error: "Executor registry not configured" }));
@@ -603,34 +622,6 @@ export class HubGateway {
 				res.writeHead(status, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ error: msg }));
 			}
-			return;
-		}
-
-		res.writeHead(404, { "Content-Type": "application/json" });
-		res.end(JSON.stringify({ error: "Not found" }));
-	}
-
-	private async _handleServiceApi(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
-		const snapshotMatch = path.match(/^\/api\/agents\/([^/]+)\/snapshot$/);
-		if (snapshotMatch && req.method === "GET") {
-			await this._handleServiceSnapshot(req, res, decodeURIComponent(snapshotMatch[1]!));
-			return;
-		}
-
-		const eventsMatch = path.match(/^\/api\/agents\/([^/]+)\/events$/);
-		if (eventsMatch && req.method === "GET") {
-			this._handleServiceAgentSse(req, res, decodeURIComponent(eventsMatch[1]!));
-			return;
-		}
-
-		const actionMatch = path.match(/^\/api\/agents\/([^/]+)\/actions\/([^/]+)$/);
-		if (actionMatch && req.method === "POST") {
-			await this._handleServiceAction(
-				req,
-				res,
-				decodeURIComponent(actionMatch[1]!),
-				decodeURIComponent(actionMatch[2]!),
-			);
 			return;
 		}
 

@@ -121,7 +121,7 @@ export class ExecutorClient {
 
 	async start(): Promise<void> {
 		// 1) Register.
-		const regRes = await hubFetch(this.opts.hubUrl, this.opts.authToken, "/_hub/executor/register", {
+		const regRes = await hubFetch(this.opts.hubUrl, this.opts.authToken, "/api/executor/register", {
 			method: "POST",
 			body: JSON.stringify({ connectId: this.opts.connectId, cwd: process.cwd() }),
 		});
@@ -133,7 +133,7 @@ export class ExecutorClient {
 		const controller = new AbortController();
 		this.controller = controller;
 		const sseUrl = new URL(
-			`/_hub/executor/events?connectId=${encodeURIComponent(this.opts.connectId)}`,
+			`/api/executor/events?connectId=${encodeURIComponent(this.opts.connectId)}`,
 			this.opts.hubUrl,
 		);
 		const headers: Record<string, string> = { Accept: "text/event-stream" };
@@ -163,7 +163,7 @@ export class ExecutorClient {
 	}
 
 	async sendResult(payload: ResultInput): Promise<void> {
-		const res = await hubFetch(this.opts.hubUrl, this.opts.authToken, "/_hub/executor/results", {
+		const res = await hubFetch(this.opts.hubUrl, this.opts.authToken, "/api/executor/results", {
 			method: "POST",
 			body: JSON.stringify({ connectId: this.opts.connectId, ...payload }),
 		});

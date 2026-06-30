@@ -379,7 +379,7 @@ async function fetchDPiConnectTeam(
 	headers: Readonly<Record<string, string>> | undefined,
 	fetchFn: typeof fetch,
 ): Promise<TeamSnapshot> {
-	const response = await fetchFn(`${hubUrl.replace(/\/+$/, "")}/_hub/team`, { headers });
+	const response = await fetchFn(`${hubUrl.replace(/\/+$/, "")}/api/team`, { headers });
 	if (!response.ok) {
 		throw new Error(`Failed to fetch team: ${response.status}`);
 	}

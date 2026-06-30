@@ -62,7 +62,7 @@ describe("connectId is per-session (not per-agent)", () => {
 	});
 
 	async function bind(agentName: string, connectId: string): Promise<{ status: number; body: string }> {
-		const res = await fetch(`${baseUrl}/_hub/agents/${agentName}/bind`, {
+		const res = await fetch(`${baseUrl}/api/agents/${agentName}/bind`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ connectId }),
@@ -71,7 +71,7 @@ describe("connectId is per-session (not per-agent)", () => {
 	}
 
 	async function unbind(agentName: string): Promise<{ status: number }> {
-		const res = await fetch(`${baseUrl}/_hub/agents/${agentName}/unbind`, {
+		const res = await fetch(`${baseUrl}/api/agents/${agentName}/unbind`, {
 			method: "POST",
 		});
 		return { status: res.status };
@@ -153,7 +153,7 @@ describe("connectId is per-session (not per-agent)", () => {
 	});
 
 	it("connectId validation: missing connectId is rejected with 400", async () => {
-		const res = await fetch(`${baseUrl}/_hub/agents/root/bind`, {
+		const res = await fetch(`${baseUrl}/api/agents/root/bind`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({}),

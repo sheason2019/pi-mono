@@ -143,14 +143,14 @@ describe("bindAgentOnHub", () => {
 		bindUrl = gateway.url();
 		bindGateway = gateway;
 		const ch = (await (
-			await fetch(`${bindUrl}/_hub/auth/challenge`, {
+			await fetch(`${bindUrl}/api/auth/challenge`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ publicKey: localUser.publicKey }),
 			})
 		).json()) as { challengeId: string; challenge: string };
 		const session = (await (
-			await fetch(`${bindUrl}/_hub/auth/session`, {
+			await fetch(`${bindUrl}/api/auth/session`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
@@ -170,7 +170,7 @@ describe("bindAgentOnHub", () => {
 		}
 	});
 
-	it("POSTs to /_hub/agents/{id}/bind with the connect id and bearer auth", async () => {
+	it("POSTs to /api/agents/{id}/bind with the connect id and bearer auth", async () => {
 		await bindAgentOnHub(bindUrl, bindToken, "agent-1", "connect-1");
 
 		const res = await fetch(`${bindUrl}/agents/agent-1/remote-call`, {
@@ -208,7 +208,7 @@ describe("bindAgentOnHub", () => {
 
 		expect(calls).toEqual([
 			expect.objectContaining({
-				url: "http://hub/_hub/agents/root%20agent/bind",
+				url: "http://hub/api/agents/root%20agent/bind",
 				body: { connectId: "connect-1" },
 			}),
 		]);
@@ -253,12 +253,12 @@ describe("runConnectSession", () => {
 			})),
 		).toEqual([
 			{
-				url: "http://hub/_hub/agents/root%20agent/bind",
+				url: "http://hub/api/agents/root%20agent/bind",
 				method: "POST",
 				body: { connectId: "connect-uuid" },
 			},
 			{
-				url: "http://hub/_hub/agents/root%20agent/unbind",
+				url: "http://hub/api/agents/root%20agent/unbind",
 				method: "POST",
 				body: undefined,
 			},
@@ -330,7 +330,7 @@ describe("runDPiConnectMode", () => {
 	it("passes the resolved agent name and a UUID connect id to the connect session", async () => {
 		const fetchImpl = vi.fn(async (url: string | URL | Request, _init?: RequestInit) => {
 			const path = new URL(String(url)).pathname;
-			if (path === "/_hub/team") {
+			if (path === "/api/team") {
 				return new Response(
 					JSON.stringify({
 						rootName: "root agent",

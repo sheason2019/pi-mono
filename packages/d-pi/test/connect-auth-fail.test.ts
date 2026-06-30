@@ -70,7 +70,7 @@ describe("d-pi connect auth failure handling", () => {
 			const userFile = join(workspaceRoot, "users", "baduser.json");
 			const { publicKey } = JSON.parse(readFileSync(userFile, "utf-8")) as { publicKey: string };
 
-			const response = await fetch(`${gateway.url()}/_hub/auth/challenge`, {
+			const response = await fetch(`${gateway.url()}/api/auth/challenge`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ publicKey }),
@@ -207,7 +207,7 @@ describe("d-pi connect auth failure handling", () => {
 	});
 
 	it("session endpoint also returns 401 with a body when the signature is invalid (same ordering bug)", async () => {
-		// /_hub/auth/session has the identical ordering bug as /challenge.
+		// /api/auth/session has the identical ordering bug as /challenge.
 		// We pin it here so a future refactor cannot re-introduce the
 		// half-closed-200 hang on the second auth hop.
 		const workspaceRoot = createTempDir("d-pi-auth-fail-");
@@ -230,14 +230,14 @@ describe("d-pi connect auth failure handling", () => {
 			// First hop succeeds, then we send a garbage signature. The hub
 			// must answer 401 with a JSON body, not a half-closed 200.
 			const ch = (await (
-				await fetch(`${gateway.url()}/_hub/auth/challenge`, {
+				await fetch(`${gateway.url()}/api/auth/challenge`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ publicKey: localUser.publicKey }),
 				})
 			).json()) as { challengeId: string; challenge: string };
 
-			const bad = await fetch(`${gateway.url()}/_hub/auth/session`, {
+			const bad = await fetch(`${gateway.url()}/api/auth/session`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({

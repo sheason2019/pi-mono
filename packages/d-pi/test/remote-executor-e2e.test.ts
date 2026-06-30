@@ -43,14 +43,14 @@ async function startHub(workspaceRoot: string): Promise<StartedHub> {
 	const url = gateway.url();
 	const port = new URL(url).port;
 	const ch = (await (
-		await fetch(`${url}/_hub/auth/challenge`, {
+		await fetch(`${url}/api/auth/challenge`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ publicKey: localUser.publicKey }),
 		})
 	).json()) as { challengeId: string; challenge: string };
 	const session = (await (
-		await fetch(`${url}/_hub/auth/session`, {
+		await fetch(`${url}/api/auth/session`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -117,7 +117,7 @@ describe("end-to-end remote executor round trip (HTTP path)", () => {
 					if (event !== "remote-call") return;
 					const payload = data as { callId: string; tool: string; params: unknown };
 					callsReceived.push({ tool: payload.tool, params: payload.params });
-					void fetch(`http://127.0.0.1:${port}/_hub/executor/results`, {
+					void fetch(`http://127.0.0.1:${port}/api/executor/results`, {
 						method: "POST",
 						headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 						body: JSON.stringify({
@@ -149,7 +149,7 @@ describe("end-to-end remote executor round trip (HTTP path)", () => {
 			executorRegistry.attachSse("agent-2", {
 				send: (_event, data) => {
 					const payload = data as { callId: string };
-					void fetch(`http://127.0.0.1:${port}/_hub/executor/results`, {
+					void fetch(`http://127.0.0.1:${port}/api/executor/results`, {
 						method: "POST",
 						headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 						body: JSON.stringify({

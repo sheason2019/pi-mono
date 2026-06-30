@@ -40,14 +40,14 @@ async function startHub(workspaceRoot: string): Promise<StartedHub> {
 	);
 	await gateway.start(0);
 	const challenge = (await (
-		await fetch(`${gateway.url()}/_hub/auth/challenge`, {
+		await fetch(`${gateway.url()}/api/auth/challenge`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ publicKey: localUser.publicKey }),
 		})
 	).json()) as { challengeId: string; challenge: string };
 	const session = (await (
-		await fetch(`${gateway.url()}/_hub/auth/session`, {
+		await fetch(`${gateway.url()}/api/auth/session`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -60,7 +60,7 @@ async function startHub(workspaceRoot: string): Promise<StartedHub> {
 	return { url: gateway.url(), gateway, executorRegistry, sessionToken: session.token };
 }
 
-describe("hub endpoint POST /_hub/agents/{name}/bind", () => {
+describe("hub endpoint POST /api/agents/{name}/bind", () => {
 	beforeEach(() => {
 		createTempDir("d-pi-agent-bind-");
 	});
@@ -74,7 +74,7 @@ describe("hub endpoint POST /_hub/agents/{name}/bind", () => {
 	it("binds an agent to a connect id and the binding survives until unbind", async () => {
 		const { url, gateway, sessionToken } = await startHub(tempDir!);
 		try {
-			const res = await fetch(`${url}/_hub/agents/agent-1/bind`, {
+			const res = await fetch(`${url}/api/agents/agent-1/bind`, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 				body: JSON.stringify({ connectId: "connect-1" }),
@@ -103,7 +103,7 @@ describe("hub endpoint POST /_hub/agents/{name}/bind", () => {
 	it("returns 400 when connectId is missing", async () => {
 		const { url, gateway, sessionToken } = await startHub(tempDir!);
 		try {
-			const res = await fetch(`${url}/_hub/agents/agent-1/bind`, {
+			const res = await fetch(`${url}/api/agents/agent-1/bind`, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 				body: JSON.stringify({}),
@@ -118,7 +118,7 @@ describe("hub endpoint POST /_hub/agents/{name}/bind", () => {
 	it("returns 401 without auth", async () => {
 		const { url, gateway } = await startHub(tempDir!);
 		try {
-			const res = await fetch(`${url}/_hub/agents/agent-1/bind`, {
+			const res = await fetch(`${url}/api/agents/agent-1/bind`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ connectId: "c-1" }),
@@ -132,13 +132,13 @@ describe("hub endpoint POST /_hub/agents/{name}/bind", () => {
 	it("unbind removes the binding so /remote-call answers 409 with the right error", async () => {
 		const { url, gateway, sessionToken } = await startHub(tempDir!);
 		try {
-			await fetch(`${url}/_hub/agents/agent-1/bind`, {
+			await fetch(`${url}/api/agents/agent-1/bind`, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
 				body: JSON.stringify({ connectId: "c-1" }),
 			});
 
-			const unbind = await fetch(`${url}/_hub/agents/agent-1/unbind`, {
+			const unbind = await fetch(`${url}/api/agents/agent-1/unbind`, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${sessionToken}` },
 			});
@@ -205,14 +205,14 @@ describe("hub endpoint POST /_hub/agents/{name}/bind", () => {
 			expect(gw.getBinding("agent-1")).toBe("c1");
 
 			const ch = (await (
-				await fetch(`${gw.url()}/_hub/auth/challenge`, {
+				await fetch(`${gw.url()}/api/auth/challenge`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ publicKey: localUser.publicKey }),
 				})
 			).json()) as { challengeId: string; challenge: string };
 			const session = (await (
-				await fetch(`${gw.url()}/_hub/auth/session`, {
+				await fetch(`${gw.url()}/api/auth/session`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({
@@ -226,7 +226,7 @@ describe("hub endpoint POST /_hub/agents/{name}/bind", () => {
 			// Open SSE then close immediately. We use AbortController to
 			// tear down the connection so the close handler runs.
 			const ctrl = new AbortController();
-			const sseRes = await fetch(`${gw.url()}/_hub/executor/events?connectId=c1`, {
+			const sseRes = await fetch(`${gw.url()}/api/executor/events?connectId=c1`, {
 				headers: { Authorization: `Bearer ${session.token}` },
 				signal: ctrl.signal,
 			});

@@ -112,13 +112,13 @@ export async function createConnectSession(options: ConnectSessionOptions): Prom
 	};
 	const challenge = await postJson<{ challengeId: string; challenge: string }>(
 		fetchImpl,
-		`${url}/_hub/auth/challenge`,
+		`${url}/api/auth/challenge`,
 		{ publicKey: localUser.publicKey },
 		ctx,
 	);
 	const session = await postJson<{ token: string }>(
 		fetchImpl,
-		`${url}/_hub/auth/session`,
+		`${url}/api/auth/session`,
 		{
 			publicKey: localUser.publicKey,
 			challengeId: challenge.challengeId,

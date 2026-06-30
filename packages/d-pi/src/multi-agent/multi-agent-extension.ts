@@ -42,7 +42,7 @@ export async function fetchTeamSnapshot(hubUrl: string, authToken?: string): Pro
 	if (authToken) {
 		headers.Authorization = `Bearer ${authToken}`;
 	}
-	const response = await fetch(`${hubUrl}/_hub/team`, { headers });
+	const response = await fetch(`${hubUrl}/api/team`, { headers });
 	if (!response.ok) {
 		throw new Error(`Failed to fetch team: ${response.status}`);
 	}
