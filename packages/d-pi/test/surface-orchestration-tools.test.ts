@@ -14,7 +14,12 @@ import type {
 	DPiSyncAgentsResult,
 	DPiTeamSnapshot,
 } from "../src/surface/index.ts";
-import { createSendMessageTool, createSyncAgentsTool, createTeamTool } from "../src/surface/orchestration-tools.ts";
+import {
+	createPlanTool,
+	createSendMessageTool,
+	createSyncAgentsTool,
+	createTeamTool,
+} from "../src/surface/orchestration-tools.ts";
 
 interface TextToolResult {
 	content: Array<{ type: "text"; text: string }>;
@@ -65,7 +70,8 @@ class RecordingHubActionsClient implements DPiHubActionsClient {
 	}
 }
 
-function setupContext(client: RecordingHubActionsClient, agentName = "root"): void {
+function setupContext(client: RecordingHubActionsClient, agentName = "root"): { planUpdates: unknown[] } {
+	const planUpdates: unknown[] = [];
 	setBuiltinContext({
 		hubClient: client,
 		agentName,
@@ -77,9 +83,12 @@ function setupContext(client: RecordingHubActionsClient, agentName = "root"): vo
 		},
 		getReloadFn: () => undefined,
 		getReloadDetails: () => ({}),
-		updatePlan: () => {},
+		updatePlan: (plan) => {
+			planUpdates.push(plan);
+		},
 		getPlan: () => [],
 	});
+	return { planUpdates };
 }
 
 function asTextToolResult(result: unknown): TextToolResult {
@@ -210,6 +219,82 @@ describe("d-pi surface orchestration tools", () => {
 
 		expect(result.isError).toBe(true);
 		expect(textOf(result)).toContain("Failed to send message");
+	});
+
+	it("accepts valid plan todos and updates the plan", async () => {
+		const client = new RecordingHubActionsClient();
+		const { planUpdates } = setupContext(client);
+		const tool = createPlanTool();
+
+		const result = asTextToolResult(
+			await tool.execute("call-plan-1", {
+				todos: [
+					{ id: "t1", title: "Investigate", status: "completed" },
+					{ id: "t2", title: "Implement", status: "in_progress", description: "Working on it" },
+					{ id: "t3", title: "Test", status: "pending" },
+				],
+			}),
+		);
+
+		expect(result.isError).toBeUndefined();
+		expect(planUpdates).toHaveLength(1);
+		expect(planUpdates[0]).toEqual([
+			{ id: "t1", title: "Investigate", description: undefined, status: "completed" },
+			{ id: "t2", title: "Implement", description: "Working on it", status: "in_progress" },
+			{ id: "t3", title: "Test", description: undefined, status: "pending" },
+		]);
+		expect(textOf(result)).toContain("Plan updated (1 done, 1 in progress, 1 pending)");
+	});
+
+	it("rejects deprecated summary field with a clear error message", async () => {
+		const client = new RecordingHubActionsClient();
+		const { planUpdates } = setupContext(client);
+		const tool = createPlanTool();
+
+		const result = asTextToolResult(
+			await tool.execute("call-plan-2", {
+				todos: [{ id: "t1", title: "Task", summary: "deprecated", status: "pending" }],
+			}),
+		);
+
+		expect(result.isError).toBe(true);
+		expect(textOf(result)).toContain("Invalid plan parameters");
+		expect(textOf(result)).toContain("summary");
+		expect(textOf(result)).toContain("deprecated");
+		expect(planUpdates).toHaveLength(0);
+	});
+
+	it("rejects deprecated content field with a clear error message", async () => {
+		const client = new RecordingHubActionsClient();
+		const { planUpdates } = setupContext(client);
+		const tool = createPlanTool();
+
+		const result = asTextToolResult(
+			await tool.execute("call-plan-3", {
+				todos: [{ id: "t1", content: "old title field", status: "pending" }],
+			}),
+		);
+
+		expect(result.isError).toBe(true);
+		expect(textOf(result)).toContain("Invalid plan parameters");
+		expect(textOf(result)).toContain("content");
+		expect(planUpdates).toHaveLength(0);
+	});
+
+	it("rejects invalid status values", async () => {
+		const client = new RecordingHubActionsClient();
+		const { planUpdates } = setupContext(client);
+		const tool = createPlanTool();
+
+		const result = asTextToolResult(
+			await tool.execute("call-plan-4", {
+				todos: [{ id: "t1", title: "Task", status: "done" }],
+			}),
+		);
+
+		expect(result.isError).toBe(true);
+		expect(textOf(result)).toContain("Invalid plan parameters");
+		expect(planUpdates).toHaveLength(0);
 	});
 });
 

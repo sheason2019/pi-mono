@@ -35,8 +35,6 @@ import type {
 	DPiInteractiveSessionItemData,
 	DPiInteractiveSlashCommand,
 	DPiInteractiveTodoItem,
-	DPiInteractiveTreeNodeData,
-	DPiInteractiveUserMessageItem,
 } from "../tui/interactive/agent-session-proxy.ts";
 import { DPI_NATIVE_CONNECT_BUILTIN_COMMANDS } from "../tui/interactive/native-parity-manifest.ts";
 import type {
@@ -47,7 +45,6 @@ import type {
 	DPiInteractiveStatusState,
 } from "../tui/interactive/view-model.ts";
 import { createDPiInteractiveRealtimePage } from "../tui/interactive/view-model.ts";
-import type { MessageRenderer } from "../tui-components/tui-component-definition.ts";
 import { loadWorkspaceModelDefinition } from "../workspace/workspace-resources.ts";
 
 export interface DPiRequestAuth {
@@ -132,12 +129,9 @@ export interface DPiCreateSessionResult {
 export interface DPiAgentSessionRuntime {
 	session: DPiWorkerSession;
 	newSession(options?: unknown): Promise<unknown>;
-	fork(entryId: string, options?: unknown): Promise<{ cancelled: boolean }>;
 	switchSession(sessionPath: string, options?: unknown): Promise<unknown>;
 	setBeforeSessionInvalidate(handler: () => void): void;
-	setRebindSession(
-		handler: (session: DPiWorkerSession, reason: "new" | "resume" | "fork") => void | Promise<void>,
-	): void;
+	setRebindSession(handler: (session: DPiWorkerSession, reason: "new" | "resume") => void | Promise<void>): void;
 	getRuntimeSnapshot?(): DPiRuntimeSnapshot;
 }
 
@@ -260,11 +254,11 @@ export async function createDPiAgentSessionRuntime(
 ): Promise<DPiAgentSessionRuntime> {
 	let current = await factory(options);
 	let beforeInvalidate: (() => void) | undefined;
-	let rebind: ((session: DPiWorkerSession, reason: "new" | "resume" | "fork") => void | Promise<void>) | undefined;
+	let rebind: ((session: DPiWorkerSession, reason: "new" | "resume") => void | Promise<void>) | undefined;
 	let localSessionSequence = 0;
 
 	const recreateSession = async (
-		reason: "new" | "resume" | "fork",
+		reason: "new" | "resume",
 		sessionDir: string,
 	): Promise<DPiCreateSessionResult & { services: DPiAgentSessionServices }> => {
 		beforeInvalidate?.();
@@ -277,11 +271,11 @@ export async function createDPiAgentSessionRuntime(
 		return next;
 	};
 
-	const nextSessionPath = (kind: "fork" | "new", detail?: string): string => {
+	const nextSessionPath = (detail?: string): string => {
 		localSessionSequence += 1;
 		const base = options.sessionManager.sessionDir ?? join(options.cwd, ".d-pi-sessions");
 		const suffix = detail ? `-${sanitizeSessionPathPart(detail)}` : "";
-		return join(base, `${kind}-${localSessionSequence}${suffix}`);
+		return join(base, `new-${localSessionSequence}${suffix}`);
 	};
 
 	return {
@@ -289,14 +283,9 @@ export async function createDPiAgentSessionRuntime(
 			return current.session;
 		},
 		async newSession(newSessionOptions?: unknown): Promise<unknown> {
-			const sessionPath = nextSessionPath("new");
+			const sessionPath = nextSessionPath();
 			await recreateSession("new", sessionPath);
 			return { sessionPath, options: newSessionOptions };
-		},
-		async fork(entryId: string, forkOptions?: unknown): Promise<{ cancelled: boolean }> {
-			await recreateSession("fork", nextSessionPath("fork", entryId));
-			void forkOptions;
-			return { cancelled: false };
 		},
 		async switchSession(sessionPath: string, switchOptions?: unknown): Promise<unknown> {
 			await recreateSession("resume", sessionPath);
@@ -305,9 +294,7 @@ export async function createDPiAgentSessionRuntime(
 		setBeforeSessionInvalidate(handler: () => void): void {
 			beforeInvalidate = handler;
 		},
-		setRebindSession(
-			handler: (session: DPiWorkerSession, reason: "new" | "resume" | "fork") => void | Promise<void>,
-		): void {
+		setRebindSession(handler: (session: DPiWorkerSession, reason: "new" | "resume") => void | Promise<void>): void {
 			rebind = handler;
 		},
 	};
@@ -581,7 +568,7 @@ export type DPiLocalAgentEvent =
 	| { type: "status"; data: DPiInteractiveStatusState }
 	| { type: "realtime"; data: DPiInteractiveRealtimeEvent }
 	| { type: "state"; data: DPiLocalAgentState }
-	| { type: "new" | "resume" | "fork"; data: DPiLocalAgentState }
+	| { type: "new" | "resume"; data: DPiLocalAgentState }
 	| { type: "turn_stats"; data: Extract<DPiRuntimeEvent, { type: "turn_stats" }> }
 	| { type: "agent_start" | "agent_end"; data: { type: "agent_start" } | { type: "agent_end" } }
 	| {
@@ -613,7 +600,6 @@ export interface DPiRegisteredCommand {
 export interface DPiSessionCapabilitySnapshot {
 	tools: DPiRegisteredTool[];
 	commands: DPiRegisteredCommand[];
-	renderers: string[];
 	inputHandlers: number;
 	eventHandlers: string[];
 }
@@ -621,7 +607,6 @@ export interface DPiSessionCapabilitySnapshot {
 interface DPiSessionRegistryState extends DPiSessionCapabilitySnapshot {
 	toolDefinitions: ToolDefinition[];
 	commandDefinitions: AgentCommandDefinition[];
-	messageRenderers: Array<{ customType: string; renderer: MessageRenderer<unknown> }>;
 	inputHandlerDefinitions: Array<NonNullable<AgentMiddlewareDefinition["onInput"]>>;
 	eventHandlerDefinitions: Array<{ event: string; handler: () => void }>;
 }
@@ -656,7 +641,6 @@ function createDefaultRemoteSettings(): DPiInteractiveRemoteSettings {
 		hideThinkingBlock: false,
 		collapseChangelog: false,
 		enableInstallTelemetry: false,
-		treeFilterMode: "all",
 		showHardwareCursor: false,
 		editorPaddingX: 0,
 		autocompleteMaxVisible: 10,
@@ -739,14 +723,6 @@ export class DPiAgentIpcServer {
 			this.handlers.onHttpResponse(requestId, 200, this.proxy.getState().remoteSettings);
 			return;
 		}
-		if (query === "tree") {
-			this.handlers.onHttpResponse(requestId, 200, this.proxy.getTree());
-			return;
-		}
-		if (query === "user-messages") {
-			this.handlers.onHttpResponse(requestId, 200, this.proxy.getUserMessagesForForking());
-			return;
-		}
 		if (query === "sessions") {
 			this.handlers.onHttpResponse(requestId, 200, this.proxy.getSessions());
 			return;
@@ -824,26 +800,12 @@ export class DPiAgentIpcServer {
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
 				return;
 			}
-			if (action === "fork") {
-				await this.proxy.fork(typeof payload.entryId === "string" ? payload.entryId : undefined);
-				this.handlers.onHttpResponse(requestId, 200, { ok: true });
-				return;
-			}
 			if (action === "name") {
 				if (typeof payload.name !== "string") {
 					this.handlers.onHttpResponse(requestId, 400, { ok: false, error: "Missing 'name'" });
 					return;
 				}
 				this.proxy.renameSession(payload.name);
-				this.handlers.onHttpResponse(requestId, 200, { ok: true });
-				return;
-			}
-			if (action === "label") {
-				if (typeof payload.entryId !== "string") {
-					this.handlers.onHttpResponse(requestId, 400, { ok: false, error: "Missing 'entryId'" });
-					return;
-				}
-				this.proxy.setLabel(payload.entryId, typeof payload.label === "string" ? payload.label : undefined);
 				this.handlers.onHttpResponse(requestId, 200, { ok: true });
 				return;
 			}
@@ -1116,37 +1078,6 @@ export class DPiLocalAgentSessionProxy {
 		return this.runtime.session.modelRegistry.getAll().map((model) => modelToInteractiveModel(model));
 	}
 
-	getTree(): DPiInteractiveTreeNodeData[] {
-		const nodes = this.messages.map((message, index): DPiInteractiveTreeNodeData => {
-			const previous = this.messages[index - 1];
-			return {
-				id: message.id,
-				type: message.role,
-				parentId: previous?.id ?? null,
-				timestamp: new Date(message.timestamp).toISOString(),
-				preview: messageContentText(message.content).replace(/\s+/g, " ").trim(),
-				content: message.content,
-				children: [],
-			};
-		});
-		const byId = new Map(nodes.map((node) => [node.id, node]));
-		const roots: DPiInteractiveTreeNodeData[] = [];
-		for (const node of nodes) {
-			if (node.parentId) {
-				byId.get(node.parentId)?.children.push(node);
-			} else {
-				roots.push(node);
-			}
-		}
-		return roots;
-	}
-
-	getUserMessagesForForking(): DPiInteractiveUserMessageItem[] {
-		return this.messages
-			.filter((message) => message.role === "user")
-			.map((message) => ({ id: message.id, text: messageContentText(message.content) }));
-	}
-
 	getSessions(): DPiInteractiveSessionItemData[] {
 		const metadata = getSessionMetadata(this.runtime.session);
 		const created = new Date(this.messages[0]?.timestamp ?? Date.now()).toISOString();
@@ -1209,22 +1140,9 @@ export class DPiLocalAgentSessionProxy {
 		await this.runtime.switchSession(sessionFile);
 	}
 
-	async fork(entryId?: string): Promise<void> {
-		await this.runtime.fork(entryId ?? "");
-	}
-
 	renameSession(name: string): void {
 		this.sessionName = name;
 		this.emit({ type: "state", data: this.getState() });
-	}
-
-	setLabel(entryId: string, label: string | undefined): void {
-		const node = this.messages.find((message) => message.id === entryId);
-		if (node) {
-			node.details = { ...(isRecord(node.details) ? node.details : {}), label };
-			this.emitRealtimeUpsert(node);
-		}
-		this.emitState();
 	}
 
 	async reload(): Promise<void> {
@@ -1464,8 +1382,13 @@ export class DPiLocalAgentSessionProxy {
 		void Promise.resolve(dispatchAbort);
 	}
 
-	resubscribe(reason: "new" | "resume" | "fork"): void {
+	resubscribe(reason: "new" | "resume"): void {
+		this.startRealtimePage(reason, { emit: false });
+		this.importedSessionMessageIds.clear();
+		this.streaming = false;
+		this.compacting = false;
 		this.subscribeToSessionMessages();
+		this.emitRealtimeSnapshot();
 		this.emit({ type: reason, data: this.getState() });
 		this.emitState();
 	}
@@ -1988,12 +1911,10 @@ function createEmptyRegistryState(): DPiSessionRegistryState {
 	return {
 		tools: [],
 		commands: [],
-		renderers: [],
 		inputHandlers: 0,
 		eventHandlers: [],
 		toolDefinitions: [],
 		commandDefinitions: [],
-		messageRenderers: [],
 		inputHandlerDefinitions: [],
 		eventHandlerDefinitions: [],
 	};
@@ -2002,12 +1923,10 @@ function createEmptyRegistryState(): DPiSessionRegistryState {
 function resetRegistryState(state: DPiSessionRegistryState): void {
 	state.tools = [];
 	state.commands = [];
-	state.renderers = [];
 	state.inputHandlers = 0;
 	state.eventHandlers = [];
 	state.toolDefinitions = [];
 	state.commandDefinitions = [];
-	state.messageRenderers = [];
 	state.inputHandlerDefinitions = [];
 	state.eventHandlerDefinitions = [];
 }
@@ -2351,9 +2270,6 @@ function remoteSettingsUpdates(updates: Record<string, unknown>): Partial<DPiInt
 	if (typeof updates.enableInstallTelemetry === "boolean") {
 		result.enableInstallTelemetry = updates.enableInstallTelemetry;
 	}
-	if (typeof updates.treeFilterMode === "string") {
-		result.treeFilterMode = updates.treeFilterMode;
-	}
 	if (typeof updates.showHardwareCursor === "boolean") {
 		result.showHardwareCursor = updates.showHardwareCursor;
 	}
@@ -2393,7 +2309,6 @@ function getSessionCapabilitySnapshot(session: DPiWorkerSession): DPiSessionCapa
 	return {
 		tools: state.tools.map((tool) => ({ ...tool })),
 		commands: state.commands.map((command) => ({ ...command })),
-		renderers: [...state.renderers],
 		inputHandlers: state.inputHandlers,
 		eventHandlers: [...state.eventHandlers],
 	};
@@ -2445,17 +2360,10 @@ function extractImages(input: unknown): Array<{ url: string; mediaType?: string 
 const planItemSchema = z.preprocess(
 	(raw: unknown): DPiInteractiveTodoItem => {
 		const item = raw as Record<string, unknown>;
-		const title = typeof item.title === "string" ? item.title : typeof item.content === "string" ? item.content : "";
-		const description =
-			typeof item.description === "string"
-				? item.description
-				: typeof item.summary === "string"
-					? item.summary
-					: undefined;
 		return {
 			id: typeof item.id === "string" ? item.id : "",
-			title,
-			description,
+			title: typeof item.title === "string" ? item.title : "",
+			description: typeof item.description === "string" ? item.description : undefined,
 			status:
 				item.status === "completed" || item.status === "in_progress" || item.status === "pending"
 					? item.status

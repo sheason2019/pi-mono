@@ -15,7 +15,6 @@ import {
 const DPI_DIR = ".dpi";
 const AGENTS_DIR = "agents";
 const SKILLS_DIR = "skills";
-const TUI_COMPONENTS_DIR = "tui-components";
 const D_PI_PACKAGE_NAME = "@sheason/d-pi";
 
 function dPiPackageRoot(): string {
@@ -149,8 +148,6 @@ export function initWorkspace(dir: string): void {
 	const rootAgentDir = join(agentsDir, "root");
 	mkdirSync(rootAgentDir, { recursive: true });
 	ensureAgentConventionDirs(rootAgentDir);
-	const tuiComponentsDir = join(resolved, TUI_COMPONENTS_DIR);
-	mkdirSync(tuiComponentsDir, { recursive: true });
 
 	ensureWorkspaceResourceDirs(resolved);
 
@@ -190,17 +187,7 @@ Each agent is defined by its directory. Convention-based discovery:
 - \`tools/*.ts\` — custom tools (\`export default defineTool({...})\`)
 - \`commands/*.ts\` — custom slash commands (\`export default defineCommand({...})\`)
 
-Built-in tools (dispatch_bash, dispatch_read, send_message, create_agent,
-destroy_agent, team, reload, reload_workspace) are always available.
-`,
-		);
-	}
-
-	const dPiMessageTuiComponentPath = join(tuiComponentsDir, "d-pi-message.ts");
-	if (!existsSync(dPiMessageTuiComponentPath)) {
-		writeFileSync(
-			dPiMessageTuiComponentPath,
-			`export { default } from "@sheason/d-pi/.public/d-pi-message";
+Built-in tools (dispatch_bash, dispatch_read, send_message, sync_agents, team, reload, reload_workspace) are always available.
 `,
 		);
 	}

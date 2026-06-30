@@ -37,8 +37,6 @@ import type {
 	DPiInteractiveSessionStateSnapshot,
 	DPiInteractiveSlashCommand,
 	DPiInteractiveTodoItem,
-	DPiInteractiveTreeNodeData,
-	DPiInteractiveUserMessageItem,
 } from "./agent-session-proxy.ts";
 import { buildDPiInteractiveBannerView } from "./banner-view.ts";
 import { buildDPiInteractiveFooterView } from "./footer-view.ts";
@@ -50,9 +48,6 @@ import {
 import { createDPiInteractiveRemoteAgentSessionProxy } from "./remote-agent-session-proxy.ts";
 import { createDPiInteractiveStyle } from "./style.ts";
 import { submitDPiInteractiveEditorText } from "./submit.ts";
-import { type DPiMessageRendererRegistry, loadDPiConnectTuiComponents } from "./tui-component-loader.ts";
-
-export { loadDPiConnectTuiComponents };
 
 export interface RunDPiConnectInteractiveModeOptions {
 	agentUrl: string;
@@ -124,8 +119,6 @@ export interface DPiConnectSlashCommandHandlers {
 	showStatus(text: string): void;
 	showAgentSelector?(): Promise<void>;
 	showSettingsSelector?(): Promise<void>;
-	showForkSelector?(): Promise<void>;
-	showTreeSelector?(): Promise<void>;
 	showResumeSelector?(): Promise<void>;
 	showPanel?(title: string, body: string): void;
 	copyLastAssistantMessage?(): Promise<void>;
@@ -148,7 +141,6 @@ export interface DPiConnectClientState {
 	toolsExpanded: boolean;
 	stopped: boolean;
 	shuttingDown: boolean;
-	messageRenderers: DPiMessageRendererRegistry;
 }
 
 export function createDPiConnectClientState(): DPiConnectClientState {
@@ -159,7 +151,6 @@ export function createDPiConnectClientState(): DPiConnectClientState {
 		toolsExpanded: false,
 		stopped: false,
 		shuttingDown: false,
-		messageRenderers: {},
 	};
 }
 
@@ -189,12 +180,7 @@ const DPI_CONNECT_FALLBACK_SLASH_COMMANDS: readonly SlashCommand[] = [
 	{ name: "session", description: "Show session info and stats" },
 	{ name: "changelog", description: "Show changelog entries" },
 	{ name: "hotkeys", description: "Show all keyboard shortcuts" },
-	{ name: "fork", description: "Create a new fork from a previous user message" },
-	{ name: "clone", description: "Duplicate the current session at the current position" },
-	{ name: "tree", description: "Navigate session tree (switch branches)" },
 	{ name: "trust", description: "Save project trust decision for future sessions" },
-	{ name: "login", description: "Configure provider authentication" },
-	{ name: "logout", description: "Remove provider authentication" },
 	{ name: "new", description: "Start a new session" },
 	{ name: "compact", description: "Manually compact the session context" },
 	{ name: "resume", description: "Resume a different session" },
@@ -238,13 +224,14 @@ class DPiConnectPanelComponent extends Container {
 			this.addChild(new Text(line, 1, 0));
 		}
 		this.addChild(new Spacer(1));
-		this.addChild(new Text(theme.fg("muted", "esc close"), 1, 0));
+		this.addChild(new Text(theme.fg("muted", "esc / ctrl+c close"), 1, 0));
 		this.addChild(new Spacer(1));
 		this.addChild(new DPiNativeDynamicBorder((text) => theme.fg("borderMuted", text)));
 	}
 
 	handleInput(data: string): void {
-		if (data === "\x1b") {
+		const kb = getKeybindings();
+		if (kb.matches(data, "tui.select.cancel")) {
 			this.onCancel();
 		}
 	}
@@ -474,55 +461,6 @@ export function showDPiConnectSettingsSelector(options: {
 	});
 }
 
-export async function showDPiConnectForkSelector(options: {
-	tui: TUI;
-	editor: DPiNativeCustomEditor;
-	editorContainer: Container;
-	theme: DPiNativeTheme;
-	proxy: DPiInteractiveAgentSessionProxy;
-	showStatus(text: string): void;
-}): Promise<void> {
-	try {
-		const messages = await options.proxy.fetchUserMessagesForForking();
-		showDPiConnectSelectInEditorSlot({
-			...options,
-			title: "Fork from Message",
-			items: messages.map(userMessageToSelectItem),
-			emptyStatus: "No user messages found",
-			onSelect: (item) => {
-				void options.proxy.fork(item.value);
-			},
-		});
-	} catch (error) {
-		options.showStatus(error instanceof Error ? error.message : String(error));
-	}
-}
-
-export async function showDPiConnectTreeSelector(options: {
-	tui: TUI;
-	editor: DPiNativeCustomEditor;
-	editorContainer: Container;
-	theme: DPiNativeTheme;
-	proxy: DPiInteractiveAgentSessionProxy;
-	showStatus(text: string): void;
-}): Promise<void> {
-	try {
-		const tree = await options.proxy.fetchTree();
-		const items = flattenTreeSelectItems(tree);
-		showDPiConnectSelectInEditorSlot({
-			...options,
-			title: "Session Tree",
-			items,
-			emptyStatus: "No session tree entries",
-			onSelect: (item) => {
-				void options.proxy.fork(item.value);
-			},
-		});
-	} catch (error) {
-		options.showStatus(error instanceof Error ? error.message : String(error));
-	}
-}
-
 export async function showDPiConnectResumeSelector(options: {
 	tui: TUI;
 	editor: DPiNativeCustomEditor;
@@ -564,39 +502,12 @@ export function showDPiConnectPanel(options: {
 	options.tui.requestRender();
 }
 
-function userMessageToSelectItem(message: DPiInteractiveUserMessageItem): SelectItem {
-	return {
-		value: message.id,
-		label: message.text.replace(/\s+/g, " ").trim() || "(empty message)",
-		description: message.id,
-	};
-}
-
 function sessionToSelectItem(session: DPiInteractiveSessionItemData): SelectItem {
 	return {
 		value: session.path,
 		label: session.name ?? (session.firstMessage.replace(/\s+/g, " ").trim() || session.id),
 		description: `${session.cwd} · ${session.messageCount} messages · ${session.modified}`,
 	};
-}
-
-function flattenTreeSelectItems(tree: DPiInteractiveTreeNodeData[]): SelectItem[] {
-	const items: SelectItem[] = [];
-	const visit = (node: DPiInteractiveTreeNodeData, depth: number, isLast: boolean): void => {
-		const indent = depth === 0 ? "" : `${"│ ".repeat(Math.max(0, depth - 1))}${isLast ? "└ " : "├ "}`;
-		items.push({
-			value: node.id,
-			label: `${indent}${node.type}: ${node.preview ?? node.label ?? node.id}`,
-			description: node.timestamp,
-		});
-		for (let index = 0; index < node.children.length; index++) {
-			visit(node.children[index]!, depth + 1, index === node.children.length - 1);
-		}
-	};
-	for (let index = 0; index < tree.length; index++) {
-		visit(tree[index]!, 0, index === tree.length - 1);
-	}
-	return items;
 }
 
 function buildSettingsSelectItems(settings: DPiInteractiveRemoteSettings): SelectItem[] {
@@ -694,13 +605,11 @@ export async function handleDPiConnectSlashCommand(
 		refreshAutocomplete,
 		showAgentSelector,
 		showChangelog,
-		showForkSelector,
 		showHotkeys,
 		showResumeSelector,
 		showSessionInfo,
 		showSettingsSelector,
 		showStatus,
-		showTreeSelector,
 		stop,
 	} = {
 		...handlers,
@@ -754,25 +663,8 @@ export async function handleDPiConnectSlashCommand(
 			case "/hotkeys":
 				showHotkeys?.();
 				return true;
-			case "/fork":
-				if (showForkSelector) {
-					await showForkSelector();
-				} else {
-					showStatus("Fork selector not available in d-pi connect");
-				}
-				return true;
 			case "/new":
 				await proxy.newSession();
-				return true;
-			case "/clone":
-				await proxy.fork();
-				return true;
-			case "/tree":
-				if (showTreeSelector) {
-					await showTreeSelector();
-				} else {
-					showStatus("Tree selector not available in d-pi connect");
-				}
 				return true;
 			case "/resume":
 				if (showResumeSelector) {
@@ -798,10 +690,6 @@ export async function handleDPiConnectSlashCommand(
 			case "/import":
 			case "/share":
 				showStatus("Not available in connect mode");
-				return true;
-			case "/login":
-			case "/logout":
-				showStatus("Not available in connect mode — configure auth on the server");
 				return true;
 			default:
 				return false;
@@ -867,16 +755,6 @@ export async function runDPiConnectInteractiveMode(
 		}));
 	void setupDPiConnectAutocomplete(editor, proxy, process.cwd());
 	const clientState = createDPiConnectClientState();
-	void loadDPiConnectTuiComponents({
-		hubUrl: options.hubUrl,
-		authHeaders: options.authHeaders,
-		fetch: options.fetch,
-	})
-		.then((renderers) => {
-			clientState.messageRenderers = renderers;
-			render();
-		})
-		.catch(() => {});
 	const gitBranch = options.gitBranch ?? readDPiConnectGitBranch(process.cwd());
 	const stop = async (): Promise<void> => {
 		if (clientState.stopped) {
@@ -919,7 +797,6 @@ export async function runDPiConnectInteractiveMode(
 			statusEntries: clientState.turnStatusEntries,
 			cwd: process.cwd(),
 			toolsExpanded: clientState.toolsExpanded,
-			messageRenderers: clientState.messageRenderers,
 		});
 		messageRenderer.update(messageSnapshot, clientState.turnStatusEntries, errorText);
 		pendingMessagesContainer.clear();
@@ -969,26 +846,6 @@ export async function runDPiConnectInteractiveMode(
 	};
 	const showSettingsSelector = async (): Promise<void> => {
 		showDPiConnectSettingsSelector({
-			tui,
-			editor,
-			editorContainer,
-			theme: nativeTheme,
-			proxy,
-			showStatus: showChatStatus,
-		});
-	};
-	const showForkSelector = async (): Promise<void> => {
-		await showDPiConnectForkSelector({
-			tui,
-			editor,
-			editorContainer,
-			theme: nativeTheme,
-			proxy,
-			showStatus: showChatStatus,
-		});
-	};
-	const showTreeSelector = async (): Promise<void> => {
-		await showDPiConnectTreeSelector({
 			tui,
 			editor,
 			editorContainer,
@@ -1049,8 +906,6 @@ export async function runDPiConnectInteractiveMode(
 				proxy,
 				showAgentSelector,
 				showSettingsSelector,
-				showForkSelector,
-				showTreeSelector,
 				showResumeSelector,
 				showPanel,
 				copyLastAssistantMessage,
@@ -1113,12 +968,6 @@ export async function runDPiConnectInteractiveMode(
 	});
 	editor.onAction("app.session.new", () => {
 		void proxy.newSession();
-	});
-	editor.onAction("app.session.tree", () => {
-		void showTreeSelector();
-	});
-	editor.onAction("app.session.fork", () => {
-		void showForkSelector();
 	});
 	editor.onAction("app.session.resume", () => {
 		void showResumeSelector();

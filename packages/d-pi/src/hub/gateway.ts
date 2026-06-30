@@ -1,8 +1,6 @@
 import { randomUUID as gatewayRandomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { basename, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import type { AuthSessionInfo, AuthSessionManager } from "../auth/auth-session.ts";
 import { formatDPiMetaMessage } from "../message-meta.ts";
@@ -17,7 +15,6 @@ import {
 } from "../service/protocol.ts";
 import { parseServiceActionName, toWorkerAction, toWorkerSnapshotQuery } from "../service/session-service.ts";
 import { writeServiceSseEvent, writeSseComment } from "../service/sse.ts";
-import { discoverTuiComponentFiles, tuiComponentsDir } from "../tui-components/tui-component-discovery.ts";
 import type { AgentRecord, HubToWorkerMessage, WorkerToHubMessage } from "../types.ts";
 import type { AgentRegistry } from "./agent-registry.ts";
 import type { ExecutorRegistry } from "./executor-registry.ts";
@@ -45,7 +42,6 @@ export interface HubGatewayOptions {
 	 *  /_hub/executor/results before failing the pending
 	 *  /agents/{id}/remote-call. Default 60_000. */
 	remoteCallTimeoutMs?: number;
-	workspaceRoot: string;
 }
 
 const remoteCallSchema = z.object({
@@ -110,7 +106,6 @@ export class HubGateway {
 	private readonly _executorRegistry: ExecutorRegistry | undefined;
 	private readonly _agentBindings: Map<string, string> = new Map();
 	private readonly _remoteCallTimeoutMs: number;
-	private readonly _workspaceRoot: string;
 
 	constructor(
 		registry: AgentRegistry,
@@ -126,7 +121,6 @@ export class HubGateway {
 		this._auth = auth;
 		this._executorRegistry = executorRegistry;
 		this._remoteCallTimeoutMs = options?.remoteCallTimeoutMs ?? 60_000;
-		this._workspaceRoot = options?.workspaceRoot ?? "";
 	}
 
 	async start(port: number): Promise<void> {
@@ -402,17 +396,6 @@ export class HubGateway {
 		if (!auth) {
 			res.writeHead(401, { "Content-Type": "application/json" });
 			res.end(JSON.stringify({ error: "Unauthorized" }));
-			return;
-		}
-
-		if (path === "/_hub/tui-components" && req.method === "GET") {
-			this._handleTuiComponentsManifest(req, res);
-			return;
-		}
-
-		const tuiComponentMatch = path.match(/^\/_hub\/tui-components\/(.+)$/);
-		if (tuiComponentMatch && req.method === "GET") {
-			this._handleTuiComponentFile(res, tuiComponentMatch[1]!);
 			return;
 		}
 
@@ -959,43 +942,6 @@ export class HubGateway {
 		}
 	}
 
-	private _handleTuiComponentsManifest(req: IncomingMessage, res: ServerResponse): void {
-		const origin = `http://${req.headers.host ?? "localhost"}`;
-		const components = discoverTuiComponentFiles(this._workspaceRoot).map((component) => ({
-			name: component.name,
-			url: `${origin}/_hub/tui-components/${encodeURIComponent(component.name)}`,
-		}));
-		res.writeHead(200, { "Content-Type": "application/json" });
-		res.end(JSON.stringify({ components }));
-	}
-
-	private _handleTuiComponentFile(res: ServerResponse, encodedName: string): void {
-		const name = decodeURIComponent(encodedName);
-		if (name !== basename(name) || name.includes("/") || name.includes("\\") || !name.endsWith(".ts")) {
-			res.writeHead(404, { "Content-Type": "application/json" });
-			res.end(JSON.stringify({ error: "TUI component not found" }));
-			return;
-		}
-		const filePath = this._resolveTuiComponentFile(name);
-		if (!filePath) {
-			res.writeHead(404, { "Content-Type": "application/json" });
-			res.end(JSON.stringify({ error: "TUI component not found" }));
-			return;
-		}
-		res.writeHead(200, { "Content-Type": "text/typescript; charset=utf-8" });
-		res.end(readFileSync(filePath, "utf-8"));
-	}
-
-	private _resolveTuiComponentFile(name: string): string | undefined {
-		const dir = tuiComponentsDir(this._workspaceRoot);
-		const filePath = resolve(join(dir, name));
-		const rel = relative(resolve(dir), filePath);
-		if (rel.startsWith("..") || rel === "" || rel.includes(`..${sep}`) || !existsSync(filePath)) {
-			return undefined;
-		}
-		return filePath;
-	}
-
 	private async _proxyToAgent(
 		req: IncomingMessage,
 		res: ServerResponse,
@@ -1019,7 +965,7 @@ export class HubGateway {
 		const cleanPath = path.startsWith("/") ? path.slice(1) : path;
 
 		// Block session management POST endpoints in d-pi connect mode
-		const blockedSessionEndpoints = new Set(["new-session", "switch-session", "fork"]);
+		const blockedSessionEndpoints = new Set(["new-session", "switch-session"]);
 		if (method === "POST" && blockedSessionEndpoints.has(cleanPath)) {
 			res.writeHead(403, { "Content-Type": "application/json" });
 			res.end(JSON.stringify({ error: "Session operations are managed by the d-pi hub" }));

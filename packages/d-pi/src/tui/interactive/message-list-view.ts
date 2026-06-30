@@ -1,10 +1,9 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
-import { type Component, Container, Markdown, Spacer, Text, TruncatedText } from "@earendil-works/pi-tui";
+import { Box, type Component, Container, Markdown, Spacer, Text, TruncatedText } from "@earendil-works/pi-tui";
 import { z } from "zod";
-import { extractDPiMeta } from "../../message-meta.ts";
+import { dPiMessageMetaSchema, extractDPiMeta } from "../../message-meta.ts";
 import type { DPiTranscriptItem } from "../../runtime/transcript/projector.ts";
-import type { ExtensionMessage, MessageRenderer } from "../../tui-components/tui-component-definition.ts";
 import { DPiNativeAssistantMessageComponent } from "../native/components/assistant-message.ts";
 import { DPiNativeDynamicBorder } from "../native/components/dynamic-border.ts";
 import { DPiNativeToolExecutionComponent } from "../native/components/tool-execution.ts";
@@ -51,7 +50,6 @@ export interface DPiInteractiveMessageListComponentOptions extends DPiInteractiv
 	toolsExpanded?: boolean;
 	showImages?: boolean;
 	imageWidthCells?: number;
-	messageRenderers?: Readonly<Record<string, MessageRenderer<unknown>>>;
 }
 
 interface ItemRenderContext {
@@ -79,14 +77,12 @@ export class DPiInteractiveMessageListRenderer {
 	private lastStatusEntries: readonly DPiInteractiveStatusEntry[] = [];
 	private lastErrorText = "";
 	private lastToolsExpanded = false;
-	private lastMessageRendererKeys = "";
 	private lastCwd: string | undefined;
 
 	constructor(container: Container, options: DPiInteractiveMessageListComponentOptions = {}) {
 		this.container = container;
 		this.ctx = createItemRenderContext(options);
 		this.lastToolsExpanded = options.toolsExpanded ?? false;
-		this.lastMessageRendererKeys = Object.keys(options.messageRenderers ?? {}).join(",");
 		this.lastCwd = options.cwd;
 	}
 
@@ -101,9 +97,8 @@ export class DPiInteractiveMessageListRenderer {
 	): void {
 		const options = this.ctx.options;
 		const newToolsExpanded = options.toolsExpanded ?? false;
-		const newMessageRendererKeys = Object.keys(options.messageRenderers ?? {}).join(",");
 		const newCwd = options.cwd;
-		const optionsChanged = newMessageRendererKeys !== this.lastMessageRendererKeys || newCwd !== this.lastCwd;
+		const optionsChanged = newCwd !== this.lastCwd;
 		const toolsExpandedChanged = newToolsExpanded !== this.lastToolsExpanded;
 
 		if (optionsChanged) {
@@ -117,7 +112,6 @@ export class DPiInteractiveMessageListRenderer {
 		}
 
 		this.lastToolsExpanded = newToolsExpanded;
-		this.lastMessageRendererKeys = newMessageRendererKeys;
 		this.lastCwd = newCwd;
 
 		const items = getSnapshotTranscriptItems(snapshot);
@@ -492,18 +486,10 @@ function buildCustomMessageComponent(message: AgentMessage, ctx: ItemRenderConte
 	if (!customType) {
 		return undefined;
 	}
-	const renderer = ctx.options.messageRenderers?.[customType];
-	if (!renderer) {
-		return undefined;
+	if (customType === "d-pi-message") {
+		return renderDPiMetaMessage(message, ctx);
 	}
-	return renderer(
-		toExtensionMessage(message),
-		{ expanded: ctx.options.toolsExpanded === true },
-		{
-			bg: (name, text) => ctx.theme.bg(name as Parameters<typeof ctx.theme.bg>[0], text),
-			fg: (name, text) => ctx.theme.fg(name as Parameters<typeof ctx.theme.fg>[0], text),
-		},
-	);
+	return undefined;
 }
 
 export function buildDPiInteractiveMessageListView(
@@ -630,31 +616,62 @@ export function buildDPiInteractiveStatusView(
 	return { text: style.dim(parts.join(", ")) };
 }
 
-function toExtensionMessage(message: AgentMessage): ExtensionMessage {
-	const meta = transcriptMessageSchema.safeParse(message).data;
-	const rawContent = meta?.content;
-	const content = isExtensionMessageContent(rawContent) ? rawContent : "";
-	const result: ExtensionMessage = { content };
-	if (meta?.role !== undefined) result.role = meta.role;
-	if (meta?.customType !== undefined) result.customType = meta.customType;
-	if (meta?.display !== undefined) result.display = meta.display;
-	if (meta?.timestamp !== undefined) result.timestamp = meta.timestamp;
-	if ("details" in message) result.details = message.details;
-	return result;
-}
-
-function isExtensionMessageContent(value: unknown): value is ExtensionMessage["content"] {
-	if (typeof value === "string") {
-		return true;
-	}
-	return contentArraySchema.safeParse(value).success;
-}
-
 function messageCustomType(message: AgentMessage): string | undefined {
 	if ("customType" in message && typeof message.customType === "string") {
 		return message.customType;
 	}
 	return "content" in message && extractDPiMeta(message.content) ? "d-pi-message" : undefined;
+}
+
+function renderDPiMetaMessage(message: AgentMessage, ctx: ItemRenderContext): Component | undefined {
+	const extracted = "content" in message ? extractDPiMeta(message.content) : undefined;
+	const meta = extracted?.meta ?? parseMessageDetailsMeta(message);
+	if (!meta) return undefined;
+	const sourceName = meta.agentName ?? meta.sourceName ?? meta.connectId ?? "";
+	const authName = meta.auth?.name ?? "";
+	const source = sourceName ? `${meta.sourceType}:${sourceName}` : meta.sourceType;
+	const header = [source, authName, meta.createTime].filter((part) => part.trim()).join(" · ");
+	const container = new Container();
+	container.addChild(new Spacer(1));
+	container.addChild(new Text(ctx.theme.fg("warning", header), 0, 0));
+	const text = extracted?.text ?? ("content" in message ? contentText(message.content) : "");
+	if (text) {
+		const box = new Box(1, 1, (text: string) => ctx.theme.bg("userMessageBg", text));
+		box.addChild(
+			new Markdown(
+				text,
+				0,
+				0,
+				{
+					heading: (text) => text,
+					link: (text) => text,
+					linkUrl: (text) => text,
+					code: (text) => text,
+					codeBlock: (text) => text,
+					codeBlockBorder: (text) => text,
+					quote: (text) => text,
+					quoteBorder: (text) => text,
+					hr: (text) => text,
+					listBullet: (text) => text,
+					bold: (text) => text,
+					italic: (text) => text,
+					strikethrough: (text) => text,
+					underline: (text) => text,
+				},
+				{
+					color: (text: string) => ctx.theme.fg("userMessageText", text),
+				},
+			),
+		);
+		container.addChild(box);
+	}
+	return container;
+}
+
+function parseMessageDetailsMeta(message: AgentMessage) {
+	if (!("details" in message)) return undefined;
+	const parsed = dPiMessageMetaSchema.safeParse(message.details);
+	return parsed.success ? parsed.data : undefined;
 }
 
 function normalizeAssistantMessage(message: AgentMessage): AssistantMessage {

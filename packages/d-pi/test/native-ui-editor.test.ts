@@ -70,8 +70,6 @@ describe("d-pi native editor", () => {
 		expect(keybindings.getKeys("app.thinking.toggle")).toEqual(["ctrl+t"]);
 		expect(keybindings.getKeys("app.tools.expand")).toEqual(["ctrl+o"]);
 		expect(keybindings.getKeys("app.session.new")).toEqual([]);
-		expect(keybindings.getKeys("app.session.tree")).toEqual([]);
-		expect(keybindings.getKeys("app.session.fork")).toEqual([]);
 		expect(keybindings.getKeys("app.session.resume")).toEqual([]);
 	});
 

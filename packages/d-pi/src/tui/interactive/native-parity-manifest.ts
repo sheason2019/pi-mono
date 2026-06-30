@@ -8,12 +8,7 @@ export const DPI_NATIVE_CONNECT_BUILTIN_COMMANDS = [
 	"session",
 	"changelog",
 	"hotkeys",
-	"fork",
-	"clone",
-	"tree",
 	"trust",
-	"login",
-	"logout",
 	"new",
 	"compact",
 	"resume",
@@ -27,19 +22,9 @@ export const DPI_NATIVE_CONNECT_UNAVAILABLE_COMMANDS = {
 	export: "Not available in connect mode",
 	import: "Not available in connect mode",
 	share: "Not available in connect mode",
-	login: "Not available in connect mode — configure auth on the server",
-	logout: "Not available in connect mode — configure auth on the server",
 } as const satisfies Partial<Record<DPiNativeConnectBuiltinCommand, string>>;
 
-export const DPI_NATIVE_CONNECT_PROTOCOL_QUERIES = [
-	"state",
-	"messages",
-	"settings",
-	"tree",
-	"user-messages",
-	"sessions",
-	"commands",
-] as const;
+export const DPI_NATIVE_CONNECT_PROTOCOL_QUERIES = ["state", "messages", "settings", "sessions", "commands"] as const;
 
 export const DPI_NATIVE_CONNECT_PROTOCOL_ACTIONS = [
 	"prompt",
@@ -50,9 +35,7 @@ export const DPI_NATIVE_CONNECT_PROTOCOL_ACTIONS = [
 	"compact",
 	"new-session",
 	"switch-session",
-	"fork",
 	"name",
-	"label",
 	"reload",
 	"settings",
 ] as const;

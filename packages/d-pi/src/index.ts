@@ -113,11 +113,6 @@ export type {
 	DPiToolStatus,
 } from "./runtime/types.ts";
 export * from "./surface/index.ts";
-export {
-	type AgentTuiComponentDefinition,
-	type AgentTuiComponentDefinitionInput,
-	defineTuiComponent,
-} from "./tui-components/tui-component-definition.ts";
 export type {
 	AgentStatus,
 	AgentWorkerConfig,

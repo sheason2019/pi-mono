@@ -41,10 +41,6 @@ export async function handleDPiInteractiveProtocolQuery(
 			return ok(proxy.messages);
 		case "settings":
 			return ok(proxy.getSnapshot().remoteSettings);
-		case "tree":
-			return ok(await proxy.fetchTree());
-		case "user-messages":
-			return ok(await proxy.fetchUserMessagesForForking());
 		case "sessions":
 			return ok(await proxy.getSessions());
 		case "commands":
@@ -111,26 +107,11 @@ const protocolHandlers: Record<string, DPiInteractiveProtocolHandler> = {
 		return ok();
 	},
 
-	async fork(proxy, data) {
-		const entryId = isRecord(data) && typeof data.entryId === "string" ? data.entryId : undefined;
-		await proxy.fork(entryId);
-		return ok();
-	},
-
 	async name(proxy, data) {
 		if (!isRecord(data) || typeof data.name !== "string") {
 			return bad("Missing 'name'");
 		}
 		proxy.renameSession(data.name);
-		return ok();
-	},
-
-	async label(proxy, data) {
-		if (!isRecord(data) || typeof data.entryId !== "string") {
-			return bad("Missing 'entryId'");
-		}
-		const label = typeof data.label === "string" ? data.label : undefined;
-		proxy.setLabel(data.entryId, label);
 		return ok();
 	},
 

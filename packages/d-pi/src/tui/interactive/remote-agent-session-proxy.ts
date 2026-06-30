@@ -7,8 +7,6 @@ import type {
 	DPiInteractiveSessionStateSnapshot,
 	DPiInteractiveSlashCommand,
 	DPiInteractiveTodoItem,
-	DPiInteractiveTreeNodeData,
-	DPiInteractiveUserMessageItem,
 } from "./agent-session-proxy.ts";
 import {
 	applyDPiInteractiveRealtimeEvent,
@@ -139,14 +137,8 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	async switchSession(sessionFile: string): Promise<void> {
 		await this.post("switch-session", { sessionFile });
 	}
-	async fork(entryId?: string): Promise<void> {
-		await this.post("fork", { entryId });
-	}
 	renameSession(name: string): void {
 		void this.post("name", { name });
-	}
-	setLabel(entryId: string, label: string | undefined): void {
-		void this.post("label", { entryId, label });
 	}
 	async reload(): Promise<void> {
 		await this.post("reload");
@@ -154,20 +146,8 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	updateSettings(updates: Record<string, unknown>): void {
 		void this.post("settings", updates);
 	}
-	getTree(): DPiInteractiveTreeNodeData[] {
-		return [];
-	}
-	getUserMessagesForForking(): DPiInteractiveUserMessageItem[] {
-		return [];
-	}
 	async getSessions(): Promise<DPiInteractiveSessionItemData[]> {
 		return this.getJson("sessions");
-	}
-	async fetchTree(): Promise<DPiInteractiveTreeNodeData[]> {
-		return this.getJson("tree");
-	}
-	async fetchUserMessagesForForking(): Promise<DPiInteractiveUserMessageItem[]> {
-		return this.getJson("user-messages");
 	}
 	async fetchCommands(): Promise<DPiInteractiveSlashCommand[]> {
 		return this.getJson("commands");
@@ -447,13 +427,8 @@ function normalizeTodoList(value: readonly unknown[]): DPiInteractiveTodoItem[] 
 		const rec = raw as Record<string, unknown>;
 		return {
 			id: typeof rec.id === "string" ? rec.id : "",
-			title: typeof rec.title === "string" ? rec.title : typeof rec.content === "string" ? rec.content : "",
-			description:
-				typeof rec.description === "string"
-					? rec.description
-					: typeof rec.summary === "string"
-						? rec.summary
-						: undefined,
+			title: typeof rec.title === "string" ? rec.title : "",
+			description: typeof rec.description === "string" ? rec.description : undefined,
 			status:
 				rec.status === "completed" || rec.status === "in_progress" || rec.status === "pending"
 					? rec.status
@@ -471,23 +446,11 @@ function isTodoList(value: unknown): value is DPiInteractiveTodoItem[] {
 			return false;
 		}
 		const rec = item as Record<string, unknown>;
-		const title =
-			typeof rec.title === "string" ? rec.title : typeof rec.content === "string" ? rec.content : undefined;
-		const desc =
-			typeof rec.description === "string"
-				? rec.description
-				: typeof rec.summary === "string"
-					? rec.summary
-					: undefined;
-		const descOk =
-			!("description" in rec) && !("summary" in rec)
-				? true
-				: typeof desc === "string" || rec.description === undefined || rec.summary === undefined;
 		return (
 			typeof rec.id === "string" &&
-			typeof title === "string" &&
+			typeof rec.title === "string" &&
 			["pending", "in_progress", "completed"].includes(rec.status as string) &&
-			descOk
+			(!("description" in rec) || typeof rec.description === "string" || rec.description === undefined)
 		);
 	});
 }

@@ -12,7 +12,6 @@ function createProxy(): DPiInteractiveAgentSessionProxy {
 		compact: vi.fn(async () => {}),
 		setModel: vi.fn(),
 		newSession: vi.fn(async () => {}),
-		fork: vi.fn(async () => {}),
 		renameSession: vi.fn(),
 		reload: vi.fn(async () => {}),
 		getSnapshot: vi.fn(() => ({
@@ -39,8 +38,6 @@ describe("native connect command parity", () => {
 			showModelSelector: vi.fn(async () => {}),
 			showSettingsSelector: vi.fn(async () => {}),
 			showScopedModelsSelector: vi.fn(async () => {}),
-			showForkSelector: vi.fn(async () => {}),
-			showTreeSelector: vi.fn(async () => {}),
 			showResumeSelector: vi.fn(async () => {}),
 			showPanel: vi.fn(),
 			copyLastAssistantMessage: vi.fn(async () => {}),

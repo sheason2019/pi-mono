@@ -132,6 +132,27 @@ To remove an agent:
 The team view shows the full agent tree, each agent's status, model,
 and tools, plus connected executors and running sources.
 
+### Plan lifecycle
+
+The \`plan\` tool is how you communicate your task breakdown to the user in
+real time. Follow these rules strictly:
+
+1. **Before starting any multi-step task** (3 or more steps), call \`plan\`
+   with the full list of todos. Set the first item to \`in_progress\` and the
+   rest to \`pending\`.
+2. **Update the plan as you work.** Each time you finish a step and move to
+   the next, call \`plan\` again with the updated list: mark the completed
+   item as \`completed\`, set the next item to \`in_progress\`.
+3. **When the task is fully done**, call \`plan\` one final time with **all**
+   items marked \`completed\`. Never leave items in \`pending\` or \`in_progress\`
+   when you have finished your work.
+4. Always pass the **complete** list of todos on every call — it replaces
+   the previous plan entirely. Reuse the same \`id\` values when updating
+   existing items.
+5. Each todo item has exactly these fields: \`id\`, \`title\`, \`description\`
+   (optional), \`status\`. Do NOT use deprecated field names like \`summary\`
+   or \`content\`.
+
 ### Reloading
 
 - reload — reloads your own agent.ts configuration (model, sources, tools,

@@ -1,6 +1,4 @@
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { Container, setKeybindings, type Terminal, TUI } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { AGENT_SWITCH_FILE } from "../src/multi-agent/multi-agent-extension.ts";
@@ -18,7 +16,6 @@ import {
 	extractDPiConnectSelectedAgentName,
 	handleDPiConnectBashInput,
 	handleDPiConnectSlashCommand,
-	loadDPiConnectTuiComponents,
 	recordDPiConnectPromptHistory,
 	runDPiConnectInteractiveMode,
 	showDPiConnectAgentSelector,
@@ -101,7 +98,6 @@ function connectSnapshot(): DPiInteractiveSessionStateSnapshot {
 			hideThinkingBlock: false,
 			collapseChangelog: false,
 			enableInstallTelemetry: false,
-			treeFilterMode: "all",
 			showHardwareCursor: false,
 			editorPaddingX: 0,
 			autocompleteMaxVisible: 10,
@@ -114,45 +110,6 @@ function connectSnapshot(): DPiInteractiveSessionStateSnapshot {
 }
 
 describe("d-pi interactive editor submit", () => {
-	it("loads workspace TUI component modules from the hub and registers their renderers", async () => {
-		const calls: Array<{ url: string; init?: RequestInit }> = [];
-		const fetchFn = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-			const textUrl = typeof url === "string" ? url : url.toString();
-			calls.push({ url: textUrl, init });
-			if (textUrl === "https://dp.example/_hub/tui-components") {
-				return new Response(
-					JSON.stringify({
-						components: [{ name: "meta.ts", url: "https://dp.example/_hub/tui-components/meta.ts" }],
-					}),
-					{ status: 200, headers: { "Content-Type": "application/json" } },
-				);
-			}
-			if (textUrl === "https://dp.example/_hub/tui-components/meta.ts") {
-				return new Response(
-					[
-						`export { default } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src", "public", "d-pi-message.ts")).href)};`,
-					].join("\n"),
-					{ status: 200, headers: { "Content-Type": "text/typescript" } },
-				);
-			}
-			return new Response("missing", { status: 404 });
-		});
-
-		const renderers = await loadDPiConnectTuiComponents({
-			hubUrl: "https://dp.example",
-			authHeaders: { Authorization: "Bearer token" },
-			fetch: fetchFn as typeof fetch,
-		});
-
-		expect(Object.keys(renderers)).toEqual(["d-pi-message"]);
-		expect(calls.map((call) => call.url)).toEqual([
-			"https://dp.example/_hub/tui-components",
-			"https://dp.example/_hub/tui-components/meta.ts",
-		]);
-		expect(calls[0]?.init?.headers).toEqual({ Authorization: "Bearer token" });
-		expect(calls[1]?.init?.headers).toEqual({ Authorization: "Bearer token" });
-	});
-
 	it("reports prompt errors instead of leaving an unhandled rejection that crashes the TUI child", async () => {
 		const error = new Error("prompt returned HTTP 500");
 		const onError = vi.fn();
@@ -273,7 +230,6 @@ describe("d-pi interactive editor submit", () => {
 							hideThinkingBlock: false,
 							collapseChangelog: false,
 							enableInstallTelemetry: false,
-							treeFilterMode: "all",
 							showHardwareCursor: false,
 							editorPaddingX: 0,
 							autocompleteMaxVisible: 10,
@@ -287,7 +243,6 @@ describe("d-pi interactive editor submit", () => {
 			),
 			compact: vi.fn(async () => {}),
 			newSession: vi.fn(async () => {}),
-			fork: vi.fn(async () => {}),
 			renameSession: vi.fn(),
 			reload: vi.fn(async () => {}),
 		});
@@ -299,8 +254,6 @@ describe("d-pi interactive editor submit", () => {
 			showModelSelector: vi.fn(async () => {}),
 			showSettingsSelector: vi.fn(async () => {}),
 			showScopedModelsSelector: vi.fn(async () => {}),
-			showForkSelector: vi.fn(async () => {}),
-			showTreeSelector: vi.fn(async () => {}),
 			showResumeSelector: vi.fn(async () => {}),
 			showPanel: vi.fn(),
 			copyLastAssistantMessage: vi.fn(async () => {}),
@@ -317,15 +270,12 @@ describe("d-pi interactive editor submit", () => {
 		}
 
 		expect(handlers.showSettingsSelector).toHaveBeenCalled();
-		expect(handlers.showForkSelector).toHaveBeenCalled();
-		expect(handlers.showTreeSelector).toHaveBeenCalled();
 		expect(handlers.showResumeSelector).toHaveBeenCalled();
 		expect(handlers.showPanel).toHaveBeenCalledWith("Session", expect.stringContaining("Session: session"));
 		expect(handlers.showPanel).toHaveBeenCalledWith("Changelog", "changes");
 		expect(handlers.copyLastAssistantMessage).toHaveBeenCalled();
 		expect(handlers.refreshAutocomplete).toHaveBeenCalled();
 		expect(statuses).toContain("Not available in connect mode");
-		expect(statuses).toContain("Not available in connect mode — configure auth on the server");
 		expect(proxy.prompt).not.toHaveBeenCalled();
 	});
 

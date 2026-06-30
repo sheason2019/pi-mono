@@ -507,7 +507,7 @@ async function runAgentWorker(): Promise<void> {
 		// No UI to reset
 	});
 
-	runtime!.setRebindSession((session: DPiWorkerSession, reason: "new" | "resume" | "fork") => {
+	runtime!.setRebindSession((session: DPiWorkerSession, reason: "new" | "resume") => {
 		proxy!.resubscribe(reason);
 		rebindSession();
 		proxy!.setBanner(generateDPiBanner(session));

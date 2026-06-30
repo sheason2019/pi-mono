@@ -1,7 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { Spacer, Text } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import dPiMessageRenderer from "../src/public/d-pi-message.ts";
 import type { DPiInteractiveSessionStateSnapshot } from "../src/tui/interactive/agent-session-proxy.ts";
 import { buildDPiInteractiveMessageListComponent } from "../src/tui/interactive/message-list-view.ts";
 import { DPiNativeAssistantMessageComponent } from "../src/tui/native/components/assistant-message.ts";
@@ -59,7 +58,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 			hideThinkingBlock: false,
 			collapseChangelog: false,
 			enableInstallTelemetry: false,
-			treeFilterMode: "all",
 			showHardwareCursor: false,
 			editorPaddingX: 0,
 			autocompleteMaxVisible: 10,
@@ -96,34 +94,28 @@ describe("d-pi native interactive components", () => {
 		expect(component.children[1]).toBeInstanceOf(DPiNativeAssistantMessageComponent);
 	});
 
-	it("uses registered workspace TUI renderers for matching custom messages", () => {
+	it("renders custom d-pi-message messages with inline meta header rendering", () => {
 		const state = {
 			...snapshot(),
 			messages: [
 				{
 					role: "custom" as const,
 					customType: "d-pi-message",
-					content: "metadata",
+					content: "hello from agent",
 					display: true,
-					details: { sourceType: "agent" },
+					details: { sourceType: "agent", agentName: "tester", createTime: "2026/06/22 15:00:00" },
 					timestamp: 1,
 				},
 			],
 		};
-		const custom = new Container();
-		custom.addChild(new Text("custom-rendered"));
 
-		const component = buildDPiInteractiveMessageListComponent(state, {
-			messageRenderers: {
-				"d-pi-message": () => custom,
-			},
-		});
-
-		expect(component.children[0]).toBe(custom);
-		expect(component.render(80).join("\n")).toContain("custom-rendered");
+		const component = buildDPiInteractiveMessageListComponent(state, { color: false });
+		const plain = stripAnsi(component.render(80).join("\n"));
+		expect(plain).toContain("agent:tester · 2026/06/22 15:00:00");
+		expect(plain).toContain("hello from agent");
 	});
 
-	it("uses the d-pi message renderer for user messages that carry d-pi metadata", () => {
+	it("routes user messages carrying d-pi meta headers through the inline d-pi-message renderer", () => {
 		const state = {
 			...snapshot(),
 			messages: [
@@ -139,46 +131,34 @@ describe("d-pi native interactive components", () => {
 				},
 			],
 		};
-		const custom = new Container();
-		custom.addChild(new Text("d-pi-rendered"));
 
-		const component = buildDPiInteractiveMessageListComponent(state, {
-			messageRenderers: {
-				"d-pi-message": () => custom,
-			},
-		});
-
-		expect(component.children[0]).toBe(custom);
+		const component = buildDPiInteractiveMessageListComponent(state, { color: false });
+		const plain = stripAnsi(component.render(80).join("\n"));
+		expect(plain).toContain("connect:local · 2026/06/28 12:00:00");
+		expect(plain).toContain("hello through connect");
 		expect(component.children[0]).not.toBeInstanceOf(DPiNativeUserMessageComponent);
-		expect(component.render(80).join("\n")).toContain("d-pi-rendered");
 	});
 
 	it("renders d-pi message headers with channel metadata instead of prose descriptions", () => {
-		const colors: string[] = [];
-		const rendered = dPiMessageRenderer.render(
-			{
-				role: "custom",
-				customType: "d-pi-message",
-				content: '[meta({"sourceType":"agent","agentName":"tester","createTime":"2026/06/22 15:00:00"})]\nhello',
-				display: true,
-			},
-			{ expanded: false },
-			{
-				bg: (_name, text) => text,
-				fg: (name, text) => {
-					colors.push(name);
-					return text;
+		const state = {
+			...snapshot(),
+			messages: [
+				{
+					role: "custom" as const,
+					customType: "d-pi-message",
+					content: "hello",
+					display: true,
+					details: { sourceType: "agent", agentName: "tester", createTime: "2026/06/22 15:00:00" },
+					timestamp: 1,
 				},
-			},
-		);
+			],
+		};
 
-		const plain = rendered?.render(80).join("\n") ?? "";
-		expect(plain.split("\n")[0]).toBe("");
+		const component = buildDPiInteractiveMessageListComponent(state, { color: true, colorMode: "truecolor" });
+		const plain = stripAnsi(component.render(80).join("\n"));
 		expect(plain).toContain("agent:tester · 2026/06/22 15:00:00");
-		expect(plain.split("\n")[1]?.startsWith("agent:tester")).toBe(true);
 		expect(plain).toContain("hello");
 		expect(plain).not.toContain("Message from agent");
-		expect(colors[0]).toBe("warning");
 	});
 
 	it("renders tool calls and tool results as native tool execution components", () => {
