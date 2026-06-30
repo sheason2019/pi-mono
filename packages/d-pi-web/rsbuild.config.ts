@@ -21,7 +21,7 @@ export default defineConfig({
 	},
 	output: {
 		distPath: {
-			root: "../dist/web",
+			root: "./dist",
 		},
 		assetPrefix: "/ui/",
 		cleanDistPath: true,
