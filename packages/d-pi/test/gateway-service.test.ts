@@ -108,6 +108,7 @@ async function startHub(
 		parentName: undefined,
 		children: [],
 		status: "ready",
+		plan: [],
 		worker: worker as never,
 		cwd: workspaceRoot,
 	});

@@ -1,4 +1,4 @@
-import type { AgentRecord, AgentStatus, PublicTeamSnapshot, TeamSnapshot } from "../types.ts";
+import type { AgentPlanItem, AgentRecord, AgentStatus, PublicTeamSnapshot, TeamSnapshot } from "../types.ts";
 
 /**
  * In-memory registry of running agents.
@@ -75,6 +75,13 @@ export class AgentRegistry {
 		}
 	}
 
+	updatePlan(agentName: string, plan: AgentPlanItem[]): void {
+		const record = this._agents.get(agentName);
+		if (record) {
+			record.plan = plan.map((p) => ({ ...p }));
+		}
+	}
+
 	getTeamSnapshot(): TeamSnapshot {
 		let rootName = "";
 		const agents = Array.from(this._agents.values()).map((a) => {
@@ -85,6 +92,7 @@ export class AgentRegistry {
 				status: a.status,
 				children: [...a.children],
 				cwd: a.cwd,
+				plan: a.plan.map((p) => ({ ...p })),
 			};
 		});
 		return { agents, sources: [], executors: [], rootName };
@@ -99,6 +107,7 @@ export class AgentRegistry {
 				parentName: a.parentName,
 				status: a.status,
 				children: [...a.children],
+				plan: a.plan.map((p) => ({ ...p })),
 			};
 		});
 		return { agents, rootName };

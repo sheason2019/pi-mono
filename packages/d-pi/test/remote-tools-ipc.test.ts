@@ -51,6 +51,7 @@ function invokeRemoteViaIpc(
 			parentName: undefined,
 			children: [],
 			status: "ready",
+			plan: [],
 			worker: fakeWorker as never,
 			cwd: tempDir!,
 		});
@@ -73,6 +74,7 @@ function registerFakeAgent(
 		parentName,
 		children: [],
 		status: "ready",
+		plan: [],
 		worker: {
 			postMessage: onPostMessage,
 			on() {},

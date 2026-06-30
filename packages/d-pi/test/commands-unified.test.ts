@@ -74,6 +74,7 @@ async function startHub(
 		parentName: undefined,
 		children: [],
 		status: "ready",
+		plan: [],
 		worker: mockWorker as never,
 		cwd: workspaceRoot,
 	});

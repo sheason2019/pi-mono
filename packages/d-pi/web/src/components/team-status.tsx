@@ -1,8 +1,8 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import ReactFlow, {
 	Background,
 	Controls,
-	MiniMap,
+	ControlButton,
 	useNodesState,
 	useEdgesState,
 	type Node,
@@ -13,42 +13,77 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import type { PublicTeamAgentEntry, PublicTeamSnapshot } from "@/types";
+import { Cpu, RotateCcw, CheckCircle2, Circle, CircleDot } from "lucide-react";
+import type { AgentPlanItem, PublicTeamAgentEntry, PublicTeamSnapshot } from "@/types";
 import { cn } from "@/lib/utils";
 
-const STATUS_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-	starting: "secondary",
-	ready: "default",
-	busy: "default",
-	error: "destructive",
-	destroyed: "outline",
+const STATUS_COLORS: Record<string, { dot: string; text: string; bg: string }> = {
+	starting: { dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-950/30" },
+	ready: { dot: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/30" },
+	busy: { dot: "bg-blue-500", text: "text-blue-700 dark:text-blue-400", bg: "bg-blue-50 dark:bg-blue-950/30" },
+	error: { dot: "bg-red-500", text: "text-red-700 dark:text-red-400", bg: "bg-red-50 dark:bg-red-950/30" },
+	destroyed: { dot: "bg-gray-400", text: "text-gray-600 dark:text-gray-400", bg: "bg-gray-50 dark:bg-gray-900/30" },
 };
+
+function PlanItemIcon({ status }: { status: AgentPlanItem["status"] }) {
+	if (status === "completed") {
+		return <CheckCircle2 className="size-3.5 text-emerald-500 shrink-0" />;
+	}
+	if (status === "in_progress") {
+		return <CircleDot className="size-3.5 text-amber-500 shrink-0" />;
+	}
+	return <Circle className="size-3.5 text-muted-foreground/60 shrink-0" />;
+}
 
 function AgentNode({ data }: NodeProps<{ agent: PublicTeamAgentEntry }>) {
 	const { agent } = data;
-	const variant = STATUS_VARIANTS[agent.status] ?? "outline";
+	const status = STATUS_COLORS[agent.status] ?? STATUS_COLORS.destroyed;
+	const plan = agent.plan ?? [];
+	const planCount = plan.length;
 
 	return (
-		<div className="rounded-lg border bg-card p-3 text-card-foreground shadow-sm w-[160px]">
+		<div className="w-[220px] rounded-lg border bg-card text-card-foreground shadow-sm overflow-hidden">
 			<Handle type="target" position={Position.Top} className="!size-2 !bg-muted-foreground" />
-			<div className="flex items-center gap-2">
-				<div
-					className={cn(
-						"size-2 rounded-full shrink-0",
-						agent.status === "ready" && "bg-emerald-500",
-						agent.status === "busy" && "bg-blue-500",
-						agent.status === "starting" && "bg-amber-500",
-						agent.status === "error" && "bg-red-500",
-						agent.status === "destroyed" && "bg-gray-400",
-					)}
-				/>
-				<span className="text-sm font-medium truncate">{agent.name}</span>
-			</div>
-			<div className="mt-2">
-				<Badge variant={variant} className="text-[10px] h-5">
-					{agent.status}
-				</Badge>
+			<div className="p-3">
+				<div className="flex items-center gap-2.5">
+					<div className={cn("flex size-8 items-center justify-center rounded-md", status.bg)}>
+						<Cpu className={cn("size-4", status.text)} />
+					</div>
+					<div className="flex flex-col min-w-0 flex-1">
+						<span className="text-sm font-medium truncate">{agent.name}</span>
+						<div className="flex items-center gap-1.5">
+							<span className={cn("size-1.5 rounded-full", status.dot)} />
+							<span className={cn("text-xs capitalize", status.text)}>{agent.status}</span>
+						</div>
+					</div>
+				</div>
+				{planCount > 0 && (
+					<div className="mt-2.5 pt-2 border-t border-border/50">
+						<div className="space-y-1">
+							{plan.slice(0, 5).map((item) => (
+								<div key={item.id} className="flex items-start gap-1.5">
+									<div className="mt-0.5">
+										<PlanItemIcon status={item.status} />
+									</div>
+									<span
+										className={cn(
+											"text-xs truncate flex-1",
+											item.status === "completed" &&
+												"line-through text-muted-foreground/70",
+											item.status === "in_progress" && "text-foreground font-medium",
+											item.status === "pending" && "text-muted-foreground",
+										)}
+									>
+										{item.title}
+									</span>
+								</div>
+							))}
+							{planCount > 5 && (
+								<span className="text-xs text-muted-foreground">...and {planCount - 5} more</span>
+							)}
+						</div>
+					</div>
+				)}
 			</div>
 			<Handle type="source" position={Position.Bottom} className="!size-2 !bg-muted-foreground" />
 		</div>
@@ -57,10 +92,33 @@ function AgentNode({ data }: NodeProps<{ agent: PublicTeamAgentEntry }>) {
 
 const nodeTypes = { agent: AgentNode };
 
+function ResetControl({ onReset }: { onReset: () => void }) {
+	return (
+		<ControlButton onClick={onReset} title="Reset layout">
+			<RotateCcw className="size-4" />
+		</ControlButton>
+	);
+}
+
 function buildTree(agents: PublicTeamAgentEntry[]) {
 	const agentMap = new Map(agents.map((a) => [a.name, a]));
 	const roots = agents.filter((a) => !a.parentName);
 	return { agentMap, roots };
+}
+
+// Estimate the rendered height of an agent node so the tree layout can
+// offset children by the parent's actual height instead of a fixed gap.
+// A node with a plan section is far taller than one without, and the old
+// fixed ySpacing made children overlap a plan-bearing parent — the
+// parent's bottom items looked clipped by the child's top edge.
+function estimateNodeHeight(agent: PublicTeamAgentEntry): number {
+	const base = 64; // p-3 padding + header row (size-8 icon) + border
+	const plan = agent.plan ?? [];
+	if (plan.length === 0) return base;
+	const visibleItems = Math.min(plan.length, 5);
+	const moreRow = plan.length > 5 ? 20 : 0;
+	// plan section: top margin + padding + header row + gap + item rows
+	return base + 44 + visibleItems * 24 + moreRow;
 }
 
 function layoutTree(
@@ -69,7 +127,7 @@ function layoutTree(
 	startX: number,
 	y: number,
 	xSpacing: number,
-	ySpacing: number,
+	verticalGap: number,
 ): { nodes: Node[]; edges: Edge[]; width: number } {
 	const agent = agentMap.get(nodeName);
 	if (!agent) return { nodes: [], edges: [], width: 0 };
@@ -86,6 +144,7 @@ function layoutTree(
 		return { nodes: [node], edges: [], width: xSpacing };
 	}
 
+	const childY = y + estimateNodeHeight(agent) + verticalGap;
 	let currentX = startX;
 	const allNodes: Node[] = [];
 	const allEdges: Edge[] = [];
@@ -96,9 +155,9 @@ function layoutTree(
 			agentMap,
 			childName,
 			currentX,
-			y + ySpacing,
+			childY,
 			xSpacing,
-			ySpacing,
+			verticalGap,
 		);
 		allNodes.push(...nodes);
 		allEdges.push(...edges);
@@ -106,7 +165,6 @@ function layoutTree(
 			id: `${nodeName}-${childName}`,
 			source: nodeName,
 			target: childName,
-			animated: agent.status === "busy",
 		});
 		currentX += width;
 		totalWidth += width;
@@ -140,7 +198,7 @@ export function TeamStatus({ snapshot }: TeamStatusProps) {
 		const { agentMap, roots } = buildTree(snapshot.agents);
 		const rootName = roots[0]?.name || snapshot.rootName;
 		if (!rootName) return null;
-		return layoutTree(agentMap, rootName, 50, 50, 220, 120);
+		return layoutTree(agentMap, rootName, 50, 50, 240, 40);
 	}, [snapshot]);
 
 	useEffect(() => {
@@ -159,6 +217,11 @@ export function TeamStatus({ snapshot }: TeamStatusProps) {
 		setEdges(layout.edges);
 	}, [layout, setNodes, setEdges]);
 
+	const handleReset = useCallback(() => {
+		if (!layout) return;
+		setNodes(layout.nodes.map((n) => ({ ...n })));
+	}, [layout, setNodes]);
+
 	return (
 		<Card>
 			<CardHeader>
@@ -166,7 +229,7 @@ export function TeamStatus({ snapshot }: TeamStatusProps) {
 				<CardDescription>Real-time view of agent hierarchy and status</CardDescription>
 			</CardHeader>
 			<CardContent>
-				<div className="h-[500px] w-full rounded-md border bg-muted/20">
+				<div className="relative h-[500px] w-full rounded-md border bg-muted/20">
 					<ReactFlow
 						nodes={nodes}
 						edges={edges}
@@ -176,10 +239,12 @@ export function TeamStatus({ snapshot }: TeamStatusProps) {
 						fitView
 						fitViewOptions={{ padding: 0.2 }}
 						proOptions={{ hideAttribution: true }}
+						nodesConnectable={false}
 					>
 						<Background gap={16} />
-						<Controls />
-						<MiniMap pannable zoomable />
+						<Controls showInteractive={false}>
+							<ResetControl onReset={handleReset} />
+						</Controls>
 					</ReactFlow>
 				</div>
 			</CardContent>

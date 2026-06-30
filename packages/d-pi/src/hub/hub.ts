@@ -280,6 +280,7 @@ export class Hub {
 			parentName,
 			children: [],
 			status: "starting",
+			plan: [],
 			worker,
 			cwd: agentDir,
 		});
@@ -485,6 +486,10 @@ export class Hub {
 
 			case "subscribe_sources":
 				void this._sourceManager.subscribeAgent(message.agentName, message.sources);
+				break;
+
+			case "plan_update":
+				this._registry.updatePlan(message.agentName, message.plan);
 				break;
 		}
 	}

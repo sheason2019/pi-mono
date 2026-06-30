@@ -3,6 +3,14 @@ import type { Worker } from "node:worker_threads";
 // === Agent Status ===
 export type AgentStatus = "starting" | "ready" | "busy" | "error" | "destroyed";
 
+// === Plan Item ===
+export interface AgentPlanItem {
+	id: string;
+	title: string;
+	description?: string;
+	status: "pending" | "in_progress" | "completed";
+}
+
 // === Agent Config (normalized from agent.ts in each agent's cwd) ===
 //
 // The normalized contents of agent.ts are injected into the agent's
@@ -57,6 +65,7 @@ export type WorkerToHubMessage =
 	| { type: "tool_call_timeout"; agentName: string; callId: string }
 	| { type: "cancel_tool_call"; agentName: string; callId: string }
 	| { type: "status_update"; agentName: string; status: AgentStatus }
+	| { type: "plan_update"; agentName: string; plan: AgentPlanItem[] }
 	| { type: "http_response"; agentName: string; requestId: string; status: number; body: unknown }
 	| { type: "sse_event"; agentName: string; subscriberId: string; event: string; data: unknown }
 	| { type: "subscribe_sources"; agentName: string; sources: string[] };
@@ -84,6 +93,7 @@ export interface TeamAgentEntry {
 	status: AgentStatus;
 	children: string[];
 	cwd: string;
+	plan: AgentPlanItem[];
 	description?: string;
 	model?: string;
 	sources?: string[];
@@ -103,6 +113,7 @@ export interface PublicTeamAgentEntry {
 	parentName: string | undefined;
 	status: AgentStatus;
 	children: string[];
+	plan: AgentPlanItem[];
 }
 
 export interface PublicTeamSnapshot {
@@ -147,6 +158,7 @@ export interface AgentRecord {
 	parentName: string | undefined;
 	children: string[];
 	status: AgentStatus;
+	plan: AgentPlanItem[];
 	worker: Worker;
 	cwd: string;
 }
