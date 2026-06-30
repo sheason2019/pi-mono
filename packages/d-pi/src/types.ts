@@ -66,6 +66,7 @@ export type WorkerToHubMessage =
 	| { type: "cancel_tool_call"; agentName: string; callId: string }
 	| { type: "status_update"; agentName: string; status: AgentStatus }
 	| { type: "plan_update"; agentName: string; plan: AgentPlanItem[] }
+	| { type: "description_update"; agentName: string; description: string | undefined }
 	| { type: "http_response"; agentName: string; requestId: string; status: number; body: unknown }
 	| { type: "sse_event"; agentName: string; subscriberId: string; event: string; data: unknown }
 	| { type: "subscribe_sources"; agentName: string; sources: string[] };
@@ -114,6 +115,7 @@ export interface PublicTeamAgentEntry {
 	status: AgentStatus;
 	children: string[];
 	plan: AgentPlanItem[];
+	description?: string;
 }
 
 export interface PublicTeamSnapshot {
@@ -159,6 +161,7 @@ export interface AgentRecord {
 	children: string[];
 	status: AgentStatus;
 	plan: AgentPlanItem[];
+	description?: string;
 	worker: Worker;
 	cwd: string;
 }

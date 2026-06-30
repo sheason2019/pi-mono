@@ -1,11 +1,11 @@
-export type DPiHubMessageMode = "next" | "steer";
+import type { AgentStatus } from "../types.ts";
 
-export type DPiAgentStatus = "starting" | "ready" | "busy" | "error" | "destroyed";
+export type DPiHubMessageMode = "next" | "steer";
 
 export interface DPiTeamAgentEntry {
 	name: string;
 	parentName: string | undefined;
-	status: DPiAgentStatus;
+	status: AgentStatus;
 	children: string[];
 	cwd: string;
 	description?: string;

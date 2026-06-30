@@ -151,6 +151,7 @@ async function reloadAgentResources(): Promise<void> {
 
 	await runtime.session.reload();
 	proxy.setBanner(generateDPiBanner(runtime.session));
+	postToHub({ type: "description_update", agentName: config.agentName, description: newAgentDefinition.description });
 }
 
 async function triggerAgentReload(): Promise<void> {
@@ -647,6 +648,7 @@ async function runAgentWorker(): Promise<void> {
 	// startup — so without this one-shot sync a resumed agent's plan
 	// stays empty on the dashboard until the agent calls plan again.
 	postToHub({ type: "plan_update", agentName, plan: proxy.getPlan() });
+	postToHub({ type: "description_update", agentName, description: agentDefinition?.description });
 
 	// 9. Signal ready to Hub
 	postToHub({ type: "subscribe_sources", agentName, sources: [...(agentDefinition?.sources ?? [])] });

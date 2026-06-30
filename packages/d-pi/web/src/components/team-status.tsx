@@ -17,12 +17,20 @@ import { Cpu, RotateCcw, CheckCircle2, Circle, CircleDot } from "lucide-react";
 import type { AgentPlanItem, PublicTeamAgentEntry, PublicTeamSnapshot } from "@/types";
 import { cn } from "@/lib/utils";
 
-const STATUS_COLORS: Record<string, { dot: string; text: string; bg: string }> = {
-	starting: { dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-950/30" },
-	ready: { dot: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/30" },
-	busy: { dot: "bg-blue-500", text: "text-blue-700 dark:text-blue-400", bg: "bg-blue-50 dark:bg-blue-950/30" },
-	error: { dot: "bg-red-500", text: "text-red-700 dark:text-red-400", bg: "bg-red-50 dark:bg-red-950/30" },
-	destroyed: { dot: "bg-gray-400", text: "text-gray-600 dark:text-gray-400", bg: "bg-gray-50 dark:bg-gray-900/30" },
+const STATUS_COLORS: Record<string, { text: string; bg: string }> = {
+	starting: { text: "text-amber-700 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-950/30" },
+	ready: { text: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/30" },
+	busy: { text: "text-blue-700 dark:text-blue-400", bg: "bg-blue-50 dark:bg-blue-950/30" },
+	error: { text: "text-red-700 dark:text-red-400", bg: "bg-red-50 dark:bg-red-950/30" },
+	destroyed: { text: "text-gray-600 dark:text-gray-400", bg: "bg-gray-50 dark:bg-gray-900/30" },
+};
+
+const STATUS_LABEL: Record<string, string> = {
+	starting: "starting",
+	ready: "idle",
+	busy: "busy",
+	error: "error",
+	destroyed: "destroyed",
 };
 
 function PlanItemIcon({ status }: { status: AgentPlanItem["status"] }) {
@@ -50,13 +58,15 @@ function AgentNode({ data }: NodeProps<{ agent: PublicTeamAgentEntry }>) {
 						<Cpu className={cn("size-4", status.text)} />
 					</div>
 					<div className="flex flex-col min-w-0 flex-1">
-						<span className="text-sm font-medium truncate">{agent.name}</span>
-						<div className="flex items-center gap-1.5">
-							<span className={cn("size-1.5 rounded-full", status.dot)} />
-							<span className={cn("text-xs capitalize", status.text)}>{agent.status}</span>
-						</div>
+						<span className="text-sm font-medium leading-5 truncate">{agent.name}</span>
+						<span className={cn("text-[11px] leading-3", status.text)}>
+							{STATUS_LABEL[agent.status] ?? agent.status}
+						</span>
 					</div>
 				</div>
+				{agent.description && (
+					<p className="mt-2 text-xs text-muted-foreground line-clamp-2">{agent.description}</p>
+				)}
 				{planCount > 0 && (
 					<div className="mt-2.5 pt-2 border-t border-border/50">
 						<div className="space-y-1">
@@ -113,12 +123,14 @@ function buildTree(agents: PublicTeamAgentEntry[]) {
 // parent's bottom items looked clipped by the child's top edge.
 function estimateNodeHeight(agent: PublicTeamAgentEntry): number {
 	const base = 64; // p-3 padding + header row (size-8 icon) + border
+	// description: mt-1.5 (6px) + up to 2 lines (line-clamp-2, ~16px each)
+	const descHeight = agent.description ? 6 + 32 : 0;
 	const plan = agent.plan ?? [];
-	if (plan.length === 0) return base;
+	if (plan.length === 0) return base + descHeight;
 	const visibleItems = Math.min(plan.length, 5);
 	const moreRow = plan.length > 5 ? 20 : 0;
 	// plan section: top margin + padding + header row + gap + item rows
-	return base + 44 + visibleItems * 24 + moreRow;
+	return base + descHeight + 44 + visibleItems * 24 + moreRow;
 }
 
 function layoutTree(

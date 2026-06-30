@@ -5,7 +5,7 @@ import type { AgentStatus, TeamAgentEntry, TeamSnapshot } from "../types.ts";
 
 export const AGENT_SWITCH_FILE = join(tmpdir(), "d-pi-agent-switch.txt");
 
-function statusIndicator(status: AgentStatus): string {
+export function statusIndicator(status: AgentStatus): string {
 	switch (status) {
 		case "busy":
 			return "\u25CF";

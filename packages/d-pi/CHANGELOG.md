@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Exposed the agent `description` field from `agent.ts` in the `/agents` command selector and the public team snapshot. Agents sync their description to the hub on startup and reload, so the agent switcher shows what each agent does instead of only its parent.
+
 ## [0.6.0-alpha.15] - 2026-06-29
 
 ### Added

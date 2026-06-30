@@ -13,6 +13,7 @@ export interface PublicTeamAgentEntry {
 	status: AgentStatus;
 	children: string[];
 	plan: AgentPlanItem[];
+	description?: string;
 }
 
 export interface PublicTeamSnapshot {

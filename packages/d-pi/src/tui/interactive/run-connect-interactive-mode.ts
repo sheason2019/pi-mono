@@ -17,8 +17,8 @@ import {
 	TruncatedText,
 	TUI,
 } from "@earendil-works/pi-tui";
-import { AGENT_SWITCH_FILE } from "../../multi-agent/multi-agent-extension.ts";
-import type { AgentStatus, TeamAgentEntry, TeamSnapshot } from "../../types.ts";
+import { AGENT_SWITCH_FILE, statusIndicator } from "../../multi-agent/multi-agent-extension.ts";
+import type { TeamAgentEntry, TeamSnapshot } from "../../types.ts";
 import { DPiNativeCustomEditor } from "../native/components/custom-editor.ts";
 import { DPiNativeDynamicBorder } from "../native/components/dynamic-border.ts";
 import { DPiNativeStatusContainer } from "../native/components/status-container.ts";
@@ -279,19 +279,6 @@ function showDPiConnectSelectInEditorSlot(options: {
 	};
 }
 
-function dPiConnectAgentStatusIndicator(status: AgentStatus): string {
-	switch (status) {
-		case "busy":
-			return "●";
-		case "starting":
-			return "◌";
-		case "error":
-			return "✕";
-		default:
-			return "○";
-	}
-}
-
 function formatDPiConnectAgentSelectLabel(
 	agent: TeamAgentEntry,
 	depth: number,
@@ -304,7 +291,7 @@ function formatDPiConnectAgentSelectLabel(
 		indent += isLast ? "└ " : "├ ";
 	}
 	const current = isCurrent ? " ◀" : "";
-	return `${indent}${dPiConnectAgentStatusIndicator(agent.status)} ${agent.name}${current}`;
+	return `${indent}${statusIndicator(agent.status)} ${agent.name}${current}`;
 }
 
 export function extractDPiConnectSelectedAgentName(value: string): string | undefined {
@@ -323,7 +310,7 @@ export function buildDPiConnectAgentSelectItems(
 		items.push({
 			value: agent.name,
 			label: formatDPiConnectAgentSelectLabel(agent, depth, isLast, agent.name === currentAgentName),
-			description: agent.parentName ? `parent: ${agent.parentName}` : "root",
+			description: agent.description ?? (agent.parentName ? `parent: ${agent.parentName}` : "root"),
 		});
 		for (let index = 0; index < agent.children.length; index++) {
 			const child = agentMap.get(agent.children[index]!);

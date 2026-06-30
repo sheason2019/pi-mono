@@ -281,6 +281,7 @@ export class Hub {
 			children: [],
 			status: "starting",
 			plan: [],
+			description: options.description,
 			worker,
 			cwd: agentDir,
 		});
@@ -490,6 +491,10 @@ export class Hub {
 
 			case "plan_update":
 				this._registry.updatePlan(message.agentName, message.plan);
+				break;
+
+			case "description_update":
+				this._registry.updateDescription(message.agentName, message.description);
 				break;
 		}
 	}

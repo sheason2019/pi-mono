@@ -82,6 +82,13 @@ export class AgentRegistry {
 		}
 	}
 
+	updateDescription(agentName: string, description: string | undefined): void {
+		const record = this._agents.get(agentName);
+		if (record) {
+			record.description = description;
+		}
+	}
+
 	getTeamSnapshot(): TeamSnapshot {
 		let rootName = "";
 		const agents = Array.from(this._agents.values()).map((a) => {
@@ -93,6 +100,7 @@ export class AgentRegistry {
 				children: [...a.children],
 				cwd: a.cwd,
 				plan: a.plan.map((p) => ({ ...p })),
+				description: a.description,
 			};
 		});
 		return { agents, sources: [], executors: [], rootName };
@@ -108,6 +116,7 @@ export class AgentRegistry {
 				status: a.status,
 				children: [...a.children],
 				plan: a.plan.map((p) => ({ ...p })),
+				description: a.description,
 			};
 		});
 		return { agents, rootName };
