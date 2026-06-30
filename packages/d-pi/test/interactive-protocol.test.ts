@@ -69,7 +69,6 @@ function createSnapshot(): DPiInteractiveSessionStateSnapshot {
 			hideThinkingBlock: false,
 			collapseChangelog: false,
 			enableInstallTelemetry: false,
-			treeFilterMode: "all",
 			showHardwareCursor: false,
 			editorPaddingX: 0,
 			autocompleteMaxVisible: 10,
@@ -113,16 +112,10 @@ function createProxy(snapshot: DPiInteractiveSessionStateSnapshot): DPiInteracti
 		compact: vi.fn(async () => {}),
 		newSession: vi.fn(async () => {}),
 		switchSession: vi.fn(async () => {}),
-		fork: vi.fn(async () => {}),
 		renameSession: vi.fn(),
-		setLabel: vi.fn(),
 		reload: vi.fn(async () => {}),
 		updateSettings: vi.fn(),
-		getTree: vi.fn(() => []),
-		getUserMessagesForForking: vi.fn(() => []),
 		getSessions: vi.fn(async () => []),
-		fetchTree: vi.fn(async () => []),
-		fetchUserMessagesForForking: vi.fn(async () => []),
 		fetchCommands: vi.fn(async () => [{ name: "agents", source: "builtin" as const }]),
 		fetchModels: vi.fn(async () => []),
 		getCommands: vi.fn(() => [{ name: "agents", source: "builtin" as const }]),
@@ -179,26 +172,5 @@ describe("d-pi interactive protocol contract", () => {
 			status: 200,
 			body: [{ name: "agents", source: "builtin" }],
 		});
-	});
-
-	it("uses async connect data queries instead of synchronous empty fallbacks", async () => {
-		const snapshot = createSnapshot();
-		const proxy = createProxy(snapshot);
-		vi.mocked(proxy.fetchTree).mockResolvedValueOnce([
-			{ id: "entry-1", type: "user", parentId: null, timestamp: "2026-06-19T00:00:00Z", children: [] },
-		]);
-		vi.mocked(proxy.fetchUserMessagesForForking).mockResolvedValueOnce([{ id: "entry-1", text: "hello" }]);
-
-		await expect(handleDPiInteractiveProtocolQuery(proxy, "tree")).resolves.toMatchObject({
-			body: [{ id: "entry-1" }],
-		});
-		await expect(handleDPiInteractiveProtocolQuery(proxy, "user-messages")).resolves.toMatchObject({
-			body: [{ id: "entry-1", text: "hello" }],
-		});
-		await expect(handleDPiInteractiveProtocolQuery(proxy, "models")).resolves.toMatchObject({ status: 404 });
-
-		expect(proxy.getTree).not.toHaveBeenCalled();
-		expect(proxy.getUserMessagesForForking).not.toHaveBeenCalled();
-		expect(proxy.getModels).not.toHaveBeenCalled();
 	});
 });

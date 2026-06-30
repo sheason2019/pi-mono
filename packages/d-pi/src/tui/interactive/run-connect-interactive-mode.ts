@@ -4,7 +4,6 @@ import { dirname, join, resolve } from "node:path";
 import {
 	type AutocompleteProvider,
 	CombinedAutocompleteProvider,
-	type Component,
 	Container,
 	getKeybindings,
 	ProcessTerminal,
@@ -17,8 +16,6 @@ import {
 	Text,
 	TruncatedText,
 	TUI,
-	truncateToWidth,
-	visibleWidth,
 } from "@earendil-works/pi-tui";
 import { AGENT_SWITCH_FILE } from "../../multi-agent/multi-agent-extension.ts";
 import type { AgentStatus, TeamAgentEntry, TeamSnapshot } from "../../types.ts";
@@ -122,8 +119,6 @@ export interface DPiConnectSlashCommandHandlers {
 	showStatus(text: string): void;
 	showAgentSelector?(): Promise<void>;
 	showSettingsSelector?(): Promise<void>;
-	showForkSelector?(): Promise<void>;
-	showTreeSelector?(): Promise<void>;
 	showResumeSelector?(): Promise<void>;
 	showPanel?(title: string, body: string): void;
 	copyLastAssistantMessage?(): Promise<void>;
@@ -185,9 +180,6 @@ const DPI_CONNECT_FALLBACK_SLASH_COMMANDS: readonly SlashCommand[] = [
 	{ name: "session", description: "Show session info and stats" },
 	{ name: "changelog", description: "Show changelog entries" },
 	{ name: "hotkeys", description: "Show all keyboard shortcuts" },
-	{ name: "fork", description: "Create a new fork from a previous user message" },
-	{ name: "clone", description: "Duplicate the current session at the current position" },
-	{ name: "tree", description: "Navigate session tree (switch branches)" },
 	{ name: "trust", description: "Save project trust decision for future sessions" },
 	{ name: "login", description: "Configure provider authentication" },
 	{ name: "logout", description: "Remove provider authentication" },
@@ -244,240 +236,6 @@ class DPiConnectPanelComponent extends Container {
 		if (kb.matches(data, "tui.select.cancel")) {
 			this.onCancel();
 		}
-	}
-}
-
-interface DPiConnectForkItem {
-	id: string;
-	text: string;
-}
-
-class DPiConnectForkList implements Component {
-	private messages: DPiConnectForkItem[] = [];
-	private selectedIndex = 0;
-	private maxVisible = 10;
-	private theme: DPiNativeTheme;
-	public onSelect?: (entryId: string) => void;
-	public onCancel?: () => void;
-
-	constructor(messages: DPiConnectForkItem[], theme: DPiNativeTheme, initialSelectedId?: string) {
-		this.messages = messages;
-		this.theme = theme;
-		const initialIndex = initialSelectedId ? messages.findIndex((m) => m.id === initialSelectedId) : -1;
-		this.selectedIndex = initialIndex >= 0 ? initialIndex : Math.max(0, messages.length - 1);
-	}
-
-	invalidate(): void {}
-
-	render(width: number): string[] {
-		const lines: string[] = [];
-		if (this.messages.length === 0) {
-			lines.push("  No user messages found");
-			return lines;
-		}
-		const startIndex = Math.max(
-			0,
-			Math.min(this.selectedIndex - Math.floor(this.maxVisible / 2), this.messages.length - this.maxVisible),
-		);
-		const endIndex = Math.min(startIndex + this.maxVisible, this.messages.length);
-		for (let i = startIndex; i < endIndex; i++) {
-			const message = this.messages[i]!;
-			const isSelected = i === this.selectedIndex;
-			const normalizedMessage = message.text.replace(/\n/g, " ").trim();
-			const cursor = isSelected ? this.theme.fg("accent", "> ") : "  ";
-			const maxMsgWidth = width - 2;
-			const truncatedMsg = truncateToWidth(normalizedMessage, maxMsgWidth);
-			const messageLine = cursor + (isSelected ? this.theme.bold(truncatedMsg) : truncatedMsg);
-			lines.push(messageLine);
-			const position = i + 1;
-			const metadata = `  Message ${position} of ${this.messages.length}`;
-			const metadataLine = this.theme.fg("muted", metadata);
-			lines.push(metadataLine);
-			lines.push("");
-		}
-		if (startIndex > 0 || endIndex < this.messages.length) {
-			lines.push(this.theme.fg("muted", `  (${this.selectedIndex + 1}/${this.messages.length})`));
-		}
-		return lines;
-	}
-
-	handleInput(keyData: string): void {
-		const kb = getKeybindings();
-		if (kb.matches(keyData, "tui.select.up")) {
-			this.selectedIndex = this.selectedIndex === 0 ? this.messages.length - 1 : this.selectedIndex - 1;
-		} else if (kb.matches(keyData, "tui.select.down")) {
-			this.selectedIndex = this.selectedIndex === this.messages.length - 1 ? 0 : this.selectedIndex + 1;
-		} else if (kb.matches(keyData, "tui.select.confirm")) {
-			const selected = this.messages[this.selectedIndex];
-			if (selected && this.onSelect) {
-				this.onSelect(selected.id);
-			}
-		} else if (kb.matches(keyData, "tui.select.cancel")) {
-			this.onCancel?.();
-		}
-	}
-}
-
-class DPiConnectForkSelectorComponent extends Container {
-	private messageList: DPiConnectForkList;
-
-	constructor(
-		messages: DPiConnectForkItem[],
-		theme: DPiNativeTheme,
-		onSelect: (id: string) => void,
-		onCancel: () => void,
-		initialSelectedId?: string,
-	) {
-		super();
-		this.addChild(new Spacer(1));
-		this.addChild(new Text(theme.bold("Fork from Message"), 1, 0));
-		this.addChild(
-			new Text(
-				theme.fg("muted", "Select a user message to copy the active path up to that point into a new session"),
-				1,
-				0,
-			),
-		);
-		this.addChild(new Spacer(1));
-		this.addChild(new DPiNativeDynamicBorder((text) => theme.fg("borderMuted", text)));
-		this.addChild(new Spacer(1));
-		this.messageList = new DPiConnectForkList(messages, theme, initialSelectedId);
-		this.messageList.onSelect = onSelect;
-		this.messageList.onCancel = onCancel;
-		this.addChild(this.messageList);
-		this.addChild(new Spacer(1));
-		this.addChild(new DPiNativeDynamicBorder((text) => theme.fg("borderMuted", text)));
-		if (messages.length === 0) {
-			setTimeout(() => onCancel(), 10);
-		}
-	}
-
-	handleInput(keyData: string): void {
-		this.messageList.handleInput(keyData);
-	}
-}
-
-interface DPiConnectTreeItem {
-	id: string;
-	type: string;
-	preview: string;
-	timestamp: string;
-}
-
-class DPiConnectTreeList implements Component {
-	private items: DPiConnectTreeItem[] = [];
-	private selectedIndex = 0;
-	private currentId: string | null;
-	private maxVisibleLines: number;
-	private theme: DPiNativeTheme;
-	public onSelect?: (entryId: string) => void;
-	public onCancel?: () => void;
-
-	constructor(items: DPiConnectTreeItem[], currentId: string | null, theme: DPiNativeTheme, maxVisibleLines: number) {
-		this.items = items;
-		this.currentId = currentId;
-		this.theme = theme;
-		this.maxVisibleLines = maxVisibleLines;
-		if (currentId) {
-			const idx = items.findIndex((item) => item.id === currentId);
-			this.selectedIndex = idx >= 0 ? idx : Math.max(0, items.length - 1);
-		} else {
-			this.selectedIndex = Math.max(0, items.length - 1);
-		}
-	}
-
-	invalidate(): void {}
-
-	render(width: number): string[] {
-		const lines: string[] = [];
-		if (this.items.length === 0) {
-			lines.push(truncateToWidth(this.theme.fg("muted", "  No entries found"), width));
-			lines.push(truncateToWidth(this.theme.fg("muted", "  (0/0)"), width));
-			return lines;
-		}
-		const startIndex = Math.max(
-			0,
-			Math.min(this.selectedIndex - Math.floor(this.maxVisibleLines / 2), this.items.length - this.maxVisibleLines),
-		);
-		const endIndex = Math.min(startIndex + this.maxVisibleLines, this.items.length);
-		for (let i = startIndex; i < endIndex; i++) {
-			const item = this.items[i]!;
-			const isSelected = i === this.selectedIndex;
-			const isCurrent = item.id === this.currentId;
-			const cursor = isSelected ? this.theme.fg("accent", "> ") : "  ";
-			const pathMarker = isCurrent ? this.theme.fg("accent", "* ") : "  ";
-			let rolePrefix: string;
-			if (item.type === "user") {
-				rolePrefix = this.theme.fg("accent", "user: ");
-			} else if (item.type === "assistant") {
-				rolePrefix = this.theme.fg("success", "assistant: ");
-			} else {
-				rolePrefix = this.theme.fg("muted", `[${item.type}] `);
-			}
-			const text = item.preview || "(empty)";
-			const contentWidth = width - visibleWidth(cursor) - visibleWidth(pathMarker) - visibleWidth(rolePrefix);
-			const truncatedText = truncateToWidth(text, Math.max(10, contentWidth));
-			const body = pathMarker + rolePrefix + truncatedText;
-			const line = cursor + (isSelected ? this.theme.bg("selectedBg", body) : body);
-			lines.push(truncateToWidth(line, width, ""));
-		}
-		lines.push(truncateToWidth(this.theme.fg("muted", `  (${this.selectedIndex + 1}/${this.items.length})`), width));
-		return lines;
-	}
-
-	handleInput(keyData: string): void {
-		const kb = getKeybindings();
-		if (kb.matches(keyData, "tui.select.up")) {
-			this.selectedIndex = this.selectedIndex === 0 ? this.items.length - 1 : this.selectedIndex - 1;
-		} else if (kb.matches(keyData, "tui.select.down")) {
-			this.selectedIndex = this.selectedIndex === this.items.length - 1 ? 0 : this.selectedIndex + 1;
-		} else if (kb.matches(keyData, "tui.select.pageUp")) {
-			this.selectedIndex = Math.max(0, this.selectedIndex - this.maxVisibleLines);
-		} else if (kb.matches(keyData, "tui.select.pageDown")) {
-			this.selectedIndex = Math.min(this.items.length - 1, this.selectedIndex + this.maxVisibleLines);
-		} else if (kb.matches(keyData, "tui.select.confirm")) {
-			const selected = this.items[this.selectedIndex];
-			if (selected && this.onSelect) {
-				this.onSelect(selected.id);
-			}
-		} else if (kb.matches(keyData, "tui.select.cancel")) {
-			this.onCancel?.();
-		}
-	}
-}
-
-class DPiConnectTreeSelectorComponent extends Container {
-	private treeList: DPiConnectTreeList;
-
-	constructor(
-		items: DPiConnectTreeItem[],
-		currentId: string | null,
-		theme: DPiNativeTheme,
-		terminalHeight: number,
-		onSelect: (id: string) => void,
-		onCancel: () => void,
-	) {
-		super();
-		const maxVisibleLines = Math.max(5, Math.floor(terminalHeight / 2));
-		this.addChild(new Spacer(1));
-		this.addChild(new DPiNativeDynamicBorder((text) => theme.fg("borderMuted", text)));
-		this.addChild(new Text(theme.bold("  Session Tree"), 1, 0));
-		this.addChild(new Text(theme.fg("muted", "  ↑↓ navigate  ←→ page  enter select  esc cancel"), 1, 0));
-		this.addChild(new DPiNativeDynamicBorder((text) => theme.fg("borderMuted", text)));
-		this.addChild(new Spacer(1));
-		this.treeList = new DPiConnectTreeList(items, currentId, theme, maxVisibleLines);
-		this.treeList.onSelect = onSelect;
-		this.treeList.onCancel = onCancel;
-		this.addChild(this.treeList);
-		this.addChild(new Spacer(1));
-		this.addChild(new DPiNativeDynamicBorder((text) => theme.fg("borderMuted", text)));
-		if (items.length === 0) {
-			setTimeout(() => onCancel(), 10);
-		}
-	}
-
-	handleInput(keyData: string): void {
-		this.treeList.handleInput(keyData);
 	}
 }
 
@@ -705,83 +463,6 @@ export function showDPiConnectSettingsSelector(options: {
 	});
 }
 
-export async function showDPiConnectForkSelector(options: {
-	tui: TUI;
-	editor: DPiNativeCustomEditor;
-	editorContainer: Container;
-	theme: DPiNativeTheme;
-	proxy: DPiInteractiveAgentSessionProxy;
-	showStatus(text: string): void;
-}): Promise<void> {
-	try {
-		const messages = await options.proxy.fetchUserMessagesForForking();
-		if (messages.length === 0) {
-			options.showStatus("No user messages found");
-			return;
-		}
-		const items = messages.map((m) => ({ id: m.id, text: m.text }));
-		const restoreEditor = () => restoreDPiConnectEditor(options);
-		const selector = new DPiConnectForkSelectorComponent(
-			items,
-			options.theme,
-			(id) => {
-				restoreEditor();
-				void options.proxy.fork(id);
-			},
-			restoreEditor,
-		);
-		options.editorContainer.clear();
-		options.editorContainer.addChild(selector);
-		options.tui.setFocus(selector);
-		options.tui.requestRender();
-	} catch (error) {
-		options.showStatus(error instanceof Error ? error.message : String(error));
-	}
-}
-
-export async function showDPiConnectTreeSelector(options: {
-	tui: TUI;
-	editor: DPiNativeCustomEditor;
-	editorContainer: Container;
-	theme: DPiNativeTheme;
-	proxy: DPiInteractiveAgentSessionProxy;
-	showStatus(text: string): void;
-}): Promise<void> {
-	try {
-		const tree = await options.proxy.fetchTree();
-		if (tree.length === 0) {
-			options.showStatus("No session tree entries");
-			return;
-		}
-		const currentId = tree.length > 0 ? tree[tree.length - 1]!.id : null;
-		const items = tree.map((node) => ({
-			id: node.id,
-			type: node.type,
-			preview: node.preview ?? node.label ?? node.id,
-			timestamp: node.timestamp,
-		}));
-		const terminalHeight = options.tui.terminal.rows;
-		const restoreEditor = () => restoreDPiConnectEditor(options);
-		const selector = new DPiConnectTreeSelectorComponent(
-			items,
-			currentId,
-			options.theme,
-			terminalHeight,
-			(id) => {
-				restoreEditor();
-				void options.proxy.fork(id);
-			},
-			restoreEditor,
-		);
-		options.editorContainer.clear();
-		options.editorContainer.addChild(selector);
-		options.tui.setFocus(selector);
-		options.tui.requestRender();
-	} catch (error) {
-		options.showStatus(error instanceof Error ? error.message : String(error));
-	}
-}
-
 export async function showDPiConnectResumeSelector(options: {
 	tui: TUI;
 	editor: DPiNativeCustomEditor;
@@ -926,13 +607,11 @@ export async function handleDPiConnectSlashCommand(
 		refreshAutocomplete,
 		showAgentSelector,
 		showChangelog,
-		showForkSelector,
 		showHotkeys,
 		showResumeSelector,
 		showSessionInfo,
 		showSettingsSelector,
 		showStatus,
-		showTreeSelector,
 		stop,
 	} = {
 		...handlers,
@@ -986,25 +665,8 @@ export async function handleDPiConnectSlashCommand(
 			case "/hotkeys":
 				showHotkeys?.();
 				return true;
-			case "/fork":
-				if (showForkSelector) {
-					await showForkSelector();
-				} else {
-					showStatus("Fork selector not available in d-pi connect");
-				}
-				return true;
 			case "/new":
 				await proxy.newSession();
-				return true;
-			case "/clone":
-				await proxy.fork();
-				return true;
-			case "/tree":
-				if (showTreeSelector) {
-					await showTreeSelector();
-				} else {
-					showStatus("Tree selector not available in d-pi connect");
-				}
 				return true;
 			case "/resume":
 				if (showResumeSelector) {
@@ -1198,26 +860,6 @@ export async function runDPiConnectInteractiveMode(
 			showStatus: showChatStatus,
 		});
 	};
-	const showForkSelector = async (): Promise<void> => {
-		await showDPiConnectForkSelector({
-			tui,
-			editor,
-			editorContainer,
-			theme: nativeTheme,
-			proxy,
-			showStatus: showChatStatus,
-		});
-	};
-	const showTreeSelector = async (): Promise<void> => {
-		await showDPiConnectTreeSelector({
-			tui,
-			editor,
-			editorContainer,
-			theme: nativeTheme,
-			proxy,
-			showStatus: showChatStatus,
-		});
-	};
 	const showResumeSelector = async (): Promise<void> => {
 		await showDPiConnectResumeSelector({
 			tui,
@@ -1270,8 +912,6 @@ export async function runDPiConnectInteractiveMode(
 				proxy,
 				showAgentSelector,
 				showSettingsSelector,
-				showForkSelector,
-				showTreeSelector,
 				showResumeSelector,
 				showPanel,
 				copyLastAssistantMessage,
@@ -1334,12 +974,6 @@ export async function runDPiConnectInteractiveMode(
 	});
 	editor.onAction("app.session.new", () => {
 		void proxy.newSession();
-	});
-	editor.onAction("app.session.tree", () => {
-		void showTreeSelector();
-	});
-	editor.onAction("app.session.fork", () => {
-		void showForkSelector();
 	});
 	editor.onAction("app.session.resume", () => {
 		void showResumeSelector();

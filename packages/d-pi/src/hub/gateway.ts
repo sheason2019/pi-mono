@@ -965,7 +965,7 @@ export class HubGateway {
 		const cleanPath = path.startsWith("/") ? path.slice(1) : path;
 
 		// Block session management POST endpoints in d-pi connect mode
-		const blockedSessionEndpoints = new Set(["new-session", "switch-session", "fork"]);
+		const blockedSessionEndpoints = new Set(["new-session", "switch-session"]);
 		if (method === "POST" && blockedSessionEndpoints.has(cleanPath)) {
 			res.writeHead(403, { "Content-Type": "application/json" });
 			res.end(JSON.stringify({ error: "Session operations are managed by the d-pi hub" }));

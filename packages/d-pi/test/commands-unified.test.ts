@@ -154,10 +154,7 @@ describe("d-pi hub gateway no longer rewrites /commands", () => {
 		const fakeCommands: ServeCommand[] = [
 			{ name: "settings", description: "Open settings menu", source: "builtin" },
 			{ name: "resume", description: "Resume a different session", source: "builtin" },
-			{ name: "fork", description: "Create a new fork from a previous user message", source: "builtin" },
-			{ name: "clone", description: "Duplicate the current session at the current position", source: "builtin" },
 			{ name: "new", description: "Start a new session", source: "builtin" },
-			{ name: "tree", description: "Navigate session tree (switch branches)", source: "builtin" },
 			{ name: "agents", description: "Switch to a different agent in the network", source: "agent" },
 			{ name: "sources", description: "List all registered sources", source: "agent" },
 		];
@@ -169,7 +166,7 @@ describe("d-pi hub gateway no longer rewrites /commands", () => {
 			expect(res.status).toBe(200);
 			const body = (await res.json()) as ServeCommand[];
 			const names = body.map((c) => c.name);
-			expect(names).toEqual(expect.arrayContaining(["resume", "fork", "clone", "new", "tree", "agents", "sources"]));
+			expect(names).toEqual(expect.arrayContaining(["resume", "new", "agents", "sources"]));
 		} finally {
 			await hub.gateway.stop();
 		}

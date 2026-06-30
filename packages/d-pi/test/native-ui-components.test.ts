@@ -58,7 +58,6 @@ function snapshot(): DPiInteractiveSessionStateSnapshot {
 			hideThinkingBlock: false,
 			collapseChangelog: false,
 			enableInstallTelemetry: false,
-			treeFilterMode: "all",
 			showHardwareCursor: false,
 			editorPaddingX: 0,
 			autocompleteMaxVisible: 10,

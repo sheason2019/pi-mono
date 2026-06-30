@@ -13,25 +13,12 @@ export interface DPiAppKeybindings {
 	"app.message.dequeue": true;
 	"app.clipboard.pasteImage": true;
 	"app.session.new": true;
-	"app.session.tree": true;
-	"app.session.fork": true;
 	"app.session.resume": true;
-	"app.tree.foldOrUp": true;
-	"app.tree.unfoldOrDown": true;
-	"app.tree.editLabel": true;
-	"app.tree.toggleLabelTimestamp": true;
 	"app.session.togglePath": true;
 	"app.session.toggleSort": true;
 	"app.session.rename": true;
 	"app.session.delete": true;
 	"app.session.deleteNoninvasive": true;
-	"app.tree.filter.default": true;
-	"app.tree.filter.noTools": true;
-	"app.tree.filter.userOnly": true;
-	"app.tree.filter.labeledOnly": true;
-	"app.tree.filter.all": true;
-	"app.tree.filter.cycleForward": true;
-	"app.tree.filter.cycleBackward": true;
 }
 
 export type DPiAppKeybinding = keyof DPiAppKeybindings;
@@ -63,19 +50,7 @@ export const DPI_APP_KEYBINDINGS = {
 		description: "Paste image from clipboard",
 	},
 	"app.session.new": { defaultKeys: [], description: "Start a new session" },
-	"app.session.tree": { defaultKeys: [], description: "Open session tree" },
-	"app.session.fork": { defaultKeys: [], description: "Fork current session" },
 	"app.session.resume": { defaultKeys: [], description: "Resume a session" },
-	"app.tree.foldOrUp": {
-		defaultKeys: ["ctrl+left", "alt+left"],
-		description: "Fold tree branch or move up",
-	},
-	"app.tree.unfoldOrDown": {
-		defaultKeys: ["ctrl+right", "alt+right"],
-		description: "Unfold tree branch or move down",
-	},
-	"app.tree.editLabel": { defaultKeys: "shift+l", description: "Edit tree label" },
-	"app.tree.toggleLabelTimestamp": { defaultKeys: "shift+t", description: "Toggle tree label timestamps" },
 	"app.session.togglePath": { defaultKeys: "ctrl+p", description: "Toggle session path display" },
 	"app.session.toggleSort": { defaultKeys: "ctrl+s", description: "Toggle session sort mode" },
 	"app.session.rename": { defaultKeys: "ctrl+r", description: "Rename session" },
@@ -84,13 +59,6 @@ export const DPI_APP_KEYBINDINGS = {
 		defaultKeys: "ctrl+backspace",
 		description: "Delete session when query is empty",
 	},
-	"app.tree.filter.default": { defaultKeys: "ctrl+d", description: "Tree filter: default view" },
-	"app.tree.filter.noTools": { defaultKeys: "ctrl+t", description: "Tree filter: hide tool results" },
-	"app.tree.filter.userOnly": { defaultKeys: "ctrl+u", description: "Tree filter: user messages only" },
-	"app.tree.filter.labeledOnly": { defaultKeys: "ctrl+l", description: "Tree filter: labeled entries only" },
-	"app.tree.filter.all": { defaultKeys: "ctrl+a", description: "Tree filter: show all entries" },
-	"app.tree.filter.cycleForward": { defaultKeys: "ctrl+o", description: "Tree filter: cycle forward" },
-	"app.tree.filter.cycleBackward": { defaultKeys: "shift+ctrl+o", description: "Tree filter: cycle backward" },
 } as const satisfies KeybindingDefinitions;
 
 export function createDPiNativeKeybindings(): KeybindingsManager {

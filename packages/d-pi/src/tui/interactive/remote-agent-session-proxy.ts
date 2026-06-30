@@ -7,8 +7,6 @@ import type {
 	DPiInteractiveSessionStateSnapshot,
 	DPiInteractiveSlashCommand,
 	DPiInteractiveTodoItem,
-	DPiInteractiveTreeNodeData,
-	DPiInteractiveUserMessageItem,
 } from "./agent-session-proxy.ts";
 import {
 	applyDPiInteractiveRealtimeEvent,
@@ -139,14 +137,8 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	async switchSession(sessionFile: string): Promise<void> {
 		await this.post("switch-session", { sessionFile });
 	}
-	async fork(entryId?: string): Promise<void> {
-		await this.post("fork", { entryId });
-	}
 	renameSession(name: string): void {
 		void this.post("name", { name });
-	}
-	setLabel(entryId: string, label: string | undefined): void {
-		void this.post("label", { entryId, label });
 	}
 	async reload(): Promise<void> {
 		await this.post("reload");
@@ -154,20 +146,8 @@ export class DPiInteractiveRemoteAgentSessionProxy implements DPiInteractiveAgen
 	updateSettings(updates: Record<string, unknown>): void {
 		void this.post("settings", updates);
 	}
-	getTree(): DPiInteractiveTreeNodeData[] {
-		return [];
-	}
-	getUserMessagesForForking(): DPiInteractiveUserMessageItem[] {
-		return [];
-	}
 	async getSessions(): Promise<DPiInteractiveSessionItemData[]> {
 		return this.getJson("sessions");
-	}
-	async fetchTree(): Promise<DPiInteractiveTreeNodeData[]> {
-		return this.getJson("tree");
-	}
-	async fetchUserMessagesForForking(): Promise<DPiInteractiveUserMessageItem[]> {
-		return this.getJson("user-messages");
 	}
 	async fetchCommands(): Promise<DPiInteractiveSlashCommand[]> {
 		return this.getJson("commands");

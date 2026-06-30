@@ -109,7 +109,6 @@ export interface DPiInteractiveRemoteSettings {
 	hideThinkingBlock: boolean;
 	collapseChangelog: boolean;
 	enableInstallTelemetry: boolean;
-	treeFilterMode: string;
 	showHardwareCursor: boolean;
 	editorPaddingX: number;
 	autocompleteMaxVisible: number;
@@ -119,37 +118,11 @@ export interface DPiInteractiveRemoteSettings {
 	warnings: Record<string, unknown>;
 }
 
-export interface DPiInteractiveTreeNodeData {
-	id: string;
-	type: string;
-	parentId: string | null;
-	timestamp: string;
-	label?: string;
-	preview?: string;
-	children: DPiInteractiveTreeNodeData[];
-	message?: unknown;
-	summary?: string;
-	tokensBefore?: number;
-	customType?: string;
-	content?: unknown;
-	provider?: string;
-	modelId?: string;
-	thinkingLevel?: string;
-	targetId?: string;
-	name?: string;
-}
-
-export interface DPiInteractiveUserMessageItem {
-	id: string;
-	text: string;
-}
-
 export interface DPiInteractiveSessionItemData {
 	path: string;
 	id: string;
 	cwd: string;
 	name?: string;
-	parentSessionPath?: string;
 	created: string;
 	modified: string;
 	messageCount: number;
@@ -205,7 +178,7 @@ export type DPiInteractiveAgentSessionEvent =
 	| { type: "queue_update"; steering: string[] }
 	| { type: "state_update"; snapshot?: Partial<DPiInteractiveSessionStateSnapshot> }
 	| ({ type: "turn_stats" } & DPiInteractiveTurnStats)
-	| { type: "session_replaced"; reason: "new" | "resume" | "fork" }
+	| { type: "session_replaced"; reason: "new" | "resume" }
 	| { type: "plan_update"; plan: DPiInteractiveTodoItem[] };
 
 export interface DPiInteractiveAgentSessionProxy {
@@ -228,18 +201,12 @@ export interface DPiInteractiveAgentSessionProxy {
 
 	newSession(): Promise<void>;
 	switchSession(sessionFile: string): Promise<void>;
-	fork(entryId?: string): Promise<void>;
 	renameSession(name: string): void;
-	setLabel(entryId: string, label: string | undefined): void;
 	reload(): Promise<void>;
 
 	updateSettings(updates: Record<string, unknown>): void;
 
-	getTree(): DPiInteractiveTreeNodeData[];
-	getUserMessagesForForking(): DPiInteractiveUserMessageItem[];
 	getSessions(): Promise<DPiInteractiveSessionItemData[]>;
-	fetchTree(): Promise<DPiInteractiveTreeNodeData[]>;
-	fetchUserMessagesForForking(): Promise<DPiInteractiveUserMessageItem[]>;
 	fetchCommands(): Promise<DPiInteractiveSlashCommand[]>;
 	fetchModels(): Promise<DPiInteractiveModelItemData[]>;
 	getCommands(): DPiInteractiveSlashCommand[];

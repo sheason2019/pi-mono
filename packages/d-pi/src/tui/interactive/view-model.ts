@@ -11,7 +11,7 @@ export interface DPiInteractiveRealtimeMessage {
 	timestamp?: number;
 }
 
-export type DPiInteractiveRealtimePageReason = "compact" | "fork" | "initial" | "new" | "resume";
+export type DPiInteractiveRealtimePageReason = "compact" | "initial" | "new" | "resume";
 
 export interface DPiInteractiveRealtimePage {
 	id: string;
@@ -162,7 +162,7 @@ export function isDPiInteractiveRealtimeState(value: unknown): value is DPiInter
 const dPiInteractiveRealtimePageSchema = z.object({
 	id: z.string(),
 	index: z.number(),
-	reason: z.enum(["compact", "fork", "initial", "new", "resume"]),
+	reason: z.enum(["compact", "initial", "new", "resume"]),
 	startedAt: z.number(),
 });
 

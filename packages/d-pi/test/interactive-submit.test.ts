@@ -98,7 +98,6 @@ function connectSnapshot(): DPiInteractiveSessionStateSnapshot {
 			hideThinkingBlock: false,
 			collapseChangelog: false,
 			enableInstallTelemetry: false,
-			treeFilterMode: "all",
 			showHardwareCursor: false,
 			editorPaddingX: 0,
 			autocompleteMaxVisible: 10,
@@ -231,7 +230,6 @@ describe("d-pi interactive editor submit", () => {
 							hideThinkingBlock: false,
 							collapseChangelog: false,
 							enableInstallTelemetry: false,
-							treeFilterMode: "all",
 							showHardwareCursor: false,
 							editorPaddingX: 0,
 							autocompleteMaxVisible: 10,
@@ -245,7 +243,6 @@ describe("d-pi interactive editor submit", () => {
 			),
 			compact: vi.fn(async () => {}),
 			newSession: vi.fn(async () => {}),
-			fork: vi.fn(async () => {}),
 			renameSession: vi.fn(),
 			reload: vi.fn(async () => {}),
 		});
@@ -257,8 +254,6 @@ describe("d-pi interactive editor submit", () => {
 			showModelSelector: vi.fn(async () => {}),
 			showSettingsSelector: vi.fn(async () => {}),
 			showScopedModelsSelector: vi.fn(async () => {}),
-			showForkSelector: vi.fn(async () => {}),
-			showTreeSelector: vi.fn(async () => {}),
 			showResumeSelector: vi.fn(async () => {}),
 			showPanel: vi.fn(),
 			copyLastAssistantMessage: vi.fn(async () => {}),
@@ -275,8 +270,6 @@ describe("d-pi interactive editor submit", () => {
 		}
 
 		expect(handlers.showSettingsSelector).toHaveBeenCalled();
-		expect(handlers.showForkSelector).toHaveBeenCalled();
-		expect(handlers.showTreeSelector).toHaveBeenCalled();
 		expect(handlers.showResumeSelector).toHaveBeenCalled();
 		expect(handlers.showPanel).toHaveBeenCalledWith("Session", expect.stringContaining("Session: session"));
 		expect(handlers.showPanel).toHaveBeenCalledWith("Changelog", "changes");

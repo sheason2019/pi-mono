@@ -207,7 +207,6 @@ function createTestRuntime(session: DPiWorkerSession = createTestSession("initia
 	return {
 		session,
 		newSession: vi.fn(async (options?: unknown) => options),
-		fork: vi.fn(async () => ({ cancelled: false })),
 		switchSession: vi.fn(async (sessionPath: string, options?: unknown) => ({ sessionPath, options })),
 		setBeforeSessionInvalidate: vi.fn(),
 		setRebindSession: vi.fn(),
@@ -765,8 +764,6 @@ describe("worker runtime adapter", () => {
 		});
 		expect(events).toEqual(["compaction_end", "compact_divider"]);
 		expect(JSON.stringify(proxy.getState())).not.toContain("before compact");
-		expect(JSON.stringify(proxy.getTree())).not.toContain("before compact");
-		expect(JSON.stringify(proxy.getUserMessagesForForking())).not.toContain("before compact");
 
 		await proxy.prompt("after compact");
 
@@ -1680,7 +1677,7 @@ describe("worker runtime adapter", () => {
 		}
 	});
 
-	it("creates distinct session objects and rebind reasons for new, fork, and switch operations", async () => {
+	it("creates distinct session objects and rebind reasons for new and switch operations", async () => {
 		let nextSessionNumber = 0;
 		const createdSessions: TestSession[] = [];
 		const runtime = await createDPiAgentSessionRuntime(
@@ -1702,7 +1699,7 @@ describe("worker runtime adapter", () => {
 		);
 		const initialSession = runtime.session;
 		const invalidations: string[] = [];
-		const rebinds: Array<{ session: DPiWorkerSession; reason: "new" | "resume" | "fork" }> = [];
+		const rebinds: Array<{ session: DPiWorkerSession; reason: "new" | "resume" }> = [];
 		runtime.setBeforeSessionInvalidate(() => {
 			invalidations.push("invalidated");
 		});
@@ -1711,19 +1708,13 @@ describe("worker runtime adapter", () => {
 		});
 
 		await runtime.newSession({ label: "fresh" });
-		await runtime.fork("entry-1", { label: "forked" });
 		await runtime.switchSession("/tmp/d-pi-runtime/session-existing", { label: "resumed" });
 
-		expect(invalidations).toHaveLength(3);
-		expect(rebinds.map((rebind) => rebind.reason)).toEqual(["new", "fork", "resume"]);
+		expect(invalidations).toHaveLength(2);
+		expect(rebinds.map((rebind) => rebind.reason)).toEqual(["new", "resume"]);
 		expect(rebinds.map((rebind) => rebind.session)).not.toContain(initialSession);
-		expect(new Set(rebinds.map((rebind) => rebind.session))).toHaveLength(3);
-		expect(runtime.session).toBe(rebinds[2].session);
-		expect(createdSessions.map((session) => session.testSessionId)).toEqual([
-			"session-1",
-			"session-2",
-			"session-3",
-			"session-4",
-		]);
+		expect(new Set(rebinds.map((rebind) => rebind.session))).toHaveLength(2);
+		expect(runtime.session).toBe(rebinds[1].session);
+		expect(createdSessions.map((session) => session.testSessionId)).toEqual(["session-1", "session-2", "session-3"]);
 	});
 });

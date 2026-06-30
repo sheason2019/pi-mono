@@ -19,9 +19,6 @@ describe("native coding-agent connect parity manifest", () => {
 			"session",
 			"changelog",
 			"hotkeys",
-			"fork",
-			"clone",
-			"tree",
 			"trust",
 			"login",
 			"logout",
@@ -34,15 +31,7 @@ describe("native coding-agent connect parity manifest", () => {
 	});
 
 	it("freezes the native connect protocol query/action surface", () => {
-		expect(DPI_NATIVE_CONNECT_PROTOCOL_QUERIES).toEqual([
-			"state",
-			"messages",
-			"settings",
-			"tree",
-			"user-messages",
-			"sessions",
-			"commands",
-		]);
+		expect(DPI_NATIVE_CONNECT_PROTOCOL_QUERIES).toEqual(["state", "messages", "settings", "sessions", "commands"]);
 		expect(DPI_NATIVE_CONNECT_PROTOCOL_ACTIONS).toEqual([
 			"prompt",
 			"steer",
@@ -52,9 +41,7 @@ describe("native coding-agent connect parity manifest", () => {
 			"compact",
 			"new-session",
 			"switch-session",
-			"fork",
 			"name",
-			"label",
 			"reload",
 			"settings",
 		]);

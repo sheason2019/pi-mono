@@ -28,6 +28,7 @@ import type { DPiContextManager } from "../context/context-manager.ts";
 import { createDPiRuntimeError, isDPiRuntimeError } from "./errors.ts";
 import type { DPiRuntimeEvent } from "./events.ts";
 import type { DPiModelManager } from "./model-manager.ts";
+import { archiveSessionBefore } from "./session-store.ts";
 import {
 	appendSteeringMessage,
 	consumeSteeringMessages,
@@ -538,6 +539,7 @@ export class DPiAgentRuntime {
 				completedAt,
 			}),
 		);
+		await archiveSessionBefore(this.session, summaryResult.firstKeptEntryId);
 		const transcript = projectDPiTranscript(await this.session.getBranch());
 		const currentPageMessages = transcript.messages;
 		this.transcriptItems = transcript.items;

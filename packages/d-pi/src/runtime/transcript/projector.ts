@@ -12,7 +12,7 @@ export const DPiTranscriptCustomTypes = {
 
 const transcriptBoundarySchema = z.object({
 	version: z.literal(1),
-	reason: z.enum(["compact", "fork", "new", "resume"]),
+	reason: z.enum(["compact", "new", "resume"]),
 	label: z.string(),
 	summary: z.string().optional(),
 	tokensBefore: z.number().optional(),
@@ -50,7 +50,7 @@ const transcriptNoticeSchema = z.object({
 	timestamp: z.number().optional(),
 });
 
-export type DPiTranscriptBoundaryReason = "compact" | "fork" | "new" | "resume";
+export type DPiTranscriptBoundaryReason = "compact" | "new" | "resume";
 export type DPiTranscriptNoticeLevel = "error" | "info" | "warning";
 export type DPiTranscriptToolStatus = "cancelled" | "failed" | "running" | "succeeded";
 
