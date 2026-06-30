@@ -98,6 +98,18 @@ export interface TeamAgentEntry {
 	error?: string;
 }
 
+export interface PublicTeamAgentEntry {
+	name: string;
+	parentName: string | undefined;
+	status: AgentStatus;
+	children: string[];
+}
+
+export interface PublicTeamSnapshot {
+	agents: PublicTeamAgentEntry[];
+	rootName: string;
+}
+
 export interface TeamSourceEntry {
 	name: string;
 	running: boolean;
@@ -153,6 +165,9 @@ export interface HubConfig {
 	 * agent tools. Default: 60_000.
 	 */
 	remoteCallTimeoutMs?: number;
+	/** Path to the built web UI static assets. If provided, the gateway
+	 *  serves the SPA at /ui/. */
+	webDir?: string;
 }
 
 // === Tool Call Results ===

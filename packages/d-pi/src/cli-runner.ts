@@ -99,11 +99,13 @@ function buildProgram(runtime: DPiCliRuntime): Command {
 			const workspaceContext = loadWorkspaceContext(runtime.cwd);
 			const port = parseInt(options.port, 10);
 			const createHub = runtime.createHub ?? ((config: HubConfig) => new Hub(config));
+			const webDir = join(fileURLToPath(import.meta.url), "../../dist/web");
 			const hub = createHub({
 				port,
 				cwd: runtime.cwd,
 				workspaceRoot: runtime.cwd,
 				workspaceContext,
+				webDir,
 			});
 			await hub.start();
 		});

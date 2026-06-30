@@ -72,7 +72,10 @@ export class Hub {
 			(agentName) => this.destroyAgent(agentName),
 			new AuthSessionManager(config.workspaceRoot),
 			this._executorRegistry,
-			{ remoteCallTimeoutMs: this._remoteCallTimeoutMs },
+			{
+				remoteCallTimeoutMs: this._remoteCallTimeoutMs,
+				webDir: config.webDir,
+			},
 		);
 	}
 

@@ -1,6 +1,8 @@
 import { randomUUID as gatewayRandomUUID } from "node:crypto";
+import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { join, normalize } from "node:path";
 import { z } from "zod";
 import type { AuthSessionInfo, AuthSessionManager } from "../auth/auth-session.ts";
 import { formatDPiMetaMessage } from "../message-meta.ts";
@@ -44,6 +46,9 @@ export interface HubGatewayOptions {
 	 *  /api/executor/results before failing the pending
 	 *  /agents/{name}/remote-call. Default 60_000. */
 	remoteCallTimeoutMs?: number;
+	/** Path to the built web UI static assets. If provided, the gateway
+	 *  serves the SPA at /ui/. */
+	webDir?: string;
 }
 
 const remoteCallSchema = z.object({
@@ -108,6 +113,7 @@ export class HubGateway {
 	private readonly _executorRegistry: ExecutorRegistry | undefined;
 	private readonly _agentBindings: Map<string, string> = new Map();
 	private readonly _remoteCallTimeoutMs: number;
+	private readonly _webDir: string | undefined;
 
 	constructor(
 		registry: AgentRegistry,
@@ -123,6 +129,7 @@ export class HubGateway {
 		this._auth = auth;
 		this._executorRegistry = executorRegistry;
 		this._remoteCallTimeoutMs = options?.remoteCallTimeoutMs ?? 60_000;
+		this._webDir = options?.webDir;
 	}
 
 	async start(port: number): Promise<void> {
@@ -133,6 +140,11 @@ export class HubGateway {
 			try {
 				if (path.startsWith("/api/")) {
 					await this._handleApi(req, res, path);
+					return;
+				}
+
+				if (path.startsWith("/ui/") || path === "/ui") {
+					this._handleStatic(req, res, path);
 					return;
 				}
 
@@ -408,6 +420,14 @@ export class HubGateway {
 			}
 			res.writeHead(200, { "Content-Type": "application/json" });
 			res.end(JSON.stringify(session));
+			return;
+		}
+
+		// GET /api/team/public — public team snapshot (no auth required)
+		if (path === "/api/team/public" && req.method === "GET") {
+			const snapshot = this._registry.getPublicTeamSnapshot();
+			res.writeHead(200, { "Content-Type": "application/json" });
+			res.end(JSON.stringify(snapshot));
 			return;
 		}
 
@@ -1098,6 +1118,63 @@ export class HubGateway {
 				subscriberId,
 			} satisfies HubToWorkerMessage);
 		});
+	}
+
+	private _handleStatic(req: IncomingMessage, res: ServerResponse, path: string): void {
+		const webDir = this._webDir;
+		if (!webDir) {
+			res.writeHead(404, { "Content-Type": "text/plain" });
+			res.end("Not found");
+			return;
+		}
+
+		if (req.method !== "GET") {
+			res.writeHead(405, { "Content-Type": "text/plain" });
+			res.end("Method not allowed");
+			return;
+		}
+
+		let filePath: string;
+		if (path === "/ui" || path === "/ui/") {
+			filePath = join(webDir, "index.html");
+		} else {
+			const relativePath = path.slice("/ui/".length);
+			const safePath = normalize(relativePath).replace(/^(\.\.[/\\])+/, "");
+			filePath = join(webDir, safePath);
+
+			if (!filePath.startsWith(webDir)) {
+				res.writeHead(403, { "Content-Type": "text/plain" });
+				res.end("Forbidden");
+				return;
+			}
+
+			if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+				filePath = join(webDir, "index.html");
+			}
+		}
+
+		const ext = filePath.slice(filePath.lastIndexOf("."));
+		const contentType =
+			ext === ".html"
+				? "text/html; charset=utf-8"
+				: ext === ".js"
+					? "application/javascript; charset=utf-8"
+					: ext === ".css"
+						? "text/css; charset=utf-8"
+						: ext === ".json"
+							? "application/json; charset=utf-8"
+							: ext === ".svg"
+								? "image/svg+xml"
+								: ext === ".png"
+									? "image/png"
+									: ext === ".jpg" || ext === ".jpeg"
+										? "image/jpeg"
+										: ext === ".ico"
+											? "image/x-icon"
+											: "application/octet-stream";
+
+		res.writeHead(200, { "Content-Type": contentType });
+		createReadStream(filePath).pipe(res);
 	}
 
 	private _readBody(req: IncomingMessage): Promise<string> {

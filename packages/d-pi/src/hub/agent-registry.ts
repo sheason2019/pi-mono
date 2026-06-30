@@ -1,4 +1,4 @@
-import type { AgentRecord, AgentStatus, TeamSnapshot } from "../types.ts";
+import type { AgentRecord, AgentStatus, PublicTeamSnapshot, TeamSnapshot } from "../types.ts";
 
 /**
  * In-memory registry of running agents.
@@ -88,6 +88,20 @@ export class AgentRegistry {
 			};
 		});
 		return { agents, sources: [], executors: [], rootName };
+	}
+
+	getPublicTeamSnapshot(): PublicTeamSnapshot {
+		let rootName = "";
+		const agents = Array.from(this._agents.values()).map((a) => {
+			if (a.name === "root") rootName = a.name;
+			return {
+				name: a.name,
+				parentName: a.parentName,
+				status: a.status,
+				children: [...a.children],
+			};
+		});
+		return { agents, rootName };
 	}
 
 	getDescendants(agentName: string): string[] {
