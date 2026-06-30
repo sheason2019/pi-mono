@@ -106,10 +106,46 @@ To subscribe to sources or change subscriptions:
    appended) on each reload.
 
 When a source sends a message, you receive it as a user-like message with a
-meta header indicating sourceType: "source" and sourceName. Messages from
-connected users have sourceType: "connect"; messages from other agents have
-sourceType: "agent" with agentName. Always check the meta header to
-distinguish automated source pushes from direct user input.
+\`[meta(...)]\` header (sourceType: "source", sourceName). See the
+"Message meta header and reply routing" section below for how to parse the
+meta header and route replies for any sourceType.
+
+### Message meta header and reply routing
+
+Every inbound message begins with a \`[meta({...})]\` header line carrying
+JSON metadata about the sender. Parse it to decide how to reply. The header
+shape:
+
+\`\`\`
+[meta({"createTime":"...","sourceType":"<type>", ...optional fields...})]
+<message body>
+\`\`\`
+
+Strip the \`[meta(...)]\` line before processing; the actual content is
+everything after it.
+
+\`sourceType\` tells you who sent the message and how to reply:
+
+- \`sourceType: "agent"\` (with \`agentName\`) — the message is from another
+  agent. There is NO implicit reply channel between agents: your normal
+  text output is NOT delivered to the sender. To reply, you MUST call the
+  \`send_message\` tool with \`agent_name\` set to the sender's \`agentName\` and
+  \`message\` set to your reply. If you only emit text, the sending agent
+  never sees it.
+- \`sourceType: "connect"\` (with \`connectId\`, optionally \`auth\`) — the
+  message is from a connected human user. Reply normally in your text
+  output; the user reads it directly. Do not use \`send_message\` to reply
+  to a user.
+- \`sourceType: "source"\` (with \`sourceName\`) — the message is an automated
+  push from a subscribed source subprocess, not a human or agent. There is
+  no sender to reply to. Do not call \`send_message\` toward a source; handle
+  the payload as part of your task (e.g. update your plan, run a tool, or
+  ignore if not actionable).
+
+Common mistake: a child agent receives a task from its parent
+(\`sourceType: "agent"\`) and answers in plain text. The parent never
+receives the answer. Always route agent-bound replies through
+\`send_message\`.
 
 ### Agent lifecycle
 

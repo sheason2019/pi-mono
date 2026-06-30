@@ -5,6 +5,7 @@
 ### Added
 
 - Exposed the agent `description` field from `agent.ts` in the `/agents` command selector and the public team snapshot. Agents sync their description to the hub on startup and reload, so the agent switcher shows what each agent does instead of only its parent.
+- Strengthened the d-pi system prompt's guidance on the `[meta(...)]` message header and reply routing. Agents are now told explicitly that there is no implicit reply channel between agents — a reply to a `sourceType: "agent"` message must go through `send_message` (plain text output is not delivered to the sender) — and how to distinguish `agent` / `connect` / `source` senders and route each reply accordingly.
 
 ## [0.6.0-alpha.15] - 2026-06-29
 
