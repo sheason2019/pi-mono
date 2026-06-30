@@ -2,10 +2,22 @@
 
 ## [Unreleased]
 
+## [0.6.0-alpha.16] - 2026-06-30
+
+### Breaking Changes
+
+- Replaced the `/_hub/` route prefix with `/api/` for all hub API routes, merging `_handleHubApi` and `_handleServiceApi` into a single `_handleApi`. Call sites in connect mode, executor client, TUI, multi-agent extension, and tests updated. Clients relying on `/_hub/...` must move to `/api/...`.
+
 ### Added
 
+- Added a web dashboard served at `/ui/` (Rsbuild + React 19 + Tailwind v4 + shadcn/ui) with a public unauthenticated `/api/team/public` endpoint and a React Flow team status topology, plus a header and overview cards.
+- Surfaced each agent's live plan on the web dashboard. A `plan_update` worker-to-hub message syncs the persisted plan to the registry on startup and on plan events; `/api/team/public` exposes the plan and team-status nodes render plan items with a dynamic-height tree layout.
 - Exposed the agent `description` field from `agent.ts` in the `/agents` command selector and the public team snapshot. Agents sync their description to the hub on startup and reload, so the agent switcher shows what each agent does instead of only its parent.
 - Strengthened the d-pi system prompt's guidance on the `[meta(...)]` message header and reply routing. Agents are now told explicitly that there is no implicit reply channel between agents — a reply to a `sourceType: "agent"` message must go through `send_message` (plain text output is not delivered to the sender) — and how to distinguish `agent` / `connect` / `source` senders and route each reply accordingly.
+
+### Changed
+
+- Rebranded the web UI to "D-Pi" (title "D-Pi Web UI", header brand "D-Pi") and removed the redundant header agent-count button since the count already appears in the overview cards.
 
 ## [0.6.0-alpha.15] - 2026-06-29
 
