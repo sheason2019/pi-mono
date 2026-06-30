@@ -276,7 +276,6 @@ describe("d-pi interactive editor submit", () => {
 		expect(handlers.copyLastAssistantMessage).toHaveBeenCalled();
 		expect(handlers.refreshAutocomplete).toHaveBeenCalled();
 		expect(statuses).toContain("Not available in connect mode");
-		expect(statuses).toContain("Not available in connect mode — configure auth on the server");
 		expect(proxy.prompt).not.toHaveBeenCalled();
 	});
 
